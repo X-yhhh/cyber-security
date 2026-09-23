@@ -2,7 +2,7 @@
 
 ## 1. Objective and Boundary
 
-Build an offline network intrusion detection demonstration that can be integrated into the local frontend/backend system. The Windows host is for CUDA training and model maintenance only. The local host is for application logic and model inference integration. No experiment performs scanning, exploitation, attack traffic generation, or external traffic injection.
+Build a defensively scoped network-flow classification model for benchmark replay and, only after source-to-feature compatibility and domain validation, authorized passive telemetry. The Windows host is for CUDA training and model maintenance. The application supports a local exported-model runtime or a remote inference service through one versioned contract. No experiment performs scanning, exploitation, attack traffic generation, or unauthorized external traffic injection.
 
 ## 2. Dataset
 
@@ -84,17 +84,19 @@ Save paper-ready PNG/SVG figures and Markdown/CSV tables under generated report 
 
 ## 8. Delivery Contract
 
-Each candidate model delivered to the local application includes:
+Each candidate model delivered to the application includes:
 
 - a versioned model artifact;
 - `model_manifest.json`;
 - exact feature order and preprocessing configuration;
 - label mapping and threshold policy;
 - final metrics and evaluation split fingerprint;
-- runtime requirements;
+- runtime requirements and supported export format;
 - SHA-256 checksum.
 
-The local backend must reject an artifact when its checksum, feature contract, label mapping, or manifest version is invalid. The local application consumes the artifact for offline inference only.
+The application must reject an artifact when its checksum, feature contract, label mapping, runtime compatibility, or manifest version is invalid. Model files are distributed separately from Git. Local and remote inference are alternate deployments behind the same contract; remote mode must send only the minimum normalized features required for inference, and failures or version mismatches must be explicit rather than silently falling back to another model. Untrusted pickle/joblib artifacts are not loaded by default; local candidates require a reviewed runtime/export path and prediction parity tests.
+
+The UNSW-NB15 model is a flow-feature classifier, not a raw-packet, endpoint, or sequence-prediction model. Real passive sources may not expose the same fields or semantics. Before enabling inference on a live source, document field/unit mapping, coverage, missingness, domain-shift evaluation, false-positive cost, and operational latency. A source that fails the model contract is rejected or sent for manual/rule-based analysis; it must not be made to appear compatible by silent feature fabrication. Attack-stage/next-event prediction is a separate future model requiring temporally ordered labeled sequences and time-based evaluation.
 
 ## 9. Acceptance Tests
 
@@ -103,5 +105,5 @@ The local backend must reject an artifact when its checksum, feature contract, l
 - No target, identifier, test-derived encoder, scaler, PCA object, or threshold leaks into model fitting.
 - Windows verifies the project-local Python environment, CUDA visibility, PyTorch GPU availability, and required gradient-boosting backends without modifying the global Python 3.14 installation.
 - At least five models complete binary evaluation, and the official subset completes multiclass evaluation with a common metrics schema.
-- The local integration accepts valid single and batch inputs and returns the documented detection result shape.
-- All demonstrations use offline data or synthetic inputs and perform no external network activity.
+- The application accepts valid single and batch inputs in either validated inference mode and returns the documented detection result shape; failure, timeout, and version mismatch behavior is tested.
+- Public data/replay and an egress-isolated owned lab are used for demonstrations. Any passive live telemetry or response target must have explicit authorization and an approved scope; no third-party site/server may be attacked or scanned.

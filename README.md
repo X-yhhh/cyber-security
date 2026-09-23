@@ -1,38 +1,62 @@
-# Cyber Security Detection Demo
+# 网络威胁研判与受控响应平台
 
-This repository contains the graduation-project demonstration system for offline network intrusion detection. It is a defensive, local-only project: it does not perform scanning, exploitation, attack traffic generation, or external traffic injection.
+本项目是面向授权网络与隔离靶场的网络安全毕设系统，目标是把网络流量检测结果转化为可追踪的安全事件、风险研判、受控处置和复盘记录。系统不执行第三方网站或服务器攻击，不扫描未授权目标，不生成真实攻击流量。
 
-## Repository Responsibilities
+## 项目目标
 
-The repository has two deliberately separated workspaces:
+- 使用公开数据和预制场景回放验证网络流量分类能力。
+- 在字段映射、数据质量、模型适配和授权条件通过验收后，接入经授权的被动网络遥测。
+- 将流量告警与资产、安全日志及终端遥测关联，形成事件时间线和有证据的处置建议。
+- 通过策略引擎约束自动处置；超出授权范围或策略能力的动作必须人工审批。
+- 记录模型、策略、数据源、审批、执行、回滚和审计证据，满足复盘和毕设评估需要。
 
-| Workspace | Branch | Responsibility |
-| --- | --- | --- |
-| macOS local project | `main` | Frontend, backend, database, inference API, business workflows, model input/output contract, and local demonstration integration |
-| Windows CUDA training project | `training/windows-cuda` | Dataset preparation, offline training, experiment tracking, model iteration, training environment notes, and export manifests |
+## 当前模型边界
 
-The Windows directory is dedicated to this repository and must not be confused with any other training project under `E:\Workspace\ai\experiments`. Existing projects remain untouched.
+训练计划以 UNSW-NB15 流记录为基础，目标是正常/攻击二分类及基于标签的攻击类别分类。输入是经过规范化的流量特征，不是原始数据包、终端进程或完整攻击链。现有模型不能单独预测下一步攻击，也不能直接决定是否隔离资产。
 
-## Data and Artifacts
+公开基准数据和预制事件回放是首期可验证路径。真实网络数据只有在字段覆盖、单位/语义映射、分布差异、误报与延迟评估通过后，才允许送入对应模型。无法满足模型契约的数据应被拒绝推理或转为规则/人工研判，不得静默填充后宣称模型已具备实网检测能力。攻击阶段预测属于后续独立模型能力，须另有带时间顺序的事件标签和时间切分回测。
 
-The UNSW-NB15 dataset is stored only on the Windows training host under `data/raw/unsw-nb15/`. Raw data, caches, generated reports, logs, checkpoints, and model weights are excluded from Git. The dataset is used for academic demonstration and must be cited according to its original publication and applicable license terms.
+## 系统组成
 
-The existing root `dataset-metadata.json` describes the earlier, undersized `dhoogla/unswnb15` candidate; it is retained for provenance, not used as the selected dataset manifest. The selected `mrwellsdavid/unsw-nb15` manifest lives with the Windows data and its non-sensitive audit summary is maintained on the training branch.
+- Vue 3 Web 控制台：资产与数据源、告警与事件、模型、回放、策略、审批、执行记录和审计。
+- Spring Boot 模块化单体：身份权限、数据接入、特征契约校验、模型路由、检测研判、响应策略、审批和审计。
+- MySQL 8：业务对象、事件证据、模型登记、响应和审计的持久化存储。
+- Redis：缓存、短期任务状态与幂等辅助；不作为审计或业务事实的唯一存储。
+- RabbitMQ：承载异步接入、事件关联和处置任务；任务执行状态仍以数据库为准。
+- 模型推理适配器：管理员可在经验证的本机权重推理与远端推理服务间选择；模型制品独立于 Git 分发。
 
-Models are delivered to the local application by separate file transfer, never by committing large binaries to Git. Each delivery must include a `model_manifest.json` containing the model version, dataset fingerprint, feature list, preprocessing description, metrics, runtime requirements, and SHA-256 checksums.
+## 仓库与训练职责
 
-## Branch Rules
+| 区域 | 职责 |
+| --- | --- |
+| `main` | 本地业务系统、架构/接口/数据设计、模型契约和集成 |
+| `training/windows-cuda` | Windows CUDA 数据准备、训练、实验、评估和模型导出 |
 
-- `main` is the local application and contract branch.
-- `training/windows-cuda` is the long-lived Windows training branch.
-- Training implementation and large experiment output stay on `training/windows-cuda`.
-- Only reviewed interface contracts and selected result summaries may be merged into `main`.
-- Do not force-push, rewrite shared history, or mix unrelated training repositories.
+训练集、权重、缓存、日志和大型生成结果不提交到 Git。训练端交付的模型必须包含 `model_manifest.json`、特征顺序、预处理定义、标签映射、阈值策略、评估与运行时信息、数据/切分指纹及 SHA-256。仅审查通过的制品可登记为可用版本。
 
-## Safety Boundary
+## 技术基线
 
-All experiments use downloaded datasets, offline files, or synthetic demonstration inputs. The system produces detection and protection-oriented results only. Do not use this repository for network reconnaissance, exploitation, malware, credential attacks, or real-world attack execution.
+- 后端：Java 25、Spring Boot 模块化单体、MyBatis。
+- 前端：Vue 3 稳定版。当前核验 npm 官方 registry 的 `latest` 为 3.5.43，Vue 4.x 尚无可用发行；待正式发布且生态兼容后再评估升级。
+- 数据：MySQL 8、Redis、RabbitMQ。
+- 初期不引入 Spring Cloud；当服务需要独立扩缩容或独立部署时再评估拆分。
 
-## Plan
+本机已安装 Temurin JDK 25.0.2，位于 `/Users/xyh/Workspace/development/runtimes/java/temurin-25.0.2`；当前 shell 的 `JAVA_HOME` 仍指向 JDK 17，实施时需使用项目级 Java 25 配置并验证实际构建运行时。
 
-The complete dataset, feature, model, evaluation, reporting, and acceptance plan is documented in [`docs/training-plan.md`](docs/training-plan.md).
+## 文档
+
+- [项目详细设计](docs/项目详细设计.md)
+- [功能模块设计](docs/功能模块设计.md)
+- [数据库设计](docs/数据库设计.md)
+- [接口设计](docs/接口设计.md)
+- [模型训练与交付计划](docs/training-plan.md)
+
+前端 UI/视觉规范暂不纳入本轮设计。以上文档是设计基线，不表示业务代码、数据源连接器或处置执行器已经实现。
+
+## 安全边界
+
+1. 仅处理公开基准数据、预制回放数据，或有书面/可审计授权的网络与资产遥测。
+2. 自有靶场必须与外网隔离；回放是重放数据，不是生成或发起攻击流量。
+3. 自动处置只能作用于登记且处于授权范围内的资产和明确允许的动作；目标、动作或权限不确定时拒绝执行并转人工审批。
+4. 模型不保存或持有网络设备、终端或云平台凭据。执行凭据由独立适配器的受限身份管理。
+5. 禁止扫描、利用、恶意软件、凭据攻击、外部流量注入及任何针对未授权第三方的操作。

@@ -1,0 +1,31 @@
+# Dataset and local caches
+data/raw/
+data/processed/
+data/cache/
+.cache/
+
+# Python environments and local tooling
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+
+# Training outputs and large artifacts
+runs/
+reports/generated/
+artifacts/
+checkpoints/
+models/
+*.ckpt
+*.pt
+*.pth
+*.onnx
+*.pkl
+*.joblib
+*.safetensors
+*.log
+
+# Local metadata created by exploratory commands
+.DS_Store

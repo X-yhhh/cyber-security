@@ -94,11 +94,19 @@ Each candidate model delivered to the application includes:
 - runtime requirements and supported export format;
 - SHA-256 checksum.
 
-The application must reject an artifact when its checksum, feature contract, label mapping, runtime compatibility, or manifest version is invalid. Model files are distributed separately from Git. Local and remote inference are alternate deployments behind the same contract; remote mode must send only the minimum normalized features required for inference, and failures or version mismatches must be explicit rather than silently falling back to another model. Untrusted pickle/joblib artifacts are not loaded by default; local candidates require a reviewed runtime/export path and prediction parity tests.
+The application must reject an artifact when its checksum, feature contract, label mapping, runtime compatibility, or manifest version is invalid. Model files are distributed separately from Git. The production inference model remains frozen while the sensor is online. Local and remote inference are alternate deployments behind the same contract; remote mode must send only the minimum normalized features required for inference, and failures or version mismatches must be explicit rather than silently falling back to another model. Untrusted pickle/joblib artifacts are not loaded by default; local candidates require a reviewed runtime/export path and prediction parity tests.
 
-The UNSW-NB15 model is a flow-feature classifier, not a raw-packet, endpoint, or sequence-prediction model. Real passive sources may not expose the same fields or semantics. Before enabling inference on a live source, document field/unit mapping, coverage, missingness, domain-shift evaluation, false-positive cost, and operational latency. A source that fails the model contract is rejected or sent for manual/rule-based analysis; it must not be made to appear compatible by silent feature fabrication. Attack-stage/next-event prediction is a separate future model requiring temporally ordered labeled sequences and time-based evaluation.
+The UNSW-NB15 model is a flow-feature classifier, not a raw-packet, endpoint, or sequence-prediction model. Real passive sources may not expose the same fields or semantics. Before enabling inference on a live source, document field/unit mapping, coverage, missingness, domain-shift evaluation, false-positive cost, sensor drops, and operational latency. A source that fails the model contract is rejected or sent for manual/rule-based analysis; it must not be made to appear compatible by silent feature fabrication. The dataset may support a DoS category experiment if label volume and held-out metrics are adequate, but this does not establish general DDoS mitigation capability.
 
-## 9. Acceptance Tests
+## 9. Online Monitoring and Offline Retraining
+
+Online operation performs bounded flow feature extraction, deterministic rule checks, inference using an approved frozen model, alerting, health monitoring, and drift statistics. It does not fit model weights, learn from its own predictions, or automatically replace the active model.
+
+Human-reviewed feedback is stored with label provenance and may be promoted into a versioned candidate dataset. Retraining runs offline on the Windows CUDA host as an explicitly requested/approved job. Candidate models must repeat leakage checks and locked evaluation, report normal-flow false-positive cost and per-class/DoS metrics, pass input-contract and runtime parity checks, and complete shadow evaluation before manual release. Failed candidates do not affect the active model. Online drift thresholds are monitoring signals, not automatic model-update triggers.
+
+No large language model is trained or fine-tuned in this project, and detection does not call an external LLM API.
+
+## 10. Acceptance Tests
 
 - The two working directories are independent Git repositories connected to the same GitHub repository, with `main` and `training/windows-cuda` pointing to the intended commits.
 - The Windows data manifest proves the raw source exceeds 100 MB, has the expected 49-field schema, and records rows, labels, missing values, duplicates, and hashes.
@@ -106,4 +114,7 @@ The UNSW-NB15 model is a flow-feature classifier, not a raw-packet, endpoint, or
 - Windows verifies the project-local Python environment, CUDA visibility, PyTorch GPU availability, and required gradient-boosting backends without modifying the global Python 3.14 installation.
 - At least five models complete binary evaluation, and the official subset completes multiclass evaluation with a common metrics schema.
 - The application accepts valid single and batch inputs in either validated inference mode and returns the documented detection result shape; failure, timeout, and version mismatch behavior is tested.
+- Mac/Windows sensor fixtures match the versioned model feature contract; sensor health, drops, overload, expiry of configuration, and disconnected-control-plane behavior are tested.
+- Model weights remain unchanged during online operation; drift only creates telemetry/alerts, and candidate retraining requires reviewed labels, offline evaluation, approval, and explicit release.
+- Host firewall actions are restricted to registered authorized assets, idempotent, time-bounded, auditable, and expirable/reversible; DoS classification is not claimed as upstream DDoS mitigation.
 - Public data/replay and an egress-isolated owned lab are used for demonstrations. Any passive live telemetry or response target must have explicit authorization and an approved scope; no third-party site/server may be attacked or scanned.

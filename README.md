@@ -17,6 +17,8 @@ The Windows directory is dedicated to this repository and must not be confused w
 
 The UNSW-NB15 dataset is stored only on the Windows training host under `data/raw/unsw-nb15/`. Raw data, caches, generated reports, logs, checkpoints, and model weights are excluded from Git. The dataset is used for academic demonstration and must be cited according to its original publication and applicable license terms.
 
+The existing root `dataset-metadata.json` describes the earlier, undersized `dhoogla/unswnb15` candidate; it is retained for provenance, not used as the selected dataset manifest. The selected `mrwellsdavid/unsw-nb15` manifest lives with the Windows data and its non-sensitive audit summary is maintained on the training branch.
+
 Models are delivered to the local application by separate file transfer, never by committing large binaries to Git. Each delivery must include a `model_manifest.json` containing the model version, dataset fingerprint, feature list, preprocessing description, metrics, runtime requirements, and SHA-256 checksums.
 
 ## Branch Rules

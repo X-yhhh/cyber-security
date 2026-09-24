@@ -1,0 +1,66 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    color-scheme: light;
+  }
+  
+  body {
+    background-color: #f8fafc;
+    color: #1e293b;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  }
+
+  /* 自定义优雅浅色滚动条 */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 9999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #94a3b8;
+  }
+}
+
+@layer components {
+  /* 现代浅色卡片 */
+  .sec-card {
+    @apply bg-white border border-slate-200/80 rounded-xl shadow-card transition-all duration-200;
+  }
+  .sec-card-hover {
+    @apply hover:shadow-card-hover hover:border-slate-300;
+  }
+
+  /* 精致输入框与选择器 */
+  .sec-input {
+    @apply bg-white border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-cyber-500/20 focus:border-cyber-600 transition-all;
+  }
+
+  /* 主要科技按钮 */
+  .sec-btn-primary {
+    @apply inline-flex items-center justify-center gap-1.5 px-3.5 py-1.5 rounded-lg text-sm font-medium text-white bg-cyber-600 hover:bg-cyber-700 active:bg-cyber-800 shadow-sm transition-all focus:outline-none focus:ring-2 focus:ring-cyber-500/30 disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  /* 次要按钮 */
+  .sec-btn-secondary {
+    @apply inline-flex items-center justify-center gap-1.5 px-3.5 py-1.5 rounded-lg text-sm font-medium text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 hover:text-slate-900 active:bg-slate-100 shadow-sm transition-all focus:outline-none focus:ring-2 focus:ring-slate-300 disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  /* 危险/警告按钮 */
+  .sec-btn-danger {
+    @apply inline-flex items-center justify-center gap-1.5 px-3.5 py-1.5 rounded-lg text-sm font-medium text-white bg-red-600 hover:bg-red-700 active:bg-red-800 shadow-sm transition-all focus:outline-none focus:ring-2 focus:ring-red-400 disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  /* 等宽网络科技数据文本 */
+  .font-network {
+    font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  }
+}

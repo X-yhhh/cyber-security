@@ -9,6 +9,10 @@ import numpy as np
 import onnxruntime as ort
 from skl2onnx import convert_sklearn
 from skl2onnx.common.data_types import FloatTensorType
+from skl2onnx.common._registration import get_converter
+from skl2onnx._supported_operators import sklearn_operator_name_map
+from sklearn.svm import LinearSVC
+from sklearn.tree import DecisionTreeClassifier
 
 from .data import write_json
 from .models import BinaryMLP, predict_mlp, predict_scores
@@ -28,16 +32,67 @@ def _sha256(path: Path) -> str:
     return h.hexdigest()
 
 
+def _tree_compatible_converter(model):
+    """仅在当前转换容器内将树的缺失分支标志转为 ONNX INTS，兼容严格 Protobuf。"""
+    converter = get_converter(sklearn_operator_name_map[type(model)])
+
+    def convert(scope, operator, container):
+        original = container.add_node
+
+        def add_node(op_type, inputs, outputs, **kwargs):
+            if op_type in {"TreeEnsembleClassifier", "TreeEnsembleRegressor"}:
+                key = "nodes_missing_value_tracks_true"
+                if key in kwargs:
+                    kwargs[key] = [int(value) for value in kwargs[key]]
+            return original(op_type, inputs, outputs, **kwargs)
+
+        container.add_node = add_node
+        try:
+            return converter(scope, operator, container)
+        finally:
+            container.add_node = original
+
+    return convert
+
+
+def onnx_attack_scores(name: str, outputs: list) -> np.ndarray:
+    """提取连续攻击分数；二分类 LinearSVC 输出单列 margin，不能当概率或取标签。"""
+    if name == "torch_mlp_cuda":
+        values = np.asarray(outputs[0]).reshape(-1)
+    else:
+        values = np.asarray(outputs[-1])
+        if values.ndim != 2 or values.shape[1] not in (1, 2):
+            raise ValueError(f"unsupported ONNX score shape: {values.shape}")
+        values = values[:, 0 if values.shape[1] == 1 else 1]
+    if not np.isfinite(values).all():
+        raise ValueError("non-finite ONNX scores")
+    return values
+
+
 def _export_sklearn(name, model, out: Path, n_features: int) -> tuple[Path | None, str | None]:
+    """转换候选；按模型类型配置选项，失败信息有界且不产生可用制品声明。"""
     path = out / "candidates" / name / "model.onnx"
     path.parent.mkdir(parents=True, exist_ok=True)
     try:
-        proto = convert_sklearn(model, initial_types=[("features", FloatTensorType([None, n_features]))], target_opset=17, options={id(model): {"zipmap": False}})
+        options = {"raw_scores": True} if isinstance(model, LinearSVC) else {"zipmap": False}
+        custom = {type(model): _tree_compatible_converter(model),
+                  DecisionTreeClassifier: _tree_compatible_converter(DecisionTreeClassifier())} if name in {
+            "ada_boost", "decision_tree", "random_forest", "extra_trees"
+        } else None
+        proto = convert_sklearn(
+            model, initial_types=[("features", FloatTensorType([None, n_features]))],
+            target_opset={"": 17, "ai.onnx.ml": 3}, options={id(model): options},
+            custom_conversion_functions=custom,
+        )
+        __import__("onnx").checker.check_model(proto)
         path.write_bytes(proto.SerializeToString())
         return path, None
     except Exception as exc:
         path.unlink(missing_ok=True)
-        return None, f"ONNX export blocked: {type(exc).__name__}: {exc}"
+        cause = exc
+        while cause.__cause__ is not None:
+            cause = cause.__cause__
+        return None, f"ONNX export blocked: {type(cause).__name__}: {str(cause)[:1500]}"
 
 
 def _export_mlp(model: BinaryMLP, out: Path, n_features: int) -> tuple[Path | None, str | None]:
@@ -59,7 +114,10 @@ def _export_mlp(model: BinaryMLP, out: Path, n_features: int) -> tuple[Path | No
         return path, None
     except Exception as exc:
         path.unlink(missing_ok=True)
-        return None, f"ONNX export blocked: {type(exc).__name__}: {exc}"
+        cause = exc
+        while cause.__cause__ is not None:
+            cause = cause.__cause__
+        return None, f"ONNX export blocked: {type(cause).__name__}: {str(cause)[:1500]}"
     finally:
         model.to("cuda:0")
 
@@ -99,14 +157,7 @@ def export_candidates(
                 item["onnx_input"] = session.get_inputs()[0].name
                 item["onnx_outputs"] = [o.name for o in session.get_outputs()]
                 outputs = session.run(None, {item["onnx_input"]: np.asarray(parity_features, dtype=np.float32)})
-                if name == "torch_mlp_cuda":
-                    actual = np.asarray(outputs[0]).reshape(-1)
-                else:
-                    actual = np.asarray(outputs[-1])
-                    if actual.ndim == 2:
-                        actual = actual[:, 1]
-                    else:
-                        actual = np.array([row[1] for row in actual], dtype=float)
+                actual = onnx_attack_scores(name, outputs)
                 max_error = float(np.max(np.abs(expected - actual)))
                 if not np.allclose(expected, actual, rtol=1e-4, atol=1e-5):
                     raise ValueError(f"ONNX prediction parity failed; max_abs_error={max_error}")

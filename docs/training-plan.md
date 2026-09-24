@@ -125,3 +125,15 @@ The local backend must reject an artifact when its checksum, feature contract, l
 MLP 既有 CUDA 推理计时缺失；新运行修复批次计时。可用独立 `cyber_training.validation_latency --run <运行目录> --output <新JSON>` 从保存的预处理参数复现验证样本，测量 CPUExecutionProvider 的 ONNX 单行/批次延迟；不重拟合预处理、不读测试分数、不把 CPU 测量替代历史 GPU 耗时。模型循环取出后从注册表删除引用，防止已完成的森林被整个迭代字典保留。
 
 候选导出状态单独验收；`candidate_export=true` 只表示旧工作流调用了导出，不表示所有制品成功。第五阶段 ONNX 修复和第六阶段发布仍单独处理，所有结果保持 candidate-only。
+
+## 第五阶段独立候选交付（2026-09-25）
+
+使用 `python -m cyber_training.stage5 --source-run runs/phase3-20260924-223305 --output runs/stage5-20260925 --previous-run runs/phase1-20260924-163000`，不要启动全流程 `train`。
+
+入口先复核第三、四阶段记录和原制品 SHA-256，再校验 raw 数据、去重和固定切分指纹。复用已有五个 ONNX；仅为缺失权重的 LinearSVC、AdaBoost、DecisionTree、RandomForest、ExtraTrees 按原种子与配置在训练分区重建候选。预处理参数从已有 JSON 分块恢复，保留原 float64 训练输入；不拟合预处理、不调阈值、不重新选择模型、不推理或评价测试分区。原始数据仍需读取以验证数据和切分指纹。
+
+重建制品必须通过验证样本上的 native/ONNX 连续分数与冻结阈值决策 parity。原有制品保留历史 native parity 并新增运行时 smoke；由于历史 native 权重未保存，不声称重新执行其 native parity。重建模型的 `locked_test_metrics` 为 null，原测试结果保存在 `historical_locked_test_metrics` 且标注未验证与新权重的绑定。验证集复现差异单独报告，不通过历史指标冒充新权重已获锁定测试验收。
+
+输出含历史模型对比 CSV/热力图（图中 F1 是 Macro-F1）、EDA/预处理证据、十个候选 ONNX、预处理 JSON、模型 manifest、parity、SHA-256 清单、阶段状态及交付报告。新目录不覆盖原实验；所有候选保持 `candidate_only=true` 和 `production_approved=false`。转换器的树属性兼容修复仅作用于本次容器，未修改全局环境依赖。异常失败关闭，未完成目录不能当作完整交付。
+
+端点压力测试、重复测试暴露与泄漏审查、重建权重的评估绑定、macOS ONNX 一致性、影子验证和人工审批仍是第六阶段门槛；第五阶段完成不授权激活或发布模型。

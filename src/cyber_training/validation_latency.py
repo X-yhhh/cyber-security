@@ -16,7 +16,7 @@ from .features import engineer_features
 from .stage_review import artifact_path, read_json, sha256
 
 
-def transform_saved(frame: pd.DataFrame, manifest: dict) -> np.ndarray:
+def transform_saved(frame: pd.DataFrame, manifest: dict, *, dtype=np.float32) -> np.ndarray:
     """严格使用保存的 train-fitted 参数；未知类别全零，禁止拟合或静默更换特征顺序。"""
     if manifest["fit_partition"] != "train" or list(frame.columns) != manifest["input_feature_order"]:
         raise ValueError("preprocessing partition or feature order mismatch")
@@ -43,7 +43,7 @@ def transform_saved(frame: pd.DataFrame, manifest: dict) -> np.ndarray:
             raise ValueError("categorical missing values are unsupported by the historical pipeline")
         column_values = frame[column].astype("string").fillna(fill).to_numpy(dtype=str)
         chunks.append((column_values[:, None] == np.asarray(vocabulary, dtype=str)[None, :]).astype(np.float32))
-    result = np.column_stack(chunks).astype(np.float32)
+    result = np.column_stack(chunks).astype(dtype)
     if result.shape[1] != len(manifest["encoded_feature_order"]) or not np.isfinite(result).all():
         raise ValueError("invalid encoded matrix")
     return result

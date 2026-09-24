@@ -150,7 +150,11 @@ def run_training_workflow(config: ExperimentConfig | None = None, data_root: Pat
         model_count = len(model_specs(cfg.seed, cfg)) + 1
         preprocessing_manifest = _preprocessing_manifest(preprocessor, feature_columns)
         parity_features = x_valid[:128].toarray() if hasattr(x_valid, "toarray") else x_valid[:128]
-        for name, model in model_specs(cfg.seed, cfg).items():
+        # 移除注册表中的已取出对象，保证每轮清理后不保留此前森林。
+        pending_models = model_specs(cfg.seed, cfg)
+        while pending_models:
+            name = next(iter(pending_models))
+            model = pending_models.pop(name)
             started = time.perf_counter()
             fit_sklearn_model(name, model, x_train, y[train_idx])
             duration = time.perf_counter() - started
@@ -185,8 +189,9 @@ def run_training_workflow(config: ExperimentConfig | None = None, data_root: Pat
             gc.collect()
 
         mlp, mlp_info = fit_mlp(x_train, y[train_idx], x_valid, y[valid_idx], cfg, cfg.seed, device)
-        valid_scores = predict_mlp(mlp, x_valid)
-        test_scores = predict_mlp(mlp, x_test)
+        # 与 CPU 基线一致记录完整批次推理耗时；不冒充独立单条请求时延。
+        valid_scores, valid_latency = timed_scores(lambda matrix: predict_mlp(mlp, matrix), x_valid)
+        test_scores, test_latency = timed_scores(lambda matrix: predict_mlp(mlp, matrix), x_test)
         threshold, threshold_policy = choose_threshold(y[valid_idx], valid_scores, cfg.threshold_metric)
         validation_scores["torch_mlp_cuda"] = valid_scores
         records["torch_mlp_cuda"] = {
@@ -197,8 +202,8 @@ def run_training_workflow(config: ExperimentConfig | None = None, data_root: Pat
             "runtime": "cuda",
         }
         metrics_rows.extend([
-            {"model": "torch_mlp_cuda", "phase": "validation", "seed": cfg.seed, "device": "cuda:0", **mlp_info, **binary_metrics(y[valid_idx], valid_scores, threshold)},
-            {"model": "torch_mlp_cuda", "phase": "locked_test", "seed": cfg.seed, "device": "cuda:0", **mlp_info, **binary_metrics(y[test_idx], test_scores, threshold)},
+            {"model": "torch_mlp_cuda", "phase": "validation", "seed": cfg.seed, "device": "cuda:0", **mlp_info, **binary_metrics(y[valid_idx], valid_scores, threshold), **valid_latency},
+            {"model": "torch_mlp_cuda", "phase": "locked_test", "seed": cfg.seed, "device": "cuda:0", **mlp_info, **binary_metrics(y[test_idx], test_scores, threshold), **test_latency},
         ])
         export_candidates(
             output,

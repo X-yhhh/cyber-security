@@ -45,7 +45,27 @@
 - 数据：MySQL 8、Redis、RabbitMQ。
 - 初期不引入 Spring Cloud；当服务需要独立扩缩容或独立部署时再评估拆分。
 
+## 数据库构建
+
+MySQL 8 初始化脚本位于 [`database/init.sql`](database/init.sql)，默认创建 `cyber_security` 数据库及首期业务表。脚本仅初始化一个本机测试登录账号：用户名 `admin`、密码 `admin`；密码以 BCrypt 哈希保存。该账号作为本机 `platform_admin` 登录测试用户保留；版本化迁移负责授予内置角色和权限，且不得删除账号或覆盖其密码哈希。该凭据不得作为非本机环境的默认账号。其他内置角色按最小权限区分，详见[功能模块设计](docs/功能模块设计.md)。
+
+在确认目标为本机开发 MySQL 后，可交互输入数据库管理员密码执行：
+
+```sh
+mysql --protocol=TCP -h127.0.0.1 -P3306 -uroot -p < database/init.sql
+```
+
+所有时间列按 UTC 语义保存；应用连接应设置 UTC 时区。后端上线后以 Flyway 版本化迁移管理 schema。现存库须先完整对照基线、备份并登记版本，不得把 `IF NOT EXISTS` 当成 schema 一致性的证明；脚本不会删除或清空已有对象，也不会重置已存在的 `admin` 密码。
+
 本机已安装 Temurin JDK 25.0.2，位于 `/Users/xyh/Workspace/development/runtimes/java/temurin-25.0.2`；当前 shell 的 `JAVA_HOME` 仍指向 JDK 17，实施时需使用项目级 Java 25 配置并验证实际构建运行时。
+
+后端工程位于 [`backend/`](backend/)，使用 Spring Boot、Spring Security 服务端会话、MyBatis 和 Flyway。数据库连接通过 `DB_URL`、`DB_USERNAME`、`DB_PASSWORD` 配置；应用默认绑定 `127.0.0.1:18080`。当前迁移资源为 V1-V6：V1 保留初始化业务表，V2-V5 增加 IAM/会话、登录限速和 connector 接入结构，V6 增加模型发布审查与响应审批台账字段。迁移不自动 baseline 既有非空 schema；本机现存库只有在完成结构核对与备份并获准后才可迁移。
+
+当前已实现认证/CSRF、用户创建与列表、内置角色/权限模板只读、角色范围分配、资产登记/范围内更新/授权申请与独立审批、数据源范围查询/更新及映射版本登记、全关联范围审计，以及仅 connector 使用的无状态机器凭据和幂等接入批次。机器凭据只返回一次且数据库仅保存 SHA-256 验证值；接入需显式绑定数据源—资产配对，浏览器 session 不可冒充机器身份。connector 提交的是已规范化 JSON；当前只确认所引用映射版本已批准，不执行字段转换或完整字段/单位契约校验。
+
+传感器心跳/配置尚未实现。告警与事件范围查询/研判、模型候选元数据和发布申请审查、响应申请/审批台账已实现。模型审查不会验证或激活权重；当前不下载权重、不训练、不推理。响应策略没有管理 API；没有匹配且已批准的策略或有效资产授权时申请被拒绝。审批不触发执行，执行端点固定返回 `503 ACTION_EXECUTION_UNAVAILABLE`，不调用适配器且不写 `action_execution`。`database/init.sql` 中的 `admin/admin` 是本机初始化意图；既存 `admin` 密码哈希必须保留且不由启动过程重置，仓库现有哈希并未通过 `admin` 密码校验，因此本机既存账号暂不能保证用该密码登录。
+
+本机验收使用 Temurin JDK 25.0.2、Maven 3.9.13 和指定 Maven 本地仓库。请通过环境变量传入数据库 URL/用户名/密码及 `LOGIN_THROTTLE_HMAC_KEY`；不要把这些值写入仓库。Java 测试应使用项目指定 JDK 与 Maven，集成测试只连接独立测试 schema。
 
 ## 文档
 
@@ -53,11 +73,12 @@
 - [功能模块设计](docs/功能模块设计.md)
 - [数据库设计](docs/数据库设计.md)
 - [接口设计](docs/接口设计.md)
+- [后端、身份授权与数据库实施设计](docs/superpowers/specs/2026-09-23-backend-iam-database-design.md)
 - [模型训练与交付计划](docs/training-plan.md)
 
 首期覆盖边界是部署软件传感器的主机。主机级自动阻断不等同于网络边界防火墙或全网 DDoS 清洗；上游大流量攻击需要网络运营商/云清洗等外部基础设施协同，本项目仅预留受控联动边界，不承诺独立抵御任意规模攻击。主机限速不是所有操作系统防火墙都具备的通用能力，只有适配器实测支持后才能启用；否则提供告警及受控阻断。
 
-前端 UI/视觉规范暂不纳入本轮设计。以上文档是设计基线，不表示业务代码、数据源连接器或处置执行器已经实现。
+前端 UI/视觉规范暂不纳入本轮设计。后端身份授权与数据库实施方案见[后端实施设计](docs/superpowers/specs/2026-09-23-backend-iam-database-design.md)。以上文档是设计基线，不表示业务代码、数据源连接器、模型推理或处置执行器已经实现。
 
 ## 安全边界
 

@@ -152,13 +152,13 @@ export const mockService = {
   updateEventStatus(eventId: number, newStatus: EventStatus, reason?: string): ApiEnvelope<SecurityEvent> {
     const event = state.events.find(e => e.id === eventId);
     if (!event) return wrapError('EVENT_NOT_FOUND', '安全事件不存在');
-    
+
     const oldStatus = event.status;
     event.status = newStatus;
     if (newStatus === 'resolved' || newStatus === 'closed') {
       event.closedAt = new Date().toISOString();
     }
-    
+
     // 追加时间线
     const newEntry: EventTimelineEntry = {
       id: Date.now(),

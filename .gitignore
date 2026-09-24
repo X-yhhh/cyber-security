@@ -13,11 +13,11 @@ __pycache__/
 .mypy_cache/
 
 # Training outputs and large artifacts
-runs/
-reports/generated/
-artifacts/
-checkpoints/
-models/
+/runs/
+/reports/generated/
+/artifacts/
+/checkpoints/
+/models/
 *.ckpt
 *.pt
 *.pth
@@ -34,3 +34,4 @@ models/
 backend/target/
 frontend/node_modules/
 frontend/dist/
+frontend/*.tsbuildinfo

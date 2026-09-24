@@ -1,0 +1,43 @@
+spring:
+  application:
+    name: cyber-security-backend
+  datasource:
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+    hikari:
+      maximum-pool-size: ${DB_POOL_SIZE:10}
+      connection-timeout: 3000
+  flyway:
+    enabled: true
+    baseline-on-migrate: false
+  session:
+    store-type: jdbc
+    jdbc:
+      initialize-schema: never
+  jackson:
+    time-zone: UTC
+mybatis:
+  mapper-locations: classpath:mapper/*.xml
+  configuration:
+    map-underscore-to-camel-case: true
+server:
+  port: ${SERVER_PORT:18080}
+  address: ${SERVER_ADDRESS:127.0.0.1}
+  servlet:
+    session:
+      timeout: 30m
+      cookie:
+        http-only: true
+        same-site: lax
+        secure: ${SESSION_COOKIE_SECURE:false}
+management:
+  endpoints:
+    enabled-by-default: false
+logging:
+  level:
+    root: INFO
+cyber:
+  security:
+    login-throttle:
+      hmac-key: ${LOGIN_THROTTLE_HMAC_KEY}

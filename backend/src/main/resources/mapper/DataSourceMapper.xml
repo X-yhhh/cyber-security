@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.xyh.cybersecurity.source.DataSourceMapper">
+    <resultMap id="sourceView" type="com.xyh.cybersecurity.source.DataSourceMapper$DataSourceView">
+        <constructor>
+            <idArg column="id" javaType="_long"/>
+            <arg column="source_key" javaType="string"/>
+            <arg column="source_type" javaType="string"/>
+            <arg column="environment" javaType="string"/>
+            <arg column="schema_version" javaType="string"/>
+            <arg column="status" javaType="string"/>
+            <arg column="last_success_at" javaType="java.time.LocalDateTime"/>
+        </constructor>
+    </resultMap>
+    <resultMap id="mappingView" type="com.xyh.cybersecurity.source.DataSourceMapper$MappingView">
+        <constructor>
+            <idArg column="id" javaType="_long"/>
+            <arg column="mapping_version" javaType="string"/>
+            <arg column="source_schema_json" javaType="string"/>
+            <arg column="mapping_json" javaType="string"/>
+            <arg column="status" javaType="string"/>
+            <arg column="approved_by" javaType="java.lang.Long"/>
+        </constructor>
+    </resultMap>
+
+    <sql id="visibleSourcePredicate">
+        EXISTS (
+            SELECT 1 FROM sys_user_role ur
+            JOIN sys_role r ON r.id=ur.role_id AND r.status='active'
+            JOIN sys_role_permission rp ON rp.role_id=r.id
+            JOIN sys_permission p ON p.id=rp.permission_id AND p.status='active'
+            WHERE ur.user_id=#{userId} AND p.permission_key='source.read'
+              AND ((r.role_key='platform_admin' AND ur.scope_type='global' AND ur.scope_id='*')
+                OR (ur.scope_type='data_source' AND ur.scope_id=CAST(ds.id AS CHAR)))
+        )
+    </sql>
+
+    <select id="countVisible" resultType="long">
+        SELECT COUNT(*) FROM data_source ds WHERE <include refid="visibleSourcePredicate"/>
+    </select>
+
+    <select id="listVisible" resultMap="sourceView">
+        SELECT ds.id, ds.source_key, ds.source_type, ds.environment, ds.schema_version, ds.status, ds.last_success_at
+        FROM data_source ds WHERE <include refid="visibleSourcePredicate"/>
+        ORDER BY ds.id LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="findVisible" resultMap="sourceView">
+        SELECT ds.id, ds.source_key, ds.source_type, ds.environment, ds.schema_version, ds.status, ds.last_success_at
+        FROM data_source ds WHERE ds.id=#{sourceId} AND <include refid="visibleSourcePredicate"/>
+    </select>
+
+    <select id="canManage" resultType="boolean">
+        SELECT EXISTS (
+            SELECT 1 FROM sys_user_role ur
+            JOIN sys_role r ON r.id=ur.role_id AND r.status='active'
+            JOIN sys_role_permission rp ON rp.role_id=r.id
+            JOIN sys_permission p ON p.id=rp.permission_id AND p.status='active'
+            WHERE ur.user_id=#{userId} AND p.permission_key='source.manage'
+              AND ((r.role_key='platform_admin' AND ur.scope_type='global' AND ur.scope_id='*')
+                OR (ur.scope_type='data_source' AND ur.scope_id=CAST(#{sourceId} AS CHAR)))
+        )
+    </select>
+
+    <update id="updateVisible">
+        UPDATE data_source ds SET environment=#{environment}, schema_version=#{schemaVersion}, status=#{status},
+          updated_at=CURRENT_TIMESTAMP(3)
+        WHERE ds.id=#{sourceId}
+          AND EXISTS (
+            SELECT 1 FROM sys_user_role ur
+            JOIN sys_role r ON r.id=ur.role_id AND r.status='active'
+            JOIN sys_role_permission rp ON rp.role_id=r.id
+            JOIN sys_permission p ON p.id=rp.permission_id AND p.status='active'
+            WHERE ur.user_id=#{userId} AND p.permission_key='source.manage'
+              AND ((r.role_key='platform_admin' AND ur.scope_type='global' AND ur.scope_id='*')
+                OR (ur.scope_type='data_source' AND ur.scope_id=CAST(ds.id AS CHAR)))
+          )
+    </update>
+
+    <select id="listMappingsVisible" resultMap="mappingView">
+        SELECT sm.id, sm.mapping_version, sm.source_schema_json, sm.mapping_json, sm.status, sm.approved_by
+        FROM source_mapping sm JOIN data_source ds ON ds.id=sm.data_source_id
+        WHERE ds.id=#{sourceId} AND <include refid="visibleSourcePredicate"/>
+        ORDER BY sm.id
+    </select>
+
+    <select id="findActiveGlobalPlatformAdminId" resultType="long">
+        SELECT id FROM sys_user_role ur JOIN sys_role r ON r.id=ur.role_id
+        WHERE ur.user_id=#{userId} AND r.role_key='platform_admin' AND r.status='active'
+          AND ur.scope_type='global' AND ur.scope_id='*'
+    </select>
+</mapper>

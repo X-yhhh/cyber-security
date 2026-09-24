@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.xyh.cybersecurity.identity.IdentityMapper">
+    <resultMap id="userView" type="com.xyh.cybersecurity.identity.IdentityMapper$UserView">
+        <constructor>
+            <idArg column="id" javaType="_long"/>
+            <arg column="user_key" javaType="string"/>
+            <arg column="username" javaType="string"/>
+            <arg column="display_name" javaType="string"/>
+            <arg column="status" javaType="string"/>
+        </constructor>
+    </resultMap>
+    <resultMap id="roleView" type="com.xyh.cybersecurity.identity.IdentityMapper$RoleView">
+        <constructor>
+            <idArg column="id" javaType="_long"/>
+            <arg column="role_key" javaType="string"/>
+            <arg column="name" javaType="string"/>
+            <arg column="description" javaType="string"/>
+        </constructor>
+    </resultMap>
+    <resultMap id="roleBinding" type="com.xyh.cybersecurity.identity.IdentityMapper$RoleBinding">
+        <constructor>
+            <arg column="role_key" javaType="string"/>
+            <arg column="scope_type" javaType="string"/>
+            <arg column="scope_id" javaType="string"/>
+        </constructor>
+    </resultMap>
+
+    <select id="countUsers" resultType="long">
+        SELECT COUNT(*) FROM sys_user
+    </select>
+
+    <select id="listUsers" resultMap="userView">
+        SELECT id, user_key, username, display_name, status
+        FROM sys_user
+        ORDER BY id
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="findUser" resultMap="userView">
+        SELECT id, user_key, username, display_name, status
+        FROM sys_user
+        WHERE id = #{id}
+    </select>
+
+    <select id="listRoles" resultMap="roleView">
+        SELECT id, role_key, name, description
+        FROM sys_role
+        WHERE is_builtin = 1 AND status = 'active'
+        ORDER BY role_key
+    </select>
+
+    <select id="listRolePermissions" resultType="string">
+        SELECT p.permission_key
+        FROM sys_role_permission rp
+        JOIN sys_permission p ON p.id = rp.permission_id AND p.status = 'active'
+        WHERE rp.role_id = #{roleId}
+        ORDER BY p.permission_key
+    </select>
+
+    <select id="findActiveBuiltinRoleId" resultType="long">
+        SELECT id FROM sys_role
+        WHERE role_key = #{roleKey} AND is_builtin = 1 AND status = 'active'
+    </select>
+
+    <select id="existsScope" resultType="boolean">
+        <choose>
+            <when test="scopeType.equals('asset')">
+                SELECT EXISTS(SELECT 1 FROM asset WHERE id = CAST(#{scopeId} AS UNSIGNED))
+            </when>
+            <when test="scopeType.equals('data_source')">
+                SELECT EXISTS(SELECT 1 FROM data_source WHERE id = CAST(#{scopeId} AS UNSIGNED))
+            </when>
+            <when test="scopeType.equals('model_registry')">
+                SELECT EXISTS(SELECT 1 FROM model_version WHERE model_key = #{scopeId})
+            </when>
+            <otherwise>SELECT FALSE</otherwise>
+        </choose>
+    </select>
+
+    <select id="lockActiveGlobalPlatformAdministratorIds" resultType="long">
+        SELECT u.id
+        FROM sys_user u
+        JOIN sys_user_role ur ON ur.user_id = u.id
+        JOIN sys_role r ON r.id = ur.role_id
+        WHERE u.status = 'active' AND r.status = 'active' AND r.role_key = 'platform_admin'
+          AND ur.scope_type = 'global' AND ur.scope_id = '*'
+        ORDER BY u.id
+        FOR UPDATE
+    </select>
+
+    <select id="listRoleBindings" resultMap="roleBinding">
+        SELECT r.role_key, ur.scope_type, ur.scope_id
+        FROM sys_user_role ur
+        JOIN sys_role r ON r.id = ur.role_id
+        WHERE ur.user_id = #{userId} AND r.status = 'active'
+        ORDER BY r.role_key, ur.scope_type, ur.scope_id
+    </select>
+</mapper>

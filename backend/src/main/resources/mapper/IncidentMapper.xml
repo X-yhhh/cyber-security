@@ -1,0 +1,241 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.xyh.cybersecurity.incident.IncidentMapper">
+    <resultMap id="alertView" type="com.xyh.cybersecurity.incident.IncidentMapper$AlertView">
+        <constructor>
+            <idArg column="id" javaType="_long"/>
+            <arg column="alert_key" javaType="string"/>
+            <arg column="alert_type" javaType="string"/>
+            <arg column="severity" javaType="string"/>
+            <arg column="status" javaType="string"/>
+            <arg column="score" javaType="java.math.BigDecimal"/>
+            <arg column="detected_at" javaType="java.time.LocalDateTime"/>
+            <arg column="data_source_id" javaType="_long"/>
+            <arg column="asset_id" javaType="java.lang.Long"/>
+        </constructor>
+    </resultMap>
+
+    <resultMap id="eventView" type="com.xyh.cybersecurity.incident.IncidentMapper$EventView">
+        <constructor>
+            <idArg column="id" javaType="_long"/>
+            <arg column="event_key" javaType="string"/>
+            <arg column="title" javaType="string"/>
+            <arg column="category" javaType="string"/>
+            <arg column="severity" javaType="string"/>
+            <arg column="status" javaType="string"/>
+            <arg column="risk_score" javaType="java.math.BigDecimal"/>
+            <arg column="first_seen_at" javaType="java.time.LocalDateTime"/>
+            <arg column="last_seen_at" javaType="java.time.LocalDateTime"/>
+            <arg column="assignee_id" javaType="java.lang.Long"/>
+            <arg column="alert_count" javaType="_long"/>
+            <arg column="asset_count" javaType="_long"/>
+        </constructor>
+    </resultMap>
+
+    <resultMap id="eventAssetView" type="com.xyh.cybersecurity.incident.IncidentMapper$EventAssetView">
+        <constructor>
+            <idArg column="asset_id" javaType="_long"/>
+            <arg column="asset_key" javaType="string"/>
+            <arg column="relation_type" javaType="string"/>
+            <arg column="evidence_count" javaType="_long"/>
+        </constructor>
+    </resultMap>
+
+    <resultMap id="timelineView" type="com.xyh.cybersecurity.incident.IncidentMapper$TimelineView">
+        <constructor>
+            <idArg column="id" javaType="_long"/>
+            <arg column="occurred_at" javaType="java.time.LocalDateTime"/>
+            <arg column="entry_type" javaType="string"/>
+            <arg column="actor_type" javaType="string"/>
+            <arg column="actor_id" javaType="string"/>
+            <arg column="summary" javaType="string"/>
+            <arg column="evidence_ref" javaType="string"/>
+            <arg column="details_json" javaType="string"/>
+        </constructor>
+    </resultMap>
+
+    <sql id="visibleAssetScope">
+        EXISTS (
+            SELECT 1 FROM sys_user_role ur
+            JOIN sys_role r ON r.id=ur.role_id AND r.status='active'
+            JOIN sys_role_permission rp ON rp.role_id=r.id
+            JOIN sys_permission p ON p.id=rp.permission_id AND p.status='active'
+            WHERE ur.user_id=#{userId} AND p.permission_key='asset.read'
+              AND ((r.role_key='platform_admin' AND ur.scope_type='global' AND ur.scope_id='*')
+              OR (ur.scope_type='asset' AND ur.scope_id=CAST(${assetId} AS CHAR)))
+        )
+    </sql>
+
+    <sql id="visibleSourceScope">
+        EXISTS (
+            SELECT 1 FROM sys_user_role ur
+            JOIN sys_role r ON r.id=ur.role_id AND r.status='active'
+            JOIN sys_role_permission rp ON rp.role_id=r.id
+            JOIN sys_permission p ON p.id=rp.permission_id AND p.status='active'
+            WHERE ur.user_id=#{userId} AND p.permission_key='source.read'
+              AND ((r.role_key='platform_admin' AND ur.scope_type='global' AND ur.scope_id='*')
+              OR (ur.scope_type='data_source' AND ur.scope_id=CAST(${sourceId} AS CHAR)))
+        )
+    </sql>
+
+    <sql id="visibleAlertPermission">
+        EXISTS (
+            SELECT 1 FROM sys_user_role ur
+            JOIN sys_role r ON r.id=ur.role_id AND r.status='active'
+            JOIN sys_role_permission rp ON rp.role_id=r.id
+            JOIN sys_permission p ON p.id=rp.permission_id AND p.status='active'
+            WHERE ur.user_id=#{userId} AND p.permission_key='alert.read'
+              AND (r.role_key&lt;&gt;'platform_admin' OR (ur.scope_type='global' AND ur.scope_id='*'))
+        )
+    </sql>
+
+    <sql id="visibleAlertPredicate">
+        <include refid="visibleAlertPermission"/>
+        AND ir.asset_id IS NOT NULL
+        AND <include refid="visibleAssetScope"><property name="assetId" value="ir.asset_id"/></include>
+        AND <include refid="visibleSourceScope"><property name="sourceId" value="ib.data_source_id"/></include>
+    </sql>
+
+    <sql id="visibleEventPredicate">
+        EXISTS (SELECT 1 FROM event_asset_link ea WHERE ea.event_id=e.id)
+        AND NOT EXISTS (
+            SELECT 1 FROM event_asset_link ea
+            WHERE ea.event_id=e.id
+              AND NOT <include refid="visibleAssetScope"><property name="assetId" value="ea.asset_id"/></include>
+        )
+        AND EXISTS (SELECT 1 FROM event_alert_link eal WHERE eal.event_id=e.id)
+        AND NOT EXISTS (
+            SELECT 1
+            FROM event_alert_link eal
+            JOIN detection_alert da ON da.id=eal.alert_id
+            JOIN ingest_record ir ON ir.id=da.ingest_record_id
+            JOIN ingest_batch ib ON ib.id=ir.batch_id
+            WHERE eal.event_id=e.id
+              AND (ir.asset_id IS NULL
+                OR NOT <include refid="visibleAlertPermission"/>
+                OR NOT <include refid="visibleAssetScope"><property name="assetId" value="ir.asset_id"/></include>
+                OR NOT <include refid="visibleSourceScope"><property name="sourceId" value="ib.data_source_id"/></include>)
+        )
+    </sql>
+
+    <sql id="visibleEventReadPredicate">
+        EXISTS (
+            SELECT 1 FROM sys_user_role ur
+            JOIN sys_role r ON r.id=ur.role_id AND r.status='active'
+            JOIN sys_role_permission rp ON rp.role_id=r.id
+            JOIN sys_permission p ON p.id=rp.permission_id AND p.status='active'
+            WHERE ur.user_id=#{userId} AND p.permission_key='event.read'
+        )
+        AND <include refid="visibleEventPredicate"/>
+    </sql>
+
+    <sql id="visibleEventInvestigatePredicate">
+        EXISTS (
+            SELECT 1 FROM sys_user_role ur
+            JOIN sys_role r ON r.id=ur.role_id AND r.status='active'
+            JOIN sys_role_permission rp ON rp.role_id=r.id
+            JOIN sys_permission p ON p.id=rp.permission_id AND p.status='active'
+            WHERE ur.user_id=#{userId} AND p.permission_key='event.investigate'
+        )
+        AND <include refid="visibleEventReadPredicate"/>
+    </sql>
+
+    <sql id="alertSelect">
+        SELECT da.id, da.alert_key, da.alert_type, da.severity, da.status, da.score, da.detected_at,
+               ib.data_source_id, ir.asset_id
+        FROM detection_alert da
+        JOIN ingest_record ir ON ir.id=da.ingest_record_id
+        JOIN ingest_batch ib ON ib.id=ir.batch_id
+    </sql>
+
+    <select id="countVisibleAlerts" resultType="long">
+        SELECT COUNT(*)
+        FROM detection_alert da
+        JOIN ingest_record ir ON ir.id=da.ingest_record_id
+        JOIN ingest_batch ib ON ib.id=ir.batch_id
+        WHERE <include refid="visibleAlertPredicate">
+            <property name="assetId" value="ir.asset_id"/>
+            <property name="sourceId" value="ib.data_source_id"/>
+        </include>
+    </select>
+
+    <select id="listVisibleAlerts" resultMap="alertView">
+        <include refid="alertSelect"/>
+        WHERE <include refid="visibleAlertPredicate">
+            <property name="assetId" value="ir.asset_id"/>
+            <property name="sourceId" value="ib.data_source_id"/>
+        </include>
+        ORDER BY da.detected_at DESC, da.id DESC LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="findVisibleAlert" resultMap="alertView">
+        <include refid="alertSelect"/>
+        WHERE da.id=#{alertId} AND <include refid="visibleAlertPredicate">
+            <property name="assetId" value="ir.asset_id"/>
+            <property name="sourceId" value="ib.data_source_id"/>
+        </include>
+    </select>
+
+    <sql id="eventSelect">
+        SELECT e.id, e.event_key, e.title, e.category, e.severity, e.status, e.risk_score,
+               e.first_seen_at, e.last_seen_at, e.assignee_id,
+               (SELECT COUNT(*) FROM event_alert_link eal WHERE eal.event_id=e.id) AS alert_count,
+               (SELECT COUNT(*) FROM event_asset_link ea WHERE ea.event_id=e.id) AS asset_count
+        FROM security_event e
+    </sql>
+
+    <select id="countVisibleEvents" resultType="long">
+        SELECT COUNT(*) FROM security_event e WHERE <include refid="visibleEventReadPredicate"/>
+    </select>
+
+    <select id="listVisibleEvents" resultMap="eventView">
+        <include refid="eventSelect"/>
+        WHERE <include refid="visibleEventReadPredicate"/>
+        ORDER BY e.last_seen_at DESC, e.id DESC LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="findVisibleEvent" resultMap="eventView">
+        <include refid="eventSelect"/>
+        WHERE e.id=#{eventId} AND <include refid="visibleEventReadPredicate"/>
+    </select>
+
+    <select id="listEventAlertsVisible" resultMap="alertView">
+        <include refid="alertSelect"/>
+        JOIN event_alert_link eal ON eal.alert_id=da.id
+        JOIN security_event e ON e.id=eal.event_id
+        WHERE e.id=#{eventId} AND <include refid="visibleEventReadPredicate"/>
+        ORDER BY da.detected_at, da.id
+    </select>
+
+    <select id="listEventAssetsVisible" resultMap="eventAssetView">
+        SELECT a.id AS asset_id, a.asset_key, ea.relation_type, ea.evidence_count
+        FROM event_asset_link ea JOIN asset a ON a.id=ea.asset_id
+        JOIN security_event e ON e.id=ea.event_id
+        WHERE e.id=#{eventId} AND <include refid="visibleEventReadPredicate"/>
+        ORDER BY a.id, ea.relation_type
+    </select>
+
+    <select id="listEventTimelineVisible" resultMap="timelineView">
+        SELECT et.id, et.occurred_at, et.entry_type, et.actor_type, et.actor_id,
+               et.summary, et.evidence_ref, et.details_json
+        FROM event_timeline et JOIN security_event e ON e.id=et.event_id
+        WHERE e.id=#{eventId} AND <include refid="visibleEventReadPredicate"/>
+        ORDER BY et.occurred_at, et.id
+    </select>
+
+    <update id="transitionVisibleEvent">
+        UPDATE security_event e
+        SET e.status=#{newStatus},
+            e.closed_at=CASE WHEN #{newStatus}='closed' THEN UTC_TIMESTAMP(3) ELSE e.closed_at END,
+            e.updated_at=UTC_TIMESTAMP(3)
+        WHERE e.id=#{eventId} AND e.status=#{expectedStatus}
+          AND <include refid="visibleEventInvestigatePredicate"/>
+    </update>
+
+    <insert id="appendTimelineForInvestigator">
+        INSERT INTO event_timeline (event_id, occurred_at, entry_type, actor_type, actor_id, summary, details_json)
+        SELECT e.id, UTC_TIMESTAMP(3), #{entryType}, 'human', #{actorId}, #{summary}, CAST(#{detailsJson} AS JSON)
+        FROM security_event e
+        WHERE e.id=#{eventId} AND <include refid="visibleEventInvestigatePredicate"/>
+    </insert>
+</mapper>

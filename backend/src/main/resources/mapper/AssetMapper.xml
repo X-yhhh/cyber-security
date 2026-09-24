@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.xyh.cybersecurity.asset.AssetMapper">
+    <resultMap id="assetView" type="com.xyh.cybersecurity.asset.AssetMapper$AssetView">
+        <constructor>
+            <idArg column="id" javaType="_long"/>
+            <arg column="asset_key" javaType="string"/>
+            <arg column="asset_type" javaType="string"/>
+            <arg column="environment" javaType="string"/>
+            <arg column="criticality" javaType="string"/>
+            <arg column="owner" javaType="string"/>
+            <arg column="status" javaType="string"/>
+        </constructor>
+    </resultMap>
+
+    <sql id="visibleAssetPredicate">
+        EXISTS (
+            SELECT 1
+            FROM sys_user_role ur
+            JOIN sys_role r ON r.id = ur.role_id AND r.status = 'active'
+            JOIN sys_role_permission rp ON rp.role_id = r.id
+            JOIN sys_permission p ON p.id = rp.permission_id AND p.status = 'active'
+            WHERE ur.user_id = #{userId} AND p.permission_key = 'asset.read'
+              AND ((r.role_key = 'platform_admin' AND ur.scope_type = 'global' AND ur.scope_id = '*')
+                OR (ur.scope_type = 'asset' AND ur.scope_id = CAST(a.id AS CHAR)))
+        )
+    </sql>
+
+    <select id="countVisible" resultType="long">
+        SELECT COUNT(*) FROM asset a WHERE <include refid="visibleAssetPredicate"/>
+    </select>
+
+    <select id="listVisible" resultMap="assetView">
+        SELECT a.id, a.asset_key, a.asset_type, a.environment, a.criticality, a.owner, a.status
+        FROM asset a
+        WHERE <include refid="visibleAssetPredicate"/>
+        ORDER BY a.id
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="findVisible" resultMap="assetView">
+        SELECT a.id, a.asset_key, a.asset_type, a.environment, a.criticality, a.owner, a.status
+        FROM asset a
+        WHERE a.id = #{assetId} AND <include refid="visibleAssetPredicate"/>
+    </select>
+
+    <update id="updateVisible">
+        UPDATE asset a SET criticality=#{criticality}, owner=#{owner}, status=#{status},
+          updated_at=CURRENT_TIMESTAMP(3)
+        WHERE a.id=#{assetId}
+          AND EXISTS (
+            SELECT 1 FROM sys_user_role ur
+            JOIN sys_role r ON r.id=ur.role_id AND r.status='active'
+            JOIN sys_role_permission rp ON rp.role_id=r.id
+            JOIN sys_permission p ON p.id=rp.permission_id AND p.status='active'
+            WHERE ur.user_id=#{userId} AND p.permission_key='asset.manage'
+              AND ((r.role_key='platform_admin' AND ur.scope_type='global' AND ur.scope_id='*')
+                OR (ur.scope_type='asset' AND ur.scope_id=CAST(a.id AS CHAR)))
+          )
+    </update>
+</mapper>

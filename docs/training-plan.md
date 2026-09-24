@@ -106,3 +106,22 @@ The local backend must reject an artifact when its checksum, feature contract, l
 - At least ten first-pass model instances complete binary evaluation with the common metrics schema, and the official subset completes multiclass evaluation in a separate baseline.
 - The local integration accepts valid single and batch inputs and returns the documented detection result shape.
 - All demonstrations use offline data or synthetic inputs and perform no external network activity.
+
+
+## 第三、四阶段独立验收（2026-09-24）
+
+阶段编号按准备、预处理、十模型基线、三种子稳定性、制品交付、发布审查区分；旧 `phase1-*` 目录名代表首轮实验，不代表只完成准备阶段。
+
+当前 `train` 仍是全流程入口。已完成的运行不应为补报告而重训。新增独立命令仅读取既有运行记录，不拟合、不重新推理锁定测试集：
+
+```text
+.venv\Scripts\python.exe -m cyber_training.stage_review --run runs/phase3-20260924-223305 --previous-run runs/phase1-20260924-163000 --output runs/phase3-20260924-223305-review
+```
+
+该命令要求 10 条验证、10 条测试及 3 模型 × 3 种子的完整记录，独立按混淆矩阵核对指标，用验证集二分类 F1 核对前三名，检查制品哈希后输出稳定性均值、样本标准差（ddof=1）及阶段审查 JSON/CSV。不完整或冲突记录失败关闭；不会用测试排名替代验证排名，不会覆盖源文件。ROC-AUC/PR-AUC 仅校验范围和 manifest 一致性，没有原始分数时不声称重算通过。
+
+三种子只改变模型随机性，数据切分保持固定，不代表跨实体/跨切分稳定性。重复使用相同测试指纹的历史必须保留，不得因新建目录而标为全新未见测试。
+
+MLP 既有 CUDA 推理计时缺失；新运行修复批次计时。可用独立 `cyber_training.validation_latency --run <运行目录> --output <新JSON>` 从保存的预处理参数复现验证样本，测量 CPUExecutionProvider 的 ONNX 单行/批次延迟；不重拟合预处理、不读测试分数、不把 CPU 测量替代历史 GPU 耗时。模型循环取出后从注册表删除引用，防止已完成的森林被整个迭代字典保留。
+
+候选导出状态单独验收；`candidate_export=true` 只表示旧工作流调用了导出，不表示所有制品成功。第五阶段 ONNX 修复和第六阶段发布仍单独处理，所有结果保持 candidate-only。

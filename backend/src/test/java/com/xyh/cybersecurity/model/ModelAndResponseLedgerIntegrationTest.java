@@ -368,7 +368,7 @@ class ModelAndResponseLedgerIntegrationTest {
         jdbc.update("INSERT INTO response_policy (policy_key,version,environment,match_json,action_type,"
                         + "action_params_json,auto_execute,approval_required,max_duration_seconds,status,approved_by) "
                         + "VALUES ('ledger-test-policy','1','lab',JSON_OBJECT('environment','lab'),"
-                        + "'temporary_block',JSON_OBJECT('maxTtlSeconds',120,'allowedTargets',JSON_ARRAY('192.0.2.25'))," 
+                        + "'temporary_block',JSON_OBJECT('maxTtlSeconds',120,'allowedTargets',JSON_ARRAY('192.0.2.25')),"
                         + "FALSE,TRUE,120,'active',?)",
                 responseApproverId);
         return jdbc.queryForObject("SELECT id FROM response_policy WHERE policy_key='ledger-test-policy'",

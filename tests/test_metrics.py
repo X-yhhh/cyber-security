@@ -1,6 +1,8 @@
 import numpy as np
+from scipy.sparse import csr_matrix
 
 from cyber_training.metrics import choose_threshold, binary_metrics
+from cyber_training.metrics import timed_scores
 
 
 def test_threshold_is_selected_using_validation_scores():
@@ -30,3 +32,10 @@ def test_binary_metrics_has_required_operational_metrics():
     metrics = binary_metrics([0, 0, 1, 1], [0.1, 0.8, 0.6, 0.9], 0.5)
     assert {"accuracy", "precision", "recall", "macro_f1", "weighted_f1", "roc_auc", "pr_auc", "specificity", "fpr", "fnr", "mcc"} <= metrics.keys()
     assert metrics["confusion_matrix"] == [[1, 1], [0, 2]]
+
+
+def test_timed_scores_supports_sparse_matrices():
+    features = csr_matrix([[1.0, 0.0], [0.0, 1.0]])
+    scores, timing = timed_scores(lambda matrix: np.asarray(matrix.sum(axis=1)).ravel(), features)
+    assert scores.shape == (2,)
+    assert timing["rows"] == 2

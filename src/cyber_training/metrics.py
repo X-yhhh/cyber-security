@@ -75,5 +75,6 @@ def timed_scores(predict_fn, features):
     started = time.perf_counter()
     scores = predict_fn(features)
     elapsed = time.perf_counter() - started
-    per_row_ms = elapsed * 1000 / max(1, len(features))
-    return scores, {"batch_seconds": elapsed, "per_row_ms": per_row_ms, "rows": int(len(features))}
+    rows = int(features.shape[0]) if hasattr(features, "shape") else len(features)
+    per_row_ms = elapsed * 1000 / max(1, rows)
+    return scores, {"batch_seconds": elapsed, "per_row_ms": per_row_ms, "rows": rows}

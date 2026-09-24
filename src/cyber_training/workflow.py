@@ -248,4 +248,4 @@ def run_training_workflow(config: ExperimentConfig | None = None, data_root: Pat
         write_json(output / "run-summary.json", {"run_id": run_id, "candidate_only": True, "production_activated": False, "model_count": model_count, "selected_models": selected, "preprocessing_comparison": True, "eda": True, "feature_engineering": True, "candidate_export": True, "candidate_export_format": "ONNX plus train-fitted preprocessing manifest", "notes": ["The locked test is evaluated once per first-pass model.", "PCA and third-party gradient-boosting backends are follow-up experiments unless explicitly enabled."]})
         return output
     finally:
-        limiter.release()
+        limiter.unregister()

@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools==80.9.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cyber-security-training"
+version = "0.1.0"
+description = "Offline UNSW-NB15 flow classification experiments"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "numpy==2.2.6",
+  "pandas==2.3.3",
+  "scikit-learn==1.7.2",
+  "matplotlib==3.10.7",
+  "onnx==1.19.1",
+  "onnxruntime==1.23.2",
+  "skl2onnx==1.19.1",
+  "torch==2.7.1",
+]
+
+[project.optional-dependencies]
+dev = ["pytest==8.4.2"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

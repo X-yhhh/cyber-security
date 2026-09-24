@@ -20,7 +20,9 @@ Use the two 45-column subset files as an independent predefined-split baseline. 
 
 Before training, create a manifest containing source URL, retrieval date, license statement, file size, SHA-256, row count, column count, missing-value count, duplicate count, and label distribution. The raw dataset is not committed to Git.
 
-## 3. Data Preparation
+## 3. EDA, Data Preparation, and Feature Engineering
+
+The code path is explicitly staged as EDA -> preprocessing comparison -> feature engineering -> model comparison. EDA writes row/column counts, class balance, missingness, categorical cardinality, numeric summaries, and a bounded overview plot before fitting. EDA is descriptive only and never fits an imputer, encoder, scaler, threshold, or model.
 
 1. Parse the four raw CSV files using the feature dictionary and preserve the original field order.
 2. Read the feature dictionary as Windows-1252, normalize field names and category whitespace, and handle empty or `-` markers according to column type. Record every conversion and verify `label=0` maps to normal while `label=1` maps to attack.
@@ -29,7 +31,10 @@ Before training, create a manifest containing source URL, retrieval date, licens
 5. For multiclass detection, use only the official subset's `attack_cat` target.
 6. Remove exact duplicates from the primary training pool and report the count; never deduplicate silently.
 7. Check overlap between train, validation, and test feature-target rows. Record any overlap and block a run that uses test rows for fitting.
-8. Split the primary raw data by connection/entity grouping with a fixed seed, using train/validation/test partitions of 70/15/15; document the grouping key and resulting class distribution before fitting. Keep the predefined subset partitions unchanged for the separate baseline, and report cross-partition feature overlaps rather than silently filtering them from the source files.
+8. Use a fixed-seed, deduplicated, stratified 70/15/15 row split for the primary raw experiment. This is not entity-isolated and must not be represented as such. Separately report an unordered endpoint-pair isolation stress split, including group/row shares, class coverage, group overlap, and whether each partition is evaluable. Keep the predefined subset as an independent future experiment; never merge it into raw training.
+9. Before full training, confirm audited hashes, the 49-column raw schema, 42-field V0 input contract, CUDA availability, and the host resource budget in the Windows README.
+
+The implemented engineered view extends V0 with non-identity traffic features: log1p byte/packet values, bytes per packet, packet/byte balance, load ratio, TTL delta, latency sum, and jitter sum. It excludes labels, IDs, raw IPs, ports, and timestamps.
 
 ## 4. Feature Views
 
@@ -40,21 +45,17 @@ All encoders, imputers, scalers, and PCA objects are fitted on training data onl
 - **V2 engineered traffic view**: V1 plus packet/byte ratios, rate transforms, latency differences, TTL differences, count ratios, and numerically stable `log1p` transforms for heavy-tailed values.
 - **PCA comparison**: compare no reduction, PCA retaining 95% training variance, and 20 components (or all available components when fewer than 20). Fit PCA on the encoded and scaled training features only; it is a comparison path, not a prerequisite for tree models.
 
-## 5. Models and Baselines
+## 5. Preprocessing Comparison
 
-Run at least these nine algorithms under the same split and metric protocol:
+Compare three train-fitted strategies using a bounded train/validation probe: median imputation + StandardScaler, median imputation + RobustScaler, and median imputation without numeric scaling (all with one-hot categorical encoding). Select the strategy by validation F1, record the full table, and never use the locked test for this choice. The selected transformer is then refit on the complete training partition only.
 
-1. Logistic Regression
-2. Linear SVM
-3. Decision Tree
-4. Random Forest
-5. Extra Trees
-6. XGBoost
-7. LightGBM
-8. CatBoost
-9. PyTorch MLP with CUDA support
+## 6. Models and Baselines
 
-The first pass uses one fixed seed and comparable validation procedures. The best three models then run with three seeds and report mean plus standard deviation. Hyperparameter search uses training/validation only; the test set is used once for the final locked evaluation.
+The bounded first run compares ten concrete model instances from nine sklearn model families plus a CUDA MLP: Linear SVM, Gaussian NB, Logistic Regression (C=0.1), Passive-Aggressive, AdaBoost, Decision Tree, Random Forest, Extra Trees, SGD log-loss, and a PyTorch MLP that must train on CUDA. This satisfies the requirement of more than five models without counting repeated configurations of one algorithm. CPU baselines run sequentially under a 14-physical-core cap; tree ensembles use 50 estimators and depth 24. Use one fixed seed for the primary comparison. Rank candidates only on validation, then run the best three using three seeds and report mean and standard deviation on validation. Choose thresholds only on validation. Evaluate each of the ten candidates on the locked test set exactly once; extra-seed runs never use test data. The workflow writes a model-by-metric comparison table and heatmap with Precision, Recall, F1, Accuracy, and AUC, matching the supplied reference structure, and exports candidate artifacts with a train-fitted preprocessing manifest. PCA/feature-selection variants, XGBoost, LightGBM, CatBoost, and the official-subset multiclass baseline are follow-up experiments, not first-run gates.
+
+The endpoint stress diagnostic preserves whole unordered endpoint-pair groups and is capped at 100,000 rows per partition for the measured 16 GiB host. It is not used for primary model selection.
+
+Raw binary target is Label (0=normal, 1=attack); the 42 model inputs exclude IPs, ports, timestamps, row IDs, and attack category. Rate is derived from packet counts and duration, with zero duration represented as missing. The audited raw view encodes to 214 columns after train-fitted imputation, scaling, and one-hot encoding.
 
 ## 6. Evaluation Metrics
 
@@ -102,6 +103,6 @@ The local backend must reject an artifact when its checksum, feature contract, l
 - The Windows data manifest proves the raw source exceeds 100 MB, has the expected 49-field schema, and records rows, labels, missing values, duplicates, and hashes.
 - No target, identifier, test-derived encoder, scaler, PCA object, or threshold leaks into model fitting.
 - Windows verifies the project-local Python environment, CUDA visibility, PyTorch GPU availability, and required gradient-boosting backends without modifying the global Python 3.14 installation.
-- At least five models complete binary evaluation, and the official subset completes multiclass evaluation with a common metrics schema.
+- At least ten first-pass model instances complete binary evaluation with the common metrics schema, and the official subset completes multiclass evaluation in a separate baseline.
 - The local integration accepts valid single and batch inputs and returns the documented detection result shape.
 - All demonstrations use offline data or synthetic inputs and perform no external network activity.

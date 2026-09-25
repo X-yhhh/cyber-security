@@ -137,3 +137,22 @@ MLP 既有 CUDA 推理计时缺失；新运行修复批次计时。可用独立 
 输出含历史模型对比 CSV/热力图（图中 F1 是 Macro-F1）、EDA/预处理证据、十个候选 ONNX、预处理 JSON、模型 manifest、parity、SHA-256 清单、阶段状态及交付报告。新目录不覆盖原实验；所有候选保持 `candidate_only=true` 和 `production_approved=false`。转换器的树属性兼容修复仅作用于本次容器，未修改全局环境依赖。异常失败关闭，未完成目录不能当作完整交付。
 
 端点压力测试、重复测试暴露与泄漏审查、重建权重的评估绑定、macOS ONNX 一致性、影子验证和人工审批仍是第六阶段门槛；第五阶段完成不授权激活或发布模型。
+
+## 第六阶段发布审查前置准备（2026-09-25）
+
+第六阶段不是再次启动全流程 `train`，而是对第五阶段候选做压力评估、评估集/泄漏审查、部署一致性和影子验证。只读预检命令如下：
+
+```text
+.venv\Scripts\python.exe -m cyber_training.cli stage6-preflight --run runs\stage5-20260925 --output runs\stage6-preflight-20260925\preflight.json
+```
+
+预检复核当前原始数据 SHA-256、数据指纹、阶段 3 原始候选哈希、阶段 5 的 67 项 SHA-256、十个候选 manifest/parity、训练拟合预处理、验证集阈值策略及 ONNX Runtime 可加载性。它只读现有文件和数据，不拟合、不推理锁定测试、不改写候选、不批准或激活模型。`stage6_start_ready=true` 仅表示可以开始逐项审查，`release_ready` 始终为 false。
+
+当前预检已通过，但进入发布前仍需完成：
+
+1. 先书面确定最终评估策略。相同锁定测试指纹曾在两个历史训练运行中各评估十个模型，不能再称为未见测试；五个第五阶段重建权重也没有与其历史锁定测试指标绑定。不得无记录地再跑锁定测试或沿用历史分数。应由项目负责人选择新的独立/时间隔离评估数据，或批准带有重复暴露标记的补充评估方案。
+2. 用明确选定的模型和冻结阈值，在无端点组交叉的压力切分上完成实际训练/评估。现有审计有 171 个无序端点对，压力切分为 train 119、validation 26、test 26 组且组间不相交；目前只有切分审计，没有压力评估指标。
+3. 在 macOS 本地应用验证输入特征顺序、预处理、标签映射、阈值、SHA-256 和单条/批次 ONNX 输出 parity。Windows 训练分支不包含该本地应用运行环境。
+4. 记录影子验证结果、误报/漏报审查和人工审批；完成前保持所有模型 `candidate_only=true`、`production_approved=false`。
+
+预检结果：`runs/stage6-preflight-20260925/preflight.json`。提交与产物映射见 `docs/stage1-5-delivery-index.md`。

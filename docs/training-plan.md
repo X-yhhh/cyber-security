@@ -146,13 +146,22 @@ MLP 既有 CUDA 推理计时缺失；新运行修复批次计时。可用独立 
 .venv\Scripts\python.exe -m cyber_training.cli stage6-preflight --run runs\stage5-20260925 --output runs\stage6-preflight-20260925\preflight.json
 ```
 
+阶段六训练侧端点压力评估使用独立入口，只重训第四阶段按验证 F1 选出的 Random Forest、Decision Tree、Extra Trees，不调用全流程 `train`：
+
+```text
+.venv\Scripts\python.exe -m cyber_training.cli stage6-train --source-run runs\stage5-20260925 --output runs\stage6-endpoint-20260925-final
+```
+
+入口重新核验原始数据和阶段五源制品哈希，复现 119/26/26 个端点组互斥的 train/validation/holdout 切分；每个分区最多分层抽取 100,000 行。预处理只在端点训练样本 fit，阈值及候选排序只使用端点验证样本的二分类 F1；每个模型在端点 holdout 上只评价一次。它不重评重复暴露的原随机锁定测试，也不执行 MLP 或无关候选重训。输出包含新模型 ONNX、训练参数和预处理 manifest、验证到 ONNX parity、holdout 指标/曲线、特征与切分审计、来源及产物 SHA-256。新候选仍保持 `candidate_only=true`。
+
 预检复核当前原始数据 SHA-256、数据指纹、阶段 3 原始候选哈希、阶段 5 的 67 项 SHA-256、十个候选 manifest/parity、训练拟合预处理、验证集阈值策略及 ONNX Runtime 可加载性。它只读现有文件和数据，不拟合、不推理锁定测试、不改写候选、不批准或激活模型。`stage6_start_ready=true` 仅表示可以开始逐项审查，`release_ready` 始终为 false。
 
-当前预检已通过，但进入发布前仍需完成：
+阶段六训练已于 2026-09-25 完成，最终运行目录为 `runs/stage6-endpoint-20260925-final/`。当前预检快照为 `runs/stage6-preflight-20260925/preflight.json`；最终训练状态、逐模型结果和交付校验分别见 `stage6-status.json`、`stage6-results.json`、`stage6-report.md` 和 `checksums.json`。
 
-1. 先书面确定最终评估策略。相同锁定测试指纹曾在两个历史训练运行中各评估十个模型，不能再称为未见测试；五个第五阶段重建权重也没有与其历史锁定测试指标绑定。不得无记录地再跑锁定测试或沿用历史分数。应由项目负责人选择新的独立/时间隔离评估数据，或批准带有重复暴露标记的补充评估方案。
-2. 用明确选定的模型和冻结阈值，在无端点组交叉的压力切分上完成实际训练/评估。现有审计有 171 个无序端点对，压力切分为 train 119、validation 26、test 26 组且组间不相交；目前只有切分审计，没有压力评估指标。
-3. 在 macOS 本地应用验证输入特征顺序、预处理、标签映射、阈值、SHA-256 和单条/批次 ONNX 输出 parity。Windows 训练分支不包含该本地应用运行环境。
-4. 记录影子验证结果、误报/漏报审查和人工审批；完成前保持所有模型 `candidate_only=true`、`production_approved=false`。
+端点分组共 171 组，train/validation/holdout 分别 119/26/26 组，组间交集均为 0；三个分区各使用 100,000 行。三模型训练和各自一次 holdout 评估完成，没有重新推理两个历史运行重复使用的随机锁定测试集。历史审查记录 phase1 与 phase3 各 10 个锁定测试结果；本阶段旧锁定测试新增评估数为 0。压力切分 exact feature-target 重叠为 0，但纯特征向量重叠 train/test、train/validation、validation/test 分别有 42、51、22 行，需作为数据集局限保留。
 
-预检结果：`runs/stage6-preflight-20260925/preflight.json`。提交与产物映射见 `docs/stage1-5-delivery-index.md`。
+按 endpoint validation 二分类 F1 排名的候选为 Random Forest（0.9008）、Extra Trees（0.8882）、Decision Tree（0.8791）。Random Forest 在 endpoint holdout 的 Macro-F1 为 0.9195、ROC-AUC 为 0.9972、PR-AUC 为 0.9402、FPR 为 0.8681%、FNR 为 12.0125%；holdout 没有参与候选选择。不同阈值下 Extra Trees 的召回更高（98.44%），但 FPR 为 1.8029%，这组 trade-off 随模型结果一并交付，不据 holdout 改阈值。
+
+最终运行三份 ONNX 的验证集 parity 均通过，38 项输出文件 SHA-256、三份模型/预处理 manifest 绑定及训练代码哈希均已复核。所有产物仍为 `candidate_only=true`、`production_approved=false`、`release_ready=false`。
+
+剩余工作按用户边界留给后续本地应用收尾：在 macOS 验证输入特征顺序、预处理、标签映射、冻结阈值、SHA-256 和单条/批次 ONNX 一致性；完成影子验证、误报/漏报审查和人工审批后，才可讨论发布。训练代码与阶段五目录索引见 `docs/stage1-5-delivery-index.md`。

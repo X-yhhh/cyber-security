@@ -126,19 +126,33 @@ def plot_label_distribution(counts: pd.Series, title: str, path: Path) -> None:
 
 
 def plot_log1p_histograms(frame: pd.DataFrame, labels: np.ndarray, columns: list[str], path: Path) -> None:
-    """偏度最大的数值特征：原始值与 log1p 后的正常/攻击分布对比（每个特征两个子图）。"""
-    fig, axes = plt.subplots(len(columns), 2, figsize=(9, 1.9 * len(columns)))
+    """偏度最大的数值特征：原始值（截断到 p99.5 以便看清主体）与 log1p 后的正常/攻击分布对比。
+
+    纵轴为各类别内的占比（每类柱高之和为 1），避免密度刻度出现 1e-5 之类难读的数量级。
+    """
+    fig, axes = plt.subplots(len(columns), 2, figsize=(9, 2.0 * len(columns)))
     axes = np.atleast_2d(axes)
     for row, column in enumerate(columns):
         values = frame[column].to_numpy(dtype="float64")
-        for col, (transform, name) in enumerate(((lambda v: v, "原始值"), (np.log1p, "log1p"))):
+        finite = values[~np.isnan(values)]
+        upper = float(np.quantile(finite, 0.995)) if finite.size else 1.0
+        panels = (
+            (lambda v: v[v <= upper], (float(finite.min()) if finite.size else 0.0, upper), f"{column} · 原始值（≤p99.5）"),
+            (np.log1p, None, f"{column} · log1p"),
+        )
+        for col, (transform, value_range, title) in enumerate(panels):
             ax = axes[row, col]
             for label, color, text in ((0, NORMAL_COLOR, "正常"), (1, ATTACK_COLOR, "攻击")):
-                subset = values[(labels == label) & ~np.isnan(values)]
-                ax.hist(transform(subset), bins=60, color=color, alpha=0.55, density=True, label=text)
-            ax.set_title(f"{column} · {name}", loc="left", fontsize=9)
+                subset = transform(values[(labels == label) & ~np.isnan(values)])
+                if subset.size == 0:
+                    continue
+                weights = np.full(subset.size, 1.0 / subset.size)
+                ax.hist(subset, bins=50, range=value_range, weights=weights, color=color, alpha=0.55, label=text)
+            ax.set_title(title, loc="left", fontsize=9)
+            ax.set_ylabel("类内占比", fontsize=7)
             ax.tick_params(labelsize=7)
-    axes[0, 0].legend(fontsize=8, frameon=False)
+            ax.ticklabel_format(axis="x", style="plain", useOffset=False) if col == 0 and upper < 1e6 else None
+    axes[0, 1].legend(fontsize=8, frameon=False, loc="upper right")
     fig.tight_layout()
     _save(fig, path)
 
@@ -234,7 +248,9 @@ def run(seed: int = GLOBAL_SEED, split_dir: Path | None = None, manifest_path: P
 
     profile = numeric_profile(sample, numeric)
     profile.to_csv(out / "d1-numeric-profile.csv", index=False)
-    top_skewed = profile[profile["log1p_skew"].notna()].head(12)["column"].tolist()
+    # 二值/低基数列（如 is_sm_ips_ports）的"偏度"只反映类别不平衡，不属于长尾，不参与长尾图。
+    continuous = [c for c in profile["column"] if sample[c].nunique(dropna=True) > 10]
+    top_skewed = profile[profile["log1p_skew"].notna() & profile["column"].isin(continuous)].head(12)["column"].tolist()
     plot_log1p_histograms(sample, labels, top_skewed[:6], out / "d1-skewed-log1p-1.png")
     plot_log1p_histograms(sample, labels, top_skewed[6:12], out / "d1-skewed-log1p-2.png")
 

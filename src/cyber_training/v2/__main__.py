@@ -4,19 +4,38 @@ from __future__ import annotations
 
 import argparse
 import sys
+from importlib import import_module
+from pathlib import Path
 
 STEPS = ("register", "eda", "split", "preprocess-compare", "feature-compare", "train", "train-multiclass", "final-eval", "export")
+SIMPLE = {"register": "register", "split": "split", "eda": "eda"}
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m cyber_training.v2")
     parser.add_argument("step", choices=STEPS)
-    args, _ = parser.parse_known_args(argv)
-    runners = {"register": "register", "split": "split", "eda": "eda"}
-    if args.step in runners:
-        from importlib import import_module
+    parser.add_argument("--resume", type=Path, help="preprocess-compare：续跑已有运行目录")
+    parser.add_argument("--schemes", help="preprocess-compare：逗号分隔的方案子集，如 P0,P3")
+    parser.add_argument("--models", help="preprocess-compare：逗号分隔的模型子集，如 LR,RF")
+    parser.add_argument("--seeds", help="preprocess-compare：逗号分隔的种子子集")
+    parser.add_argument("--sample-rows", type=int, help="preprocess-compare：训练抽样行数")
+    args = parser.parse_args(argv)
+    if args.step in SIMPLE:
+        print(import_module(f".{SIMPLE[args.step]}", __package__).run())
+        return 0
+    if args.step == "preprocess-compare":
+        from . import preprocess
 
-        print(import_module(f".{runners[args.step]}", __package__).run())
+        kwargs = {"resume": args.resume}
+        if args.schemes:
+            kwargs["schemes"] = tuple(args.schemes.split(","))
+        if args.models:
+            kwargs["models"] = tuple(args.models.split(","))
+        if args.seeds:
+            kwargs["seeds"] = tuple(int(s) for s in args.seeds.split(","))
+        if args.sample_rows:
+            kwargs["sample_rows"] = args.sample_rows
+        print(preprocess.run(**kwargs))
         return 0
     print(f"step '{args.step}' is not implemented yet", file=sys.stderr)
     return 2

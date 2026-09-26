@@ -12,6 +12,8 @@ import os
 import platform
 import random
 import subprocess
+import sys
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime
 from importlib import metadata
@@ -132,10 +134,31 @@ class RunContext:
         return self.run_dir / name
 
     def finish(self) -> dict[str, str]:
+        return self.checksum_dir(self.run_dir)
+
+    @staticmethod
+    def checksum_dir(run_dir: Path) -> dict[str, str]:
+        """为运行目录内全部产物（除 checksums.json 自身）生成 SHA-256 清单。"""
         checksums = {
-            str(p.relative_to(self.run_dir)).replace("\\", "/"): sha256_file(p)
-            for p in sorted(self.run_dir.rglob("*"))
+            str(p.relative_to(run_dir)).replace("\\", "/"): sha256_file(p)
+            for p in sorted(Path(run_dir).rglob("*"))
             if p.is_file() and p.name != "checksums.json"
         }
-        write_json(self.run_dir / "checksums.json", checksums)
+        write_json(Path(run_dir) / "checksums.json", checksums)
         return checksums
+
+
+@contextmanager
+def keep_awake():
+    """长任务期间阻止 Windows 进入睡眠（ES_CONTINUOUS | ES_SYSTEM_REQUIRED）；非 Windows 无操作。"""
+    if sys.platform != "win32":
+        yield
+        return
+    import ctypes
+
+    kernel32 = ctypes.windll.kernel32
+    kernel32.SetThreadExecutionState(0x80000000 | 0x00000001)
+    try:
+        yield
+    finally:
+        kernel32.SetThreadExecutionState(0x80000000)

@@ -21,6 +21,7 @@ dependencies = [
   "imbalanced-learn==0.14.2",
   "onnxmltools==1.16.0",
   "pyarrow==21.0.0",
+  "optuna==5.0.0",
 ]
 
 [project.optional-dependencies]

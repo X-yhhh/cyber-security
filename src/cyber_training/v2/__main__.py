@@ -12,10 +12,11 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m cyber_training.v2")
     parser.add_argument("step", choices=STEPS)
     args, _ = parser.parse_known_args(argv)
-    if args.step == "register":
-        from .register import run
+    runners = {"register": "register", "split": "split", "eda": "eda"}
+    if args.step in runners:
+        from importlib import import_module
 
-        print(run())
+        print(import_module(f".{runners[args.step]}", __package__).run())
         return 0
     print(f"step '{args.step}' is not implemented yet", file=sys.stderr)
     return 2

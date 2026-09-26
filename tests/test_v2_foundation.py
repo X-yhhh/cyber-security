@@ -127,4 +127,4 @@ def test_d1_raw_blank_numeric_cells_become_missing(tmp_path, monkeypatch):
 
 
 def test_unimplemented_step_fails_explicitly():
-    assert main(["eda"]) == 2
+    assert main(["train"]) == 2

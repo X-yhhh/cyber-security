@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "cyber-security-training"
 version = "0.1.0"
-description = "Offline UNSW-NB15 flow classification experiments"
+description = "Offline UNSW-NB15 and NF-ToN-IoT-v2 flow classification experiments"
 requires-python = ">=3.12,<3.13"
 dependencies = [
   "numpy==2.2.6",
@@ -16,6 +16,11 @@ dependencies = [
   "onnxruntime==1.23.2",
   "skl2onnx==1.19.1",
   "torch==2.7.1",
+  "xgboost==3.4.1",
+  "lightgbm==4.7.0",
+  "imbalanced-learn==0.14.2",
+  "onnxmltools==1.16.0",
+  "pyarrow==21.0.0",
 ]
 
 [project.optional-dependencies]

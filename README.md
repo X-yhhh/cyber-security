@@ -56,3 +56,9 @@ Measured preparation took about 54 seconds; a full-data 20-tree, depth-24 Random
 ```
 
 Runs are written under `runs/` and remain candidate-only artifacts. The MLP refuses CPU fallback; tree baselines are recorded as CPU runs.
+
+## Baseline Reset (2026-09-26)
+
+- Approved datasets are limited to two Kaggle sources: `mrwellsdavid/unsw-nb15` (primary) and `dhoogla/nftoniotv2` (cross-dataset generalization). HIKARI-2021/2022 (Zenodo) is excluded and kept only under the ignored `data/excluded/` path; it must not enter any new run.
+- All previous runs were moved to the ignored `archive/runs-legacy-20260926/`. Their holdout partitions are considered exposed; new runs must use a freshly generated, single-use locked holdout.
+- Added pinned dependencies `xgboost==3.4.1`, `lightgbm==4.7.0`, `imbalanced-learn==0.14.2`, `onnxmltools==1.16.0`, `pyarrow==21.0.0`. XGBoost CUDA training verified on the RTX 3070 Ti Laptop GPU.

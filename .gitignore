@@ -2,6 +2,8 @@
 data/raw/
 data/processed/
 data/cache/
+data/excluded/
+archive/
 .cache/
 
 # Python environments and local tooling

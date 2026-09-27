@@ -1,0 +1,66 @@
+{
+  "split_audit_sha256": "5eb1025abbfc5bc0aec0f78567f35017619811a2326e2576b7549385d3acbe7b",
+  "d1_imbalance_ratio_normal_to_attack": 6.905948960884952,
+  "d1_duplicates": {
+    "input_rows": 2540047,
+    "label_conflict_rows_removed": 1879,
+    "duplicate_rows_removed": 521771,
+    "rows_retained": 2016397,
+    "exact_full_row_duplicates": 480633,
+    "dedup_key_columns": 39,
+    "attack_rate_before": 0.12648702957071267,
+    "attack_rate_after": 0.03868087484756226
+  },
+  "d1_train_sample_rows": 200000,
+  "d1_top_skewed": [
+    "sbytes",
+    "sloss",
+    "Djit",
+    "Sjit",
+    "ackdat",
+    "synack",
+    "Dintpkt",
+    "Spkts",
+    "tcprtt",
+    "Sintpkt",
+    "Sload",
+    "res_bdy_len"
+  ],
+  "d1_high_correlation_pairs": 8,
+  "d1_mutual_information_top10": {
+    "sttl": 0.15742001835326003,
+    "dttl": 0.15142193975717,
+    "ct_state_ttl": 0.13156437707845814,
+    "sbytes": 0.12082363772137772,
+    "dbytes": 0.11013632563772713,
+    "dmeansz": 0.09455775742098127,
+    "tcprtt": 0.08983950483664449,
+    "ackdat": 0.08961290670411803,
+    "synack": 0.08798946878992076,
+    "Dload": 0.08214222548383976
+  },
+  "d1_constant_in_sample": [],
+  "d1_d2_ks": {
+    "duration_s": 0.7748200000000001,
+    "src_bytes_per_pkt": 0.661245,
+    "dst_bytes_per_pkt": 0.652355,
+    "dst_bytes": 0.636325,
+    "dst_pkts": 0.6055600000000001,
+    "src_bytes": 0.604085,
+    "src_pkts": 0.596445,
+    "max_ttl": 0.5787250000000002,
+    "min_ttl": 0.5579200000000001
+  },
+  "d2_attack_counts": {
+    "Benign": 3601284,
+    "scanning": 3002169,
+    "xss": 2449955,
+    "ddos": 1746590,
+    "password": 993718,
+    "injection": 660467,
+    "dos": 654359,
+    "backdoor": 16259,
+    "mitm": 7723,
+    "ransomware": 3357
+  }
+}

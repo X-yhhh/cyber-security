@@ -1,0 +1,3 @@
+docs/v2/evidence/*.json -text -whitespace
+docs/v2/evidence/*.csv -text -whitespace
+docs/v2/evidence/preprocess-*.md -text -whitespace

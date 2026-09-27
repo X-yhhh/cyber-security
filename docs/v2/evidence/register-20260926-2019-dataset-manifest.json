@@ -1,0 +1,216 @@
+{
+  "manifest_version": "v2",
+  "approved_sources": [
+    "d1",
+    "d2"
+  ],
+  "excluded_sources": {
+    "hikari-2021-2022": "来源为 Zenodo 而非 Kaggle，已移至 data/excluded，禁止读取"
+  },
+  "d1": {
+    "kaggle": "mrwellsdavid/unsw-nb15",
+    "url": "https://www.kaggle.com/datasets/mrwellsdavid/unsw-nb15",
+    "license": "原作者学术使用条款（需引用 Moustafa & Slay, 2015）；Kaggle 页面许可为 unknown，再分发前需核对原始条款",
+    "files": {
+      "NUSW-NB15_features.csv": {
+        "bytes": 4044,
+        "sha256": "c55f19cceebb6360dc50f44f8a5f246ccefbcf8a6c604ac1ad46e643869cafce"
+      },
+      "UNSW-NB15_1.csv": {
+        "bytes": 168979718,
+        "sha256": "7d851bbeabd27894ce39c8e78835c73341fc946652fb7743b9eff193b55eb511"
+      },
+      "UNSW-NB15_2.csv": {
+        "bytes": 165221021,
+        "sha256": "6130ad02873cc6069ae695cf2844f2e8c2e9a9a1b7532dd82ab8f202757cacf8"
+      },
+      "UNSW-NB15_3.csv": {
+        "bytes": 154588103,
+        "sha256": "ae990a96c3dfcd425ce2801aadb1727a34d5e0ae6d8215dbcdae60dedfaef640"
+      },
+      "UNSW-NB15_4.csv": {
+        "bytes": 97588754,
+        "sha256": "cdf563692d51d405541dd659ddcdad9fa01f001f05fe9fc4b67f00ca12fbc96a"
+      },
+      "UNSW_NB15_testing-set.csv": {
+        "bytes": 32293018,
+        "sha256": "bec7dd5ec88dc2a0ccc7a07879d338395ed7421750f675fd0339e07dfe0648fa"
+      },
+      "UNSW_NB15_training-set.csv": {
+        "bytes": 15380800,
+        "sha256": "734fe6642edf758f7c94d7d9149426b49d202fe8e7bf0bef47392489c3c0a559"
+      }
+    },
+    "raw": {
+      "rows": 2540047,
+      "columns": 49,
+      "missing_cells": 4207912,
+      "missing_by_column": {
+        "sport": 2,
+        "dsport": 7,
+        "ct_flw_http_mthd": 1348145,
+        "is_ftp_login": 1429879,
+        "ct_ftp_cmd": 1429879
+      },
+      "exact_duplicate_rows": 480633,
+      "label_counts": {
+        "0": 2218764,
+        "1": 321283
+      },
+      "conversions": {
+        "rows_per_file": {
+          "UNSW-NB15_1.csv": 700001,
+          "UNSW-NB15_2.csv": 700001,
+          "UNSW-NB15_3.csv": 700001,
+          "UNSW-NB15_4.csv": 440044
+        },
+        "sport_parse": {
+          "hex_converted": 6,
+          "dash_or_blank": 2,
+          "unparseable": 0
+        },
+        "dsport_parse": {
+          "hex_converted": 297,
+          "dash_or_blank": 7,
+          "unparseable": 0
+        },
+        "attack_cat": {
+          "normal_filled_from_blank": 2218764
+        },
+        "service_dash_kept_as_category": 1246397,
+        "numeric_blank_to_missing": {
+          "ct_ftp_cmd": 1429879
+        }
+      },
+      "attack_cat_counts": {
+        "Normal": 2218764,
+        "Generic": 215481,
+        "Exploits": 44525,
+        "Fuzzers": 24246,
+        "DoS": 16353,
+        "Reconnaissance": 13987,
+        "Analysis": 2677,
+        "Backdoor": 2329,
+        "Shellcode": 1511,
+        "Worms": 174
+      }
+    },
+    "subset": {
+      "role_mapping": {
+        "train": "UNSW_NB15_testing-set.csv",
+        "test": "UNSW_NB15_training-set.csv"
+      },
+      "role_mapping_reason": "文件名与内容相反；按行数与标签分布确认角色，不按文件名推断",
+      "train": {
+        "rows": 175341,
+        "columns": 45,
+        "missing_cells": 0,
+        "missing_by_column": {},
+        "exact_duplicate_rows": 0,
+        "label_counts": {
+          "0": 56000,
+          "1": 119341
+        }
+      },
+      "test": {
+        "rows": 82332,
+        "columns": 45,
+        "missing_cells": 0,
+        "missing_by_column": {},
+        "exact_duplicate_rows": 0,
+        "label_counts": {
+          "0": 37000,
+          "1": 45332
+        }
+      },
+      "attack_cat_train": {
+        "Normal": 56000,
+        "Generic": 40000,
+        "Exploits": 33393,
+        "Fuzzers": 18184,
+        "DoS": 12264,
+        "Reconnaissance": 10491,
+        "Analysis": 2000,
+        "Backdoor": 1746,
+        "Shellcode": 1133,
+        "Worms": 130
+      },
+      "attack_cat_test": {
+        "Normal": 37000,
+        "Generic": 18871,
+        "Exploits": 11132,
+        "Fuzzers": 6062,
+        "DoS": 4089,
+        "Reconnaissance": 3496,
+        "Analysis": 677,
+        "Backdoor": 583,
+        "Shellcode": 378,
+        "Worms": 44
+      }
+    }
+  },
+  "d2": {
+    "kaggle": "dhoogla/nftoniotv2",
+    "url": "https://www.kaggle.com/datasets/dhoogla/nftoniotv2",
+    "license": "CC-BY-NC-SA-4.0（Kaggle 元数据）；原始来源 University of Queensland NF-ToN-IoT-v2",
+    "files": {
+      "NF-ToN-IoT-V2.parquet": {
+        "bytes": 209170339,
+        "sha256": "4e8c9ac5cfda1ba1b3f1dbe450feed0dde48b809425bf65eabcd23086afb6624"
+      },
+      "NetFlow v2 Features.csv": {
+        "bytes": 2115,
+        "sha256": "f20e86a939f9eb53b06ace15de4cc977ed61c02e538c6465efe72b635448e939"
+      }
+    },
+    "rows": 13135881,
+    "columns": 43,
+    "missing_cells": 0,
+    "missing_by_column": {},
+    "exact_duplicate_rows": 0,
+    "label_counts": {
+      "0": 3601284,
+      "1": 9534597
+    },
+    "label_attack_mismatch_rows": 0,
+    "attack_counts": {
+      "Benign": 3601284,
+      "scanning": 3002169,
+      "xss": 2449955,
+      "ddos": 1746590,
+      "password": 993718,
+      "injection": 660467,
+      "dos": 654359,
+      "backdoor": 16259,
+      "mitm": 7723,
+      "ransomware": 3357
+    },
+    "contains_ip_fields": false
+  },
+  "processed_cache": {
+    "d1_raw.parquet": {
+      "sha256": "a5ad883a1b8bcc64dcfe67f0ed680b0b2982bfbe2700aff7c8be7044a3767345",
+      "bytes": 160505100,
+      "rows": 2540047,
+      "data_fingerprint": "a8fbcc963efb875bff56ed7be5266f17c776b24736ba355fb052e1d9e48eeeae"
+    },
+    "d1_subset_train.parquet": {
+      "sha256": "c32c2e2542c8dd51fb03af8f5ac3702e890bb3139a1cb7fac0ffbc5c093e29ac",
+      "bytes": 11902869,
+      "rows": 175341,
+      "data_fingerprint": "35217c1e7b7a7c43b69ab49e2fa13bb625b1b7dbd055b6d208bd6ec154d3d20c"
+    },
+    "d1_subset_test.parquet": {
+      "sha256": "d53212fc204274af2364e3b65cbf31c5bb925f72a0474b9d3125d427ca8373f0",
+      "bytes": 5759382,
+      "rows": 82332,
+      "data_fingerprint": "118767f34258d012264932f6731f87389f1f778acf7f2d43803df3bcca7077a5"
+    },
+    "d2.parquet": {
+      "sha256": "7170651178f097849952de407e3b63b6cf58dc200c107b6856c7ba5e1343824e",
+      "bytes": 162005436,
+      "rows": 13135881,
+      "data_fingerprint": "756675d6edcd5a7b0cc586bf8d48be50ac2c9e6c3ea305f2ac7b775b69e9076f"
+    }
+  }
+}

@@ -1,131 +1,42 @@
-import { createRouter, createWebHistory, RouteRecordRaw } from 'vue-router';
-import MainLayout from '@/components/layout/MainLayout.vue';
+import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
+
+/**
+ * 路由按功能模块划分（docs/功能模块设计.md §2），不再细拆子页面：
+ * 同一模块内的子视图用页内分段切换，详情用抽屉或独立详情页。
+ */
+export const modules = [
+  { path: 'overview', name: 'overview', title: '态势', en: 'Overview', component: () => import('@/views/console/OverviewView.vue') },
+  { path: 'events', name: 'events', title: '告警与事件', en: 'Detection', component: () => import('@/views/console/EventsView.vue') },
+  { path: 'response', name: 'response', title: '受控响应', en: 'Response', component: () => import('@/views/console/ResponseView.vue') },
+  { path: 'models', name: 'models', title: '模型治理', en: 'Models', component: () => import('@/views/console/ModelsView.vue') },
+  { path: 'assets', name: 'assets', title: '资产与传感器', en: 'Assets', component: () => import('@/views/console/AssetsView.vue') },
+  { path: 'sources', name: 'sources', title: '数据源与回放', en: 'Sources', component: () => import('@/views/console/SourcesView.vue') },
+  { path: 'audit', name: 'audit', title: '审计', en: 'Audit', component: () => import('@/views/console/AuditView.vue') },
+  { path: 'iam', name: 'iam', title: '身份与角色', en: 'Identity', component: () => import('@/views/console/IamView.vue') },
+] as const
 
 const routes: RouteRecordRaw[] = [
+  { path: '/', name: 'landing', component: () => import('@/views/LandingView.vue'), meta: { title: '概览' } },
+  { path: '/login', name: 'login', component: () => import('@/views/LoginView.vue'), meta: { title: '登录' } },
   {
-    path: '/login',
-    name: 'Login',
-    component: () => import('@/views/login/LoginView.vue'),
-    meta: { title: '登录控制台' }
-  },
-  {
-    path: '/',
-    component: MainLayout,
-    redirect: '/dashboard',
+    path: '/console',
+    component: () => import('@/layouts/ConsoleLayout.vue'),
+    meta: { shell: 'console' },
+    redirect: { name: 'overview' },
     children: [
-      {
-        path: 'dashboard',
-        name: 'Dashboard',
-        component: () => import('@/views/dashboard/DashboardView.vue'),
-        meta: { title: '安全态势感知大屏' }
-      },
-      {
-        path: 'incidents',
-        name: 'Incidents',
-        component: () => import('@/views/incidents/IncidentListView.vue'),
-        meta: { title: '威胁告警与事件研判' }
-      },
-      {
-        path: 'incidents/:id',
-        name: 'IncidentDetail',
-        component: () => import('@/views/incidents/IncidentDetailView.vue'),
-        meta: { title: '事件研判工作台' }
-      },
-      {
-        path: 'incidents/alerts',
-        name: 'AlertList',
-        component: () => import('@/views/incidents/AlertListView.vue'),
-        meta: { title: '原始流量告警池' }
-      },
-      {
-        path: 'response',
-        name: 'Approvals',
-        component: () => import('@/views/response/ApprovalListView.vue'),
-        meta: { title: '受控防御审批' }
-      },
-      {
-        path: 'response/ledger',
-        name: 'ExecutionLedger',
-        component: () => import('@/views/response/ExecutionLedgerView.vue'),
-        meta: { title: '防御执行台账与安全回滚' }
-      },
-      {
-        path: 'assets',
-        name: 'Assets',
-        component: () => import('@/views/assets/AssetInventoryView.vue'),
-        meta: { title: '资产台账与授权管理' }
-      },
-      {
-        path: 'assets/sensors',
-        name: 'SensorMonitor',
-        component: () => import('@/views/assets/SensorMonitorView.vue'),
-        meta: { title: '软件传感器健康监控' }
-      },
-      {
-        path: 'datasources',
-        name: 'DataSources',
-        component: () => import('@/views/datasources/DataSourceView.vue'),
-        meta: { title: '数据源管理与接入' }
-      },
-      {
-        path: 'datasources/mappings',
-        name: 'Mappings',
-        component: () => import('@/views/datasources/MappingView.vue'),
-        meta: { title: '字段映射与质量门禁' }
-      },
-      {
-        path: 'models',
-        name: 'ModelRegistry',
-        component: () => import('@/views/models/ModelRegistryView.vue'),
-        meta: { title: '模型治理与不可变Manifest' }
-      },
-      {
-        path: 'models/release-reviews',
-        name: 'ReleaseReviews',
-        component: () => import('@/views/models/ReleaseReviewView.vue'),
-        meta: { title: '独立模型发布审查' }
-      },
-      {
-        path: 'models/drift',
-        name: 'DriftFeedback',
-        component: () => import('@/views/models/DriftFeedbackView.vue'),
-        meta: { title: '特征分布漂移与人工反馈' }
-      },
-      {
-        path: 'models/training-jobs',
-        name: 'TrainingJobs',
-        component: () => import('@/views/models/TrainingJobView.vue'),
-        meta: { title: 'Windows离线训练任务' }
-      },
-      {
-        path: 'replay',
-        name: 'Replay',
-        component: () => import('@/views/replay/ReplayView.vue'),
-        meta: { title: '隔离靶场演练与流量回放' }
-      },
-      {
-        path: 'audit',
-        name: 'AuditLogs',
-        component: () => import('@/views/audit/AuditLogView.vue'),
-        meta: { title: '安全审计日志与合规追踪' }
-      },
-      {
-        path: 'iam',
-        name: 'UserManagement',
-        component: () => import('@/views/iam/UserManagementView.vue'),
-        meta: { title: '访问控制与系统运维' }
-      }
-    ]
-  }
-];
+      ...modules.map((m) => ({ path: m.path, name: m.name, component: m.component, meta: { title: m.title, shell: 'console' } })),
+      { path: 'events/:id', name: 'event-detail', component: () => import('@/views/console/EventDetailView.vue'), meta: { title: '事件详情', shell: 'console', parent: 'events' } },
+    ],
+  },
+  { path: '/:pathMatch(.*)*', redirect: '/' },
+]
 
 export const router = createRouter({
   history: createWebHistory(),
-  routes
-});
+  routes,
+  scrollBehavior: (_to, _from, saved) => saved ?? { top: 0 },
+})
 
 router.afterEach((to) => {
-  if (to.meta.title) {
-    document.title = `${to.meta.title} | SecOps Console`;
-  }
-});
+  document.title = `${to.meta.title ?? ''} · Sentinel`
+})

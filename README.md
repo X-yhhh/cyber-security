@@ -74,7 +74,9 @@
 - `checksums.json`、`evaluation-report.md`、`export-*.json` 校验结果、`replay-sample.csv`（1 万条验证分区样本及远端输出，用于本机回放）和 `evidence/`。
 - 交付物不含 pickle；权重、检查点和原始数据不提交到 Git。
 
-使用限本机回放：Java 后端（ONNX Runtime Java 1.23.2，CPU 单线程）回放 `replay-sample.csv` 共 10,000 条，最大概率绝对误差 9.5367e-7、平均 4.83e-9，标签不一致 0，逐位相同 9,757 条；逐行结果 `backend-replay-results.csv` 已写入交付目录并追加到 `evaluation-report.md`。证据见 [`docs/v2/evidence/backend-java-replay-20260927.md`](docs/v2/evidence/backend-java-replay-20260927.md)。剩余步骤是独立发布审批和本机显式激活，均不在训练仓库内完成。v` 回放并把结果写回交付报告。已做过 Python 版本机回放（onnxruntime 1.27.0，判定 0 条不一致），但它不能替代后端验证。
+使用限制：只适用于 UNSW-NB15 分布的流量特征二分类；不做攻击类别判定，不等同于原始包检测或终端行为识别；输入字段缺失或不满足契约时拒绝推理。
+
+本机回放：Java 后端（ONNX Runtime Java 1.23.2，CPU 单线程）回放 `replay-sample.csv` 共 10,000 条，最大概率绝对误差 9.5367e-7、平均 4.83e-9，标签不一致 0，逐位相同 9,757 条；逐行结果 `backend-replay-results.csv` 已写入交付目录并追加到 `evaluation-report.md`。证据见 [`docs/v2/evidence/backend-java-replay-20260927.md`](docs/v2/evidence/backend-java-replay-20260927.md)。剩余步骤是独立发布审批和本机显式激活，均不在训练仓库内完成。
 
 ## 环境
 

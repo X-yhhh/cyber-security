@@ -56,12 +56,12 @@ class MigrationIntegrationTest {
             assertThat(count(statement, EMPTY_SCHEMA + ".sys_role", "is_builtin=1 AND status='active'"))
                     .isEqualTo(7);
             assertThat(count(statement, EMPTY_SCHEMA + ".sys_permission", "status='active'"))
-                    .isEqualTo(32);
+                    .isEqualTo(37);
             assertThat(rolePermissionCount(statement, "platform_admin")).isEqualTo(21);
             assertThat(rolePermissionCount(statement, "asset_source_admin")).isEqualTo(10);
             assertThat(rolePermissionCount(statement, "security_analyst")).isEqualTo(8);
             assertThat(rolePermissionCount(statement, "response_approver")).isEqualTo(5);
-            assertThat(rolePermissionCount(statement, "model_operator")).isEqualTo(3);
+            assertThat(rolePermissionCount(statement, "model_operator")).isEqualTo(5);
             assertThat(rolePermissionCount(statement, "model_releaser")).isEqualTo(2);
             assertThat(rolePermissionCount(statement, "auditor")).isEqualTo(3);
             assertThat(count(statement, EMPTY_SCHEMA + ".sys_role_permission rp JOIN " + EMPTY_SCHEMA
@@ -73,7 +73,7 @@ class MigrationIntegrationTest {
                     + ".sys_role r ON r.id=rp.role_id", "r.role_key='platform_admin' AND p.permission_key IN ('approval.decide','model.release.approve')"))
                     .isZero();
             assertThat(count(statement, EMPTY_SCHEMA + ".sys_user", "1=1")).isZero();
-            assertThat(count(statement, EMPTY_SCHEMA + ".flyway_schema_history", "success=1")).isEqualTo(6);
+            assertThat(count(statement, EMPTY_SCHEMA + ".flyway_schema_history", "success=1")).isEqualTo(8);
             assertThat(count(statement, "information_schema.tables", "table_schema='" + EMPTY_SCHEMA
                     + "' AND table_name='auth_login_throttle'"))
                     .isEqualTo(1);
@@ -82,6 +82,9 @@ class MigrationIntegrationTest {
             assertThat(columnCount(statement, "model_release_record", "decision_reason")).isEqualTo(1);
             assertThat(columnCount(statement, "approval_task", "idempotency_key")).isEqualTo(1);
             assertThat(columnCount(statement, "approval_task", "request_digest")).isEqualTo(1);
+            assertThat(columnCount(statement, "api_client", "sensor_id")).isEqualTo(1);
+            assertThat(columnCount(statement, "ingest_batch", "sequence_gap")).isEqualTo(1);
+            assertThat(columnCount(statement, "ingest_batch", "feature_contract_version")).isEqualTo(1);
         }
     }
 

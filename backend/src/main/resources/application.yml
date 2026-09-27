@@ -41,3 +41,15 @@ cyber:
   security:
     login-throttle:
       hmac-key: ${LOGIN_THROTTLE_HMAC_KEY}
+  ingest:
+    outbox-relay:
+      enabled: ${OUTBOX_RELAY_ENABLED:false}
+      poll-ms: ${OUTBOX_RELAY_POLL_MS:1000}
+    rabbitmq:
+      host: ${RABBITMQ_HOST:127.0.0.1}
+      port: ${RABBITMQ_PORT:5672}
+      virtual-host: ${RABBITMQ_VHOST:/}
+      username: ${RABBITMQ_USERNAME:}
+      password: ${RABBITMQ_PASSWORD:}
+      exchange: ${RABBITMQ_INGEST_EXCHANGE:cyber-security.ingest.events}
+      confirm-timeout-ms: ${RABBITMQ_CONFIRM_TIMEOUT_MS:5000}

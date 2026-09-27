@@ -48,7 +48,7 @@ public final class MachineCredentialFilter extends OncePerRequestFilter {
                 long clientId = Long.parseLong(matcher.group(1));
                 String suppliedHash = sha256(matcher.group(2));
                 ClientRecord client = jdbc.query("SELECT client_key, client_type, credential_sha256 "
-                                + "FROM api_client WHERE id=? AND status='active' AND client_type='connector' "
+                                + "FROM api_client WHERE id=? AND status='active' "
                                 + "AND (expires_at IS NULL OR expires_at > UTC_TIMESTAMP(3))",
                         rs -> rs.next() ? new ClientRecord(rs.getString("client_key"), rs.getString("client_type"),
                                 rs.getString("credential_sha256")) : null, clientId);

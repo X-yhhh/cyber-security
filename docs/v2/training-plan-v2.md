@@ -415,6 +415,39 @@ Optuna 已以 `optuna==5.0.0` 加入依赖（提交 `bfc358f`）。
    - 公共特征只用 `datasets.COMMON_FEATURES` 中定义的 9 个（时长、双向字节/包、TTL 最小/最大、每包字节数）。协议和端口在两个数据集中的编码不同（D1 是字符串，D2 是协议号），不做强行映射；
    - 输出一张 2×2 矩阵表（Macro-F1 / ROC-AUC）。预期跨数据集的性能会明显下降，这一点正好支撑"模型只对其训练分布负责"的说明。
 
+### 8.1 实现（2026-09-27）
+
+- 代码 `src/cyber_training/v2/final_eval.py`，分两个阶段，中间必须提交冻结文件：
+  - `v2 final-eval --final-stage freeze`：不读取任何 holdout。校验 T1/T2 候选制品的 SHA-256，在验证分区上用 CPU 推理复现候选记录的验证指标（容差 1e-3），写入 `docs/v2/pre-final-freeze.json`（模型/预处理器哈希、阈值、特征顺序、切分指纹、门槛）。已有冻结文件时拒绝覆盖。
+  - `v2 final-eval --unlock-holdout --candidate XGBoost`：要求冻结文件已提交且与 HEAD 一致、manifest/切分审计/制品哈希未变、同一切分的 holdout 在 `runs/holdout-audit.jsonl` 中从未解锁；写追加式解锁记录后，T1 在 D1 原始 holdout 上、T2 在子集官方测试文件上各评估一次，T3 做 2×2 泛化。T3 失败不影响判定，可用 `--final-stage generalization --resume <运行目录>` 补跑。
+- `preprocessor.pkl` 只在 SHA-256 与冻结记录一致后才反序列化（本仓库第 8/8b 步生成）。
+- T3 模型：计划写"LightGBM，参数使用 §7 调优得到的参数"，但第 8 步没有调优 LightGBM（初筛前 3 名是 XGBoost/RF/ET），因此沿用 T1 初筛参数；判定阈值 0.5。
+
+### 8.2 实际结果（运行 `final-eval-20260927-1800`，第 1 次尝试，冻结提交 `bb25a99`）
+
+冻结：T1 XGBoost（阈值 0.308187）与 T2 LightGBM（类权重）的验证指标在 CPU 上完全复现（最大误差 1.6e-9），CPU 上重选阈值与冻结阈值相同。
+
+T1 验收判定（holdout 300,494 行，攻击 12,108 行，4.03%）：
+
+| 指标 | 门槛 | holdout | 结果 |
+|---|---|---:|---|
+| Macro-F1 | ≥ 0.92 | 0.9362 | 通过 |
+| FNR | ≤ 5% | 4.88% | 通过 |
+| FPR | ≤ 1.5% | 0.91% | 通过 |
+| PR-AUC | ≥ 0.93 | 0.9747 | 通过 |
+| ROC-AUC | ≥ 0.99 | 0.9988 | 通过 |
+| 多种子 FNR 标准差（验证集） | ≤ 2% | 0.00% | 通过 |
+| 延迟 P95 / 吞吐 / ONNX 误差 | 见 §1 | — | 第 10 步判定 |
+
+**第 9 步判定：通过**（`final-verdict.json` 中 `deliverable = pending_export`，第 10 步门槛通过后才可交付）。
+
+- 其余指标：Accuracy 0.9893、Precision 0.815、Recall 0.951、Weighted-F1 0.990、Specificity 0.991、MCC 0.875；混淆矩阵 TN 285,774 / FP 2,612 / FN 591 / TP 11,517。
+- FNR 余量小：holdout FNR 4.88%，离 5% 门槛只有 0.12 个百分点（验证集为 4.00%）。阈值敏感性显示阈值 0.30→0.35 时 FNR 从 4.70% 升到 5.79%，工作点对阈值较敏感；后端必须严格使用冻结阈值，不得自行调整。
+- 按类别：Exploits、Generic、Reconnaissance、DoS、Shellcode、Backdoor、Worms 检出率 ≥ 98.5%；漏报集中在 Fuzzers（535 条，检出率 81.1%）和 Analysis（27 条，76.7%），两者合计占全部 591 条漏报的 95%。
+- T2（官方测试文件 82,332 行，只作研判参考）：Macro-F1 0.524（验证集 0.600）、Weighted-F1 0.751、Balanced Accuracy 0.637。Normal 召回率只有 0.64（大量 Normal 被判为 Fuzzers 等攻击类），Analysis/Backdoor 的 Precision 不足 0.06。这说明 T2 只能在 T1 判为攻击之后作类别参考，不能单独使用。
+- T3（Macro-F1 / ROC-AUC，阈值 0.5）：D1→D1 0.940 / 0.998、D2→D2 0.973 / 0.994；D1→D2 0.510 / 0.681、D2→D1 0.483 / 0.244。跨数据集接近或低于随机（D2→D1 的 AUC 0.244 表示排序方向相反），与 EDA 中 KS 0.56～0.77 的分布差异一致，支撑"模型只对其训练分布负责"。
+- holdout 已消耗（解锁记录 4 条：D1 原始 holdout、子集官方测试文件、D2 holdout、T3 读取 D1 公共特征）。之后若回到第 7～8 步，必须按 §4.3 换种子重新切分。
+
 ## 9. 第 10 步：导出与交付
 
 命令：`v2 export --candidate <model>`
@@ -447,7 +480,7 @@ Optuna 已以 `optuna==5.0.0` 加入依赖（提交 `bfc358f`）。
 | 7 特征对比 | `v2 feature-compare` | 约 20 分钟（24 次 + 1 个 TTL 诊断） | 特征对比表 | 代码 + 表格 |
 | 8 训练调优 | `v2 train --stage screen/tune/seeds` | 初筛约 1 小时 + 调优 ≤ 3 小时 + 复现 ≤ 1 小时（实测合计约 1.3 小时） | 模型对比表 | 代码 + 表格 |
 | 8b 多分类 | `v2 train-multiclass` | ≤ 30 分钟（实测约 2.5 分钟） | 多分类报告 | 代码 |
-| 9 锁定评估 | `v2 final-eval` | 20 分钟 | final-verdict | freeze + verdict |
+| 9 锁定评估 | `v2 final-eval` | 20 分钟（实测约 1 分钟） | final-verdict | freeze + verdict |
 | 10 导出交付 | `v2 export` | 30 分钟 | delivery/ | manifest 摘要 |
 
 每一步都需要新增单元测试，至少覆盖：

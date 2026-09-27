@@ -1,4 +1,4 @@
-# v2 第 3～8b 步证据摘录
+# v2 第 3～9 步证据摘录
 
 本目录从 Git 忽略的 `runs/` 中复制小体积、已审查（不含 IP、主机绝对路径、权重或原始数据）的证据文件，
 文件名前缀为来源运行目录。原运行目录的完整产物与 `checksums.json` 保留在训练主机。
@@ -8,6 +8,7 @@ register → 061486a（代码提交于 bfc358f），split → bfc358f（代码�
 eda / preprocess → 7a825a7（代码提交于 7a825a7 / f9f11ac）。从第 7 步起改为先提交、再运行：feature-20260927-1249 记录提交 0a5f1c5（dirty=true 仅因当时未跟踪的 CLAUDE.md，代码与提交一致）。
 第 8 步三个运行（train-screen-20260927-1354、train-tune-20260927-1425、train-seeds-20260927-1458）记录提交 bc0df4e 且 dirty=true：代码先运行、后提交，训练代码提交于本次归档提交。三个运行都用 `--resume` 补跑或重生成过报告（初筛补跑 DT/RF/ET；调优与复现只重写选择 JSON 以去掉主机路径），逐次结果 CSV 保留全部原始行。`train-seeds-20260927-1458-candidate.json` 只含候选模型的参数、阈值、特征列与文件哈希，模型权重与预处理器不提交。
 第 8b 步运行 train-multiclass-20260927-1632 记录提交 22f7a0a 且 dirty=true：代码先运行、后提交，多分类代码提交于本次归档提交。`train-multiclass-20260927-1632-candidate.json` 只含 T2 候选模型的参数、类别映射、特征列与文件哈希，模型与预处理器不提交；官方测试文件未读取。
+第 9 步运行 final-eval-20260927-1800 记录提交 bb25a99（dirty=false）：代码与冻结文件 `docs/v2/pre-final-freeze.json` 在解锁前已提交。`final-eval-20260927-1800-holdout-audit.jsonl` 是训练主机 `runs/holdout-audit.jsonl` 的副本，记录全部 holdout 解锁事件。
 
 | 文件 | SHA-256 |
 |---|---|
@@ -46,3 +47,16 @@ eda / preprocess → 7a825a7（代码提交于 7a825a7 / f9f11ac）。从第 7 �
 | `train-multiclass-20260927-1632-multiclass-runs.csv` | `9bbf65627540701044f524dcc6e10578dc95f6c1cc06bb57bfaf089ba129ea77` |
 | `train-multiclass-20260927-1632-multiclass-selection.json` | `3e1b2fff0417dfd1ccba21c2c505b0bd35a92af67233dc02eaea03f4d3db7c32` |
 | `train-multiclass-20260927-1632-per-class-LightGBM-cw.csv` | `44d145fb2a493bc2cc4ff7aedb5eab9f896dae23311450dfc9d3a3230873dea8` |
+| `final-eval-20260927-1800-final-evaluation.md` | `5a59d659ae36880f34edcb4785e5db0dcd42884eb97d378c712fec183ef65272` |
+| `final-eval-20260927-1800-final-verdict.json` | `eaa37954cce2fb7df129bab03f1e3b525e253b06b9a60855fecb59c8debae5a3` |
+| `final-eval-20260927-1800-generalization.csv` | `f982d3f331304dda77f61cb3dcd899a2bc2ee9bae24169f55155d560c8454ea2` |
+| `final-eval-20260927-1800-holdout-audit.jsonl` | `342d0ba7547e06a0887f3d4f108f7dd5d679b738489be87669cb9d02eb87c314` |
+| `final-eval-20260927-1800-t1-holdout-category-recall.csv` | `d850c8385d204a68bf59d6cc6b36b70a851faa86b0c6479c1d9a1b386cb34503` |
+| `final-eval-20260927-1800-t1-holdout-metrics.json` | `be14e29baaacbc13a4fecda0bdb4b7758206315332e56fc9481afc83afc31721` |
+| `final-eval-20260927-1800-t1-roc-pr.png` | `5cf63e646cbf561df8213b9634d89ceeabdc6e24c9062641814458a61b6ade76` |
+| `final-eval-20260927-1800-t1-threshold-sensitivity.csv` | `b41f3a31fc055c0e4672a676947ea10269a0d500057bd955aca351d44059973d` |
+| `final-eval-20260927-1800-t1-threshold-sensitivity.png` | `bbeb97cd53eb231d907c5b885686c3f6fd6bb44f3797ceb96003b4245c3b8d99` |
+| `final-eval-20260927-1800-t2-test-confusion.csv` | `54d171dea6f56634a774fdde4b001d15d1e0b1a6c6125eb45787c81c56ad6870` |
+| `final-eval-20260927-1800-t2-test-confusion.png` | `5fccfb48aca9bd857dddeb9355cb2e7a4aed8465b1032a606274bdfb8d16a27c` |
+| `final-eval-20260927-1800-t2-test-metrics.json` | `99271124fef55aba49cc85c9a53f48ca8025a64de30a06789bea8e2245a80636` |
+| `final-eval-20260927-1800-t2-test-per-class.csv` | `05d0c57ab667cbc1b73c26b844ab9faad0d68dbcb22afca9d5425514c8bb1541` |

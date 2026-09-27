@@ -25,7 +25,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--final-stage", choices=("freeze", "evaluate", "generalization"), default="evaluate",
                         help="final-eval：freeze 冻结候选（不读 holdout）；evaluate 锁定评估；generalization 补跑 T3")
     parser.add_argument("--unlock-holdout", action="store_true", help="final-eval evaluate/generalization：显式解锁 holdout")
-    parser.add_argument("--candidate", help="final-eval：T1 候选模型名，必须与冻结记录一致")
+    parser.add_argument("--candidate", help="final-eval / export：T1 候选模型名，必须与冻结记录一致")
+    parser.add_argument("--model-version", help="export：交付版本号（缺省 2026.09.0），目录为 delivery/unsw-binary-<版本>")
     args = parser.parse_args(argv)
     if args.step in SIMPLE:
         print(import_module(f".{SIMPLE[args.step]}", __package__).run())
@@ -84,6 +85,14 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         print(final_eval.run_evaluate(args.unlock_holdout, candidate=args.candidate, resume=args.resume,
                                       only_generalization=args.final_stage == "generalization"))
+        return 0
+    if args.step == "export":
+        from . import export
+
+        kwargs = {"candidate": args.candidate}
+        if args.model_version:
+            kwargs["version"] = args.model_version
+        print(export.run(**kwargs))
         return 0
     print(f"step '{args.step}' is not implemented yet", file=sys.stderr)
     return 2

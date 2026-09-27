@@ -126,8 +126,16 @@ def test_d1_raw_blank_numeric_cells_become_missing(tmp_path, monkeypatch):
     assert data["attack_cat"].tolist() == ["Normal", "Normal", "Exploits"]
 
 
-def test_unimplemented_step_fails_explicitly():
-    assert main(["export"]) == 2
+def test_export_rejects_candidate_mismatch_before_any_work(monkeypatch):
+    """export 的候选与冻结记录不一致时直接拒绝；不读取数据、不写运行目录。"""
+    import pytest
+
+    from cyber_training.v2 import export
+    from cyber_training.v2.final_eval import FreezeError
+
+    monkeypatch.setattr(export, "load_freeze", lambda: ({"t1": {"model": "XGBoost"}}, "abc"))
+    with pytest.raises(FreezeError):
+        main(["export", "--candidate", "LightGBM"])
 
 
 def test_final_eval_without_unlock_flag_fails_closed():

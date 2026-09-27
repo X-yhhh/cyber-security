@@ -22,6 +22,7 @@ dist/
 # Training outputs and large artifacts
 runs/
 reports/generated/
+delivery/
 artifacts/
 checkpoints/
 models/

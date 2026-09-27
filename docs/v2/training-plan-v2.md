@@ -310,6 +310,33 @@ Optuna 已以 `optuna==5.0.0` 加入依赖（提交 `bfc358f`）。
 
 使用 D1 子集，以 LightGBM（objective=multiclass）和 XGBoost 作为主模型，RF 和 MLP 作为对照。类别不平衡用 class_weight 处理；对 Worms、Shellcode 等小类，比较"不重采样"与"SMOTE 到 5000 条"两种做法。不做超参搜索，直接复用 T1 调优得到的参数量级，预计 ≤ 30 分钟。报告 Macro/Weighted F1、Balanced Accuracy、每类召回率和混淆矩阵。只在官方测试部分上锁定评估一次。
 
+实现（2026-09-27）：代码 `src/cyber_training/v2/multiclass.py`，运行目录 `train-multiclass-*`，`--resume` 续跑时跳过已成功的组合。
+- 数据：官方训练文件按第 5 步 `split-d1-subset.npz` 分为训练 149,039 行、验证 26,302 行（读取前校验该文件 SHA-256 与切分审计一致）；特征为 V0 的 42 列（与子集同名）；类别按固定顺序编码，出现契约外类别即终止。官方测试文件不被读取。
+- 预处理：LightGBM/XGBoost/RF 用 P1，MLP 用 P7，只在真实训练行上拟合。
+- 类权重：样本权重 n / (k·n_c)，各类权重和相等；早停看验证分区的未加权 mlogloss。
+- SMOTE：训练分区中少于 5,000 条的 4 个类（Analysis、Backdoor、Shellcode、Worms）用 SMOTE-NC（k=5）合成到 5,000 条，合成在 signed log1p 数值空间进行、类别列取名义近邻，逆变换回原单位，整数列取整；合成行只追加到训练矩阵，同样使用类权重。
+- 参数：XGBoost（多分类 softprob）、RF、MLP 复用 T1 调优参数，LightGBM 在 T1 未调优，复用 T1 初筛参数。判定取 argmax。
+- 选型：验证集 Macro-F1 最高；差距 ≤ 0.003 时优先不用 SMOTE，再按 Balanced Accuracy。选中组合以主种子重训保存到 `candidate/`（模型、预处理器、类别映射、文件哈希），供第 9 步锁定评估。
+
+实际结果（运行 `train-multiclass-20260927-1632`，8 个组合全部成功，合计约 2.5 分钟）：
+
+| 组合 | Macro-F1 | Weighted-F1 | Balanced Acc. | 最小类召回率 |
+|---|---:|---:|---:|---:|
+| LightGBM（类权重） | **0.600** | 0.804 | 0.642 | 0.191 |
+| LightGBM（+SMOTE） | 0.597 | **0.815** | 0.662 | 0.206 |
+| XGBoost（类权重） | 0.580 | 0.787 | 0.665 | 0.221 |
+| RF（类权重） | 0.579 | 0.797 | 0.651 | 0.191 |
+| XGBoost（+SMOTE） | 0.572 | 0.794 | **0.685** | 0.229 |
+| RF（+SMOTE） | 0.567 | 0.802 | 0.675 | 0.221 |
+| MLP（+SMOTE） | 0.526 | 0.772 | 0.673 | **0.344** |
+| MLP（类权重） | 0.507 | 0.762 | 0.675 | 0.240 |
+
+- 选定 **LightGBM（类权重）**：与 LightGBM + SMOTE 差 0.003，按规则优先不用 SMOTE。
+- 主要困难在 Analysis / Backdoor / DoS / Exploits 四类：选中模型验证集召回率分别为 0.22、0.19、0.29、0.53，混淆矩阵显示它们之间大量互相误判（例如 DoS 被判为 Backdoor 664 条、Analysis 448 条）。这四类在子集的流特征上难以区分；Generic（0.98）、Shellcode（0.89）、Fuzzers（0.86）、Normal（0.87）较好。
+- SMOTE 使 3 个树模型的 Macro-F1 下降 0.003～0.012、Balanced Accuracy 上升约 0.02，Analysis/Backdoor 召回率小幅上升；LightGBM 与 XGBoost 的 Worms 召回率下降（验证集只有 19 条，波动大）。MLP 的 Macro-F1 +0.020，但 Backdoor 召回率 −0.36，且仍是最低的一组。
+- Normal 召回率 0.87：平衡类权重把部分 Normal 推向 Fuzzers（989 条）。T2 不承担攻击/正常判定（由 T1 负责），这个误判不影响处置，但作为研判参考输出时应先经 T1 判为攻击再看 T2 类别。
+- 验证集只用于选型，且早停使用了验证集，最终以第 9 步在官方测试文件上的一次锁定评估为准。
+
 ### 7.6 实现细节（2026-09-27 确认）
 
 - 代码 `src/cyber_training/v2/train.py`，三个阶段各写一个运行目录：`train-screen-*`、`train-tune-*`、`train-seeds-*`；后一阶段缺省读取前一阶段的最新目录（可用 `--source` 指定），`--resume` 续跑时跳过已成功的行。
@@ -419,7 +446,7 @@ Optuna 已以 `optuna==5.0.0` 加入依赖（提交 `bfc358f`）。
 | 6 预处理对比 | `v2 preprocess-compare` | 40～60 分钟（108 次） | 对比表 + 热力图 | 代码 + 表格 |
 | 7 特征对比 | `v2 feature-compare` | 约 20 分钟（24 次 + 1 个 TTL 诊断） | 特征对比表 | 代码 + 表格 |
 | 8 训练调优 | `v2 train --stage screen/tune/seeds` | 初筛约 1 小时 + 调优 ≤ 3 小时 + 复现 ≤ 1 小时（实测合计约 1.3 小时） | 模型对比表 | 代码 + 表格 |
-| 8b 多分类 | `v2 train-multiclass` | ≤ 30 分钟 | 多分类报告 | 代码 |
+| 8b 多分类 | `v2 train-multiclass` | ≤ 30 分钟（实测约 2.5 分钟） | 多分类报告 | 代码 |
 | 9 锁定评估 | `v2 final-eval` | 20 分钟 | final-verdict | freeze + verdict |
 | 10 导出交付 | `v2 export` | 30 分钟 | delivery/ | manifest 摘要 |
 

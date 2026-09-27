@@ -1,4 +1,4 @@
-# v2 第 3～8 步证据摘录
+# v2 第 3～8b 步证据摘录
 
 本目录从 Git 忽略的 `runs/` 中复制小体积、已审查（不含 IP、主机绝对路径、权重或原始数据）的证据文件，
 文件名前缀为来源运行目录。原运行目录的完整产物与 `checksums.json` 保留在训练主机。
@@ -7,6 +7,7 @@
 register → 061486a（代码提交于 bfc358f），split → bfc358f（代码提交于 7a825a7），
 eda / preprocess → 7a825a7（代码提交于 7a825a7 / f9f11ac）。从第 7 步起改为先提交、再运行：feature-20260927-1249 记录提交 0a5f1c5（dirty=true 仅因当时未跟踪的 CLAUDE.md，代码与提交一致）。
 第 8 步三个运行（train-screen-20260927-1354、train-tune-20260927-1425、train-seeds-20260927-1458）记录提交 bc0df4e 且 dirty=true：代码先运行、后提交，训练代码提交于本次归档提交。三个运行都用 `--resume` 补跑或重生成过报告（初筛补跑 DT/RF/ET；调优与复现只重写选择 JSON 以去掉主机路径），逐次结果 CSV 保留全部原始行。`train-seeds-20260927-1458-candidate.json` 只含候选模型的参数、阈值、特征列与文件哈希，模型权重与预处理器不提交。
+第 8b 步运行 train-multiclass-20260927-1632 记录提交 22f7a0a 且 dirty=true：代码先运行、后提交，多分类代码提交于本次归档提交。`train-multiclass-20260927-1632-candidate.json` 只含 T2 候选模型的参数、类别映射、特征列与文件哈希，模型与预处理器不提交；官方测试文件未读取。
 
 | 文件 | SHA-256 |
 |---|---|
@@ -38,3 +39,10 @@ eda / preprocess → 7a825a7（代码提交于 7a825a7 / f9f11ac）。从第 7 �
 | `train-tune-20260927-1425-tune-best.csv` | `759aca822226705854cd727bb002a7c92f6f5f9ef13df8a64e538b63ab3f1564` |
 | `train-tune-20260927-1425-tune-selection.json` | `887124d77792945110743898c06ecf09a5c5b6d9361eaa24c97e7e44ba746400` |
 | `train-tune-20260927-1425-tune-trials.csv` | `added103a5f74e9b2d6afc882283d9f328ab7ede4dd731f6c1b8bfbd469fc2d4` |
+| `train-multiclass-20260927-1632-candidate.json` | `d63459266f58311bb710aa73980f0ba85f1786dd7884a0b34c3b660c0bb1840d` |
+| `train-multiclass-20260927-1632-confusion-LightGBM-cw.csv` | `396410e3e3ad85b963624e400a8fc504008bdec8f147cc6cb3661c30b90ef8b7` |
+| `train-multiclass-20260927-1632-confusion-selected.png` | `2e9ecb7685a28b2258f89f1b0f6eb227caf28cad0c3fc31e017d172ad08ca6e2` |
+| `train-multiclass-20260927-1632-multiclass-report.md` | `0a94a2a0cf94d7c60853796e2d83e2ae1d25bdc0395bb9125c6008d97500cd30` |
+| `train-multiclass-20260927-1632-multiclass-runs.csv` | `9bbf65627540701044f524dcc6e10578dc95f6c1cc06bb57bfaf089ba129ea77` |
+| `train-multiclass-20260927-1632-multiclass-selection.json` | `3e1b2fff0417dfd1ccba21c2c505b0bd35a92af67233dc02eaea03f4d3db7c32` |
+| `train-multiclass-20260927-1632-per-class-LightGBM-cw.csv` | `44d145fb2a493bc2cc4ff7aedb5eab9f896dae23311450dfc9d3a3230873dea8` |

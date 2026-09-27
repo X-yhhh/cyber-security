@@ -1,3 +1,5 @@
+import { loadSession, session } from '@/api/session'
+import { setUnauthorizedHandler } from '@/api/client'
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 
 /**
@@ -35,6 +37,19 @@ export const router = createRouter({
   history: createWebHistory(),
   routes,
   scrollBehavior: (_to, _from, saved) => saved ?? { top: 0 },
+})
+
+/** 控制台路由要求有效会话；会话以 /auth/me 为准，首次进入时加载一次。 */
+router.beforeEach(async (to) => {
+  if (to.matched.some((r) => r.meta.shell === 'console')) {
+    if (!session.checked || !session.user) await loadSession()
+    if (!session.user) return { name: 'login', query: { redirect: to.fullPath } }
+  }
+})
+
+setUnauthorizedHandler(() => {
+  session.user = null
+  if (router.currentRoute.value.name !== 'login') router.push({ name: 'login', query: { redirect: router.currentRoute.value.fullPath } })
 })
 
 router.afterEach((to) => {

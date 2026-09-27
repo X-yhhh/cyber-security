@@ -1,6 +1,6 @@
 import { reactive } from 'vue'
 
-/** 轻量提示队列。演示界面所有写操作都只在本地生效，由提示如实告知。 */
+/** 轻量提示队列：写操作结果（成功或后端脱敏错误）由提示如实告知。 */
 export interface Toast { id: number; text: string; tone: 'info' | 'warn' | 'threat' }
 
 export const toasts = reactive<Toast[]>([])

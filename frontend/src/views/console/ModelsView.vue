@@ -1,173 +1,215 @@
 <script setup lang="ts">
 /**
- * 模型治理：版本（发布流水线）、漂移与反馈、离线训练三段。
- * 发布必须逐级经过 候选 → 已校验 → 影子 → 已批准 → 活动，不允许跳级；
- * 漂移只产生观察告警，不自动改阈值或权重。
+ * 模型治理：版本与发布、漂移与反馈、离线训练三段。
+ * 版本与 manifest 来自 /models（按 model_registry 范围过滤），发布记录与部署来自各自台账。
+ * 页面提供制品校验、发布申请、发布审批与本机激活四个命令，全部由后端校验门禁与职责分离；
+ * 漂移只展示观察结果，不自动改阈值或权重。
  */
-import { computed, reactive, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import PageHead from '@/components/PageHead.vue'
 import Segmented from '@/components/Segmented.vue'
 import Tag from '@/components/Tag.vue'
-import { driftWindows, feedback, models as seed, releaseStages, stageLabel, trainingJobs } from '@/data/demo'
+import LoadState from '@/components/LoadState.vue'
+import { api, type Page } from '@/api/client'
+import { can, session } from '@/api/session'
+import { fmtTime, modelStageLabel, type DeploymentView, type DriftView, type FeedbackView, type ModelView, type ReleaseView, type TrainingJobView } from '@/api/types'
+import { statusTone } from '@/data/tones'
 import { toast } from '@/composables/toast'
-import { vReveal } from '@/composables/reveal'
+import { errText, useLoad } from '@/composables/load'
 
-const list = reactive(structuredClone(seed))
+const { data, loading, error, reload } = useLoad(async () => {
+  if (!can('model.validation.read')) throw new Error('当前身份没有模型治理查看权限（model.validation.read），平台管理员与模型治理按职责分离。')
+  const [models, deployments, drift, feedback, jobs] = await Promise.all([
+    api.get<Page<ModelView>>('/models?size=100').then((p) => p.items),
+    api.get<DeploymentView[]>('/model-deployments'),
+    api.get<DriftView[]>('/model-drift-windows'),
+    api.get<FeedbackView[]>('/feedback-samples'),
+    api.get<TrainingJobView[]>('/training-jobs'),
+  ])
+  return { models, deployments, drift, feedback, jobs }
+}, { models: [] as ModelView[], deployments: [] as DeploymentView[], drift: [] as DriftView[], feedback: [] as FeedbackView[], jobs: [] as TrainingJobView[] })
+
 const tab = ref<'versions' | 'drift' | 'training'>('versions')
-const sel = ref(list[0].version)
-const m = computed(() => list.find((x) => x.version === sel.value)!)
-const stageIdx = computed(() => releaseStages.indexOf(m.value.stage))
+const selId = ref<number | null>(null)
+watch(() => data.value.models, (l) => { if (l.length && !l.some((x) => x.id === selId.value)) selId.value = l[0].id })
+const m = computed(() => data.value.models.find((x) => x.id === selId.value))
+const deployment = computed(() => data.value.deployments.find((d) => d.modelVersionId === m.value?.id && d.status === 'active'))
 
-const nextAction = computed(() => {
-  switch (m.value.stage) {
-    case 'candidate': return { label: '提交制品校验', perm: 'model.candidate.validate' }
-    case 'validated': return { label: '开始影子验证', perm: 'model.shadow' }
-    case 'shadow': return { label: '申请发布审批', perm: 'model.release.request' }
-    case 'approved': return { label: '激活为本机部署', perm: 'model.deployment.activate' }
-    default: return null
-  }
+const releases = ref<ReleaseView[]>([])
+watch(m, async (x) => {
+  releases.value = []
+  if (x) try { releases.value = await api.get<ReleaseView[]>(`/models/${x.id}/release-requests`) } catch { /* 无权限时留空 */ }
+})
+const pendingRelease = computed(() => releases.value.find((r) => r.reviewStatus === 'pending'))
+
+// manifest 中的评估指标；缺失字段显示为 —，不补值
+type Obj = Record<string, unknown>
+const man = computed(() => (m.value?.manifest ?? {}) as Obj)
+const holdout = computed(() => ((man.value.evaluation as Obj | undefined)?.holdout ?? {}) as Obj)
+const metric = (k: string) => (typeof holdout.value[k] === 'number' ? (holdout.value[k] as number).toFixed(4) : '—')
+const pick = (path: string) => path.split('.').reduce<unknown>((o, k) => (o && typeof o === 'object' ? (o as Obj)[k] : undefined), man.value)
+const str = (path: string) => { const v = pick(path); return v == null ? '—' : typeof v === 'object' ? JSON.stringify(v) : String(v) }
+const featureCount = computed(() => {
+  const f = pick('feature_contract.features') ?? pick('feature_contract.feature_order')
+  return Array.isArray(f) ? f.length : null
 })
 
-function advance() {
-  const cur = m.value
-  const i = releaseStages.indexOf(cur.stage)
-  if (cur.stage === 'candidate') cur.checks.forEach((c) => { c.ok = true; c.note = '通过' })
-  if (i < releaseStages.length - 1) {
-    if (releaseStages[i + 1] === 'active') list.forEach((x) => { if (x.stage === 'active') x.stage = 'retired' })
-    cur.stage = releaseStages[i + 1]
-    toast(`${cur.version} → ${stageLabel[cur.stage]}（本地演示，已记录审计）`)
-  }
+// 命令：每个按钮只在具备对应权限时出现，门禁与职责分离由后端判定
+const busy = ref(false)
+const reason = ref('')
+async function run(label: string, fn: () => Promise<unknown>) {
+  if (!reason.value.trim() && label !== '制品校验') return toast('请先填写操作理由。', 'warn')
+  busy.value = true
+  try {
+    await fn()
+    toast(`${label}已提交并写入审计。`)
+    reason.value = ''
+    await reload()
+    if (m.value) releases.value = await api.get<ReleaseView[]>(`/models/${m.value.id}/release-requests`).catch(() => [])
+  } catch (e) { toast(errText(e), 'threat') } finally { busy.value = false }
 }
-
-const maxPsi = Math.max(...driftWindows.map((w) => w.psi))
+const validate = () => run('制品校验', () => api.post(`/models/${m.value!.id}/validate`))
+const requestRelease = () => run('发布申请', () => api.post(`/models/${m.value!.id}/release-requests`, { reason: reason.value.trim() }))
+const decideRelease = (ok: boolean) => run(ok ? '发布批准' : '发布驳回', () => api.post(`/model-release-requests/${pendingRelease.value!.id}/decision`, { decision: ok ? 'approve' : 'reject', reason: reason.value.trim() }))
+const activate = () => run('本机激活', () => api.put('/model-deployments/active', { modelVersionId: m.value!.id, reason: reason.value.trim() }))
+const stages = ['candidate', 'validated', 'approved']
+const stageIdx = computed(() => (deployment.value ? 3 : stages.indexOf(m.value?.approvalStatus ?? '')))
+const allowed = computed(() => ({
+  validate: can('model.candidate.validate') && m.value?.approvalStatus === 'candidate',
+  request: can('model.release.request') && m.value?.approvalStatus === 'validated' && !pendingRelease.value,
+  decide: can('model.release.approve') && !!pendingRelease.value && pendingRelease.value.requester !== session.user?.username,
+  activate: can('model.deployment.activate') && m.value?.approvalStatus === 'approved' && !deployment.value,
+}))
 </script>
 
 <template>
   <div>
-    <PageHead no="04" title="模型治理" desc="在线检测期间权重保持冻结。再训练在 Windows 离线环境执行，经校验、影子验证与独立审批后才能激活。">
+    <PageHead no="04" title="模型治理" desc="在线检测期间权重保持冻结。再训练在 Windows 离线环境执行，经校验、独立审批后才能激活。">
       <template #kicker>Models</template>
     </PageHead>
 
-    <Segmented v-model="tab" :options="[{ value: 'versions', label: '版本与发布', count: list.length }, { value: 'drift', label: '漂移与反馈' }, { value: 'training', label: '离线训练', count: trainingJobs.length }]" />
+    <Segmented v-model="tab" :options="[{ value: 'versions', label: '版本与发布', count: data.models.length }, { value: 'drift', label: '漂移与反馈', count: data.drift.length }, { value: 'training', label: '离线训练', count: data.jobs.length }]" />
 
-    <Transition name="fade" mode="out-in">
-      <div v-if="tab === 'versions'" key="v" class="mt-10 grid gap-16 lg:grid-cols-[18rem_1fr]">
-        <ul class="border-t border-ink">
-          <li v-for="x in list" :key="x.version">
-            <button class="w-full border-b border-ink-hair py-4 text-left transition-colors" :class="sel === x.version ? 'text-ink' : 'text-ink-3 hover:text-ink'" @click="sel = x.version">
-              <span class="flex items-center gap-3"><span class="h-px transition-all duration-500" :class="sel === x.version ? 'w-4 bg-signal' : 'w-0'" /><span class="num text-[13px]">{{ x.version }}</span></span>
-              <span class="mt-1.5 flex items-center justify-between pl-0 text-[12px]" :class="sel === x.version ? 'pl-7' : ''">
-                <span>{{ x.task }}</span><Tag :tone="x.stage === 'active' ? 'ok' : x.stage === 'candidate' ? 'mute' : 'signal'" :label="stageLabel[x.stage]" />
-              </span>
-            </button>
-          </li>
-        </ul>
-
-        <Transition name="page" mode="out-in">
-          <section :key="m.version">
-            <div class="flex flex-wrap items-end justify-between gap-6">
-              <div>
-                <p class="label">{{ m.task }}</p>
-                <h2 class="num mt-3 text-[1.75rem] font-light tracking-[-0.02em]">{{ m.version }}</h2>
-              </div>
-              <button v-if="nextAction" class="act" @click="advance">{{ nextAction.label }}</button>
-            </div>
-
-            <!-- 发布流水线 -->
-            <ol class="mt-12 grid grid-cols-5">
-              <li v-for="(s, i) in releaseStages" :key="s" class="relative pt-5">
-                <span class="absolute left-0 right-0 top-0 h-px" :class="i <= stageIdx ? 'bg-ink' : 'bg-ink-line'" />
-                <span class="absolute left-0 top-[-3px] h-[7px] w-[7px] transition-colors duration-500" :class="i < stageIdx ? 'bg-ink' : i === stageIdx ? 'bg-signal' : 'border border-ink-line bg-paper'" />
-                <span class="text-[12.5px]" :class="i <= stageIdx ? 'text-ink' : 'text-ink-4'">{{ stageLabel[s] }}</span>
+    <LoadState :loading="loading" :error="error">
+      <Transition name="fade" mode="out-in">
+        <div v-if="tab === 'versions'" key="v" class="mt-10">
+          <p v-if="!data.models.length" class="py-16 text-center text-ink-3">当前授权范围内没有已登记的模型版本。</p>
+          <div v-else class="grid gap-16 lg:grid-cols-[18rem_1fr]">
+            <ul class="border-t border-ink">
+              <li v-for="x in data.models" :key="x.id">
+                <button class="w-full border-b border-ink-hair py-4 text-left transition-colors" :class="x.id === selId ? 'text-ink' : 'text-ink-3 hover:text-ink'" @click="selId = x.id">
+                  <span class="num block text-[13.5px]">{{ x.modelKey }} · {{ x.version }}</span>
+                  <span class="mt-1 flex items-center justify-between text-[12px]">
+                    <span>{{ x.taskType }}</span>
+                    <Tag :tone="data.deployments.some((d) => d.modelVersionId === x.id && d.status === 'active') ? 'ok' : statusTone[x.approvalStatus]" :label="data.deployments.some((d) => d.modelVersionId === x.id && d.status === 'active') ? '活动' : modelStageLabel[x.approvalStatus] ?? x.approvalStatus" />
+                  </span>
+                </button>
               </li>
-            </ol>
+            </ul>
+            <section v-if="m" :key="m.id">
+              <p class="label">{{ m.taskType }}</p>
+              <h2 class="num mt-3 text-[1.75rem] font-light tracking-[-0.02em]">{{ m.modelKey }} · {{ m.version }}</h2>
 
-            <div class="mt-14 grid grid-cols-2 gap-x-10 gap-y-10 md:grid-cols-4">
-              <div v-for="k in m.metrics" :key="k.name" class="border-t border-ink pt-4">
-                <p class="label">{{ k.name }}</p>
-                <p class="num mt-3 text-[1.75rem] font-light">{{ k.value }}</p>
-              </div>
-            </div>
-            <p class="mt-4 text-[12px] text-ink-3">指标来自锁定测试集的一次性最终评估。DoS 类识别仅代表该数据条件下的分类结果，不等于通用 DDoS 防护。</p>
+              <ol class="mt-12 grid grid-cols-4">
+                <li v-for="(s, i) in ['候选', '已校验', '已批准', '活动']" :key="s" class="relative pt-5">
+                  <span class="absolute left-0 right-0 top-0 h-px" :class="i <= stageIdx ? 'bg-ink' : 'bg-ink-line'" />
+                  <span class="absolute left-0 top-[-3px] h-[7px] w-[7px]" :class="i < stageIdx ? 'bg-ink' : i === stageIdx ? 'bg-signal' : 'border border-ink-line bg-paper'" />
+                  <span class="text-[12.5px]" :class="i <= stageIdx ? 'text-ink' : 'text-ink-4'">{{ s }}</span>
+                </li>
+              </ol>
 
-            <div class="mt-14 grid gap-14 xl:grid-cols-2">
-              <div>
-                <h3 class="label mb-4">Manifest</h3>
-                <dl class="border-t border-ink">
-                  <div v-for="[k, v] in [['运行时', m.runtime], ['数据 / 切分', m.dataset], ['特征', `${m.features} 项 · 顺序与单位固定`], ['阈值策略', m.threshold], ['登记', m.registeredAt]]" :key="k" class="grid grid-cols-[6.5rem_1fr] border-b border-ink-hair py-3 text-[13px]">
-                    <dt class="text-ink-3">{{ k }}</dt><dd>{{ v }}</dd>
-                  </div>
-                  <div class="grid grid-cols-[6.5rem_1fr] border-b border-ink-hair py-3 text-[13px]">
-                    <dt class="text-ink-3">SHA-256</dt><dd class="num break-all text-[11.5px] text-ink-2">{{ m.sha256 }}</dd>
-                  </div>
-                </dl>
+              <div class="mt-14 grid grid-cols-2 gap-x-10 gap-y-10 md:grid-cols-4">
+                <div v-for="k in ['pr_auc', 'mcc', 'fpr', 'fnr']" :key="k" class="border-t border-ink pt-4">
+                  <p class="label">{{ k.toUpperCase().replace('_', '-') }}</p>
+                  <p class="num mt-3 text-[1.75rem] font-light">{{ metric(k) }}</p>
+                </div>
               </div>
-              <div>
-                <h3 class="label mb-4">制品校验</h3>
-                <ul class="border-t border-ink">
-                  <li v-for="c in m.checks" :key="c.name" class="flex items-center justify-between border-b border-ink-hair py-3 text-[13px]">
-                    <span><span class="block">{{ c.name }}</span><span class="text-[12px] text-ink-3">{{ c.note }}</span></span>
-                    <Tag :tone="c.ok === null ? 'mute' : c.ok ? 'ok' : 'threat'" :label="c.ok === null ? '待校验' : c.ok ? '通过' : '失败'" />
-                  </li>
-                </ul>
-                <p class="mt-4 text-[12px] text-ink-3">校验失败的制品不可激活；不加载来源不明的 pickle / joblib。</p>
-              </div>
-            </div>
-          </section>
-        </Transition>
-      </div>
+              <p class="mt-4 text-[12px] text-ink-3">指标取自 manifest 中锁定测试集评估（{{ str('evaluation.holdout.rows') }} 行）。DoS 类识别不等于通用 DDoS 防护。</p>
 
-      <div v-else-if="tab === 'drift'" key="d" class="mt-10">
-        <section v-reveal>
-          <div class="mb-6 flex items-baseline justify-between">
-            <h2 class="text-[15px]">特征分布偏移 PSI · 24 小时</h2>
-            <span class="text-[12px] text-ink-3">阈值 0.10 · 超出仅创建观察告警</span>
+              <div class="mt-14 grid gap-14 xl:grid-cols-2">
+                <div>
+                  <h3 class="label mb-4">Manifest</h3>
+                  <dl class="border-t border-ink">
+                    <div v-for="[k, v] in [['运行时', `onnxruntime ${str('runtime.onnxruntime')} · ${str('runtime.execution_provider')}`], ['特征契约', `${m.featureContractVersion}${featureCount ? ' · ' + featureCount + ' 项' : ''}`], ['切分指纹', str('dataset.split_fingerprint')], ['阈值', `${str('decision.threshold')} · 不可调`], ['制品', m.artifactRef], ['SHA-256', m.artifactSha256], ['登记', fmtTime(m.createdAt)]]" :key="k" class="grid grid-cols-[6.5rem_1fr] border-b border-ink-hair py-3 text-[13px]">
+                      <dt class="text-ink-3">{{ k }}</dt><dd class="num break-all">{{ v }}</dd>
+                    </div>
+                  </dl>
+                </div>
+                <div>
+                  <h3 class="label mb-4">发布记录</h3>
+                  <ul class="border-t border-ink">
+                    <li v-for="r in releases" :key="r.id" class="border-b border-ink-hair py-3 text-[13px]">
+                      <p class="flex justify-between"><span>{{ r.requester ?? '—' }} → {{ r.approver ?? '待审批' }}</span><Tag :tone="statusTone[r.reviewStatus]" :label="r.reviewStatus" /></p>
+                      <p class="mt-1 text-[12px] text-ink-3">{{ r.requestReason ?? '—' }}</p>
+                      <p v-if="r.decisionReason" class="mt-1 text-[12px] text-ink-3">决定：{{ r.decisionReason }} · {{ fmtTime(r.reviewedAt) }}</p>
+                    </li>
+                    <li v-if="!releases.length" class="py-6 text-[13px] text-ink-3">暂无发布申请。</li>
+                  </ul>
+                  <p v-if="deployment" class="mt-6 text-[12.5px] text-ink-2">本机部署：{{ deployment.runtimeType }} · {{ deployment.mode }} · 激活于 {{ fmtTime(deployment.activatedAt) }}</p>
+                </div>
+              </div>
+
+              <div v-if="allowed.validate || allowed.request || allowed.decide || allowed.activate" class="mt-14 border-t border-ink pt-6">
+                <label class="block"><span class="label">操作理由</span><textarea v-model="reason" rows="2" maxlength="1000" class="field mt-2 h-auto resize-none py-2" /></label>
+                <div class="mt-6 flex flex-wrap gap-6">
+                  <button v-if="allowed.validate" class="act" :disabled="busy" @click="validate">提交制品校验</button>
+                  <button v-if="allowed.request" class="act" :disabled="busy" @click="requestRelease">申请发布审批</button>
+                  <template v-if="allowed.decide"><button class="link text-[13px]" :disabled="busy" @click="decideRelease(false)">驳回发布</button><button class="act" :disabled="busy" @click="decideRelease(true)">批准发布</button></template>
+                  <button v-if="allowed.activate" class="act" :disabled="busy" @click="activate">激活为本机部署</button>
+                </div>
+              </div>
+            </section>
           </div>
-          <div class="relative flex h-44 items-end gap-1.5 border-b border-ink">
-            <span class="absolute inset-x-0 border-t border-dashed border-warn" :style="{ bottom: (0.1 / maxPsi) * 100 + '%' }" />
-            <div v-for="w in driftWindows" :key="w.window" class="group relative flex-1">
-              <div class="w-full origin-bottom transition-colors duration-300" :class="w.psi > 0.1 ? 'bg-warn' : 'bg-ink-line group-hover:bg-ink'" :style="{ height: (w.psi / maxPsi) * 176 + 'px' }" />
-              <span class="num pointer-events-none absolute -top-6 left-1/2 -translate-x-1/2 whitespace-nowrap text-[10.5px] opacity-0 transition-opacity group-hover:opacity-100">{{ w.psi }}</span>
-            </div>
-          </div>
-          <div class="num mt-3 flex justify-between text-[10.5px] text-ink-4"><span>00:00</span><span>12:00</span><span>23:00</span></div>
-        </section>
-
-        <div class="mt-16 grid grid-cols-3 gap-10">
-          <div class="border-t border-ink pt-4"><p class="label">质量拒绝率峰值</p><p class="num mt-3 text-[1.75rem] font-light">{{ Math.max(...driftWindows.map((w) => w.rejectRate)) }}%</p></div>
-          <div class="border-t border-ink pt-4"><p class="label">传感器丢弃率峰值</p><p class="num mt-3 text-[1.75rem] font-light text-warn">{{ Math.max(...driftWindows.map((w) => w.dropRate)) }}%</p></div>
-          <div class="border-t border-ink pt-4"><p class="label">人工误报反馈</p><p class="num mt-3 text-[1.75rem] font-light">{{ driftWindows.reduce((s, w) => s + w.fpFeedback, 0) }}</p></div>
         </div>
-        <p class="mt-4 text-[12px] text-ink-3">16:00–19:00 偏移与 SNS-WIN-01 丢弃率同步上升，更可能是采集降级而非真实分布变化，需人工判断。</p>
 
-        <h2 class="mb-6 mt-20 text-[15px]">人工反馈样本</h2>
-        <table class="table">
-          <thead><tr><th>样本</th><th>来源告警</th><th>标签</th><th>依据</th><th>复核人</th><th>训练资格</th></tr></thead>
-          <tbody>
-            <tr v-for="f in feedback" :key="f.id">
-              <td class="num">{{ f.id }}</td><td class="num text-ink-2">{{ f.alertId }}</td><td class="num">{{ f.label }}</td>
-              <td class="text-ink-2">{{ f.basis }}</td><td class="text-ink-2">{{ f.reviewer }}</td>
-              <td><Tag :tone="f.eligible === null ? 'signal' : f.eligible ? 'ok' : 'mute'" :label="f.eligible === null ? '待审查' : f.eligible ? '可用' : '不纳入'" /></td>
-            </tr>
-          </tbody>
-        </table>
-        <p class="mt-4 text-[12px] text-ink-3">告警本身不作为真值；不使用伪标签，不做在线增量拟合。</p>
-      </div>
+        <div v-else-if="tab === 'drift'" key="d" class="mt-10">
+          <h2 class="mb-6 text-[15px]">漂移窗口</h2>
+          <table class="table">
+            <thead><tr><th>窗口</th><th>模型</th><th>数据源</th><th>质量拒绝率</th><th>状态</th></tr></thead>
+            <tbody>
+              <tr v-for="w in data.drift" :key="w.id">
+                <td class="num">{{ fmtTime(w.windowStart) }} — {{ fmtTime(w.windowEnd, false) }}</td>
+                <td class="num text-ink-2">{{ w.modelKey }} · {{ w.version }}</td>
+                <td class="num text-ink-2">#{{ w.dataSourceId }}</td>
+                <td class="num">{{ w.qualityRejectRate == null ? '—' : (Number(w.qualityRejectRate) * 100).toFixed(2) + '%' }}</td>
+                <td><Tag :tone="w.driftStatus === 'normal' ? 'ok' : 'warn'" :label="w.driftStatus" /></td>
+              </tr>
+              <tr v-if="!data.drift.length"><td colspan="5" class="py-12 text-center text-ink-3">数据库中暂无漂移统计窗口。</td></tr>
+            </tbody>
+          </table>
+          <p class="mt-4 text-[12px] text-ink-3">漂移统计由离线/在线窗口汇总写入；超出阈值仅创建观察告警，需人工判断是否由采集降级导致。</p>
 
-      <div v-else key="t" class="mt-10">
-        <table class="table">
-          <thead><tr><th>任务</th><th>数据集版本</th><th>申请人</th><th>审批人</th><th>产出</th><th>状态</th></tr></thead>
-          <tbody>
-            <tr v-for="j in trainingJobs" :key="j.id">
-              <td><span class="num block">{{ j.id }}</span><span class="text-[12px] text-ink-3">{{ j.createdAt }}</span></td>
-              <td class="text-ink-2">{{ j.dataset }}</td><td class="text-ink-2">{{ j.requester }}</td><td class="text-ink-2">{{ j.approver ?? '—' }}</td>
-              <td class="num text-ink-2">{{ j.output ?? '—' }}</td>
-              <td><Tag :tone="j.status === 'completed' ? 'ok' : j.status === 'failed' ? 'threat' : 'signal'" :label="{ requested: '待审批', approved: '已批准', queued: '排队', running: '运行中', completed: '完成', failed: '失败', cancelled: '取消' }[j.status]" /></td>
-            </tr>
-          </tbody>
-        </table>
-        <p class="mt-6 max-w-2xl text-[12.5px] leading-relaxed text-ink-3">训练在 Windows CUDA 离线环境执行，平台只登记任务与导入结果。训练输出始终是候选版本，不直接修改活动部署；候选失败不影响当前活动模型。</p>
-      </div>
-    </Transition>
+          <h2 class="mb-6 mt-20 text-[15px]">人工反馈样本</h2>
+          <table class="table">
+            <thead><tr><th>样本</th><th>来源告警</th><th>标签</th><th>依据</th><th>复核人</th><th>训练资格</th></tr></thead>
+            <tbody>
+              <tr v-for="f in data.feedback" :key="f.id">
+                <td class="num">#{{ f.id }}</td><td class="num text-ink-2">{{ f.alertKey ?? '—' }}</td><td class="num">{{ f.label }}</td>
+                <td class="text-ink-2">{{ f.labelSource }}</td><td class="text-ink-2">{{ f.reviewer ?? '—' }}</td>
+                <td><Tag :tone="f.trainingEligible ? 'ok' : 'mute'" :label="f.trainingEligible ? '可用' : '不纳入'" /></td>
+              </tr>
+              <tr v-if="!data.feedback.length"><td colspan="6" class="py-12 text-center text-ink-3">数据库中暂无人工反馈样本。</td></tr>
+            </tbody>
+          </table>
+          <p class="mt-4 text-[12px] text-ink-3">告警本身不作为真值；不使用伪标签，不做在线增量拟合。</p>
+        </div>
+
+        <div v-else key="t" class="mt-10">
+          <table class="table">
+            <thead><tr><th>任务</th><th>数据集版本</th><th>训练主机</th><th>申请人</th><th>产出</th><th>状态</th></tr></thead>
+            <tbody>
+              <tr v-for="j in data.jobs" :key="j.id">
+                <td><span class="num block">{{ j.jobKey }}</span><span class="text-[12px] text-ink-3">{{ fmtTime(j.startedAt) }} — {{ fmtTime(j.finishedAt) }}</span></td>
+                <td class="text-ink-2">{{ j.datasetVersion }}</td><td class="num text-ink-2">{{ j.trainHostRef ?? '—' }}</td><td class="text-ink-2">{{ j.requester }}</td>
+                <td class="num text-ink-2">{{ j.resultManifestRef ?? j.failureReason ?? '—' }}</td>
+                <td><Tag :tone="statusTone[j.status]" :label="j.status" /></td>
+              </tr>
+              <tr v-if="!data.jobs.length"><td colspan="6" class="py-12 text-center text-ink-3">数据库中暂无离线训练任务登记。</td></tr>
+            </tbody>
+          </table>
+          <p class="mt-6 max-w-2xl text-[12.5px] leading-relaxed text-ink-3">训练在 Windows CUDA 离线环境执行，平台只登记任务与导入结果。训练输出始终是候选版本，不直接修改活动部署。</p>
+        </div>
+      </Transition>
+    </LoadState>
   </div>
 </template>

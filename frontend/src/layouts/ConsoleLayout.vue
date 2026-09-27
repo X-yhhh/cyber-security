@@ -2,15 +2,32 @@
 /**
  * 控制台外壳：左侧文字导航（按功能模块），顶部仅保留面包屑与会话信息。
  * 不使用卡片化侧栏；当前模块由一条细线和墨色文字标识。
+ * 会话信息来自 /auth/me，顶栏状态来自 /health/ready 与传感器列表（无权限时不显示）。
  */
-import { computed } from 'vue'
-import { RouterLink, RouterView, useRoute } from 'vue-router'
+import { computed, onMounted, ref } from 'vue'
+import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
+import { api } from '@/api/client'
+import { can, logout, session } from '@/api/session'
+import type { SensorView } from '@/api/types'
 import { LogOut } from 'lucide-vue-next'
 import { modules } from '@/router'
 
 const route = useRoute()
 const active = computed(() => (route.meta.parent as string | undefined) ?? (route.name as string))
 const activeModule = computed(() => modules.find((m) => m.name === active.value))
+const router = useRouter()
+const ready = ref<boolean | null>(null)
+const degraded = ref<SensorView[]>([])
+onMounted(async () => {
+  try { await api.get('/health/ready'); ready.value = true } catch { ready.value = false }
+  if (can('sensor.read')) {
+    try { degraded.value = (await api.get<SensorView[]>('/sensors')).filter((x) => x.status !== 'active') } catch { /* 忽略 */ }
+  }
+})
+async function signOut() {
+  await logout()
+  router.push({ name: 'login' })
+}
 const index = computed(() => modules.findIndex((m) => m.name === active.value))
 </script>
 
@@ -40,9 +57,9 @@ const index = computed(() => modules.findIndex((m) => m.name === active.value))
       </nav>
 
       <div class="border-t border-ink-hair pt-5 text-[12px]">
-        <p class="text-ink">陈 · chen.analyst</p>
-        <p class="mt-1 text-ink-3">security_analyst</p>
-        <RouterLink to="/login" class="link mt-4 text-ink-3"><LogOut :size="13" :stroke-width="1.5" /> 退出</RouterLink>
+        <p class="text-ink">{{ session.user?.displayName }} · {{ session.user?.username }}</p>
+        <p class="mt-1 text-ink-3">{{ session.user?.roles.join(' · ') || '无角色' }}</p>
+        <button class="link mt-4 text-ink-3" @click="signOut"><LogOut :size="13" :stroke-width="1.5" /> 退出</button>
       </div>
     </aside>
 
@@ -57,9 +74,8 @@ const index = computed(() => modules.findIndex((m) => m.name === active.value))
           </template>
         </div>
         <div class="flex items-center gap-6 text-[12px] text-ink-3">
-          <span class="hidden items-center gap-2 md:flex"><span class="dot bg-ok" />控制面正常</span>
-          <span class="hidden items-center gap-2 md:flex"><span class="dot bg-warn" />SNS-WIN-01 降级</span>
-          <span class="num">演示数据 · 未连接后端</span>
+          <span v-if="ready !== null" class="hidden items-center gap-2 md:flex"><span class="dot" :class="ready ? 'bg-ok' : 'bg-threat'" />{{ ready ? '控制面正常' : '数据库不可用' }}</span>
+          <span v-for="x in degraded.slice(0, 2)" :key="x.id" class="hidden items-center gap-2 md:flex"><span class="dot bg-warn" />{{ x.agentKey }} {{ x.status }}</span>
         </div>
       </header>
 

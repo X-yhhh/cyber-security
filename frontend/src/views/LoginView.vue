@@ -1,15 +1,19 @@
 <script setup lang="ts">
 /**
  * 登录。左侧复用首屏粒子场景的"边界"形态作为品牌延续，右侧是极简表单。
- * 本轮不对接后端：提交后仅在前端校验非空并进入控制台，失败文案遵循
- * 接口设计中"错误稳定且脱敏"的约定（不区分用户名不存在与密码错误）。
+ * 提交到 /api/v1/auth/login 建立服务端会话；失败文案直接使用后端稳定且脱敏的消息
+ * （不区分用户名不存在与密码错误），并附带 request-id 便于排查。
  */
 import { onBeforeUnmount, onMounted, ref, shallowRef } from 'vue'
-import { RouterLink, useRouter } from 'vue-router'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
+import { login } from '@/api/session'
+import { ApiError } from '@/api/client'
 import { ArrowLeft, ArrowRight } from 'lucide-vue-next'
 import { ThreatScene } from '@/three/ThreatScene'
 
 const router = useRouter()
+const route = useRoute()
+const requestId = ref('')
 const canvas = ref<HTMLCanvasElement>()
 const scene = shallowRef<ThreatScene>()
 const username = ref('')
@@ -36,14 +40,25 @@ onBeforeUnmount(() => {
   scene.value?.dispose()
 })
 
-function submit() {
+async function submit() {
   error.value = ''
+  requestId.value = ''
   if (!username.value.trim() || !password.value) {
     error.value = '请输入用户名和密码。'
     return
   }
   busy.value = true
-  setTimeout(() => router.push({ name: 'overview' }), 500)
+  try {
+    await login(username.value.trim(), password.value)
+    password.value = ''
+    const to = typeof route.query.redirect === 'string' && route.query.redirect.startsWith('/console') ? route.query.redirect : '/console'
+    router.push(to)
+  } catch (e) {
+    error.value = e instanceof ApiError ? e.message : '登录失败，请稍后重试。'
+    requestId.value = e instanceof ApiError ? e.requestId ?? '' : ''
+  } finally {
+    busy.value = false
+  }
 }
 </script>
 
@@ -85,7 +100,7 @@ function submit() {
         <p class="mt-6 text-[12px] leading-relaxed text-ink-4">连续失败会触发持久限速。忘记密码请联系平台管理员。</p>
       </form>
 
-      <p class="num text-[11px] text-ink-4">SENTINEL · request-id 在错误时显示</p>
+      <p class="num text-[11px] text-ink-4">SENTINEL · {{ requestId ? `request-id ${requestId}` : 'request-id 在错误时显示' }}</p>
     </section>
   </main>
 </template>

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /** 大号指标：数字按进入视口时计数滚动，无卡片容器，靠上边线分组。 */
-import { onMounted, ref } from 'vue'
+import { onMounted, ref, watch } from 'vue'
 
 const props = defineProps<{ label: string; value: number; unit?: string; digits?: number; note?: string; tone?: 'threat' | 'signal' }>()
 const shown = ref(0)
@@ -22,6 +22,8 @@ onMounted(() => {
   })
   io.observe(el.value!)
 })
+// 数据异步到达后直接更新到新值
+watch(() => props.value, (v) => { shown.value = v })
 </script>
 
 <template>

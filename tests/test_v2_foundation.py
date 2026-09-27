@@ -127,4 +127,12 @@ def test_d1_raw_blank_numeric_cells_become_missing(tmp_path, monkeypatch):
 
 
 def test_unimplemented_step_fails_explicitly():
-    assert main(["train"]) == 2
+    assert main(["final-eval"]) == 2
+
+
+def test_train_requires_stage():
+    import pytest
+
+    with pytest.raises(SystemExit) as exc:
+        main(["train"])
+    assert exc.value.code == 2

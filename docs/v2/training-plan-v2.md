@@ -226,6 +226,28 @@ RF、MLP 各一张同版式表（表 2、表 3）。CSV 另外保留 FPR、FNR�
 
 输出 `feature-comparison.md` 表格（版式同 §5.3，列为 V0～V3），以及 V2 的特征重要性 Top-30 图。选择规则：以 Macro-F1 为准；如果 V3 与最优视图的差距不超过 0.002，优先选 V3（特征少、推理快）。选出的视图记为 `V*`。
 
+### 6.1 实际结果（run `feature-20260927-1249`，提交 `0a5f1c5`，27 次全部成功，用时约 7 分钟）
+
+验证集、阈值 0.5、3 个种子均值（种子标准差均 ≤ 0.0013）：
+
+| 视图 | 特征数 | RF Macro-F1 | LightGBM Macro-F1 | 均值 | RF PR-AUC | LightGBM PR-AUC |
+|---|---:|---:|---:|---:|---:|---:|
+| V0 | 42 | 0.9304 | 0.9308 | 0.9306 | 0.958 | 0.958 |
+| V1 | 43 | 0.9328 | 0.9328 | 0.9328 | 0.960 | 0.961 |
+| V2 | 50 | 0.9338 | 0.9332 | **0.9335** | 0.962 | 0.962 |
+| V3 | 32 | 0.9335 | 0.9314 | 0.9324 | 0.962 | 0.961 |
+
+V3 的构造（`feature-views.json`，在第一个种子的训练抽样上确定，其余种子复用）：
+- 冗余对去除 7 个：`is_ftp_login`、`trans_depth`、`dwin`、`dloss`、`spkts`、`synack`、`sinpkt`；再去除 `stcpb`、`dtcpb`；
+- 累计 gain 99% 之外去除 9 个：`state`、`dpkts`、`dttl`、`swin`、`response_body_len`、`ct_ftp_cmd`、`is_sm_ips_ports`、`dsport_bucket`、`ttl_diff`；
+- 保留 32 个：`dur`、`proto`、`service`、`sbytes`、`dbytes`、`rate`、`sttl`、`sload`、`dload`、`sloss`、`dinpkt`、`sjit`、`djit`、`tcprtt`、`ackdat`、`smean`、`dmean`、`ct_srv_src`、`ct_state_ttl`、`ct_dst_ltm`、`ct_src_dport_ltm`、`ct_dst_sport_ltm`、`ct_dst_src_ltm`、`ct_flw_http_mthd`、`ct_src_ltm`、`ct_srv_dst`、`sbytes_per_spkt`、`dbytes_per_dpkt`、`sbytes_dbytes_ratio`、`spkts_dpkts_ratio`、`synack_ackdat_diff`、`bytes_rate`。
+
+结论：
+- 特征工程带来的提升很小：V0 → V2 的 Macro-F1 均值只提高 0.003；`dsport` 分桶（V1）贡献约 0.002，比率/速率特征（V2）再加约 0.001。
+- V2 最高，V3 与其差距 0.0010（≤ 0.002），按规则选定 **`V*` = V3**（32 个特征，比 V2 少 36%）。需注意 LightGBM 单独看 V3 比 V2 低 0.0018，已接近容差。
+- 阈值 0.5 下各视图 FPR 约 0.6%、FNR 约 10%～11%，工作点问题留给第 8 步的验证集阈值选择。
+- TTL 依赖：V2 的 LightGBM gain 中 `sttl` 与 `ct_state_ttl` 合计约 80%，说明模型确实大量使用 UNSW 环境中的 TTL 特征；但 V4（V3 去掉 `sttl`、`ct_state_ttl`，`dttl` 在 V3 中已被去除）的 Macro-F1 为 0.934（V3 为 0.931），PR-AUC 0.962（V3 为 0.961），FNR 从 11.0% 升到 11.5%、FPR 从 0.63% 降到 0.56%。即去掉 TTL 后其他特征几乎完全替代其区分作用，TTL 是“高重要性但可替代”的特征。V4 不参与选型，第 8 步仍使用 V3，报告中需说明这一点。
+
 ## 7. 第 8 步：多模型训练与调优
 
 命令：`v2 train --stage screen` → `v2 train --stage tune` → `v2 train --stage seeds`

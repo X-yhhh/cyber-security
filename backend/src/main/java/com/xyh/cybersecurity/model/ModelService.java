@@ -29,10 +29,12 @@ public class ModelService {
 
     private final JdbcTemplate jdbc;
     private final ObjectMapper objectMapper;
+    private final OnnxModelManager onnx;
 
-    public ModelService(JdbcTemplate jdbc, ObjectMapper objectMapper) {
+    public ModelService(JdbcTemplate jdbc, ObjectMapper objectMapper, OnnxModelManager onnx) {
         this.jdbc = jdbc;
         this.objectMapper = objectMapper;
+        this.onnx = onnx;
     }
 
     public Page list(long userId, int page, int size) {
@@ -83,15 +85,15 @@ public class ModelService {
         String summary = validatedReason(reason);
         ModelRow model = findVisibleModel(actor.id(), modelId, "model.release.request");
         if (model == null) throw ApiRequestException.notFound();
-        if (!"candidate".equals(model.approvalStatus())) {
-            throw ApiRequestException.conflict("只有候选模型可提交审查");
+        if (!"validated".equals(model.approvalStatus())) {
+            throw ApiRequestException.conflict("模型必须先通过制品与 ONNX 契约校验");
         }
         if (jdbc.queryForObject("SELECT COUNT(*) FROM model_release_record WHERE model_version_id=? "
                 + "AND review_status='pending'", Integer.class, modelId) > 0) {
             throw ApiRequestException.conflict("该模型已有待审查申请");
         }
         jdbc.update("INSERT INTO model_release_record (model_version_id,release_status,review_status,requested_by,request_reason) "
-                + "VALUES (?,'candidate','pending',?,?)", modelId, actor.id(), summary);
+                + "VALUES (?,'validated','pending',?,?)", modelId, actor.id(), summary);
         long requestId = jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
         audit(actor.id(), "model.release.requested", "model_release_record", requestId, model.modelKey(), request,
                 "release metadata review requested");
@@ -112,27 +114,93 @@ public class ModelService {
         if (row.requestedBy() == actor.id()) {
             throw new AccessDeniedException("Release requester cannot review their own request");
         }
-        if (!"pending".equals(row.reviewStatus())) {
-            throw ApiRequestException.conflict("发布审查请求已被处理");
-        }
         if (!hasModelPermissionForUpdate(actor.id(), "model.release.approve", row.modelKey())) {
             throw ApiRequestException.notFound();
         }
+        // 兼容旧版本已记录独立批准、但尚未推进 release_status 的事务结果；修复仍须由同一审批人通过服务完成。
+        if ("approved".equals(row.reviewStatus()) && row.approvedBy() != null
+                && row.approvedBy() == actor.id() && "validated".equals(row.releaseStatus())) {
+            jdbc.update("UPDATE model_release_record SET release_status='approved' WHERE id=? "
+                    + "AND review_status='approved' AND approved_by=? AND release_status='validated'",
+                    requestId, actor.id());
+            audit(actor.id(), "model.release.approved.reconciled", "model_release_record", requestId,
+                    row.modelKey(), request, "completed approved release status transition");
+            return findRelease(requestId);
+        }
+        if (!"pending".equals(row.reviewStatus())) {
+            throw ApiRequestException.conflict("发布审查请求已被处理");
+        }
         String status = "approve".equals(decision) ? "approved" : "rejected";
-        int updated = jdbc.update("UPDATE model_release_record rr SET review_status=?,approved_by=?,decision_reason=?,"
-                        + "reviewed_at=UTC_TIMESTAMP(3) WHERE rr.id=? AND rr.review_status='pending' "
-                        + "AND rr.requested_by<>? AND EXISTS (SELECT 1 FROM model_version mv WHERE mv.id=rr.model_version_id "
-                        + "AND EXISTS (SELECT 1 FROM sys_user u JOIN sys_user_role ur ON ur.user_id=u.id "
+        int updated = jdbc.update("UPDATE model_release_record rr JOIN model_version mv ON mv.id=rr.model_version_id "
+                        + "SET rr.review_status=?,rr.approved_by=?,rr.decision_reason=?,rr.reviewed_at=UTC_TIMESTAMP(3),"
+                        + "rr.release_status=CASE WHEN ?='approved' THEN 'approved' ELSE rr.release_status END,"
+                        + "mv.approval_status=CASE WHEN ?='approved' THEN 'approved' ELSE 'rejected' END "
+                        + "WHERE rr.id=? AND rr.review_status='pending' AND rr.requested_by<>? "
+                        + "AND mv.approval_status='validated' AND EXISTS (SELECT 1 FROM sys_user u JOIN sys_user_role ur ON ur.user_id=u.id "
                         + "JOIN sys_role r ON r.id=ur.role_id AND r.status='active' "
                         + "JOIN sys_role_permission rp ON rp.role_id=r.id JOIN sys_permission p "
                         + "ON p.id=rp.permission_id AND p.status='active' WHERE u.id=? AND u.status='active' "
                         + "AND p.permission_key='model.release.approve' AND ur.scope_type='model_registry' "
-                        + "AND ur.scope_id=mv.model_key))",
-                status, actor.id(), summary, requestId, actor.id(), actor.id());
-        if (updated != 1) throw ApiRequestException.conflict("发布审查请求已被其他请求更新");
+                        + "AND ur.scope_id=mv.model_key)",
+                status, actor.id(), summary, status, status, requestId, actor.id(), actor.id());
+        // MySQL 多表 UPDATE 会同时计入发布审查记录和模型版本两行；0 行才表示请求已被并发处理。
+        if (updated < 1) throw ApiRequestException.conflict("发布审查请求已被其他请求更新");
         audit(actor.id(), "model.release." + status, "model_release_record", requestId, row.modelKey(), request,
-                "model lifecycle remains candidate");
+                "model release approval recorded; deployment requires separate activation");
         return findRelease(requestId);
+    }
+
+    /** 重新读取并核验 ONNX 制品后才记录验证状态；任何检查失败都保留 candidate。 */
+    @Transactional
+    public OnnxModelManager.ValidationResult validate(long modelId, IdentityPrincipal actor,
+                                                       HttpServletRequest request) {
+        ModelRow model = findVisibleModel(actor.id(), modelId, "model.candidate.validate");
+        if (model == null) throw ApiRequestException.notFound();
+        if (!"candidate".equals(model.approvalStatus())) throw ApiRequestException.conflict("只有候选状态可执行模型验证");
+        OnnxModelManager.ValidationResult result;
+        try { result = onnx.validate(model.view()); }
+        catch (RuntimeException exception) {
+            throw ApiRequestException.conflict("模型制品或 ONNX 契约校验失败");
+        }
+        int changed = jdbc.update("UPDATE model_version SET approval_status='validated' WHERE id=? "
+                + "AND approval_status='candidate' AND artifact_sha256=?", modelId, result.artifactSha256());
+        if (changed != 1) throw ApiRequestException.conflict("模型状态或制品摘要已变化，请重新读取");
+        audit(actor.id(), "model.candidate.validated", "model_version", modelId, model.modelKey(), request,
+                "model hash, manifest, ONNX contract and smoke inference passed");
+        return result;
+    }
+
+    /** 仅独立批准的模型可切换为本机活动部署；数据库提交后才切换内存运行时。 */
+    @Transactional
+    public DeploymentView activate(long modelId, String reason, IdentityPrincipal actor, HttpServletRequest request) {
+        String summary = validatedReason(reason);
+        ModelRow model = findVisibleModel(actor.id(), modelId, "model.deployment.activate");
+        if (model == null) throw ApiRequestException.notFound();
+        if (!"approved".equals(model.approvalStatus())) throw ApiRequestException.conflict("模型尚未通过独立发布审批");
+        int approvalCount = jdbc.queryForObject("SELECT COUNT(*) FROM model_release_record WHERE model_version_id=? "
+                + "AND review_status='approved' AND release_status IN ('approved','active','retired')", Integer.class, modelId);
+        if (approvalCount == 0) throw ApiRequestException.conflict("缺少已批准的发布审查记录");
+
+        OnnxModelRuntime prepared;
+        try { prepared = onnx.prepare(model.view()); }
+        catch (RuntimeException exception) { throw ApiRequestException.conflict("激活前模型制品复核失败"); }
+        try {
+            jdbc.query("SELECT id FROM model_deployment WHERE environment='local' FOR UPDATE", rs -> { while (rs.next()) { /* acquire environment deployment locks */ } });
+            jdbc.update("UPDATE model_deployment SET status='inactive' WHERE environment='local' AND status='active'");
+            jdbc.update("UPDATE model_release_record SET release_status='retired' "
+                    + "WHERE release_status='active' AND model_version_id<>?", modelId);
+            jdbc.update("INSERT INTO model_deployment (environment,mode,model_version_id,runtime_type,status,activated_at,activated_by) "
+                    + "VALUES ('local','local',?,'onnxruntime-java-1.23.2','active',UTC_TIMESTAMP(3),?)", modelId, actor.id());
+            jdbc.update("UPDATE model_release_record SET release_status='active',released_by=?,released_at=UTC_TIMESTAMP(3) "
+                    + "WHERE model_version_id=? AND review_status='approved' AND release_status='approved'", actor.id(), modelId);
+            audit(actor.id(), "model.deployment.activated", "model_version", modelId, model.modelKey(), request, summary);
+            onnx.activateAfterCommit(modelId, prepared);
+        } catch (RuntimeException exception) {
+            try { prepared.close(); } catch (Exception ignored) { }
+            throw exception;
+        }
+        return new DeploymentView(modelId, model.modelKey(), model.version(), "local", "active",
+                "onnxruntime-java-1.23.2", LocalDateTime.now());
     }
 
     private ModelRow findVisibleModel(long userId, long modelId, String permission) {
@@ -159,10 +227,12 @@ public class ModelService {
     }
 
     private ReleaseRow findReleaseRow(long id) {
-        return jdbc.query("SELECT rr.id,rr.model_version_id,rr.review_status,rr.requested_by,mv.model_key "
+        return jdbc.query("SELECT rr.id,rr.model_version_id,rr.review_status,rr.requested_by,rr.approved_by,"
+                        + "rr.release_status,mv.model_key "
                         + "FROM model_release_record rr JOIN model_version mv ON mv.id=rr.model_version_id WHERE rr.id=?",
                 rs -> rs.next() ? new ReleaseRow(rs.getLong("id"), rs.getLong("model_version_id"),
-                        rs.getString("review_status"), rs.getLong("requested_by"), rs.getString("model_key")) : null, id);
+                        rs.getString("review_status"), rs.getLong("requested_by"), rs.getObject("approved_by", Long.class),
+                        rs.getString("release_status"), rs.getString("model_key")) : null, id);
     }
 
     private boolean hasModelPermission(long userId, String permission, String modelKey) {
@@ -212,9 +282,12 @@ public class ModelService {
     private static void validateArtifactRef(String value) {
         try {
             URI uri = URI.create(value);
-            if (!"model".equals(uri.getScheme()) || uri.getHost() == null || uri.getPath() == null
-                    || uri.getPath().isBlank() || uri.getUserInfo() != null || uri.getQuery() != null
-                    || uri.getFragment() != null || value.length() > 512) throw new IllegalArgumentException();
+            if (!"model".equals(uri.getScheme()) || uri.getRawAuthority() == null
+                    || !uri.getRawAuthority().matches("[A-Za-z0-9._-]{1,128}") || uri.getPath() == null
+                    || uri.getPath().isBlank() || uri.getUserInfo() != null || uri.getPort() != -1
+                    || uri.getQuery() != null || uri.getFragment() != null || value.length() > 512) {
+                throw new IllegalArgumentException();
+            }
         } catch (RuntimeException exception) {
             throw ApiRequestException.badRequest("模型制品必须使用受控 model:// 引用");
         }
@@ -291,11 +364,14 @@ public class ModelService {
                               String requestReason, String decisionReason, LocalDateTime reviewedAt,
                               LocalDateTime createdAt) { }
     public record Page(long totalElements, int page, int size, List<ModelView> items) { }
+    public record DeploymentView(long modelVersionId, String modelKey, String version, String environment,
+                                 String status, String runtimeType, LocalDateTime activatedAt) { }
     private record ModelRow(long id, String modelKey, String version, String taskType, String manifestVersion,
                             String manifestJson, String artifactRef, String artifactSha256,
                             String featureContractVersion, String approvalStatus, LocalDateTime createdAt) {
         ModelView view() { return modelView(id, modelKey, version, taskType, manifestVersion, manifestJson,
                 artifactRef, artifactSha256, featureContractVersion, approvalStatus, createdAt); }
     }
-    private record ReleaseRow(long id, long modelVersionId, String reviewStatus, long requestedBy, String modelKey) { }
+    private record ReleaseRow(long id, long modelVersionId, String reviewStatus, long requestedBy, Long approvedBy,
+                              String releaseStatus, String modelKey) { }
 }

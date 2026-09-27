@@ -24,7 +24,7 @@ import java.util.List;
 
 import static com.xyh.cybersecurity.common.web.RequestIdFilter.REQUEST_ID_ATTRIBUTE;
 
-/** 只登记不可变模型元数据和独立发布审查，不加载制品或执行模型。 */
+/** 登记不可变模型元数据，并执行候选校验、独立发布审批和显式本机激活。 */
 @RestController
 @RequestMapping("/api/v1")
 public class ModelController {
@@ -81,6 +81,23 @@ public class ModelController {
                 requestId(request));
     }
 
+    @PostMapping("/models/{id}/validate")
+    @PreAuthorize("hasAuthority('model.candidate.validate')")
+    public ApiEnvelope<OnnxModelManager.ValidationResult> validate(@PathVariable long id,
+                                                                    @AuthenticationPrincipal IdentityPrincipal actor,
+                                                                    HttpServletRequest request) {
+        return ApiEnvelope.success(service.validate(id, actor, request), requestId(request));
+    }
+
+    @org.springframework.web.bind.annotation.PutMapping("/model-deployments/active")
+    @PreAuthorize("hasAuthority('model.deployment.activate')")
+    public ApiEnvelope<ModelService.DeploymentView> activate(@Valid @RequestBody ActivationBody body,
+                                                               @AuthenticationPrincipal IdentityPrincipal actor,
+                                                               HttpServletRequest request) {
+        return ApiEnvelope.success(service.activate(body.modelVersionId(), body.reason(), actor, request),
+                requestId(request));
+    }
+
     private static String requestId(HttpServletRequest request) {
         Object value = request.getAttribute(REQUEST_ID_ATTRIBUTE);
         return value instanceof String id ? id : "unknown";
@@ -96,4 +113,6 @@ public class ModelController {
                                 @NotBlank @Size(max = 64) String featureContractVersion) { }
     public record ReasonBody(@NotBlank @Size(max = 1000) String reason) { }
     public record DecisionBody(@NotBlank String decision, @NotBlank @Size(max = 1000) String reason) { }
+    public record ActivationBody(@jakarta.validation.constraints.Positive long modelVersionId,
+                                 @NotBlank @Size(max = 1000) String reason) { }
 }

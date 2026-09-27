@@ -142,6 +142,7 @@ class ModelAndResponseLedgerIntegrationTest {
         assertThat(overwrite.getResponse().getStatus()).isEqualTo(409);
         assertThat(jdbc.queryForObject("SELECT artifact_sha256 FROM model_version WHERE id=?", String.class, modelId))
                 .isEqualTo(MODEL_SHA);
+        markValidated(modelId);
         Cookie analyst = login("ledger-test-analyst");
         assertThat(mockMvc.perform(get("/api/v1/models/{id}", modelId).cookie(analyst)).andReturn()
                 .getResponse().getStatus()).isEqualTo(403);
@@ -163,7 +164,7 @@ class ModelAndResponseLedgerIntegrationTest {
         assertThat(jdbc.queryForObject("SELECT approved_by FROM model_release_record WHERE id=?", Long.class, releaseId))
                 .isEqualTo(modelReleaserId);
         assertThat(jdbc.queryForObject("SELECT approval_status FROM model_version WHERE id=?", String.class, modelId))
-                .isEqualTo("candidate");
+                .isEqualTo("approved");
         assertThat(jdbc.queryForObject("SELECT artifact_sha256 FROM model_version WHERE id=?", String.class, modelId))
                 .isEqualTo(MODEL_SHA);
     }
@@ -173,6 +174,7 @@ class ModelAndResponseLedgerIntegrationTest {
         Cookie operator = login("ledger-test-model-operator");
         MvcResult created = postJson("/api/v1/models", operator, csrf(operator), modelCandidate(MODEL_SHA));
         long modelId = data(created).path("id").asLong();
+        markValidated(modelId);
         MvcResult release = postJson("/api/v1/models/" + modelId + "/release-requests", operator,
                 csrf(operator), "{\"reason\":\"request release review\"}");
         long releaseId = data(release).path("id").asLong();
@@ -423,5 +425,10 @@ class ModelAndResponseLedgerIntegrationTest {
     private String csrf(Cookie cookie) throws Exception {
         MvcResult result = mockMvc.perform(get("/api/v1/auth/csrf").cookie(cookie)).andReturn();
         return objectMapper.readTree(result.getResponse().getContentAsString()).path("data").path("token").asText();
+    }
+
+    /** 发布申请要求 ONNX 制品校验已通过；测试环境无真实制品，直接置为 validated 以覆盖后续审批门禁。 */
+    private void markValidated(long modelId) {
+        jdbc.update("UPDATE model_version SET approval_status='validated' WHERE id=?", modelId);
     }
 }

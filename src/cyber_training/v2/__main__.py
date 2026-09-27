@@ -22,6 +22,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--stage", choices=("screen", "tune", "seeds"), help="train：阶段")
     parser.add_argument("--source", type=Path, help="train：上一阶段运行目录；train-multiclass：T1 调优目录（缺省取最新）")
     parser.add_argument("--variants", help="train-multiclass：逗号分隔的做法子集，如 cw,cw_smote")
+    parser.add_argument("--final-stage", choices=("freeze", "evaluate", "generalization"), default="evaluate",
+                        help="final-eval：freeze 冻结候选（不读 holdout）；evaluate 锁定评估；generalization 补跑 T3")
+    parser.add_argument("--unlock-holdout", action="store_true", help="final-eval evaluate/generalization：显式解锁 holdout")
+    parser.add_argument("--candidate", help="final-eval：T1 候选模型名，必须与冻结记录一致")
     args = parser.parse_args(argv)
     if args.step in SIMPLE:
         print(import_module(f".{SIMPLE[args.step]}", __package__).run())
@@ -69,6 +73,17 @@ def main(argv: list[str] | None = None) -> int:
         if args.variants:
             kwargs["variants"] = tuple(args.variants.split(","))
         print(multiclass.run(**kwargs))
+        return 0
+    if args.step == "final-eval":
+        from . import final_eval
+
+        if args.final_stage == "freeze":
+            if args.unlock_holdout:
+                parser.error("freeze 不读取 holdout，不能与 --unlock-holdout 同用")
+            print(final_eval.freeze())
+            return 0
+        print(final_eval.run_evaluate(args.unlock_holdout, candidate=args.candidate, resume=args.resume,
+                                      only_generalization=args.final_stage == "generalization"))
         return 0
     print(f"step '{args.step}' is not implemented yet", file=sys.stderr)
     return 2

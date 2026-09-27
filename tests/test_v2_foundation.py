@@ -127,7 +127,16 @@ def test_d1_raw_blank_numeric_cells_become_missing(tmp_path, monkeypatch):
 
 
 def test_unimplemented_step_fails_explicitly():
-    assert main(["final-eval"]) == 2
+    assert main(["export"]) == 2
+
+
+def test_final_eval_without_unlock_flag_fails_closed():
+    import pytest
+
+    from cyber_training.v2.guard import HoldoutLockedError
+
+    with pytest.raises(HoldoutLockedError):
+        main(["final-eval"])
 
 
 def test_train_requires_stage():

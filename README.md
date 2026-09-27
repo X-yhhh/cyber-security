@@ -59,11 +59,13 @@ mysql --protocol=TCP -h127.0.0.1 -P3306 -uroot -p < database/init.sql
 
 本机已安装 Temurin JDK 25.0.2，位于 `/Users/xyh/Workspace/development/runtimes/java/temurin-25.0.2`；当前 shell 的 `JAVA_HOME` 仍指向 JDK 17，实施时需使用项目级 Java 25 配置并验证实际构建运行时。
 
-后端工程位于 [`backend/`](backend/)，使用 Spring Boot、Spring Security 服务端会话、MyBatis 和 Flyway。数据库连接通过 `DB_URL`、`DB_USERNAME`、`DB_PASSWORD` 配置；应用默认绑定 `127.0.0.1:18080`。当前迁移资源为 V1-V6：V1 保留初始化业务表，V2-V5 增加 IAM/会话、登录限速和 connector 接入结构，V6 增加模型发布审查与响应审批台账字段。迁移不自动 baseline 既有非空 schema；本机现存库只有在完成结构核对与备份并获准后才可迁移。
+后端工程位于 [`backend/`](backend/)，使用 Spring Boot、Spring Security 服务端会话、MyBatis 和 Flyway。数据库连接通过 `DB_URL`、`DB_USERNAME`、`DB_PASSWORD` 配置；应用默认绑定 `127.0.0.1:18080`。当前迁移资源为 V1-V8：V1 保留初始化业务表，V2-V5 增加 IAM/会话、登录限速和 connector 接入结构，V6 增加模型发布审查与响应审批台账字段，V7 增加候选制品校验和本机部署激活权限，V8 增加 sensor 主体绑定、批次配置/序号/契约追溯和 sensor 机器权限。迁移不自动 baseline 既有非空 schema；本机现存库只有在完成结构核对与备份并获准后才可迁移。
 
-当前已实现认证/CSRF、用户创建与列表、内置角色/权限模板只读、角色范围分配、资产登记/范围内更新/授权申请与独立审批、数据源范围查询/更新及映射版本登记、全关联范围审计，以及仅 connector 使用的无状态机器凭据和幂等接入批次。机器凭据只返回一次且数据库仅保存 SHA-256 验证值；接入需显式绑定数据源—资产配对，浏览器 session 不可冒充机器身份。connector 提交的是已规范化 JSON；当前只确认所引用映射版本已批准，不执行字段转换或完整字段/单位契约校验。
+当前已实现认证/CSRF、用户创建与列表、内置角色/权限模板只读、角色范围分配、资产登记/范围内更新/授权申请与独立审批、数据源范围查询/更新及映射版本登记、全关联范围审计，以及 connector 和 sensor 的无状态机器凭据、幂等批次接入。机器凭据只返回一次且数据库仅保存 SHA-256 验证值；接入需显式绑定数据源—资产配对，浏览器 session 不可冒充机器身份。connector 提交的是已规范化 JSON；sensor 批次还会复核配置、序号、批准映射和 26 个数值/2 个类别 raw feature 字段，并将不合格记录留痕为 rejected。
 
-传感器心跳/配置尚未实现。告警与事件范围查询/研判、模型候选元数据和发布申请审查、响应申请/审批台账已实现。模型审查不会验证或激活权重；当前不下载权重、不训练、不推理。响应策略没有管理 API；没有匹配且已批准的策略或有效资产授权时申请被拒绝。审批不触发执行，执行端点固定返回 `503 ACTION_EXECUTION_UNAVAILABLE`，不调用适配器且不写 `action_execution`。`database/init.sql` 中的 `admin/admin` 是本机初始化意图；既存 `admin` 密码哈希必须保留且不由启动过程重置，仓库现有哈希并未通过 `admin` 密码校验，因此本机既存账号暂不能保证用该密码登录。
+传感器登记、一次性设备凭据、心跳、批准配置读取、健康窗口和流批次路由已实现；Java 侧已有有界双向流状态核心、事件时间 100 流窗口、raw Feature Builder、只读 UNSW CSV 回放适配器和按模板切分的 NetFlow v9/IPFIX 解码器。当前 v3.1 契约因 `ct_state_ttl` codebook 未冻结保持在线门禁关闭；Feature Builder 在缺少 codebook、窗口未预热、迟到/重复或单位未核实的情况下 fail-closed，合格字段校验可留痕但不会发布 outbox。outbox relay 默认关闭；显式启用并配置 RabbitMQ 后，会将 outbox 事件以持久化 JSON 消息发布到 durable topic exchange，等待 broker confirm 并拒绝不可路由消息，失败按指数退避、达到上限后进入 dead letter。独立 MySQL 测试 schema 与临时 RabbitMQ vhost 的集成测试已验证发布、确认、数据库状态更新和队列收取；本机应用 relay 仍未启用，且尚无下游消费者，因此不代表业务异步处理已贯通。实际抓包、macOS libpcap/Windows Npcap 传感器进程、collector 注册/UDP 服务和影子运行仍未验证。告警与事件范围查询/研判、模型候选登记、ONNX 制品校验、Java 离线回放、独立发布审批和显式本机激活台账已实现；真实流量推理 API、训练任务执行和远端推理仍未开放。响应策略没有管理 API；没有匹配且已批准的策略或有效资产授权时申请被拒绝。审批不触发执行，执行端点固定返回 `503 ACTION_EXECUTION_UNAVAILABLE`，不调用适配器且不写 `action_execution`。`database/init.sql` 中的 `admin/admin` 是本机初始化意图；既存 `admin` 密码哈希必须保留且不由启动过程重置，仓库现有哈希并未通过 `admin` 密码校验，因此本机既存账号暂不能保证用该密码登录。
+
+启用 RabbitMQ outbox relay 需在应用运行环境提供 `OUTBOX_RELAY_ENABLED=true`、`RABBITMQ_HOST`、`RABBITMQ_PORT`、`RABBITMQ_VHOST`、`RABBITMQ_USERNAME` 和 `RABBITMQ_PASSWORD`；exchange 默认为 `cyber-security.ingest.events`，可通过 `RABBITMQ_INGEST_EXCHANGE` 覆盖。下游必须先创建持久队列并绑定实际 routing key（当前批次事件为 `ingest.batch.received`），否则 publisher 会将 unroutable 消息留在 outbox 重试，不会错误标记为已发布。密码应由运行环境的受控密钥存储注入，不写入仓库。当前尚无下游消费者，故 relay 保持默认关闭。
 
 本机验收使用 Temurin JDK 25.0.2、Maven 3.9.13 和指定 Maven 本地仓库。请通过环境变量传入数据库 URL/用户名/密码及 `LOGIN_THROTTLE_HMAC_KEY`；不要把这些值写入仓库。Java 测试应使用项目指定 JDK 与 Maven，集成测试只连接独立测试 schema。
 
@@ -78,7 +80,7 @@ mysql --protocol=TCP -h127.0.0.1 -P3306 -uroot -p < database/init.sql
 
 首期覆盖边界是部署软件传感器的主机。主机级自动阻断不等同于网络边界防火墙或全网 DDoS 清洗；上游大流量攻击需要网络运营商/云清洗等外部基础设施协同，本项目仅预留受控联动边界，不承诺独立抵御任意规模攻击。主机限速不是所有操作系统防火墙都具备的通用能力，只有适配器实测支持后才能启用；否则提供告警及受控阻断。
 
-前端 UI/视觉规范暂不纳入本轮设计。后端身份授权与数据库实施方案见[后端实施设计](docs/superpowers/specs/2026-09-23-backend-iam-database-design.md)。以上文档是设计基线，不表示业务代码、数据源连接器、模型推理或处置执行器已经实现。
+前端 UI/视觉规范暂不纳入本轮设计。后端身份授权与数据库实施方案见[后端实施设计](docs/superpowers/specs/2026-09-23-backend-iam-database-design.md)。以上文档是设计基线；真实传感器、在线推理 API、训练任务和处置执行器仍未实现，受控模型制品校验与离线回放不等同于生产上线。
 
 ## 安全边界
 

@@ -31,7 +31,7 @@ from sklearn.preprocessing import (
 
 from . import GLOBAL_SEED
 from .datasets import load_cached, load_manifest
-from .features import V0_CATEGORICAL, V0_FEATURES, V0_RAW_COLUMNS, build_v0, numeric_features
+from .features import V0_FEATURES, V0_RAW_COLUMNS, build_v0, categorical_features, numeric_features
 from .guard import LeakageError, SplitIndex
 from .runtime import RUNS_ROOT, RunContext, keep_awake, sha256_file, write_json
 
@@ -86,9 +86,13 @@ def signed_log1p(values: np.ndarray) -> np.ndarray:
     return np.sign(values) * np.log1p(np.abs(values))
 
 
-def build_preprocessor(scheme: Scheme, seed: int) -> Pipeline:
-    """按方案构造预处理流水线（不含重采样）。所有组件只在调用方传入的训练行上拟合。"""
-    numeric = numeric_features(V0_FEATURES)
+def build_preprocessor(scheme: Scheme, seed: int, columns: tuple[str, ...] | list[str] = V0_FEATURES) -> Pipeline:
+    """按方案构造预处理流水线（不含重采样）。所有组件只在调用方传入的训练行上拟合。
+
+    ``columns`` 为输入视图的列（默认 V0）；类别列由 ``features.CATEGORICAL`` 判定，其余视为数值列。
+    """
+    numeric = numeric_features(columns)
+    categorical = categorical_features(columns)
     steps: list[tuple[str, Any]] = []
     if scheme.impute == "zero":
         steps.append(("impute", SimpleImputer(strategy="constant", fill_value=0.0)))
@@ -109,7 +113,7 @@ def build_preprocessor(scheme: Scheme, seed: int) -> Pipeline:
         encoder = OneHotEncoder(handle_unknown="infrequent_if_exist", min_frequency=RARE_CATEGORY_FREQUENCY,
                                 sparse_output=False, dtype=np.float32)
     columns = ColumnTransformer(
-        [("numeric", Pipeline(steps), numeric), ("categorical", encoder, list(V0_CATEGORICAL))],
+        [("numeric", Pipeline(steps), numeric), ("categorical", encoder, categorical)],
         verbose_feature_names_out=False,
     )
     pipeline_steps: list[tuple[str, Any]] = [("columns", columns)]

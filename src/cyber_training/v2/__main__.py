@@ -14,11 +14,11 @@ SIMPLE = {"register": "register", "split": "split", "eda": "eda"}
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m cyber_training.v2")
     parser.add_argument("step", choices=STEPS)
-    parser.add_argument("--resume", type=Path, help="preprocess-compare：续跑已有运行目录")
+    parser.add_argument("--resume", type=Path, help="preprocess-compare / feature-compare：续跑已有运行目录")
     parser.add_argument("--schemes", help="preprocess-compare：逗号分隔的方案子集，如 P0,P3")
     parser.add_argument("--models", help="preprocess-compare：逗号分隔的模型子集，如 LR,RF")
-    parser.add_argument("--seeds", help="preprocess-compare：逗号分隔的种子子集")
-    parser.add_argument("--sample-rows", type=int, help="preprocess-compare：训练抽样行数")
+    parser.add_argument("--seeds", help="preprocess-compare / feature-compare：逗号分隔的种子子集")
+    parser.add_argument("--sample-rows", type=int, help="preprocess-compare / feature-compare：训练抽样行数")
     args = parser.parse_args(argv)
     if args.step in SIMPLE:
         print(import_module(f".{SIMPLE[args.step]}", __package__).run())
@@ -36,6 +36,16 @@ def main(argv: list[str] | None = None) -> int:
         if args.sample_rows:
             kwargs["sample_rows"] = args.sample_rows
         print(preprocess.run(**kwargs))
+        return 0
+    if args.step == "feature-compare":
+        from . import feature_compare
+
+        kwargs = {"resume": args.resume}
+        if args.seeds:
+            kwargs["seeds"] = tuple(int(s) for s in args.seeds.split(","))
+        if args.sample_rows:
+            kwargs["sample_rows"] = args.sample_rows
+        print(feature_compare.run(**kwargs))
         return 0
     print(f"step '{args.step}' is not implemented yet", file=sys.stderr)
     return 2

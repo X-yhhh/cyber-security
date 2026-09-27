@@ -1,0 +1,10 @@
+{
+  "rows": 10000,
+  "parity_max_abs_diff": 6.556510925292969e-07,
+  "mean_abs_diff": 3.086881674789765e-08,
+  "parity_decision_agreement": 1.0,
+  "decision_mismatches": 0,
+  "onnx_attack_rate": 0.0463,
+  "feature_nan_pattern_equal": true,
+  "feature_max_abs_diff": 0.0
+}

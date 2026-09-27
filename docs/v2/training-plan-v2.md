@@ -469,6 +469,30 @@ T1 验收判定（holdout 300,494 行，攻击 12,108 行，4.03%）：
 5. 交付目录 `delivery/unsw-binary-<version>/`（已被 Git 忽略），包含 `model.onnx`、`preprocessing.json`、`model_manifest.json`、`checksums.json`、`evaluation-report.md`、所有对比表和图。通过 scp 传到本机，由本机后端按 manifest 校验哈希后激活。权重不提交到 Git。
 6. 本机验证：后端加载模型，用同一批 1 万条样本回放，结果必须与远端完全一致，本机回放的记录写入交付报告。
 
+### 9.1 实现（2026-09-27）
+
+- 代码 `src/cyber_training/v2/export.py`，命令 `v2 export --candidate XGBoost [--model-version 2026.09.0]`。前置条件 fail-closed：冻结文件已提交且与 HEAD 一致；最新 `final-verdict.json` 通过（`deliverable = pending_export`）且冻结哈希、候选、阈值一致；候选制品 SHA-256 一致；同版本交付目录已存在时拒绝覆盖。
+- 预处理与模型打包成同一个 ONNX 图（opset 17 + ai.onnx.ml 3，只用标准算子）：输入 `flow_numeric`（float64，26 个原始数值字段）与 `flow_categorical`（string，`proto`、`service`），图内依次计算派生特征（`rate` 与 6 个比率/差值/速率，公式与精度同 `features.py`）、中位数插补与 2 个缺失指示列、有序编码（词表外 → -1），再接 XGBoost 树集成（`best_iteration + 1 = 270` 棵树）；输出 `attack_probability`（float32）与 `is_attack`（`prob >= 冻结阈值`）。
+- 实现偏差：onnxmltools 1.16 的 XGBoost 转换器最高只支持 opset 15，因此树集成先按 15 转换，再嵌入 opset 17 的整图（`TreeEnsembleClassifier` 属于 ai.onnx.ml 域，不受主域版本影响）。
+- `preprocessor.pkl` 只在导出时于训练主机上、哈希校验通过后反序列化，用于推出契约并做对照；交付物不含 pickle。`preprocessing.json` 只是图内预处理的可审查说明，后端不得重复实现预处理。
+- 一致性样本从验证分区用主种子抽取 1 万条，不读取 holdout（`holdout-audit.jsonl` 仍为 4 条）。
+
+### 9.2 实际结果（运行 `export-20260927-1912`，提交 `c067169`，用时约 5 秒）
+
+| 门槛 | 要求 | 实测 | 结果 |
+|---|---|---:|---|
+| ONNX 与训练框架概率最大绝对误差 | ≤ 1e-4 | 6.6e-7（平均 3.1e-8） | 通过 |
+| 阈值判定一致率 | 100% | 100%（0 条不一致） | 通过 |
+| 单条推理延迟 P95（CPU，单线程） | ≤ 5 ms | 0.304 ms（P50 0.239、P99 0.425） | 通过 |
+| batch 1024 吞吐（单线程） | ≥ 20k 条/秒 | 100,522 条/秒 | 通过 |
+
+**第 10 步判定：通过**，`deliverable = ready_for_review`。连同第 9 步，§1 的全部 9 项门槛均已通过。
+
+- 图内特征矩阵与 sklearn 预处理输出完全一致（缺失位置相同，最大误差 0）；模型 0.64 MiB。
+- 交付目录 `delivery/unsw-binary-2026.09.0/`（Git 忽略）：`model.onnx`、`preprocessing.json`、`model_manifest.json`、`checksums.json`、`evaluation-report.md`、`replay-sample.csv`（1 万条原始输入 + 远端输出，不含地址、端口、时间戳）、三个校验 JSON，以及 `evidence/` 下第 9 步的报告、指标与图。
+- 本机初步回放（2026-09-27，macOS arm64，onnxruntime 1.27.0，Python 脚本）：16 个文件哈希全部一致；1 万条概率最大误差 4.8e-7，9,804 条逐位相同，判定 0 条不一致；单线程 P95 0.038 ms、吞吐约 52 万条/秒。注意本机版本不是 manifest 要求的 1.23.2，且这不是后端（Java）加载验证。
+- 未完成：§9 第 6 项"后端加载模型回放"。当前后端只有模型登记与审批接口，没有 ONNX 推理运行时；需要在 `main` 分支按 manifest 实现哈希校验、输入契约校验和 ONNX Runtime（Java，版本 1.23.2）推理后，再用 `replay-sample.csv` 回放并把结果写回交付报告。在此之前模型保持 `candidate` 状态，不能激活。
+
 ## 10. 执行顺序与时间预估
 
 | 步骤 | 命令 | 预计耗时 | 产物 | 提交 |

@@ -1,0 +1,40 @@
+{
+  "freeze_sha256": "393d793115bd5a6583ddd44860634441eb410b427229cc7f5147b8708c18e795",
+  "run": "export-20260927-1912",
+  "gates": [
+    {
+      "metric": "parity_max_abs_diff",
+      "name": "ONNX 与训练框架概率最大绝对误差",
+      "value": 6.556510925292969e-07,
+      "op": "<=",
+      "threshold": 0.0001,
+      "passed": true
+    },
+    {
+      "metric": "parity_decision_agreement",
+      "name": "阈值判定一致率",
+      "value": 1.0,
+      "op": ">=",
+      "threshold": 1.0,
+      "passed": true
+    },
+    {
+      "metric": "latency_p95_ms",
+      "name": "单条推理延迟 P95（ONNX Runtime CPU）",
+      "value": 0.30431498889811337,
+      "op": "<=",
+      "threshold": 5.0,
+      "passed": true
+    },
+    {
+      "metric": "batch_throughput_rows_per_s",
+      "name": "batch 1024 吞吐（条/秒）",
+      "value": 100521.66884715807,
+      "op": ">=",
+      "threshold": 20000.0,
+      "passed": true
+    }
+  ],
+  "passed_step10": true,
+  "deliverable": "ready_for_review"
+}

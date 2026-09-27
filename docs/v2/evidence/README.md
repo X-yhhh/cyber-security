@@ -1,4 +1,4 @@
-# v2 第 3～9 步证据摘录
+# v2 第 3～10 步证据摘录
 
 本目录从 Git 忽略的 `runs/` 中复制小体积、已审查（不含 IP、主机绝对路径、权重或原始数据）的证据文件，
 文件名前缀为来源运行目录。原运行目录的完整产物与 `checksums.json` 保留在训练主机。
@@ -9,6 +9,7 @@ eda / preprocess → 7a825a7（代码提交于 7a825a7 / f9f11ac）。从第 7 �
 第 8 步三个运行（train-screen-20260927-1354、train-tune-20260927-1425、train-seeds-20260927-1458）记录提交 bc0df4e 且 dirty=true：代码先运行、后提交，训练代码提交于本次归档提交。三个运行都用 `--resume` 补跑或重生成过报告（初筛补跑 DT/RF/ET；调优与复现只重写选择 JSON 以去掉主机路径），逐次结果 CSV 保留全部原始行。`train-seeds-20260927-1458-candidate.json` 只含候选模型的参数、阈值、特征列与文件哈希，模型权重与预处理器不提交。
 第 8b 步运行 train-multiclass-20260927-1632 记录提交 22f7a0a 且 dirty=true：代码先运行、后提交，多分类代码提交于本次归档提交。`train-multiclass-20260927-1632-candidate.json` 只含 T2 候选模型的参数、类别映射、特征列与文件哈希，模型与预处理器不提交；官方测试文件未读取。
 第 9 步运行 final-eval-20260927-1800 记录提交 bb25a99（dirty=false）：代码与冻结文件 `docs/v2/pre-final-freeze.json` 在解锁前已提交。`final-eval-20260927-1800-holdout-audit.jsonl` 是训练主机 `runs/holdout-audit.jsonl` 的副本，记录全部 holdout 解锁事件。
+第 10 步运行 export-20260927-1912 记录提交 c067169（dirty=false）：代码先提交、后运行。只摘录报告、manifest、预处理契约与校验结果；`model.onnx` 与 `replay-sample.csv`（1 万条验证分区原始字段）不提交，SHA-256 记录在 manifest 中。
 
 | 文件 | SHA-256 |
 |---|---|
@@ -60,3 +61,9 @@ eda / preprocess → 7a825a7（代码提交于 7a825a7 / f9f11ac）。从第 7 �
 | `final-eval-20260927-1800-t2-test-confusion.png` | `5fccfb48aca9bd857dddeb9355cb2e7a4aed8465b1032a606274bdfb8d16a27c` |
 | `final-eval-20260927-1800-t2-test-metrics.json` | `99271124fef55aba49cc85c9a53f48ca8025a64de30a06789bea8e2245a80636` |
 | `final-eval-20260927-1800-t2-test-per-class.csv` | `05d0c57ab667cbc1b73c26b844ab9faad0d68dbcb22afca9d5425514c8bb1541` |
+| `export-20260927-1912-evaluation-report.md` | `18e8afbf2c7cfbd85e66e439cd8723e22bb80c261c1542b0b4071ba32322b98b` |
+| `export-20260927-1912-export-parity.json` | `456a3cff601bf5370abf088b765596bdd7f58febf9a5d253563fd93bb0ec9c64` |
+| `export-20260927-1912-export-performance.json` | `0d423b0462d241085c3a4df15e83ef73f490bbe41e7a442aa77bce30793a05b8` |
+| `export-20260927-1912-export-verdict.json` | `2134b7c718e139ecacd4e93ebe203386c69e31bc73d6ec2d746dfe1a1cc7f37b` |
+| `export-20260927-1912-model_manifest.json` | `bdd307f7d8c29d92b620661a456f05c58bcaa0e85ccec9787567bfd6d0a6d87f` |
+| `export-20260927-1912-preprocessing.json` | `9f626a23caa8645e9384c4f1be76f015254fe97ff839afeaab2238c9ced264f1` |

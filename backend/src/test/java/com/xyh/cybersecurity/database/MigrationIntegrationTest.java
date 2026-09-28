@@ -54,7 +54,7 @@ class MigrationIntegrationTest {
         try (Connection connection = DriverManager.getConnection(schemaUrl(EMPTY_SCHEMA), username, password);
              Statement statement = connection.createStatement()) {
             assertThat(count(statement, "information_schema.tables", "table_schema='" + EMPTY_SCHEMA + "' AND table_type='BASE TABLE'"))
-                    .isEqualTo(44);
+                    .isEqualTo(45);
             assertThat(count(statement, EMPTY_SCHEMA + ".sys_role", "is_builtin=1 AND status='active'"))
                     .isEqualTo(7);
             assertThat(count(statement, EMPTY_SCHEMA + ".sys_permission", "status='active'"))
@@ -75,7 +75,7 @@ class MigrationIntegrationTest {
                     + ".sys_role r ON r.id=rp.role_id", "r.role_key='platform_admin' AND p.permission_key IN ('approval.decide','model.release.approve')"))
                     .isZero();
             assertThat(count(statement, EMPTY_SCHEMA + ".sys_user", "1=1")).isZero();
-            assertThat(count(statement, EMPTY_SCHEMA + ".flyway_schema_history", "success=1")).isEqualTo(9);
+            assertThat(count(statement, EMPTY_SCHEMA + ".flyway_schema_history", "success=1")).isEqualTo(10);
             assertThat(count(statement, "information_schema.tables", "table_schema='" + EMPTY_SCHEMA
                     + "' AND table_name='auth_login_throttle'"))
                     .isEqualTo(1);
@@ -90,6 +90,7 @@ class MigrationIntegrationTest {
             assertThat(indexCount(statement, "ingest_record", "idx_ingest_record_created_quality_asset")).isEqualTo(1);
             assertThat(indexCount(statement, "audit_log", "idx_audit_log_occurred_id")).isEqualTo(1);
             assertThat(indexCount(statement, "approval_task", "idx_approval_task_status_created")).isEqualTo(1);
+            assertThat(columnCount(statement, "consumed_message", "message_key")).isEqualTo(1);
         }
     }
 

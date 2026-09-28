@@ -69,6 +69,28 @@ public interface IngestMapper {
     int markOutboxFailed(@Param("id") long id, @Param("status") String status,
                          @Param("attempts") int attempts, @Param("nextAttemptAt") Instant nextAttemptAt);
 
+    /**
+     * 查询某个批次中已通过接入门禁的记录；消费者只把 accepted 记录交给后续推理任务边界。
+     */
+    List<AcceptedRecord> findAcceptedRecords(@Param("batchId") long batchId);
+
+    ConsumedMessageRow findConsumedMessageForUpdate(@Param("consumer") String consumer,
+                                                    @Param("messageKey") String messageKey);
+
+    int insertConsumedMessage(@Param("consumer") String consumer, @Param("messageKey") String messageKey);
+
+    int markConsumedProcessing(@Param("consumer") String consumer, @Param("messageKey") String messageKey);
+
+    int markConsumed(@Param("consumer") String consumer, @Param("messageKey") String messageKey);
+
+    int recordConsumedFailure(@Param("consumer") String consumer, @Param("messageKey") String messageKey,
+                              @Param("status") String status, @Param("errorCode") String errorCode,
+                              @Param("errorMessage") String errorMessage);
+
+    int insertConsumedFailureRow(@Param("consumer") String consumer, @Param("messageKey") String messageKey,
+                                 @Param("status") String status, @Param("errorCode") String errorCode,
+                                 @Param("errorMessage") String errorMessage);
+
     record BatchRow(long id, String batchKey, long sourceId, String status, long totalCount,
                     long acceptedCount, long rejectedCount, String requestSha256, boolean sequenceGap) { }
     record SensorIdentityRow(long id, long assetId, String status) { }
@@ -76,6 +98,10 @@ public interface IngestMapper {
                            int flowWindowSeconds, String featureContractVersion, String samplingPolicyJson,
                            Instant activatedAt) { }
     record OutboxRow(long id, String eventKey, String topic, String payload, int attempts) { }
+    record AcceptedRecord(long id, long batchId, long dataSourceId, String recordKey, Instant eventTime,
+                          long assetId, String normalizedPayload) { }
+    record ConsumedMessageRow(long id, String consumer, String messageKey, String status, int attempts,
+                              String errorCode, String errorMessage, Instant consumedAt) { }
     record MachineBatchInsert(String batchKey, long dataSourceId, String idempotencyKey, String requestSha256,
                               int totalCount, Instant startedAt) { }
     record SensorBatchInsert(String batchKey, long dataSourceId, long sensorId, String configVersion, long sequence,

@@ -7,15 +7,15 @@ import org.springframework.amqp.rabbit.core.RabbitAdmin;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.amqp.core.TopicExchange;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.context.annotation.Conditional;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 import java.util.concurrent.TimeUnit;
 
-/** 仅在显式启用 outbox relay 时建立 RabbitMQ 连接和 durable topic exchange。 */
+/** 仅在显式启用 outbox relay 或 ingest consumer 时建立 RabbitMQ 连接和 durable topic exchange。 */
 @Configuration(proxyBeanMethods = false)
-@ConditionalOnProperty(name = "cyber.ingest.outbox-relay.enabled", havingValue = "true")
+@Conditional(RabbitEnabledCondition.class)
 public class RabbitOutboxConfiguration {
 
     @Bean
@@ -26,7 +26,7 @@ public class RabbitOutboxConfiguration {
             @Value("${cyber.ingest.rabbitmq.username}") String username,
             @Value("${cyber.ingest.rabbitmq.password}") String password) {
         if (username.isBlank() || password.isBlank()) {
-            throw new IllegalStateException("OUTBOX_RELAY_ENABLED requires RABBITMQ_USERNAME and RABBITMQ_PASSWORD");
+            throw new IllegalStateException("RabbitMQ relay/consumer requires RABBITMQ_USERNAME and RABBITMQ_PASSWORD");
         }
         CachingConnectionFactory factory = new CachingConnectionFactory(host, port);
         factory.setVirtualHost(virtualHost);

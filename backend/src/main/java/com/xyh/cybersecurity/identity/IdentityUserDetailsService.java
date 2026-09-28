@@ -1,6 +1,5 @@
 package com.xyh.cybersecurity.identity;
 
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.stereotype.Service;
@@ -11,46 +10,28 @@ import java.util.List;
 @Service
 public class IdentityUserDetailsService implements UserDetailsService {
 
-    private final JdbcTemplate jdbcTemplate;
+    private final IdentityMapper identityMapper;
 
-    public IdentityUserDetailsService(JdbcTemplate jdbcTemplate) {
-        this.jdbcTemplate = jdbcTemplate;
+    public IdentityUserDetailsService(IdentityMapper identityMapper) {
+        this.identityMapper = identityMapper;
     }
 
     @Override
     public IdentityPrincipal loadUserByUsername(String username) throws UsernameNotFoundException {
-        List<IdentityPrincipal> users = jdbcTemplate.query(
-                "SELECT id, user_key, username, display_name, password_hash, status "
-                        + "FROM sys_user WHERE username = ?",
-                (rs, rowNum) -> {
-                    long id = rs.getLong("id");
-                    return new IdentityPrincipal(id, rs.getString("user_key"), rs.getString("username"),
-                            rs.getString("display_name"), rs.getString("password_hash"), rs.getString("status"),
-                            loadRoles(id), loadPermissions(id));
-                }, username);
-        if (users.isEmpty()) {
+        IdentityMapper.PrincipalRow row = identityMapper.findPrincipalByUsername(username);
+        if (row == null) {
             throw new UsernameNotFoundException("User not found");
         }
-        return users.getFirst();
+        return new IdentityPrincipal(row.id(), row.userKey(), row.username(), row.displayName(), row.passwordHash(),
+                row.status(), identityMapper.listUserRoles(row.id()), identityMapper.listUserPermissions(row.id()));
     }
 
     private List<String> loadRoles(long userId) {
-        return jdbcTemplate.queryForList(
-                "SELECT DISTINCT r.role_key FROM sys_user_role ur "
-                        + "JOIN sys_role r ON r.id = ur.role_id "
-                        + "WHERE ur.user_id = ? AND r.status = 'active' ORDER BY r.role_key",
-                String.class, userId);
+        return identityMapper.listUserRoles(userId);
     }
 
     private List<String> loadPermissions(long userId) {
-        return jdbcTemplate.queryForList(
-                "SELECT DISTINCT p.permission_key FROM sys_user_role ur "
-                        + "JOIN sys_role r ON r.id = ur.role_id "
-                        + "JOIN sys_role_permission rp ON rp.role_id = r.id "
-                        + "JOIN sys_permission p ON p.id = rp.permission_id "
-                        + "WHERE ur.user_id = ? AND r.status = 'active' AND p.status = 'active' "
-                        + "ORDER BY p.permission_key",
-                String.class, userId);
+        return identityMapper.listUserPermissions(userId);
     }
 
 }

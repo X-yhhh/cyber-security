@@ -298,6 +298,87 @@ class ModelAndResponseLedgerIntegrationTest {
         }
     }
 
+    @Test
+    void responseRequestRejectsUnknownTargetExpiredAuthorizationAndScopeConflict() throws Exception {
+        Cookie analyst = login("ledger-test-analyst");
+
+        MvcResult unknownTarget = postAction(analyst, csrf(analyst), "ledger-test-unknown-target",
+                actionBody(assetId + 999_999, "unknown target"));
+        assertThat(unknownTarget.getResponse().getStatus()).isEqualTo(404);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM approval_task", Integer.class)).isZero();
+
+        jdbc.update("UPDATE asset_authorization SET valid_until=UTC_TIMESTAMP(3)-INTERVAL 1 SECOND WHERE id=?",
+                authorizationId);
+        MvcResult expired = postAction(analyst, csrf(analyst), "ledger-test-expired-auth",
+                actionBody(assetId, "expired authorization"));
+        assertThat(expired.getResponse().getStatus()).isEqualTo(409);
+
+        jdbc.update("UPDATE asset_authorization SET valid_until=UTC_TIMESTAMP(3)+INTERVAL 1 HOUR,"
+                        + "scope_json=? WHERE id=?",
+                "{\"actionTypes\":[\"other_action\"]}", authorizationId);
+        MvcResult scopeConflict = postAction(analyst, csrf(analyst), "ledger-test-scope-conflict",
+                actionBody(assetId, "scope conflict"));
+        assertThat(scopeConflict.getResponse().getStatus()).isEqualTo(409);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM approval_task", Integer.class)).isZero();
+    }
+
+    @Test
+    void responseApprovalEnforcesSeparationTerminalStateAndExecutionAudit() throws Exception {
+        bindRole(analystId, "response_approver", "asset", Long.toString(assetId));
+        Cookie analyst = login("ledger-test-analyst");
+        MvcResult created = postAction(analyst, csrf(analyst), "ledger-test-self-approval",
+                actionBody(assetId, "self approval"));
+        long approvalId = data(created).path("id").asLong();
+
+        MvcResult selfDecision = postJson("/api/v1/approvals/" + approvalId + "/decision", analyst,
+                csrf(analyst), "{\"decision\":\"approve\",\"reason\":\"self\"}");
+        assertThat(selfDecision.getResponse().getStatus()).isEqualTo(403);
+        assertThat(jdbc.queryForObject("SELECT status FROM approval_task WHERE id=?", String.class, approvalId))
+                .isEqualTo("pending");
+
+        Cookie approver = login("ledger-test-response-approver");
+        MvcResult rejected = postJson("/api/v1/approvals/" + approvalId + "/decision", approver,
+                csrf(approver), "{\"decision\":\"reject\",\"reason\":\"reviewed\"}");
+        assertThat(rejected.getResponse().getStatus()).isEqualTo(200);
+        MvcResult repeated = postJson("/api/v1/approvals/" + approvalId + "/decision", approver,
+                csrf(approver), "{\"decision\":\"approve\",\"reason\":\"repeat\"}");
+        assertThat(repeated.getResponse().getStatus()).isEqualTo(409);
+        assertThat(jdbc.queryForObject("SELECT status FROM approval_task WHERE id=?", String.class, approvalId))
+                .isEqualTo("rejected");
+
+        MvcResult execution = postJson("/api/v1/actions/" + approvalId + "/execute", analyst,
+                csrf(analyst), "{}");
+        assertThat(execution.getResponse().getStatus()).isEqualTo(503);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM audit_log WHERE action='action.execution.unavailable'"
+                        + " AND resource_id=?", Integer.class, Long.toString(approvalId))).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM action_execution WHERE approval_task_id=?",
+                Integer.class, approvalId)).isZero();
+    }
+
+    @Test
+    void responseApprovalRejectsClosedEventAndChangedPolicySnapshot() throws Exception {
+        Cookie analyst = login("ledger-test-analyst");
+        MvcResult created = postAction(analyst, csrf(analyst), "ledger-test-policy-snapshot",
+                actionBody(assetId, "policy snapshot"));
+        long approvalId = data(created).path("id").asLong();
+        Cookie approver = login("ledger-test-response-approver");
+
+        jdbc.update("UPDATE response_policy SET version='2' WHERE id=?", policyId);
+        MvcResult changedPolicy = postJson("/api/v1/approvals/" + approvalId + "/decision", approver,
+                csrf(approver), "{\"decision\":\"approve\",\"reason\":\"changed policy\"}");
+        assertThat(changedPolicy.getResponse().getStatus()).isEqualTo(409);
+        assertThat(jdbc.queryForObject("SELECT status FROM approval_task WHERE id=?", String.class, approvalId))
+                .isEqualTo("pending");
+
+        jdbc.update("UPDATE response_policy SET version='1' WHERE id=?", policyId);
+        jdbc.update("UPDATE security_event SET status='closed' WHERE id=?", eventId);
+        MvcResult closedEvent = postJson("/api/v1/approvals/" + approvalId + "/decision", approver,
+                csrf(approver), "{\"decision\":\"approve\",\"reason\":\"closed event\"}");
+        assertThat(closedEvent.getResponse().getStatus()).isEqualTo(409);
+        assertThat(jdbc.queryForObject("SELECT status FROM approval_task WHERE id=?", String.class, approvalId))
+                .isEqualTo("pending");
+    }
+
     private long user(String suffix) {
         String username = "ledger-test-" + suffix;
         jdbc.update("INSERT INTO sys_user (user_key,username,display_name,status,password_hash) VALUES (?,?,?,'active',?)",

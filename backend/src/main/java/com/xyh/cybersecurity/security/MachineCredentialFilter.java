@@ -1,11 +1,11 @@
 package com.xyh.cybersecurity.security;
 
 import com.xyh.cybersecurity.identity.MachinePrincipal;
+import com.xyh.cybersecurity.identity.IdentityMapper;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -26,10 +26,10 @@ import java.util.regex.Pattern;
 public final class MachineCredentialFilter extends OncePerRequestFilter {
 
     private static final Pattern CREDENTIAL = Pattern.compile("Machine mch_([1-9][0-9]*)\\.([A-Za-z0-9_-]{40,64})");
-    private final JdbcTemplate jdbc;
+    private final IdentityMapper identityMapper;
 
-    public MachineCredentialFilter(JdbcTemplate jdbc) {
-        this.jdbc = jdbc;
+    public MachineCredentialFilter(IdentityMapper identityMapper) {
+        this.identityMapper = identityMapper;
     }
 
     @Override
@@ -47,18 +47,11 @@ public final class MachineCredentialFilter extends OncePerRequestFilter {
             try {
                 long clientId = Long.parseLong(matcher.group(1));
                 String suppliedHash = sha256(matcher.group(2));
-                ClientRecord client = jdbc.query("SELECT client_key, client_type, credential_sha256 "
-                                + "FROM api_client WHERE id=? AND status='active' "
-                                + "AND (expires_at IS NULL OR expires_at > UTC_TIMESTAMP(3))",
-                        rs -> rs.next() ? new ClientRecord(rs.getString("client_key"), rs.getString("client_type"),
-                                rs.getString("credential_sha256")) : null, clientId);
+                IdentityMapper.MachineClientRow client = identityMapper.findActiveMachineClient(clientId);
                 if (client != null && client.credentialSha256() != null
                         && MessageDigest.isEqual(client.credentialSha256().getBytes(StandardCharsets.US_ASCII),
                         suppliedHash.getBytes(StandardCharsets.US_ASCII))) {
-                    List<SimpleGrantedAuthority> authorities = jdbc.queryForList(
-                            "SELECT p.permission_key FROM api_client_permission cp "
-                                    + "JOIN sys_permission p ON p.id=cp.permission_id AND p.status='active' "
-                                    + "WHERE cp.client_id=? ORDER BY p.permission_key", String.class, clientId)
+                    List<SimpleGrantedAuthority> authorities = identityMapper.listMachinePermissions(clientId)
                             .stream().map(SimpleGrantedAuthority::new).toList();
                     var authentication = UsernamePasswordAuthenticationToken.authenticated(
                             new MachinePrincipal(clientId, client.clientKey(), client.clientType()), null, authorities);
@@ -80,5 +73,4 @@ public final class MachineCredentialFilter extends OncePerRequestFilter {
         }
     }
 
-    private record ClientRecord(String clientKey, String clientType, String credentialSha256) { }
 }

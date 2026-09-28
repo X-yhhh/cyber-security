@@ -35,3 +35,7 @@ backend/target/
 frontend/node_modules/
 frontend/dist/
 frontend/*.tsbuildinfo
+
+# Local agent/editor state and staged-work scratch directories
+.stage6-edit/
+.claude/settings.local.json

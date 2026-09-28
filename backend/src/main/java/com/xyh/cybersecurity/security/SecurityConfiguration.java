@@ -162,6 +162,8 @@ public class SecurityConfiguration {
                 .authorizeHttpRequests(authorize -> authorize
                         .requestMatchers("/api/v1/health/live", "/api/v1/health/ready",
                                 "/api/v1/auth/login", "/api/v1/auth/csrf").permitAll()
+                        .requestMatchers("/actuator/health", "/actuator/health/**").permitAll()
+                        .requestMatchers("/actuator/metrics/**", "/actuator/prometheus").hasAuthority("ops.status.read")
                         .requestMatchers("/api/v1/auth/me", "/api/v1/auth/logout").authenticated()
                         .requestMatchers("/api/v1/**").authenticated()
                         .anyRequest().denyAll())

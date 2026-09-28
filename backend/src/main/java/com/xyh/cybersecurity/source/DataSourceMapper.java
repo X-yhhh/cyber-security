@@ -9,6 +9,16 @@ import java.util.List;
 @Mapper
 public interface DataSourceMapper {
 
+    int insertSource(SourceInsert input);
+
+    Long findIdByKey(@Param("sourceKey") String sourceKey);
+
+    int insertMapping(MappingInsert input);
+
+    Long findMappingId(@Param("sourceId") long sourceId, @Param("mappingVersion") String mappingVersion);
+
+    boolean hasManageScope(@Param("userId") long userId, @Param("sourceId") long sourceId);
+
     long countVisible(@Param("userId") long userId);
 
     List<DataSourceView> listVisible(@Param("userId") long userId,
@@ -32,4 +42,8 @@ public interface DataSourceMapper {
 
     record MappingView(long id, String mappingVersion, String sourceSchemaJson, String mappingJson,
                        String status, Long approvedBy) { }
+
+    record SourceInsert(String sourceKey, String sourceType, String environment, String schemaVersion) { }
+
+    record MappingInsert(long sourceId, String mappingVersion, String sourceSchemaJson, String mappingJson) { }
 }

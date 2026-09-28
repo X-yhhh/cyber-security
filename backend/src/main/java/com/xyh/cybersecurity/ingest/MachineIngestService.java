@@ -5,17 +5,14 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.xyh.cybersecurity.common.api.ApiRequestException;
-import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.jdbc.support.GeneratedKeyHolder;
+import com.xyh.cybersecurity.audit.AuditMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
-import java.sql.PreparedStatement;
-import java.sql.Statement;
-import java.sql.Timestamp;
 import java.time.Instant;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -27,11 +24,13 @@ import java.util.HexFormat;
 @Service
 public class MachineIngestService {
 
-    private final JdbcTemplate jdbc;
+    private final IngestMapper mapper;
+    private final AuditMapper auditMapper;
     private final ObjectMapper objectMapper;
 
-    public MachineIngestService(JdbcTemplate jdbc, ObjectMapper objectMapper) {
-        this.jdbc = jdbc;
+    public MachineIngestService(IngestMapper mapper, AuditMapper auditMapper, ObjectMapper objectMapper) {
+        this.mapper = mapper;
+        this.auditMapper = auditMapper;
         this.objectMapper = objectMapper;
     }
 
@@ -54,31 +53,17 @@ public class MachineIngestService {
         Set<Long> assetIds = validateAssetScopes(clientId, input.dataSourceId(), input.records());
 
         String batchKey = "bat_" + UUID.randomUUID().toString().replace("-", "");
-        GeneratedKeyHolder key = new GeneratedKeyHolder();
         try {
-            jdbc.update(connection -> {
-                PreparedStatement statement = connection.prepareStatement("INSERT INTO ingest_batch "
-                        + "(batch_key,data_source_id,idempotency_key,request_sha256,status,total_count,accepted_count,rejected_count,started_at) "
-                        + "VALUES (?,?,?,?,'received',?,?,0,?)", Statement.RETURN_GENERATED_KEYS);
-                statement.setString(1, batchKey);
-                statement.setLong(2, input.dataSourceId());
-                statement.setString(3, idempotencyKey);
-                statement.setString(4, requestHash);
-                statement.setLong(5, input.records().size());
-                statement.setLong(6, input.records().size());
-                statement.setTimestamp(7, Timestamp.from(Instant.now()));
-                return statement;
-            }, key);
+            mapper.insertMachineBatch(new IngestMapper.MachineBatchInsert(batchKey, input.dataSourceId(), idempotencyKey,
+                    requestHash, input.records().size(), Instant.now()));
         } catch (org.springframework.dao.DuplicateKeyException exception) {
             ExistingBatch concurrent = findByIdempotency(input.dataSourceId(), idempotencyKey);
             if (concurrent != null) return idempotentResult(concurrent, requestHash);
             throw ApiRequestException.conflict("批次幂等鍵已被其他接入請求使用");
         }
-        long batchId = key.getKey().longValue();
+        long batchId = mapper.findBatchIdByKey(batchKey);
         for (RecordRequest record : input.records()) {
-            jdbc.update("INSERT INTO ingest_record (batch_id,source_record_key,event_type,event_time,asset_id,"
-                            + "normalized_payload,quality_status,mapping_version) VALUES (?,?,?,?,?,?,'accepted',?)",
-                    batchId, record.recordKey(), record.eventType(), Timestamp.from(record.eventTime()), record.assetId(),
+            mapper.insertMachineRecord(batchId, record.recordKey(), record.eventType(), record.eventTime(), record.assetId(),
                     writeJson(record.payload()), input.mappingVersion());
         }
         insertOutbox(batchId, input.dataSourceId(), input.records().size());
@@ -111,46 +96,26 @@ public class MachineIngestService {
     }
 
     private void requireSourceScope(long clientId, long sourceId) {
-        Boolean allowed = jdbc.queryForObject("SELECT EXISTS (SELECT 1 FROM api_client c "
-                        + "JOIN api_client_permission cp ON cp.client_id=c.id "
-                        + "JOIN sys_permission p ON p.id=cp.permission_id AND p.permission_key='machine.ingest.submit' AND p.status='active' "
-                        + "JOIN api_client_scope s ON s.client_id=c.id AND s.scope_type='data_source' AND s.scope_id=CAST(? AS CHAR) "
-                        + "JOIN data_source ds ON ds.id=CAST(s.scope_id AS UNSIGNED) AND ds.status='active' "
-                        + "WHERE c.id=? AND c.client_type='connector' AND c.status='active' "
-                        + "AND (c.expires_at IS NULL OR c.expires_at>UTC_TIMESTAMP(3)))", Boolean.class, sourceId, clientId);
-        if (!Boolean.TRUE.equals(allowed)) throw ApiRequestException.notFound();
+        if (!mapper.hasConnectorSourceScope(clientId, sourceId)) throw ApiRequestException.notFound();
     }
 
     private void requireActiveApprovedMapping(long sourceId, String mappingVersion) {
-        Boolean active = jdbc.queryForObject("SELECT EXISTS (SELECT 1 FROM source_mapping sm "
-                        + "JOIN data_source ds ON ds.id=sm.data_source_id AND ds.status='active' "
-                        + "WHERE sm.data_source_id=? AND sm.mapping_version=? AND sm.status='approved')",
-                Boolean.class, sourceId, mappingVersion);
-        if (!Boolean.TRUE.equals(active)) throw ApiRequestException.conflict("数据源不存在活动且已批准的映射版本");
+        if (!mapper.hasApprovedMapping(sourceId, mappingVersion)) throw ApiRequestException.conflict("数据源不存在活动且已批准的映射版本");
     }
 
     private Set<Long> validateAssetScopes(long clientId, long sourceId, List<RecordRequest> records) {
         Set<Long> assetIds = new HashSet<>();
         for (RecordRequest record : records) {
-            Boolean allowed = jdbc.queryForObject("SELECT EXISTS (SELECT 1 FROM api_client_scope s "
-                            + "JOIN asset a ON a.id=CAST(s.scope_id AS UNSIGNED) AND a.status='active' "
-                            + "JOIN api_client_source_asset_scope pair ON pair.client_id=s.client_id "
-                            + "AND pair.asset_id=a.id AND pair.data_source_id=? "
-                            + "WHERE s.client_id=? AND s.scope_type='asset' AND s.scope_id=CAST(? AS CHAR))",
-                    Boolean.class, sourceId, clientId, record.assetId());
-            if (!Boolean.TRUE.equals(allowed)) throw ApiRequestException.notFound();
+            if (!mapper.hasConnectorAssetScope(clientId, sourceId, record.assetId())) throw ApiRequestException.notFound();
             assetIds.add(record.assetId());
         }
         return Set.copyOf(assetIds);
     }
 
     private ExistingBatch findByIdempotency(long sourceId, String idempotencyKey) {
-        return jdbc.query("SELECT id,batch_key,data_source_id,status,total_count,accepted_count,rejected_count,request_sha256 "
-                        + "FROM ingest_batch WHERE data_source_id=? AND idempotency_key=?",
-                rs -> rs.next() ? new ExistingBatch(rs.getLong("id"), rs.getString("batch_key"),
-                        rs.getLong("data_source_id"), rs.getString("status"), rs.getLong("total_count"),
-                        rs.getLong("accepted_count"), rs.getLong("rejected_count"), rs.getString("request_sha256")) : null,
-                sourceId, idempotencyKey);
+        IngestMapper.BatchRow row = mapper.findBatchBySourceKey(sourceId, idempotencyKey);
+        return row == null ? null : new ExistingBatch(row.id(), row.batchKey(), row.sourceId(), row.status(),
+                row.totalCount(), row.acceptedCount(), row.rejectedCount(), row.requestSha256());
     }
 
     private Submission idempotentResult(ExistingBatch existing, String requestHash) {
@@ -196,31 +161,18 @@ public class MachineIngestService {
     }
 
     private void insertOutbox(long batchId, long sourceId, int count) {
-        jdbc.update("INSERT INTO outbox_event (event_key,aggregate_type,aggregate_id,topic,payload_json,status) "
-                        + "VALUES (?,?,?,?,?,'pending')", "ingest.batch:" + batchId, "ingest_batch",
-                Long.toString(batchId), "ingest.batch.received",
+        mapper.insertOutbox("ingest.batch:" + batchId, "ingest_batch", Long.toString(batchId), "ingest.batch.received",
                 "{\"batchId\":" + batchId + ",\"dataSourceId\":" + sourceId + ",\"recordCount\":" + count + "}");
     }
 
     private void insertAudit(long batchId, long sourceId, Set<Long> assetIds, String clientKey, String requestId) {
-        GeneratedKeyHolder auditKey = new GeneratedKeyHolder();
-        jdbc.update(connection -> {
-            PreparedStatement statement = connection.prepareStatement("INSERT INTO audit_log "
-                    + "(occurred_at,actor_type,actor_id,action,resource_type,resource_id,request_id,outcome,reason) "
-                    + "VALUES (?, 'machine', ?, 'ingest.batch.received', 'ingest_batch', ?, ?, 'success', 'scoped normalized batch accepted')",
-                    Statement.RETURN_GENERATED_KEYS);
-            statement.setTimestamp(1, Timestamp.from(Instant.now()));
-            statement.setString(2, clientKey);
-            statement.setString(3, Long.toString(batchId));
-            statement.setString(4, requestId);
-            return statement;
-        }, auditKey);
-        long auditId = auditKey.getKey().longValue();
-        jdbc.update("INSERT INTO audit_resource_scope (audit_id,scope_type,scope_id) VALUES (?, 'data_source', ?)",
-                auditId, Long.toString(sourceId));
+        AuditMapper.AuditInsert audit = new AuditMapper.AuditInsert(LocalDateTime.now(), "machine", clientKey,
+                "ingest.batch.received", "ingest_batch", Long.toString(batchId), requestId, "success",
+                "scoped normalized batch accepted");
+        auditMapper.insertAudit(audit);
+        auditMapper.insertResourceScope(audit.getId(), "data_source", Long.toString(sourceId));
         for (long assetId : assetIds) {
-            jdbc.update("INSERT INTO audit_resource_scope (audit_id,scope_type,scope_id) VALUES (?, 'asset', ?)",
-                    auditId, Long.toString(assetId));
+            auditMapper.insertResourceScope(audit.getId(), "asset", Long.toString(assetId));
         }
     }
 

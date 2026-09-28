@@ -31,6 +31,16 @@ export interface UserSummary { id: number; userKey: string; username: string; di
 export interface RoleSummary { roleKey: string; name: string; description: string; permissions: string[] }
 export interface RoleBindingView { roleKey: string; roleName: string; scopeType: string; scopeId: string }
 export interface OverviewView { hourlyAlerts: { hour: string; count: number }[]; quality24h: { accepted: number; manualReview: number; rejected: number } }
+export interface OpsStatusView {
+  outboxPending: number
+  outboxFailed: number
+  outboxDeadLetter: number
+  oldestPendingAgeSeconds: number
+  sensorsOnline: number
+  sensorsHeartbeatTimeout: number
+  ingestRejectionRatio24h: number
+  loginThrottleBlocked: number
+}
 
 export const severityLabel: Record<string, string> = { critical: '严重', high: '高', medium: '中', low: '低' }
 export const eventStatusLabel: Record<string, string> = { open: '待处理', investigating: '研判中', contained: '已遏制', resolved: '已解决', false_positive: '误报', closed: '已关闭' }

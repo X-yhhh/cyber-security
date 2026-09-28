@@ -717,6 +717,6 @@ INSERT INTO `sys_user` (
   `user_key`, `username`, `display_name`, `status`, `password_hash`
 ) VALUES (
   'bootstrap-admin', 'admin', '本机测试管理员', 'active',
-  '$2a$12$wnH.GRQsjecWDHOvIAnApObHTCWtvrjOKXrQCAdfv0J.6cJnMRzcq'
+  '$2a$12$AgsJgckbRfhmFRC7TONFQem9qDzn1W5YsI8PHfsPPr0.qKXZCPhwa'
 )
 ON DUPLICATE KEY UPDATE `id` = `id`;

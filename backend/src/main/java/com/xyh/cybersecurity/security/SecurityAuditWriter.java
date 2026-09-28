@@ -1,13 +1,14 @@
 package com.xyh.cybersecurity.security;
 
 import com.xyh.cybersecurity.identity.IdentityPrincipal;
+import com.xyh.cybersecurity.audit.AuditMapper;
 import jakarta.servlet.http.HttpServletRequest;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 
-import java.sql.Timestamp;
-import java.time.Instant;
+import java.time.LocalDateTime;
 
 import static com.xyh.cybersecurity.common.web.RequestIdFilter.REQUEST_ID_ATTRIBUTE;
 
@@ -15,19 +16,21 @@ import static com.xyh.cybersecurity.common.web.RequestIdFilter.REQUEST_ID_ATTRIB
 @Component
 public class SecurityAuditWriter {
 
-    private final JdbcTemplate jdbcTemplate;
+    private final AuditMapper auditMapper;
 
-    public SecurityAuditWriter(JdbcTemplate jdbcTemplate) { this.jdbcTemplate = jdbcTemplate; }
+    public SecurityAuditWriter(AuditMapper auditMapper) { this.auditMapper = auditMapper; }
 
+    /**
+     * 拒绝审计必须独立提交；调用方常处于即将回滚的业务事务中，不能让拒绝事实随异常丢失。
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void denied(HttpServletRequest request, Authentication authentication, String action, String reason) {
         Long actorId = authentication != null && authentication.getPrincipal() instanceof IdentityPrincipal principal
                 ? principal.id() : null;
         Object requestId = request.getAttribute(REQUEST_ID_ATTRIBUTE);
-        jdbcTemplate.update("INSERT INTO audit_log "
-                        + "(occurred_at, actor_type, actor_id, action, resource_type, resource_id, request_id, outcome, reason) "
-                        + "VALUES (?, ?, ?, ?, 'api', ?, ?, 'denied', ?)",
-                Timestamp.from(Instant.now()), actorId == null ? "anonymous" : "human",
-                actorId == null ? null : actorId.toString(), action, request.getRequestURI(),
-                requestId instanceof String value ? value : null, reason);
+        auditMapper.insertAudit(new AuditMapper.AuditInsert(LocalDateTime.now(java.time.Clock.systemUTC()),
+                actorId == null ? "anonymous" : "human",
+                actorId == null ? null : actorId.toString(), action, "api", request.getRequestURI(),
+                requestId instanceof String value ? value : null, "denied", reason));
     }
 }

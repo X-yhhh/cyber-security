@@ -1,10 +1,11 @@
 package com.xyh.cybersecurity.ops;
 
+import com.xyh.cybersecurity.audit.AuditMapper;
+import com.xyh.cybersecurity.identity.IdentityMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.context.annotation.Import;
 import com.xyh.cybersecurity.common.web.RequestIdFilter;
@@ -27,7 +28,13 @@ class HealthControllerTest {
     private MockMvc mockMvc;
 
     @MockitoBean
-    private JdbcTemplate jdbcTemplate;
+    private HealthMapper healthMapper;
+
+    @MockitoBean
+    private IdentityMapper identityMapper;
+
+    @MockitoBean
+    private AuditMapper auditMapper;
 
     @Test
     void liveProbeReturnsSuccessEnvelope() throws Exception {
@@ -40,8 +47,7 @@ class HealthControllerTest {
 
     @Test
     void readyProbeReportsDatabaseUnavailableWithoutDetails() throws Exception {
-        doThrow(new IllegalStateException("private connection detail"))
-                .when(jdbcTemplate).queryForObject("SELECT 1", Integer.class);
+        doThrow(new IllegalStateException("private connection detail")).when(healthMapper).ping();
 
         mockMvc.perform(get("/api/v1/health/ready"))
                 .andExpect(status().isServiceUnavailable())
@@ -53,7 +59,7 @@ class HealthControllerTest {
 
     @Test
     void readyProbeReportsDatabaseAvailable() throws Exception {
-        when(jdbcTemplate.queryForObject("SELECT 1", Integer.class)).thenReturn(1);
+        when(healthMapper.ping()).thenReturn(1);
 
         mockMvc.perform(get("/api/v1/health/ready"))
                 .andExpect(status().isOk())

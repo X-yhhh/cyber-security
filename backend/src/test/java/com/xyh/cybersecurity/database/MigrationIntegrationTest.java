@@ -4,6 +4,7 @@ import org.flywaydb.core.Flyway;
 import org.flywaydb.core.api.FlywayException;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.springframework.beans.factory.config.YamlPropertiesFactoryBean;
 import org.springframework.core.io.ClassPathResource;
 
@@ -16,6 +17,7 @@ import java.util.Properties;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+@EnabledIfEnvironmentVariable(named = "DB_TEST_BASE_URL", matches = ".+")
 class MigrationIntegrationTest {
 
     private static final String EMPTY_SCHEMA = "cyber_security_backend_test_v3_20260923";
@@ -73,7 +75,7 @@ class MigrationIntegrationTest {
                     + ".sys_role r ON r.id=rp.role_id", "r.role_key='platform_admin' AND p.permission_key IN ('approval.decide','model.release.approve')"))
                     .isZero();
             assertThat(count(statement, EMPTY_SCHEMA + ".sys_user", "1=1")).isZero();
-            assertThat(count(statement, EMPTY_SCHEMA + ".flyway_schema_history", "success=1")).isEqualTo(8);
+            assertThat(count(statement, EMPTY_SCHEMA + ".flyway_schema_history", "success=1")).isEqualTo(9);
             assertThat(count(statement, "information_schema.tables", "table_schema='" + EMPTY_SCHEMA
                     + "' AND table_name='auth_login_throttle'"))
                     .isEqualTo(1);
@@ -85,6 +87,9 @@ class MigrationIntegrationTest {
             assertThat(columnCount(statement, "api_client", "sensor_id")).isEqualTo(1);
             assertThat(columnCount(statement, "ingest_batch", "sequence_gap")).isEqualTo(1);
             assertThat(columnCount(statement, "ingest_batch", "feature_contract_version")).isEqualTo(1);
+            assertThat(indexCount(statement, "ingest_record", "idx_ingest_record_created_quality_asset")).isEqualTo(1);
+            assertThat(indexCount(statement, "audit_log", "idx_audit_log_occurred_id")).isEqualTo(1);
+            assertThat(indexCount(statement, "approval_task", "idx_approval_task_status_created")).isEqualTo(1);
         }
     }
 
@@ -132,6 +137,15 @@ class MigrationIntegrationTest {
     private static int columnCount(Statement statement, String table, String column) throws Exception {
         String sql = "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema='" + EMPTY_SCHEMA
                 + "' AND table_name='" + table + "' AND column_name='" + column + "'";
+        try (ResultSet resultSet = statement.executeQuery(sql)) {
+            resultSet.next();
+            return resultSet.getInt(1);
+        }
+    }
+
+    private static int indexCount(Statement statement, String table, String index) throws Exception {
+        String sql = "SELECT COUNT(DISTINCT index_name) FROM information_schema.statistics WHERE table_schema='" + EMPTY_SCHEMA
+                + "' AND table_name='" + table + "' AND index_name='" + index + "'";
         try (ResultSet resultSet = statement.executeQuery(sql)) {
             resultSet.next();
             return resultSet.getInt(1);

@@ -1,18 +1,14 @@
 package com.xyh.cybersecurity.incident;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.xyh.cybersecurity.audit.AuditMapper;
 import com.xyh.cybersecurity.common.api.ApiRequestException;
 import com.xyh.cybersecurity.identity.IdentityPrincipal;
 import jakarta.servlet.http.HttpServletRequest;
-import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.sql.PreparedStatement;
-import java.sql.Statement;
-import java.sql.Timestamp;
-import java.time.Instant;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -32,12 +28,12 @@ public class IncidentService {
             "closed", Set.of());
 
     private final IncidentMapper mapper;
-    private final JdbcTemplate jdbc;
+    private final AuditMapper auditMapper;
     private final ObjectMapper objectMapper;
 
-    public IncidentService(IncidentMapper mapper, JdbcTemplate jdbc, ObjectMapper objectMapper) {
+    public IncidentService(IncidentMapper mapper, AuditMapper auditMapper, ObjectMapper objectMapper) {
         this.mapper = mapper;
-        this.jdbc = jdbc;
+        this.auditMapper = auditMapper;
         this.objectMapper = objectMapper;
     }
 
@@ -107,35 +103,13 @@ public class IncidentService {
 
     private void audit(long userId, long eventId, String action, HttpServletRequest request) {
         Object requestId = request.getAttribute(REQUEST_ID_ATTRIBUTE);
-        GeneratedKeyHolder key = new GeneratedKeyHolder();
-        jdbc.update(connection -> {
-            PreparedStatement statement = connection.prepareStatement(
-                    "INSERT INTO audit_log (occurred_at,actor_type,actor_id,action,resource_type,resource_id,request_id,outcome,reason) "
-                            + "VALUES (?,'human',?,?, 'security_event', ?, ?, 'success', 'scoped analyst workflow')",
-                    Statement.RETURN_GENERATED_KEYS);
-            statement.setTimestamp(1, Timestamp.from(Instant.now()));
-            statement.setString(2, Long.toString(userId));
-            statement.setString(3, action);
-            statement.setString(4, Long.toString(eventId));
-            statement.setString(5, requestId instanceof String value ? value : null);
-            return statement;
-        }, key);
-        long auditId = key.getKey().longValue();
-        jdbc.update("INSERT IGNORE INTO audit_resource_scope (audit_id,scope_type,scope_id) "
-                        + "SELECT ?, 'asset', CAST(asset_id AS CHAR) FROM event_asset_link WHERE event_id=?",
-                auditId, eventId);
-        jdbc.update("INSERT IGNORE INTO audit_resource_scope (audit_id,scope_type,scope_id) "
-                        + "SELECT ?, 'asset', CAST(ir.asset_id AS CHAR) FROM event_alert_link eal "
-                        + "JOIN detection_alert da ON da.id=eal.alert_id "
-                        + "JOIN ingest_record ir ON ir.id=da.ingest_record_id "
-                        + "WHERE eal.event_id=? AND ir.asset_id IS NOT NULL",
-                auditId, eventId);
-        jdbc.update("INSERT IGNORE INTO audit_resource_scope (audit_id,scope_type,scope_id) "
-                        + "SELECT ?, 'data_source', CAST(ib.data_source_id AS CHAR) FROM event_alert_link eal "
-                        + "JOIN detection_alert da ON da.id=eal.alert_id "
-                        + "JOIN ingest_record ir ON ir.id=da.ingest_record_id "
-                        + "JOIN ingest_batch ib ON ib.id=ir.batch_id WHERE eal.event_id=?",
-                auditId, eventId);
+        AuditMapper.AuditInsert audit = new AuditMapper.AuditInsert(LocalDateTime.now(), "human",
+                Long.toString(userId), action, "security_event", Long.toString(eventId),
+                requestId instanceof String value ? value : null, "success", "scoped analyst workflow");
+        auditMapper.insertAudit(audit);
+        auditMapper.insertEventAssetScopes(audit.getId(), eventId);
+        auditMapper.insertEventAlertAssetScopes(audit.getId(), eventId);
+        auditMapper.insertEventAlertSourceScopes(audit.getId(), eventId);
     }
 
     private String validatedText(String value) {

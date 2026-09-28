@@ -2,19 +2,16 @@ package com.xyh.cybersecurity.source;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.xyh.cybersecurity.audit.AuditMapper;
 import com.xyh.cybersecurity.common.api.ApiRequestException;
 import com.xyh.cybersecurity.identity.IdentityPrincipal;
 import jakarta.servlet.http.HttpServletRequest;
-import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.sql.PreparedStatement;
-import java.sql.Statement;
-import java.sql.Timestamp;
 import java.time.Instant;
+import java.time.LocalDateTime;
 import java.util.List;
 
 import static com.xyh.cybersecurity.common.web.RequestIdFilter.REQUEST_ID_ATTRIBUTE;
@@ -24,12 +21,12 @@ import static com.xyh.cybersecurity.common.web.RequestIdFilter.REQUEST_ID_ATTRIB
 public class DataSourceService {
 
     private final DataSourceMapper mapper;
-    private final JdbcTemplate jdbc;
+    private final AuditMapper auditMapper;
     private final ObjectMapper objectMapper;
 
-    public DataSourceService(DataSourceMapper mapper, JdbcTemplate jdbc, ObjectMapper objectMapper) {
+    public DataSourceService(DataSourceMapper mapper, AuditMapper auditMapper, ObjectMapper objectMapper) {
         this.mapper = mapper;
-        this.jdbc = jdbc;
+        this.auditMapper = auditMapper;
         this.objectMapper = objectMapper;
     }
 
@@ -47,13 +44,12 @@ public class DataSourceService {
         validateName(input.environment(), "environment");
         validateName(input.schemaVersion(), "schemaVersion");
         try {
-            jdbc.update("INSERT INTO data_source (source_key, source_type, environment, schema_version, scope_json, status) "
-                            + "VALUES (?, ?, ?, ?, '{}', 'active')", input.sourceKey(), input.sourceType(),
-                    input.environment(), input.schemaVersion());
+            mapper.insertSource(new DataSourceMapper.SourceInsert(input.sourceKey(), input.sourceType(),
+                    input.environment(), input.schemaVersion()));
         } catch (org.springframework.dao.DuplicateKeyException exception) {
             throw ApiRequestException.conflict("数据源标识已存在");
         }
-        long id = jdbc.queryForObject("SELECT id FROM data_source WHERE source_key=?", Long.class, input.sourceKey());
+        long id = mapper.findIdByKey(input.sourceKey());
         audit(request, actor.id(), "source.created", "data_source", id, id, "success", "source registered");
         return mapper.findVisible(actor.id(), id);
     }
@@ -83,22 +79,12 @@ public class DataSourceService {
         validateName(input.mappingVersion(), "mappingVersion");
         String sourceSchema = canonicalObject(input.sourceSchema());
         String mapping = canonicalObject(input.mapping());
-        GeneratedKeyHolder key = new GeneratedKeyHolder();
         try {
-            jdbc.update(connection -> {
-                PreparedStatement statement = connection.prepareStatement("INSERT INTO source_mapping "
-                        + "(data_source_id, mapping_version, source_schema_json, mapping_json, status) "
-                        + "VALUES (?, ?, ?, ?, 'draft')", Statement.RETURN_GENERATED_KEYS);
-                statement.setLong(1, sourceId);
-                statement.setString(2, input.mappingVersion());
-                statement.setString(3, sourceSchema);
-                statement.setString(4, mapping);
-                return statement;
-            }, key);
+            mapper.insertMapping(new DataSourceMapper.MappingInsert(sourceId, input.mappingVersion(), sourceSchema, mapping));
         } catch (org.springframework.dao.DuplicateKeyException exception) {
             throw ApiRequestException.conflict("该映射版本已存在");
         }
-        long mappingId = key.getKey().longValue();
+        long mappingId = mapper.findMappingId(sourceId, input.mappingVersion());
         audit(request, actor.id(), "source.mapping.created", "source_mapping", mappingId, sourceId,
                 "success", "draft mapping version created");
         return mapper.listMappingsVisible(actor.id(), sourceId).stream().filter(row -> row.id() == mappingId)
@@ -106,14 +92,7 @@ public class DataSourceService {
     }
 
     private void requireSourceManage(long userId, long sourceId) {
-        Boolean allowed = jdbc.queryForObject("SELECT EXISTS (SELECT 1 FROM sys_user_role ur "
-                        + "JOIN sys_role r ON r.id=ur.role_id AND r.status='active' "
-                        + "JOIN sys_role_permission rp ON rp.role_id=r.id JOIN sys_permission p ON p.id=rp.permission_id "
-                        + "AND p.status='active' WHERE ur.user_id=? AND p.permission_key='source.manage' "
-                        + "AND ((r.role_key='platform_admin' AND ur.scope_type='global' AND ur.scope_id='*') "
-                        + "OR (ur.scope_type='data_source' AND ur.scope_id=?)))", Boolean.class,
-                userId, Long.toString(sourceId));
-        if (!Boolean.TRUE.equals(allowed)) throw ApiRequestException.notFound();
+        if (!mapper.hasManageScope(userId, sourceId)) throw ApiRequestException.notFound();
     }
 
     private String canonicalObject(String json) {
@@ -129,23 +108,11 @@ public class DataSourceService {
     private void audit(HttpServletRequest request, long actorId, String action, String resourceType, long resourceId,
                        long sourceId, String outcome, String reason) {
         Object requestId = request.getAttribute(REQUEST_ID_ATTRIBUTE);
-        GeneratedKeyHolder key = new GeneratedKeyHolder();
-        jdbc.update(connection -> {
-            PreparedStatement statement = connection.prepareStatement("INSERT INTO audit_log "
-                    + "(occurred_at,actor_type,actor_id,action,resource_type,resource_id,request_id,outcome,reason) "
-                    + "VALUES (?,'human',?,?,?,?,?,?,?)", Statement.RETURN_GENERATED_KEYS);
-            statement.setTimestamp(1, Timestamp.from(Instant.now()));
-            statement.setString(2, Long.toString(actorId));
-            statement.setString(3, action);
-            statement.setString(4, resourceType);
-            statement.setString(5, Long.toString(resourceId));
-            statement.setString(6, requestId instanceof String value ? value : null);
-            statement.setString(7, outcome);
-            statement.setString(8, reason);
-            return statement;
-        }, key);
-        jdbc.update("INSERT INTO audit_resource_scope (audit_id, scope_type, scope_id) VALUES (?, 'data_source', ?)",
-                key.getKey().longValue(), Long.toString(sourceId));
+        AuditMapper.AuditInsert audit = new AuditMapper.AuditInsert(LocalDateTime.now(), "human",
+                Long.toString(actorId), action, resourceType, Long.toString(resourceId),
+                requestId instanceof String value ? value : null, outcome, reason);
+        auditMapper.insertAudit(audit);
+        auditMapper.insertResourceScope(audit.getId(), "data_source", Long.toString(sourceId));
     }
 
     private static int checkedOffset(int page, int size) {

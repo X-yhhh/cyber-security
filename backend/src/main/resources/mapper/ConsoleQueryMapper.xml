@@ -1,0 +1,281 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.xyh.cybersecurity.query.ConsoleQueryMapper">
+    <sql id="assetScope">
+        EXISTS (SELECT 1 FROM sys_user su
+                JOIN sys_user_role ur ON ur.user_id=su.id
+                JOIN sys_role r ON r.id=ur.role_id AND r.status='active'
+                JOIN sys_role_permission rp ON rp.role_id=r.id
+                JOIN sys_permission p ON p.id=rp.permission_id AND p.status='active'
+                WHERE su.id=#{userId} AND su.status='active' AND p.permission_key='${permission}'
+                  AND ((ur.scope_type='asset' AND ur.scope_id=CAST(${assetExpr} AS CHAR))
+                    OR (r.role_key='platform_admin' AND ur.scope_type='global' AND ur.scope_id='*')))
+    </sql>
+
+    <sql id="sourceScope">
+        EXISTS (SELECT 1 FROM sys_user su
+                JOIN sys_user_role ur ON ur.user_id=su.id
+                JOIN sys_role r ON r.id=ur.role_id AND r.status='active'
+                JOIN sys_role_permission rp ON rp.role_id=r.id
+                JOIN sys_permission p ON p.id=rp.permission_id AND p.status='active'
+                WHERE su.id=#{userId} AND su.status='active' AND p.permission_key='${permission}'
+                  AND ((ur.scope_type='data_source' AND ur.scope_id=CAST(${sourceExpr} AS CHAR))
+                    OR (r.role_key='platform_admin' AND ur.scope_type='global' AND ur.scope_id='*')))
+    </sql>
+
+    <sql id="modelScope">
+        EXISTS (SELECT 1 FROM sys_user su
+                JOIN sys_user_role ur ON ur.user_id=su.id
+                JOIN sys_role r ON r.id=ur.role_id AND r.status='active'
+                JOIN sys_role_permission rp ON rp.role_id=r.id
+                JOIN sys_permission p ON p.id=rp.permission_id AND p.status='active'
+                WHERE su.id=#{userId} AND su.status='active' AND p.permission_key='${permission}'
+                  AND ur.scope_type='model_registry' AND ur.scope_id=${modelExpr})
+    </sql>
+
+    <sql id="assetScopeParam">
+        EXISTS (SELECT 1 FROM sys_user su
+                JOIN sys_user_role ur ON ur.user_id=su.id
+                JOIN sys_role r ON r.id=ur.role_id AND r.status='active'
+                JOIN sys_role_permission rp ON rp.role_id=r.id
+                JOIN sys_permission p ON p.id=rp.permission_id AND p.status='active'
+                WHERE su.id=#{userId} AND su.status='active' AND p.permission_key=#{permission}
+                  AND ((ur.scope_type='asset' AND ur.scope_id=CAST(${assetExpr} AS CHAR))
+                    OR (r.role_key='platform_admin' AND ur.scope_type='global' AND ur.scope_id='*')))
+    </sql>
+
+    <resultMap id="sensorRow" type="com.xyh.cybersecurity.query.ConsoleQueryMapper$SensorRow">
+        <constructor><idArg column="id" javaType="_long"/><arg column="agent_key" javaType="string"/>
+            <arg column="asset_id" javaType="_long"/><arg column="asset_key" javaType="string"/>
+            <arg column="platform" javaType="string"/><arg column="agent_version" javaType="string"/>
+            <arg column="status" javaType="string"/><arg column="last_heartbeat_at" javaType="java.time.LocalDateTime"/>
+            <arg column="config_version" javaType="string"/><arg column="flow_window_seconds" javaType="java.lang.Integer"/>
+            <arg column="window_end" javaType="java.time.LocalDateTime"/><arg column="flows_seen" javaType="java.lang.Long"/>
+            <arg column="flows_emitted" javaType="java.lang.Long"/><arg column="flows_dropped" javaType="java.lang.Long"/>
+            <arg column="queue_depth_max" javaType="java.lang.Long"/></constructor>
+    </resultMap>
+    <resultMap id="authorizationRow" type="com.xyh.cybersecurity.query.ConsoleQueryMapper$AuthorizationRow">
+        <constructor><idArg column="id" javaType="_long"/><arg column="asset_id" javaType="_long"/>
+            <arg column="authorization_ref" javaType="string"/><arg column="status" javaType="string"/>
+            <arg column="valid_from" javaType="java.time.LocalDateTime"/><arg column="valid_until" javaType="java.time.LocalDateTime"/>
+            <arg column="requested_by" javaType="string"/><arg column="approved_by" javaType="string"/>
+            <arg column="created_at" javaType="java.time.LocalDateTime"/></constructor>
+    </resultMap>
+    <resultMap id="ingestSummaryRow" type="com.xyh.cybersecurity.query.ConsoleQueryMapper$IngestSummaryRow">
+        <constructor><idArg column="data_source_id" javaType="_long"/><arg column="batches" javaType="_long"/>
+            <arg column="accepted" javaType="_long"/><arg column="rejected" javaType="_long"/>
+            <arg column="last_batch_at" javaType="java.time.LocalDateTime"/><arg column="mapping_version" javaType="string"/>
+            <arg column="mapping_status" javaType="string"/></constructor>
+    </resultMap>
+    <resultMap id="policyRow" type="com.xyh.cybersecurity.query.ConsoleQueryMapper$PolicyRow">
+        <constructor><idArg column="id" javaType="_long"/><arg column="policy_key" javaType="string"/>
+            <arg column="version" javaType="string"/><arg column="environment" javaType="string"/>
+            <arg column="action_type" javaType="string"/><arg column="params" javaType="string"/>
+            <arg column="auto_execute" javaType="_boolean"/><arg column="approval_required" javaType="_boolean"/>
+            <arg column="max_duration_seconds" javaType="_int"/><arg column="status" javaType="string"/>
+            <arg column="approved" javaType="_boolean"/></constructor>
+    </resultMap>
+    <resultMap id="ledgerRow" type="com.xyh.cybersecurity.query.ConsoleQueryMapper$LedgerRow">
+        <constructor><idArg column="id" javaType="_long"/><arg column="event_id" javaType="_long"/>
+            <arg column="event_key" javaType="string"/><arg column="asset_id" javaType="_long"/>
+            <arg column="asset_key" javaType="string"/><arg column="snapshot" javaType="string"/>
+            <arg column="status" javaType="string"/><arg column="requester" javaType="string"/>
+            <arg column="reviewer" javaType="string"/><arg column="decision_reason" javaType="string"/>
+            <arg column="expires_at" javaType="java.time.LocalDateTime"/><arg column="created_at" javaType="java.time.LocalDateTime"/>
+            <arg column="reviewed_at" javaType="java.time.LocalDateTime"/><arg column="exec_status" javaType="string"/></constructor>
+    </resultMap>
+    <resultMap id="releaseRow" type="com.xyh.cybersecurity.query.ConsoleQueryMapper$ReleaseRow">
+        <constructor><idArg column="id" javaType="_long"/><arg column="release_status" javaType="string"/>
+            <arg column="review_status" javaType="string"/><arg column="requester" javaType="string"/>
+            <arg column="approver" javaType="string"/><arg column="request_reason" javaType="string"/>
+            <arg column="decision_reason" javaType="string"/><arg column="reviewed_at" javaType="java.time.LocalDateTime"/>
+            <arg column="created_at" javaType="java.time.LocalDateTime"/></constructor>
+    </resultMap>
+    <resultMap id="deploymentRow" type="com.xyh.cybersecurity.query.ConsoleQueryMapper$DeploymentRow">
+        <constructor><idArg column="id" javaType="_long"/><arg column="environment" javaType="string"/>
+            <arg column="mode" javaType="string"/><arg column="model_version_id" javaType="_long"/>
+            <arg column="model_key" javaType="string"/><arg column="version" javaType="string"/>
+            <arg column="runtime_type" javaType="string"/><arg column="status" javaType="string"/>
+            <arg column="activated_at" javaType="java.time.LocalDateTime"/></constructor>
+    </resultMap>
+    <resultMap id="driftRow" type="com.xyh.cybersecurity.query.ConsoleQueryMapper$DriftRow">
+        <constructor><idArg column="id" javaType="_long"/><arg column="data_source_id" javaType="_long"/>
+            <arg column="model_key" javaType="string"/><arg column="version" javaType="string"/>
+            <arg column="window_start" javaType="java.time.LocalDateTime"/><arg column="window_end" javaType="java.time.LocalDateTime"/>
+            <arg column="features" javaType="string"/><arg column="scores" javaType="string"/>
+            <arg column="quality_reject_rate" javaType="java.math.BigDecimal"/><arg column="drift_status" javaType="string"/></constructor>
+    </resultMap>
+    <resultMap id="feedbackRow" type="com.xyh.cybersecurity.query.ConsoleQueryMapper$FeedbackRow">
+        <constructor><idArg column="id" javaType="_long"/><arg column="alert_id" javaType="java.lang.Long"/>
+            <arg column="alert_key" javaType="string"/><arg column="label" javaType="string"/>
+            <arg column="label_source" javaType="string"/><arg column="reviewer" javaType="string"/>
+            <arg column="reviewed_at" javaType="java.time.LocalDateTime"/><arg column="dataset_version" javaType="string"/>
+            <arg column="training_eligible" javaType="_boolean"/></constructor>
+    </resultMap>
+    <resultMap id="trainingJobRow" type="com.xyh.cybersecurity.query.ConsoleQueryMapper$TrainingJobRow">
+        <constructor><idArg column="id" javaType="_long"/><arg column="job_key" javaType="string"/>
+            <arg column="dataset_version" javaType="string"/><arg column="sample_manifest_ref" javaType="string"/>
+            <arg column="train_host_ref" javaType="string"/><arg column="status" javaType="string"/>
+            <arg column="requester" javaType="string"/><arg column="started_at" javaType="java.time.LocalDateTime"/>
+            <arg column="finished_at" javaType="java.time.LocalDateTime"/><arg column="result_manifest_ref" javaType="string"/>
+            <arg column="failure_reason" javaType="string"/></constructor>
+    </resultMap>
+    <resultMap id="replayScenarioRow" type="com.xyh.cybersecurity.query.ConsoleQueryMapper$ReplayScenarioRow">
+        <constructor><idArg column="id" javaType="_long"/><arg column="scenario_key" javaType="string"/>
+            <arg column="name" javaType="string"/><arg column="dataset_ref" javaType="string"/>
+            <arg column="environment" javaType="string"/><arg column="safety_profile" javaType="string"/>
+            <arg column="status" javaType="string"/><arg column="run_key" javaType="string"/>
+            <arg column="run_status" javaType="string"/><arg column="speed" javaType="java.math.BigDecimal"/>
+            <arg column="progress" javaType="java.math.BigDecimal"/><arg column="started_at" javaType="java.time.LocalDateTime"/>
+            <arg column="finished_at" javaType="java.time.LocalDateTime"/><arg column="summary" javaType="string"/></constructor>
+    </resultMap>
+    <resultMap id="hourCountRow" type="com.xyh.cybersecurity.query.ConsoleQueryMapper$HourCountRow">
+        <constructor><idArg column="h" javaType="string"/><arg column="c" javaType="_long"/></constructor>
+    </resultMap>
+    <resultMap id="qualityRow" type="com.xyh.cybersecurity.query.ConsoleQueryMapper$QualityRow">
+        <constructor><idArg column="a" javaType="_long"/><arg column="m" javaType="_long"/><arg column="r" javaType="_long"/></constructor>
+    </resultMap>
+    <resultMap id="roleBindingRow" type="com.xyh.cybersecurity.query.ConsoleQueryMapper$RoleBindingRow">
+        <constructor><idArg column="role_key" javaType="string"/><arg column="name" javaType="string"/>
+            <arg column="scope_type" javaType="string"/><arg column="scope_id" javaType="string"/></constructor>
+    </resultMap>
+
+    <select id="sensors" resultMap="sensorRow">
+        SELECT sa.id,sa.agent_key,sa.asset_id,a.asset_key,sa.platform,sa.agent_version,sa.status,
+               sa.last_heartbeat_at,h.window_end,h.flows_seen,h.flows_emitted,h.flows_dropped,h.queue_depth_max,
+               (SELECT sc.config_version FROM sensor_config sc WHERE sc.sensor_id=sa.id AND sc.status='active'
+                ORDER BY sc.activated_at DESC LIMIT 1) config_version,
+               (SELECT sc.flow_window_seconds FROM sensor_config sc WHERE sc.sensor_id=sa.id AND sc.status='active'
+                ORDER BY sc.activated_at DESC LIMIT 1) flow_window_seconds
+        FROM sensor_agent sa JOIN asset a ON a.id=sa.asset_id
+        LEFT JOIN sensor_health_window h ON h.id=(SELECT h2.id FROM sensor_health_window h2
+          WHERE h2.sensor_id=sa.id ORDER BY h2.window_end DESC LIMIT 1)
+        WHERE <include refid="assetScope"><property name="permission" value="sensor.read"/><property name="assetExpr" value="sa.asset_id"/></include>
+        ORDER BY sa.id LIMIT 200
+    </select>
+
+    <select id="authorizations" resultMap="authorizationRow">
+        SELECT aa.id,aa.asset_id,aa.authorization_ref,aa.status,aa.valid_from,aa.valid_until,
+               rq.username requested_by,ap.username approved_by,aa.created_at
+        FROM asset_authorization aa LEFT JOIN sys_user rq ON rq.id=aa.requested_by
+        LEFT JOIN sys_user ap ON ap.id=aa.approved_by
+        WHERE aa.asset_id=#{assetId} AND
+          <include refid="assetScope"><property name="permission" value="asset.authorization.read"/><property name="assetExpr" value="aa.asset_id"/></include>
+        ORDER BY aa.valid_until DESC,aa.id DESC LIMIT 200
+    </select>
+
+    <select id="ingestSummary" resultMap="ingestSummaryRow">
+        SELECT ds.id data_source_id,COUNT(ib.id) batches,COALESCE(SUM(ib.accepted_count),0) accepted,
+               COALESCE(SUM(ib.rejected_count),0) rejected,MAX(ib.created_at) last_batch_at,
+               (SELECT sm.mapping_version FROM source_mapping sm WHERE sm.data_source_id=ds.id ORDER BY sm.id DESC LIMIT 1) mapping_version,
+               (SELECT sm.status FROM source_mapping sm WHERE sm.data_source_id=ds.id ORDER BY sm.id DESC LIMIT 1) mapping_status
+        FROM data_source ds LEFT JOIN ingest_batch ib ON ib.data_source_id=ds.id
+        WHERE <include refid="sourceScope"><property name="permission" value="ingest.batch.read"/><property name="sourceExpr" value="ds.id"/></include>
+        GROUP BY ds.id ORDER BY ds.id LIMIT 200
+    </select>
+
+    <select id="policies" resultMap="policyRow">
+        SELECT id,policy_key,version,environment,action_type,CAST(action_params_json AS CHAR) params,
+               auto_execute,approval_required,max_duration_seconds,status,approved_by IS NOT NULL approved
+        FROM response_policy ORDER BY policy_key,id DESC LIMIT 200
+    </select>
+
+    <select id="ledger" resultMap="ledgerRow">
+        SELECT at.id,at.event_id,e.event_key,req.asset_id,a.asset_key,
+               CAST(at.action_request_json AS CHAR) snapshot,at.status,rq.username requester,rv.username reviewer,
+               at.decision_reason,at.expires_at,at.created_at,at.reviewed_at,
+               (SELECT x.status FROM action_execution x WHERE x.approval_task_id=at.id ORDER BY x.id DESC LIMIT 1) exec_status
+        FROM approval_task at
+        JOIN JSON_TABLE(at.action_request_json, '$' COLUMNS(asset_id BIGINT PATH '$.assetId')) req ON TRUE
+        JOIN asset a ON a.id=req.asset_id JOIN security_event e ON e.id=at.event_id
+        JOIN sys_user rq ON rq.id=at.requested_by LEFT JOIN sys_user rv ON rv.id=at.reviewed_by
+        WHERE <if test="mine">at.requested_by=#{userId} AND </if>
+          <include refid="assetScopeParam"><property name="assetExpr" value="req.asset_id"/></include>
+        ORDER BY at.created_at DESC,at.id DESC LIMIT 200
+    </select>
+
+    <select id="releases" resultMap="releaseRow">
+        SELECT mr.id,mr.release_status,mr.review_status,rq.username requester,ap.username approver,
+               mr.request_reason,mr.decision_reason,mr.reviewed_at,mr.created_at
+        FROM model_release_record mr JOIN model_version mv ON mv.id=mr.model_version_id
+        LEFT JOIN sys_user rq ON rq.id=mr.requested_by LEFT JOIN sys_user ap ON ap.id=mr.approved_by
+        WHERE mv.id=#{modelId} AND
+          <include refid="modelScope"><property name="permission" value="model.validation.read"/><property name="modelExpr" value="mv.model_key"/></include>
+        ORDER BY mr.id DESC LIMIT 200
+    </select>
+
+    <select id="deployments" resultMap="deploymentRow">
+        SELECT md.id,md.environment,md.mode,md.model_version_id,mv.model_key,mv.version,md.runtime_type,
+               md.status,md.activated_at
+        FROM model_deployment md JOIN model_version mv ON mv.id=md.model_version_id
+        WHERE <include refid="modelScope"><property name="permission" value="model.validation.read"/><property name="modelExpr" value="mv.model_key"/></include>
+        ORDER BY md.id DESC LIMIT 200
+    </select>
+
+    <select id="drift" resultMap="driftRow">
+        SELECT dw.id,dw.data_source_id,mv.model_key,mv.version,dw.window_start,dw.window_end,
+               CAST(dw.feature_stats_json AS CHAR) features,CAST(dw.score_stats_json AS CHAR) scores,
+               dw.quality_reject_rate,dw.drift_status
+        FROM drift_metric_window dw JOIN model_version mv ON mv.id=dw.model_version_id
+        WHERE <include refid="modelScope"><property name="permission" value="model.validation.read"/><property name="modelExpr" value="mv.model_key"/></include>
+        ORDER BY dw.window_end DESC LIMIT 200
+    </select>
+
+    <select id="feedback" resultMap="feedbackRow">
+        SELECT fs.id,fs.alert_id,da.alert_key,fs.label,fs.label_source,rv.username reviewer,
+               fs.reviewed_at,fs.dataset_version,fs.training_eligible
+        FROM feedback_sample fs LEFT JOIN detection_alert da ON da.id=fs.alert_id
+        LEFT JOIN sys_user rv ON rv.id=fs.reviewed_by ORDER BY fs.id DESC LIMIT 200
+    </select>
+
+    <select id="trainingJobs" resultMap="trainingJobRow">
+        SELECT tj.id,tj.job_key,tj.dataset_version,tj.sample_manifest_ref,tj.train_host_ref,tj.status,
+               rq.username requester,tj.started_at,tj.finished_at,tj.result_manifest_ref,tj.failure_reason
+        FROM model_training_job tj LEFT JOIN sys_user rq ON rq.id=tj.requested_by
+        ORDER BY tj.id DESC LIMIT 200
+    </select>
+
+    <select id="replayScenarios" resultMap="replayScenarioRow">
+        SELECT rs.id,rs.scenario_key,rs.name,rs.dataset_ref,rs.environment,rs.safety_profile,rs.status,
+               lr.run_key,lr.status run_status,lr.speed,lr.progress,lr.started_at,lr.finished_at,
+               CAST(lr.summary_json AS CHAR) summary
+        FROM replay_scenario rs
+        LEFT JOIN replay_run lr ON lr.id=(SELECT r2.id FROM replay_run r2 WHERE r2.scenario_id=rs.id ORDER BY r2.id DESC LIMIT 1)
+        ORDER BY rs.id LIMIT 200
+    </select>
+
+    <sql id="alertReadPermission">
+        EXISTS (SELECT 1 FROM sys_user_role ur JOIN sys_role r ON r.id=ur.role_id AND r.status='active'
+                JOIN sys_role_permission rp ON rp.role_id=r.id JOIN sys_permission p ON p.id=rp.permission_id AND p.status='active'
+                WHERE ur.user_id=#{userId} AND p.permission_key='alert.read'
+                  AND (r.role_key&lt;&gt;'platform_admin' OR (ur.scope_type='global' AND ur.scope_id='*')))
+    </sql>
+
+    <select id="hourlyAlerts" resultMap="hourCountRow">
+        SELECT DATE_FORMAT(da.detected_at,'%Y-%m-%dT%H:00:00') h,COUNT(*) c
+        FROM detection_alert da JOIN ingest_record ir ON ir.id=da.ingest_record_id
+        JOIN ingest_batch ib ON ib.id=ir.batch_id
+        WHERE da.detected_at&gt;=UTC_TIMESTAMP(3)-INTERVAL 24 HOUR AND ir.asset_id IS NOT NULL
+          AND <include refid="alertReadPermission"/>
+          AND <include refid="assetScope"><property name="permission" value="asset.read"/><property name="assetExpr" value="ir.asset_id"/></include>
+          AND <include refid="sourceScope"><property name="permission" value="source.read"/><property name="sourceExpr" value="ib.data_source_id"/></include>
+        GROUP BY h ORDER BY h
+    </select>
+
+    <select id="quality24h" resultMap="qualityRow">
+        SELECT COALESCE(SUM(quality_status='accepted'),0) a,
+               COALESCE(SUM(quality_status='manual_review'),0) m,
+               COALESCE(SUM(quality_status='rejected'),0) r
+        FROM ingest_record ir
+        WHERE ir.created_at&gt;=UTC_TIMESTAMP(3)-INTERVAL 24 HOUR AND ir.asset_id IS NOT NULL
+          AND <include refid="assetScope"><property name="permission" value="asset.read"/><property name="assetExpr" value="ir.asset_id"/></include>
+    </select>
+
+    <select id="countUsers" resultType="int">SELECT COUNT(*) FROM sys_user WHERE id=#{userId}</select>
+
+    <select id="roleBindings" resultMap="roleBindingRow">
+        SELECT r.role_key,r.name,ur.scope_type,ur.scope_id FROM sys_user_role ur
+        JOIN sys_role r ON r.id=ur.role_id WHERE ur.user_id=#{userId}
+        ORDER BY r.role_key,ur.scope_type,ur.scope_id
+    </select>
+</mapper>

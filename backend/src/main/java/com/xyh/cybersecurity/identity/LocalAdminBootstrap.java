@@ -6,13 +6,12 @@ import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Profile;
-import org.springframework.jdbc.core.JdbcTemplate;
+import com.xyh.cybersecurity.audit.AuditMapper;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.sql.Timestamp;
-import java.time.Instant;
+import java.time.LocalDateTime;
 
 /** 仅本机 local profile 确保联调管理员存在；不得重置既有密码、状态或用户标识。 */
 @Component
@@ -21,47 +20,37 @@ import java.time.Instant;
 public class LocalAdminBootstrap implements ApplicationRunner {
 
     private static final Logger logger = LoggerFactory.getLogger(LocalAdminBootstrap.class);
-    private final JdbcTemplate jdbcTemplate;
+    private final IdentityMapper identityMapper;
+    private final AuditMapper auditMapper;
     private final PasswordEncoder passwordEncoder;
 
-    public LocalAdminBootstrap(JdbcTemplate jdbcTemplate, PasswordEncoder passwordEncoder) {
-        this.jdbcTemplate = jdbcTemplate;
+    public LocalAdminBootstrap(IdentityMapper identityMapper, AuditMapper auditMapper, PasswordEncoder passwordEncoder) {
+        this.identityMapper = identityMapper;
+        this.auditMapper = auditMapper;
         this.passwordEncoder = passwordEncoder;
     }
 
     @Override
     @Transactional
     public void run(ApplicationArguments args) {
-        var userIds = jdbcTemplate.query("SELECT id, password_hash FROM sys_user WHERE username='admin'",
-                (rs, rowNum) -> new AdminRow(rs.getLong("id"), rs.getString("password_hash")));
+        IdentityMapper.AdminRow existing = identityMapper.findAdmin();
         long adminId;
-        if (userIds.isEmpty()) {
-            jdbcTemplate.update("INSERT INTO sys_user "
-                            + "(user_key, username, display_name, status, password_hash) VALUES (?, ?, ?, 'active', ?)",
-                    "bootstrap-admin", "admin", "本机测试管理员", passwordEncoder.encode("admin"));
-            adminId = jdbcTemplate.queryForObject("SELECT id FROM sys_user WHERE username='admin'", Long.class);
+        if (existing == null) {
+            identityMapper.insertAdmin("bootstrap-admin", "本机测试管理员", passwordEncoder.encode("admin"));
+            adminId = identityMapper.findUserIdByUsername("admin");
         } else {
-            AdminRow admin = userIds.getFirst();
-            adminId = admin.id();
-            if (admin.passwordHash() == null || !passwordEncoder.matches("admin", admin.passwordHash())) {
+            adminId = existing.id();
+            if (existing.passwordHash() == null || !passwordEncoder.matches("admin", existing.passwordHash())) {
                 logger.warn("Existing admin password hash was preserved; local credentials may differ from admin/admin.");
             }
         }
 
-        Long roleId = jdbcTemplate.queryForObject(
-                "SELECT id FROM sys_role WHERE role_key='platform_admin' AND status='active'", Long.class);
-        int added = jdbcTemplate.update("INSERT INTO sys_user_role (user_id, role_id, scope_type, scope_id) "
-                        + "SELECT ?, ?, 'global', '*' WHERE NOT EXISTS (SELECT 1 FROM sys_user_role "
-                        + "WHERE user_id=? AND role_id=? AND scope_type='global' AND scope_id='*')",
-                adminId, roleId, adminId, roleId);
+        Long roleId = identityMapper.findPlatformAdminRoleId();
+        int added = identityMapper.ensureGlobalPlatformAdminBinding(adminId, roleId);
         if (added > 0) {
-            jdbcTemplate.update("INSERT INTO audit_log "
-                            + "(occurred_at, actor_type, actor_id, action, resource_type, resource_id, outcome, reason) "
-                            + "VALUES (?, 'system', 'local-bootstrap', 'iam.admin.bootstrap', 'user', ?, 'success', ?)",
-                    Timestamp.from(Instant.now()), Long.toString(adminId), "local profile added platform_admin role binding");
+            auditMapper.insertAudit(new AuditMapper.AuditInsert(LocalDateTime.now(), "system", "local-bootstrap",
+                    "iam.admin.bootstrap", "user", Long.toString(adminId), null, "success",
+                    "local profile added platform_admin role binding"));
         }
-    }
-
-    private record AdminRow(long id, String passwordHash) {
     }
 }

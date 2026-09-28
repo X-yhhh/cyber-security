@@ -2,7 +2,7 @@
 /**
  * 态势：只回答三个问题——现在有什么需要处理、保护是否降级、模型是否可信。
  * 所有数字来自数据库：事件/审批/传感器/部署各自走对应接口，24 小时告警与质量门禁
- * 来自 /overview 聚合；当前身份无权查看的区块显示为空，不补示例值。
+ * 来自 /overview 与受保护的 /ops/status 聚合；当前身份无权查看的区块显示为空，不补示例值。
  */
 import { computed, ref } from 'vue'
 import { RouterLink } from 'vue-router'
@@ -13,28 +13,32 @@ import Tag from '@/components/Tag.vue'
 import LoadState from '@/components/LoadState.vue'
 import { api, type Page } from '@/api/client'
 import { can } from '@/api/session'
-import { eventStatusLabel, fmtTime, severityLabel, type DeploymentView, type DriftView, type EventView, type LedgerView, type OverviewView, type SensorView } from '@/api/types'
+import { eventStatusLabel, fmtTime, severityLabel, type DeploymentView, type DriftView, type EventView, type LedgerView, type OpsStatusView, type OverviewView, type SensorView } from '@/api/types'
 import { eventTone, severityTone, statusTone } from '@/data/tones'
 import { optional, useLoad } from '@/composables/load'
 import { vReveal } from '@/composables/reveal'
 
-const empty = { events: [] as EventView[], approvals: [] as LedgerView[], sensors: [] as SensorView[], deployments: [] as DeploymentView[], drift: [] as DriftView[], ov: { hourlyAlerts: [], quality24h: { accepted: 0, manualReview: 0, rejected: 0 } } as OverviewView }
+const empty = { events: [] as EventView[], approvals: [] as LedgerView[], sensors: [] as SensorView[], deployments: [] as DeploymentView[], drift: [] as DriftView[], ov: { hourlyAlerts: [], quality24h: { accepted: 0, manualReview: 0, rejected: 0 } } as OverviewView, ops: null as OpsStatusView | null }
 const { data, loading, error } = useLoad(async () => {
-  const [events, approvals, sensors, deployments, drift, ov] = await Promise.all([
+  const [events, approvals, sensors, deployments, drift, ov, ops] = await Promise.all([
     can('event.read') ? api.get<Page<EventView>>('/events?size=100').then((p) => p.items) : [],
     can('approval.read') ? optional(api.get<LedgerView[]>('/approvals/ledger'), []) : [],
     can('sensor.read') ? api.get<SensorView[]>('/sensors') : [],
     can('model.validation.read') ? api.get<DeploymentView[]>('/model-deployments') : [],
     can('model.validation.read') ? api.get<DriftView[]>('/model-drift-windows') : [],
     api.get<OverviewView>('/overview'),
+    can('ops.status.read') ? optional(api.get<OpsStatusView>('/ops/status'), null) : null,
   ])
-  return { events, approvals, sensors, deployments, drift, ov }
+  return { events, approvals, sensors, deployments, drift, ov, ops }
 }, empty)
 
 const openEvents = computed(() => data.value.events.filter((e) => ['open', 'investigating'].includes(e.status)))
 const pending = computed(() => data.value.approvals.filter((a) => a.status === 'pending'))
 const active = computed(() => data.value.deployments.find((d) => d.status === 'active'))
 const q = computed(() => data.value.ov.quality24h)
+const ops = computed(() => data.value.ops)
+const opsCount = (value: number | undefined) => value === undefined || value < 0 ? '—' : Math.round(value).toLocaleString('zh-CN')
+const opsAge = (value: number | undefined) => value === undefined || value < 0 ? '—' : `${Math.round(value)}s`
 const qTotal = computed(() => q.value.accepted + q.value.manualReview + q.value.rejected)
 const inferable = computed(() => (qTotal.value ? (q.value.accepted / qTotal.value) * 100 : 0))
 const drift = computed(() => data.value.drift.slice(0, 24).reverse())
@@ -161,6 +165,35 @@ const today = new Date().toLocaleDateString('zh-CN')
         </div>
       </section>
     </div>
+
+    <section v-if="data.ops" v-reveal class="mt-24">
+      <div class="mb-6 flex items-baseline justify-between">
+        <h2 class="text-[15px]">运行摘要</h2>
+        <p class="text-[12px] text-ink-3">MySQL 事实源 · 不返回连接信息或原始载荷</p>
+      </div>
+      <div class="grid grid-cols-2 gap-x-10 gap-y-8 border-t border-ink pt-5 sm:grid-cols-4">
+        <div>
+          <p class="label">待发布发件箱</p>
+          <p class="num mt-3 text-[1.5rem]">{{ opsCount(ops?.outboxPending) }}</p>
+          <p class="mt-1 text-[12px] text-ink-3">失败 {{ opsCount(ops?.outboxFailed) }} · 死信 {{ opsCount(ops?.outboxDeadLetter) }}</p>
+        </div>
+        <div>
+          <p class="label">传感器心跳</p>
+          <p class="num mt-3 text-[1.5rem]">{{ opsCount(ops?.sensorsOnline) }}</p>
+          <p class="mt-1 text-[12px] text-ink-3">超时 {{ opsCount(ops?.sensorsHeartbeatTimeout) }}</p>
+        </div>
+        <div>
+          <p class="label">24 小时接入拒绝率</p>
+          <p class="num mt-3 text-[1.5rem]">{{ !ops || ops.ingestRejectionRatio24h < 0 ? '—' : `${(ops.ingestRejectionRatio24h * 100).toFixed(1)}%` }}</p>
+          <p class="mt-1 text-[12px] text-ink-3">当前登录限速 {{ opsCount(ops?.loginThrottleBlocked) }}</p>
+        </div>
+        <div>
+          <p class="label">最老待发布</p>
+          <p class="num mt-3 text-[1.5rem]">{{ opsAge(ops?.oldestPendingAgeSeconds) }}</p>
+          <p class="mt-1 text-[12px] text-ink-3">发件箱延迟摘要</p>
+        </div>
+      </div>
+    </section>
   </div>
 </template>
 

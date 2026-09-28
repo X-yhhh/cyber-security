@@ -1,15 +1,14 @@
 package com.xyh.cybersecurity.identity;
 
 import com.xyh.cybersecurity.authorization.ResourceScope;
+import com.xyh.cybersecurity.audit.AuditMapper;
 import com.xyh.cybersecurity.common.api.ApiRequestException;
 import jakarta.servlet.http.HttpServletRequest;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.sql.Timestamp;
-import java.time.Instant;
+import java.time.LocalDateTime;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -24,12 +23,12 @@ public class UserService {
             "security_analyst", "response_approver", "model_operator", "model_releaser", "auditor");
 
     private final IdentityMapper identityMapper;
-    private final JdbcTemplate jdbcTemplate;
+    private final AuditMapper auditMapper;
     private final PasswordEncoder passwordEncoder;
 
-    public UserService(IdentityMapper identityMapper, JdbcTemplate jdbcTemplate, PasswordEncoder passwordEncoder) {
+    public UserService(IdentityMapper identityMapper, AuditMapper auditMapper, PasswordEncoder passwordEncoder) {
         this.identityMapper = identityMapper;
-        this.jdbcTemplate = jdbcTemplate;
+        this.auditMapper = auditMapper;
         this.passwordEncoder = passwordEncoder;
     }
 
@@ -56,13 +55,11 @@ public class UserService {
         }
         String userKey = "usr_" + java.util.UUID.randomUUID().toString().replace("-", "");
         try {
-            jdbcTemplate.update("INSERT INTO sys_user (user_key, username, display_name, status, password_hash) "
-                            + "VALUES (?, ?, ?, 'active', ?)",
-                    userKey, username, displayName, passwordEncoder.encode(input.password()));
+            identityMapper.insertUser(userKey, username, displayName, passwordEncoder.encode(input.password()));
         } catch (org.springframework.dao.DuplicateKeyException exception) {
             throw ApiRequestException.conflict("用户名已存在");
         }
-        long userId = jdbcTemplate.queryForObject("SELECT id FROM sys_user WHERE user_key=?", Long.class, userKey);
+        long userId = identityMapper.findUserIdByKey(userKey);
         writeAudit(request, actor.id(), "iam.user.create", "user", Long.toString(userId), "success",
                 "user created without implicit roles");
         IdentityMapper.UserView created = identityMapper.findUser(userId);
@@ -132,13 +129,12 @@ public class UserService {
             throw ApiRequestException.conflict("保留 admin 账号的全局平台管理员角色");
         }
 
-        jdbcTemplate.update("DELETE FROM sys_user_role WHERE user_id=?", userId);
+        identityMapper.deleteUserRoles(userId);
         for (IdentityMapper.RoleBinding binding : normalizedAssignments) {
             Long roleId = identityMapper.findActiveBuiltinRoleId(binding.roleKey());
-            jdbcTemplate.update("INSERT INTO sys_user_role (user_id, role_id, scope_type, scope_id) VALUES (?, ?, ?, ?)",
-                    userId, roleId, binding.scopeType(), binding.scopeId());
+            identityMapper.insertUserRole(userId, roleId, binding.scopeType(), binding.scopeId());
         }
-        jdbcTemplate.update("DELETE FROM SPRING_SESSION WHERE PRINCIPAL_NAME=?", target.username());
+        identityMapper.deleteSession(target.username());
         writeAudit(request, actor.id(), "iam.user.roles.replace", "user", Long.toString(userId), "success",
                 "replaced with " + normalizedAssignments.size() + " predefined role scope bindings");
         return identityMapper.listRoleBindings(userId);
@@ -147,11 +143,8 @@ public class UserService {
     private void writeAudit(HttpServletRequest request, long actorId, String action, String resourceType,
                             String resourceId, String outcome, String reason) {
         Object requestId = request.getAttribute(REQUEST_ID_ATTRIBUTE);
-        jdbcTemplate.update("INSERT INTO audit_log "
-                        + "(occurred_at, actor_type, actor_id, action, resource_type, resource_id, request_id, outcome, reason) "
-                        + "VALUES (?, 'human', ?, ?, ?, ?, ?, ?, ?)", Timestamp.from(Instant.now()),
-                Long.toString(actorId), action, resourceType, resourceId,
-                requestId instanceof String value ? value : null, outcome, reason);
+        auditMapper.insertAudit(new AuditMapper.AuditInsert(LocalDateTime.now(), "human", Long.toString(actorId),
+                action, resourceType, resourceId, requestId instanceof String value ? value : null, outcome, reason));
     }
 
     private static int checkedOffset(int page, int size) {

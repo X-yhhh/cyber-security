@@ -3,6 +3,9 @@ package com.xyh.cybersecurity.response;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.xyh.cybersecurity.common.api.ApiEnvelope;
 import com.xyh.cybersecurity.identity.IdentityPrincipal;
+import com.xyh.cybersecurity.response.application.ActionRequestService;
+import com.xyh.cybersecurity.response.application.ApprovalDecisionService;
+import com.xyh.cybersecurity.response.application.ResponseQueryService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
@@ -28,9 +31,16 @@ import static com.xyh.cybersecurity.common.web.RequestIdFilter.REQUEST_ID_ATTRIB
 @RequestMapping("/api/v1")
 public class ResponseController {
 
-    private final ResponseService service;
+    private final ActionRequestService actionRequests;
+    private final ApprovalDecisionService decisions;
+    private final ResponseQueryService queries;
 
-    public ResponseController(ResponseService service) { this.service = service; }
+    public ResponseController(ActionRequestService actionRequests, ApprovalDecisionService decisions,
+                              ResponseQueryService queries) {
+        this.actionRequests = actionRequests;
+        this.decisions = decisions;
+        this.queries = queries;
+    }
 
     @PostMapping("/events/{eventId}/actions")
     @PreAuthorize("hasAuthority('action.request')")
@@ -38,7 +48,7 @@ public class ResponseController {
             @PathVariable long eventId, @RequestHeader("Idempotency-Key") String idempotencyKey,
             @Valid @RequestBody ActionBody body, @AuthenticationPrincipal IdentityPrincipal actor,
             HttpServletRequest request) {
-        ResponseService.RequestResult result = service.requestAction(eventId,
+        ResponseService.RequestResult result = actionRequests.request(eventId,
                 new ResponseService.ActionRequest(body.assetId(), body.policyId(), body.actionType(),
                         body.parameters(), body.reason()), idempotencyKey, actor, request);
         return ResponseEntity.status(result.created() ? HttpStatus.CREATED : HttpStatus.OK)
@@ -51,7 +61,7 @@ public class ResponseController {
                                                         @RequestParam(defaultValue = "20") int size,
                                                         @AuthenticationPrincipal IdentityPrincipal actor,
                                                         HttpServletRequest request) {
-        return ApiEnvelope.success(service.listApprovals(actor.id(), page, size), requestId(request));
+        return ApiEnvelope.success(queries.listApprovals(actor.id(), page, size), requestId(request));
     }
 
     @GetMapping("/approvals/{id}")
@@ -59,7 +69,7 @@ public class ResponseController {
     public ApiEnvelope<ResponseService.ApprovalView> approval(@PathVariable long id,
                                                               @AuthenticationPrincipal IdentityPrincipal actor,
                                                               HttpServletRequest request) {
-        return ApiEnvelope.success(service.getApproval(actor.id(), id), requestId(request));
+        return ApiEnvelope.success(queries.getApproval(actor.id(), id), requestId(request));
     }
 
     @GetMapping("/actions/{id}")
@@ -67,7 +77,7 @@ public class ResponseController {
     public ApiEnvelope<ResponseService.ApprovalView> action(@PathVariable long id,
                                                              @AuthenticationPrincipal IdentityPrincipal actor,
                                                              HttpServletRequest request) {
-        return ApiEnvelope.success(service.getAction(actor.id(), id), requestId(request));
+        return ApiEnvelope.success(queries.getAction(actor.id(), id), requestId(request));
     }
 
     @PostMapping("/approvals/{id}/decision")
@@ -76,7 +86,7 @@ public class ResponseController {
                                                              @Valid @RequestBody DecisionBody body,
                                                              @AuthenticationPrincipal IdentityPrincipal actor,
                                                              HttpServletRequest request) {
-        return ApiEnvelope.success(service.decide(id, body.decision(), body.reason(), actor, request),
+        return ApiEnvelope.success(decisions.decide(id, body.decision(), body.reason(), actor, request),
                 requestId(request));
     }
 
@@ -84,7 +94,7 @@ public class ResponseController {
     @PreAuthorize("hasAuthority('action.request')")
     public ApiEnvelope<Void> execute(@PathVariable long id, @AuthenticationPrincipal IdentityPrincipal actor,
                                      HttpServletRequest request) {
-        throw service.rejectExecution(id, actor, request);
+        throw actionRequests.rejectExecution(id, actor, request);
     }
 
     private static String requestId(HttpServletRequest request) {

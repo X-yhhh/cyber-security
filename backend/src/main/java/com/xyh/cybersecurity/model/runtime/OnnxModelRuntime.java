@@ -1,4 +1,4 @@
-package com.xyh.cybersecurity.model;
+package com.xyh.cybersecurity.model.runtime;
 
 import ai.onnxruntime.OnnxJavaType;
 import ai.onnxruntime.OnnxTensor;
@@ -7,6 +7,7 @@ import ai.onnxruntime.OrtEnvironment;
 import ai.onnxruntime.OrtException;
 import ai.onnxruntime.OrtSession;
 import ai.onnxruntime.TensorInfo;
+import com.xyh.cybersecurity.model.validation.ModelContractException;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -38,22 +39,22 @@ public final class OnnxModelRuntime implements AutoCloseable {
     }
 
     public List<Prediction> predict(List<FlowInput> inputs) throws OrtException {
-        if (inputs.isEmpty() || inputs.size() > 1024) throw new IllegalArgumentException("batch size must be 1..1024");
+        if (inputs.isEmpty() || inputs.size() > 1024) throw new ModelContractException("MODEL_BATCH_SIZE_INVALID");
         double[][] numeric = new double[inputs.size()][NUMERIC_FEATURE_COUNT];
         String[][] categorical = new String[inputs.size()][CATEGORICAL_FEATURE_COUNT];
         for (int row = 0; row < inputs.size(); row++) {
             FlowInput input = inputs.get(row);
             if (input.numeric().length != NUMERIC_FEATURE_COUNT || input.categorical().length != CATEGORICAL_FEATURE_COUNT) {
-                throw new IllegalArgumentException("MODEL_CONTRACT_MISMATCH");
+                throw new ModelContractException("MODEL_INPUT_CONTRACT_MISMATCH");
             }
             for (int column = 0; column < NUMERIC_FEATURE_COUNT; column++) {
                 double value = input.numeric()[column];
-                if (Double.isInfinite(value)) throw new IllegalArgumentException("MODEL_CONTRACT_MISMATCH");
+                if (!Double.isFinite(value)) throw new ModelContractException("MODEL_INPUT_CONTRACT_MISMATCH");
                 numeric[row][column] = value;
             }
             for (int column = 0; column < CATEGORICAL_FEATURE_COUNT; column++) {
                 String value = input.categorical()[column];
-                if (value == null || value.length() > 128) throw new IllegalArgumentException("MODEL_CONTRACT_MISMATCH");
+                if (value == null || value.length() > 128) throw new ModelContractException("MODEL_INPUT_CONTRACT_MISMATCH");
                 categorical[row][column] = value;
             }
         }
@@ -67,7 +68,7 @@ public final class OnnxModelRuntime implements AutoCloseable {
             for (int row = 0; row < inputs.size(); row++) {
                 float probability = probabilities[row][probabilities[row].length - 1];
                 if (!Float.isFinite(probability) || probability < 0f || probability > 1f) {
-                    throw new IllegalStateException("invalid ONNX probability output");
+                    throw new ModelContractException("MODEL_OUTPUT_CONTRACT_MISMATCH");
                 }
                 boolean label = scalar(labelValue, row) != 0;
                 predictions.add(new Prediction(probability, label));
@@ -118,7 +119,7 @@ public final class OnnxModelRuntime implements AutoCloseable {
             for (int i = 0; i < expectedRows; i++) matrix[i][0] = vector[i];
             return matrix;
         }
-        throw new IllegalStateException("invalid ONNX probability output shape");
+        throw new ModelContractException("MODEL_OUTPUT_CONTRACT_MISMATCH");
     }
 
     private static int scalar(Object value, int row) {
@@ -128,7 +129,7 @@ public final class OnnxModelRuntime implements AutoCloseable {
         if (value instanceof boolean[] vector) return vector[row] ? 1 : 0;
         if (value instanceof long[] vector) return Math.toIntExact(vector[row]);
         if (value instanceof int[] vector) return vector[row];
-        throw new IllegalStateException("invalid ONNX label output type");
+        throw new ModelContractException("MODEL_OUTPUT_CONTRACT_MISMATCH");
     }
 
     @Override public void close() throws OrtException { session.close(); }

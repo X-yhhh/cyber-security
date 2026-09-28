@@ -5,23 +5,20 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.xyh.cybersecurity.common.api.ApiRequestException;
+import com.xyh.cybersecurity.audit.AuditMapper;
 import com.xyh.cybersecurity.ingest.contract.FeatureContract;
 import com.xyh.cybersecurity.ingest.contract.FeatureContractRegistry;
 import com.xyh.cybersecurity.ingest.contract.FeatureContractValidator;
 import com.xyh.cybersecurity.ingest.contract.FeatureValidationResult;
 import com.xyh.cybersecurity.identity.MachinePrincipal;
 import org.springframework.http.HttpStatus;
-import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
-import java.sql.PreparedStatement;
-import java.sql.Statement;
-import java.sql.Timestamp;
 import java.time.Instant;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.List;
@@ -32,14 +29,16 @@ import java.util.UUID;
 /** 传感器专用流批次接入：服务端解析身份、配置、授权和 raw feature 契约后才写入 outbox。 */
 @Service
 public class SensorIngestService {
-    private final JdbcTemplate jdbc;
+    private final IngestMapper mapper;
+    private final AuditMapper auditMapper;
     private final ObjectMapper objectMapper;
     private final FeatureContractRegistry contracts;
     private final FeatureContractValidator validator;
 
-    public SensorIngestService(JdbcTemplate jdbc, ObjectMapper objectMapper, FeatureContractRegistry contracts,
+    public SensorIngestService(IngestMapper mapper, AuditMapper auditMapper, ObjectMapper objectMapper, FeatureContractRegistry contracts,
                                FeatureContractValidator validator) {
-        this.jdbc = jdbc;
+        this.mapper = mapper;
+        this.auditMapper = auditMapper;
         this.objectMapper = objectMapper;
         this.contracts = contracts;
         this.validator = validator;
@@ -74,8 +73,7 @@ public class SensorIngestService {
             if (MessageDigest.isEqual(bytes(sequence.requestSha256()), bytes(requestHash))) return idempotent(sequence, requestHash);
             throw new ApiRequestException(HttpStatus.CONFLICT, "SEQUENCE_CONFLICT", "同一传感器序号对应了不同批次内容");
         }
-        Long previousSequence = jdbc.queryForObject("SELECT MAX(sequence_no) FROM ingest_batch WHERE sensor_id=? AND config_version=?",
-                Long.class, pathSensorId, request.configVersion());
+        Long previousSequence = mapper.previousSequence(pathSensorId, request.configVersion());
         if (previousSequence != null && request.sequence() < previousSequence) {
             throw new ApiRequestException(HttpStatus.CONFLICT, "SEQUENCE_CONFLICT", "传感器序号不能回退");
         }
@@ -94,9 +92,7 @@ public class SensorIngestService {
         for (int i = 0; i < request.records().size(); i++) {
             FlowRecordRequest record = request.records().get(i);
             RecordCheck check = checks.get(i);
-            jdbc.update("INSERT INTO ingest_record (batch_id,source_record_key,event_type,event_time,asset_id,"
-                            + "normalized_payload,quality_status,quality_issues_json,mapping_version) VALUES (?,?,?,?,?,?,?, ?,?)",
-                    batchId, record.recordKey(), "network_flow", Timestamp.from(record.flowEndAt()), sensor.assetId(),
+            mapper.insertSensorRecord(batchId, record.recordKey(), record.flowEndAt(), sensor.assetId(),
                     writeJson(recordPayload(record)), check.accepted() ? "accepted" : "rejected",
                     check.issuesJson(), request.sourceMappingVersion());
         }
@@ -120,8 +116,7 @@ public class SensorIngestService {
         if (heartbeat == null || heartbeat.observedAt() == null || heartbeat.observedAt().isAfter(Instant.now().plusSeconds(300))) {
             throw ApiRequestException.badRequest("心跳时间无效");
         }
-        jdbc.update("UPDATE sensor_agent SET last_heartbeat_at=?, agent_version=?, capabilities_json=? WHERE id=? AND status='active'",
-                Timestamp.from(heartbeat.observedAt()), heartbeat.agentVersion(), writeJson(heartbeat.capabilities()), sensorId);
+        mapper.updateHeartbeat(sensorId, heartbeat.observedAt(), heartbeat.agentVersion(), writeJson(heartbeat.capabilities()));
         audit(0, 0, sensor.assetId(), principal.clientKey(), requestId, "success", "sensor heartbeat");
     }
 
@@ -133,13 +128,10 @@ public class SensorIngestService {
         SensorIdentity sensor = loadSensor(sensorId, principal.id());
         if (sensor == null) throw new ApiRequestException(HttpStatus.UNAUTHORIZED, "MACHINE_IDENTITY_REJECTED", "传感器身份已失效");
         if (!sensor.active()) throw new ApiRequestException(HttpStatus.UNAUTHORIZED, "MACHINE_IDENTITY_REJECTED", "传感器身份已失效");
-        return jdbc.query("SELECT config_version,interface_scope_json,filter_policy_json,flow_window_seconds,"
-                        + "feature_contract_version,sampling_policy_json,activated_at FROM sensor_config "
-                        + "WHERE sensor_id=? AND status='active' ORDER BY activated_at DESC LIMIT 1",
-                rs -> rs.next() ? new ConfigView(rs.getString("config_version"), rs.getString("interface_scope_json"),
-                        rs.getString("filter_policy_json"), rs.getInt("flow_window_seconds"),
-                        rs.getString("feature_contract_version"), rs.getString("sampling_policy_json"),
-                        rs.getTimestamp("activated_at") == null ? null : rs.getTimestamp("activated_at").toInstant()) : null, sensor.id());
+        IngestMapper.SensorConfigRow config = mapper.findActiveConfig(sensor.id());
+        return config == null ? null : new ConfigView(config.configVersion(), config.interfaceScopeJson(),
+                config.filterPolicyJson(), config.flowWindowSeconds(), config.featureContractVersion(),
+                config.samplingPolicyJson(), config.activatedAt());
     }
 
     @Transactional
@@ -160,16 +152,13 @@ public class SensorIngestService {
         }
         JsonNode sanitizedErrors = sanitizeHealthErrors(window.errors());
         lockActiveSensor(sensorId);
-        Boolean overlaps = jdbc.queryForObject("SELECT EXISTS (SELECT 1 FROM sensor_health_window WHERE sensor_id=? AND window_start<? AND window_end>?)",
-                Boolean.class, sensorId, Timestamp.from(window.windowEnd()), Timestamp.from(window.windowStart()));
-        if (Boolean.TRUE.equals(overlaps)) {
+        if (mapper.overlapsHealthWindow(sensorId, window.windowStart(), window.windowEnd())) {
             throw new ApiRequestException(HttpStatus.CONFLICT, "HEALTH_WINDOW_OVERLAP", "健康窗口与已提交窗口重叠");
         }
         try {
-            jdbc.update("INSERT INTO sensor_health_window (sensor_id,window_start,window_end,flows_seen,flows_emitted,flows_dropped,queue_depth_max,cpu_percent,memory_bytes,errors_json) "
-                            + "VALUES (?,?,?,?,?,?,?,?,?,?)", sensorId, Timestamp.from(window.windowStart()), Timestamp.from(window.windowEnd()),
+            mapper.insertHealthWindow(new IngestMapper.HealthWindowInsert(sensorId, window.windowStart(), window.windowEnd(),
                     window.flowsSeen(), window.flowsEmitted(), window.flowsDropped(), window.queueDepthMax(), window.cpuPercent(),
-                    window.memoryBytes(), writeJson(sanitizedErrors));
+                    window.memoryBytes(), writeJson(sanitizedErrors)));
         } catch (org.springframework.dao.DuplicateKeyException e) {
             throw new ApiRequestException(HttpStatus.CONFLICT, "IDEMPOTENCY_CONFLICT", "健康窗口已提交");
         }
@@ -211,100 +200,72 @@ public class SensorIngestService {
     }
 
     private void requireActiveConfig(long sensorId, String version, String contractVersion) {
-        Boolean exists = jdbc.queryForObject("SELECT EXISTS (SELECT 1 FROM sensor_config WHERE sensor_id=? AND config_version=? "
-                + "AND feature_contract_version=? AND status='active')", Boolean.class, sensorId, version, contractVersion);
-        if (!Boolean.TRUE.equals(exists)) throw new ApiRequestException(HttpStatus.CONFLICT, "CONFIG_VERSION_STALE", "传感器配置版本无效或已失效");
+        if (!mapper.hasActiveConfig(sensorId, version, contractVersion)) throw new ApiRequestException(HttpStatus.CONFLICT, "CONFIG_VERSION_STALE", "传感器配置版本无效或已失效");
     }
 
     private void requireApprovedMapping(long sourceId, String mappingVersion) {
-        Boolean exists = jdbc.queryForObject("SELECT EXISTS (SELECT 1 FROM source_mapping sm JOIN data_source ds ON ds.id=sm.data_source_id "
-                + "AND ds.status='active' WHERE sm.data_source_id=? AND sm.mapping_version=? AND sm.status='approved')",
-                Boolean.class, sourceId, mappingVersion);
-        if (!Boolean.TRUE.equals(exists)) throw new ApiRequestException(HttpStatus.CONFLICT, "MAPPING_NOT_APPROVED", "来源映射未批准或已失效");
+        if (!mapper.hasApprovedSourceMapping(sourceId, mappingVersion)) throw new ApiRequestException(HttpStatus.CONFLICT, "MAPPING_NOT_APPROVED", "来源映射未批准或已失效");
     }
 
     private void requireSourceScope(long clientId, long sourceId, long assetId) {
-        Boolean allowed = jdbc.queryForObject("SELECT EXISTS (SELECT 1 FROM api_client c JOIN api_client_permission cp ON cp.client_id=c.id "
-                + "JOIN sys_permission p ON p.id=cp.permission_id AND p.permission_key='machine.sensor.ingest' AND p.status='active' "
-                + "JOIN api_client_source_asset_scope pair ON pair.client_id=c.id AND pair.data_source_id=? AND pair.asset_id=? "
-                + "JOIN data_source ds ON ds.id=pair.data_source_id AND ds.status='active' JOIN asset a ON a.id=pair.asset_id AND a.status='active' "
-                + "WHERE c.id=? AND c.client_type='sensor' AND c.status='active')", Boolean.class, sourceId, assetId, clientId);
-        if (!Boolean.TRUE.equals(allowed)) throw new ApiRequestException(HttpStatus.NOT_FOUND, "SCOPE_OR_ASSET_REJECTED", "来源或资产不在传感器授权范围内");
+        if (!mapper.hasSensorSourcePair(clientId, sourceId, assetId)) throw new ApiRequestException(HttpStatus.NOT_FOUND, "SCOPE_OR_ASSET_REJECTED", "来源或资产不在传感器授权范围内");
     }
 
     private void requireAssetAuthorization(long assetId) {
-        Boolean allowed = jdbc.queryForObject("SELECT EXISTS (SELECT 1 FROM asset_authorization WHERE asset_id=? AND status='active' "
-                + "AND valid_from<=UTC_TIMESTAMP(3) AND valid_until>UTC_TIMESTAMP(3))", Boolean.class, assetId);
-        if (!Boolean.TRUE.equals(allowed)) throw new ApiRequestException(HttpStatus.FORBIDDEN, "SCOPE_OR_ASSET_REJECTED", "资产授权已过期或不存在");
+        if (!mapper.hasAssetAuthorization(assetId)) throw new ApiRequestException(HttpStatus.FORBIDDEN, "SCOPE_OR_ASSET_REJECTED", "资产授权已过期或不存在");
     }
 
     private SensorIdentity loadSensor(long sensorId, long clientId) {
-        return jdbc.query("SELECT sa.id,sa.asset_id,sa.status FROM sensor_agent sa JOIN api_client c ON c.sensor_id=sa.id "
-                        + "WHERE sa.id=? AND c.id=? AND c.client_type='sensor'",
-                rs -> rs.next() ? new SensorIdentity(rs.getLong("id"), rs.getLong("asset_id"), "active".equals(rs.getString("status"))) : null,
-                sensorId, clientId);
+        IngestMapper.SensorIdentityRow row = mapper.findSensor(sensorId, clientId);
+        return row == null ? null : new SensorIdentity(row.id(), row.assetId(), "active".equals(row.status()));
     }
 
     /** 串行化同一传感器的序号检查和健康窗口检查，避免并发写绕过服务层时序约束。 */
     private void lockActiveSensor(long sensorId) {
-        List<Long> ids = jdbc.query("SELECT id FROM sensor_agent WHERE id=? AND status='active' FOR UPDATE",
-                (rs, rowNum) -> rs.getLong(1), sensorId);
-        if (ids.isEmpty()) throw new ApiRequestException(HttpStatus.UNAUTHORIZED, "MACHINE_IDENTITY_REJECTED", "传感器身份已失效");
+        if (mapper.lockActiveSensor(sensorId) == null) throw new ApiRequestException(HttpStatus.UNAUTHORIZED, "MACHINE_IDENTITY_REJECTED", "传感器身份已失效");
     }
 
     private void requireSensorPrincipal(long pathSensorId, MachinePrincipal principal) {
         if (principal == null || !"sensor".equals(principal.clientType())) {
             throw new ApiRequestException(HttpStatus.UNAUTHORIZED, "MACHINE_IDENTITY_REJECTED", "需要传感器机器主体");
         }
-        Boolean bound = jdbc.queryForObject("SELECT EXISTS (SELECT 1 FROM api_client WHERE id=? AND sensor_id=? AND client_type='sensor')",
-                Boolean.class, principal.id(), pathSensorId);
-        if (!Boolean.TRUE.equals(bound)) throw new ApiRequestException(HttpStatus.NOT_FOUND, "MACHINE_IDENTITY_REJECTED", "传感器身份与请求路径不匹配");
+        if (!mapper.isClientBound(principal.id(), pathSensorId)) throw new ApiRequestException(HttpStatus.NOT_FOUND, "MACHINE_IDENTITY_REJECTED", "传感器身份与请求路径不匹配");
     }
 
     private boolean hasSensorPermission(long clientId, String permission) {
-        return Boolean.TRUE.equals(jdbc.queryForObject("SELECT EXISTS (SELECT 1 FROM api_client_permission cp JOIN sys_permission p ON p.id=cp.permission_id "
-                + "WHERE cp.client_id=? AND p.permission_key=? AND p.status='active')", Boolean.class, clientId, permission));
+        return mapper.hasSensorPermission(clientId, permission);
     }
 
     private InsertedBatch insertBatch(SensorBatchRequest request, long sensorId, String idempotencyKey, String hash,
                              String status, int accepted, int rejected, boolean sequenceGap) {
         String key = "bat_" + UUID.randomUUID().toString().replace("-", "");
-        GeneratedKeyHolder holder = new GeneratedKeyHolder();
-        jdbc.update(connection -> {
-            PreparedStatement statement = connection.prepareStatement("INSERT INTO ingest_batch "
-                    + "(batch_key,data_source_id,sensor_id,config_version,sequence_no,sequence_gap,feature_contract_version,idempotency_key,request_sha256,status,total_count,accepted_count,rejected_count,started_at) "
-                    + "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)", Statement.RETURN_GENERATED_KEYS);
-            statement.setString(1, key); statement.setLong(2, request.dataSourceId()); statement.setLong(3, sensorId);
-            statement.setString(4, request.configVersion()); statement.setLong(5, request.sequence());
-            statement.setBoolean(6, sequenceGap); statement.setString(7, request.featureContractVersion()); statement.setString(8, idempotencyKey); statement.setString(9, hash);
-            statement.setString(10, status); statement.setInt(11, request.records().size()); statement.setInt(12, accepted); statement.setInt(13, rejected);
-            statement.setTimestamp(14, Timestamp.from(Instant.now())); return statement;
-        }, holder);
-        return new InsertedBatch(holder.getKey().longValue(), key);
+        mapper.insertSensorBatch(new IngestMapper.SensorBatchInsert(key, request.dataSourceId(), sensorId, request.configVersion(),
+                request.sequence(), sequenceGap, request.featureContractVersion(), idempotencyKey, hash, status,
+                request.records().size(), accepted, rejected, Instant.now()));
+        return new InsertedBatch(mapper.findBatchIdByKey(key), key);
     }
 
     private void insertOutbox(long batchId, long sourceId, int count) {
-        jdbc.update("INSERT INTO outbox_event (event_key,aggregate_type,aggregate_id,topic,payload_json,status) VALUES (?,?,?,?,?,'pending')",
-                "sensor.ingest.batch:" + batchId, "ingest_batch", Long.toString(batchId), "ingest.batch.received",
+        mapper.insertOutbox("sensor.ingest.batch:" + batchId, "ingest_batch", Long.toString(batchId), "ingest.batch.received",
                 "{\"batchId\":" + batchId + ",\"dataSourceId\":" + sourceId + ",\"recordCount\":" + count + "}");
     }
 
     private void audit(long batchId, long sourceId, long assetId, String actor, String requestId, String outcome, String reason) {
-        jdbc.update("INSERT INTO audit_log (occurred_at,actor_type,actor_id,action,resource_type,resource_id,request_id,outcome,reason) VALUES (?,?,?,'sensor.ingest','ingest_batch',?,?,?,?)",
-                Timestamp.from(Instant.now()), "machine", actor, batchId == 0 ? null : Long.toString(batchId), requestId, outcome, reason);
-        Long id = jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
-        if (sourceId > 0) jdbc.update("INSERT INTO audit_resource_scope (audit_id,scope_type,scope_id) VALUES (?, 'data_source', ?)", id, Long.toString(sourceId));
-        if (assetId > 0) jdbc.update("INSERT INTO audit_resource_scope (audit_id,scope_type,scope_id) VALUES (?, 'asset', ?)", id, Long.toString(assetId));
+        AuditMapper.AuditInsert audit = new AuditMapper.AuditInsert(LocalDateTime.now(), "machine", actor,
+                "sensor.ingest", "ingest_batch", batchId == 0 ? null : Long.toString(batchId), requestId, outcome, reason);
+        auditMapper.insertAudit(audit);
+        if (sourceId > 0) auditMapper.insertResourceScope(audit.getId(), "data_source", Long.toString(sourceId));
+        if (assetId > 0) auditMapper.insertResourceScope(audit.getId(), "asset", Long.toString(assetId));
     }
 
-    private ExistingBatch findByIdempotency(long sourceId, String key) { return find("data_source_id=? AND idempotency_key=?", sourceId, key); }
+    private ExistingBatch findByIdempotency(long sourceId, String key) { return convert(mapper.findBatchBySourceKey(sourceId, key)); }
     private ExistingBatch findBySequence(long sensorId, String configVersion, long sequence) {
-        return find("sensor_id=? AND config_version=? AND sequence_no=?", sensorId, configVersion, sequence);
+        return convert(mapper.findBatchBySequence(sensorId, configVersion, sequence));
     }
-    private ExistingBatch find(String where, Object... args) {
-        return jdbc.query("SELECT id,batch_key,data_source_id,status,total_count,accepted_count,rejected_count,request_sha256,sequence_gap FROM ingest_batch WHERE " + where,
-                rs -> rs.next() ? new ExistingBatch(rs.getLong("id"), rs.getString("batch_key"), rs.getLong("data_source_id"), rs.getString("status"),
-                        rs.getLong("total_count"), rs.getLong("accepted_count"), rs.getLong("rejected_count"), rs.getString("request_sha256"), rs.getBoolean("sequence_gap")) : null, args);
+
+    private ExistingBatch convert(IngestMapper.BatchRow row) {
+        return row == null ? null : new ExistingBatch(row.id(), row.batchKey(), row.sourceId(), row.status(), row.totalCount(),
+                row.acceptedCount(), row.rejectedCount(), row.requestSha256(), row.sequenceGap());
     }
 
     private Submission idempotent(ExistingBatch existing, String hash) {

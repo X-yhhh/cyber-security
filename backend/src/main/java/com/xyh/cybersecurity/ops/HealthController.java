@@ -4,7 +4,6 @@ import com.xyh.cybersecurity.common.api.ApiEnvelope;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -18,10 +17,10 @@ import static com.xyh.cybersecurity.common.web.RequestIdFilter.REQUEST_ID_ATTRIB
 @RequestMapping("/api/v1/health")
 public class HealthController {
 
-    private final JdbcTemplate jdbcTemplate;
+    private final HealthMapper healthMapper;
 
-    public HealthController(JdbcTemplate jdbcTemplate) {
-        this.jdbcTemplate = jdbcTemplate;
+    public HealthController(HealthMapper healthMapper) {
+        this.healthMapper = healthMapper;
     }
 
     @GetMapping("/live")
@@ -32,7 +31,7 @@ public class HealthController {
     @GetMapping("/ready")
     public ResponseEntity<ApiEnvelope<Map<String, String>>> ready(HttpServletRequest request) {
         try {
-            jdbcTemplate.queryForObject("SELECT 1", Integer.class);
+            healthMapper.ping();
             return ResponseEntity.ok(ApiEnvelope.success(Map.of("status", "UP", "database", "UP"), requestId(request)));
         } catch (RuntimeException exception) {
             return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(ApiEnvelope.failure(

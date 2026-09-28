@@ -1,8 +1,9 @@
-package com.xyh.cybersecurity.model;
+package com.xyh.cybersecurity.model.release;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.xyh.cybersecurity.common.api.ApiEnvelope;
 import com.xyh.cybersecurity.identity.IdentityPrincipal;
+import com.xyh.cybersecurity.model.runtime.OnnxModelManager;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;

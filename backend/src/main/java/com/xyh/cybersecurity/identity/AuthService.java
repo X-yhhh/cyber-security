@@ -2,7 +2,7 @@ package com.xyh.cybersecurity.identity;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-import org.springframework.jdbc.core.JdbcTemplate;
+import com.xyh.cybersecurity.audit.AuditMapper;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
@@ -13,8 +13,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.time.LocalDateTime;
 import java.util.List;
-import java.sql.Timestamp;
 import com.xyh.cybersecurity.security.AbsoluteSessionFilter;
 
 import static com.xyh.cybersecurity.common.web.RequestIdFilter.REQUEST_ID_ATTRIBUTE;
@@ -25,14 +25,16 @@ public class AuthService {
 
     private final AuthenticationManager authenticationManager;
     private final SecurityContextRepository contextRepository;
-    private final JdbcTemplate jdbcTemplate;
+    private final IdentityMapper identityMapper;
+    private final AuditMapper auditMapper;
     private final LoginThrottleService loginThrottleService;
 
     public AuthService(AuthenticationManager authenticationManager, SecurityContextRepository contextRepository,
-                       JdbcTemplate jdbcTemplate, LoginThrottleService loginThrottleService) {
+                       IdentityMapper identityMapper, AuditMapper auditMapper, LoginThrottleService loginThrottleService) {
         this.authenticationManager = authenticationManager;
         this.contextRepository = contextRepository;
-        this.jdbcTemplate = jdbcTemplate;
+        this.identityMapper = identityMapper;
+        this.auditMapper = auditMapper;
         this.loginThrottleService = loginThrottleService;
     }
 
@@ -46,10 +48,9 @@ public class AuthService {
             Authentication authentication = authenticationManager.authenticate(
                     UsernamePasswordAuthenticationToken.unauthenticated(username, password));
             IdentityPrincipal principal = (IdentityPrincipal) authentication.getPrincipal();
-            jdbcTemplate.update("UPDATE sys_user SET last_login_at = ? WHERE id = ?",
-                    Timestamp.from(Instant.now()), principal.id());
+            identityMapper.updateLastLogin(principal.id(), Instant.now());
             loginThrottleService.clearFailures(username, remoteAddress);
-            jdbcTemplate.update("DELETE FROM SPRING_SESSION WHERE PRINCIPAL_NAME = ?", principal.getUsername());
+            identityMapper.deleteSession(principal.getUsername());
             writeAudit(request, principal.id(), "auth.login", "success", "authenticated");
 
             if (request.getSession(false) == null) {
@@ -77,11 +78,9 @@ public class AuthService {
 
     private void writeAudit(HttpServletRequest request, Long actorId, String action, String outcome, String reason) {
         Object requestId = request.getAttribute(REQUEST_ID_ATTRIBUTE);
-        jdbcTemplate.update("INSERT INTO audit_log "
-                        + "(occurred_at, actor_type, actor_id, action, resource_type, resource_id, request_id, outcome, reason) "
-                        + "VALUES (?, 'human', ?, ?, 'system', NULL, ?, ?, ?)",
-                Timestamp.from(Instant.now()), actorId == null ? null : actorId.toString(), action,
-                requestId instanceof String value ? value : null, outcome, reason);
+        auditMapper.insertAudit(new AuditMapper.AuditInsert(LocalDateTime.now(), "human",
+                actorId == null ? null : actorId.toString(), action, "system", null,
+                requestId instanceof String value ? value : null, outcome, reason));
     }
 
     public record SessionUser(long id, String userKey, String username, String displayName,

@@ -10,7 +10,10 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import com.xyh.cybersecurity.security.SecurityAuditWriter;
+import com.xyh.cybersecurity.model.validation.ModelContractException;
 import org.springframework.beans.factory.ObjectProvider;
 
 import static com.xyh.cybersecurity.common.web.RequestIdFilter.REQUEST_ID_ATTRIBUTE;
@@ -18,6 +21,8 @@ import static com.xyh.cybersecurity.common.web.RequestIdFilter.REQUEST_ID_ATTRIB
 /** 将输入错误和未处理异常映射为不包含 SQL、堆栈或秘密的稳定错误响应。 */
 @RestControllerAdvice
 public class ApiExceptionHandler {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(ApiExceptionHandler.class);
 
     private final ObjectProvider<SecurityAuditWriter> securityAuditWriter;
 
@@ -42,6 +47,13 @@ public class ApiExceptionHandler {
                 exception.code(), exception.getMessage(), requestId(request)));
     }
 
+    @ExceptionHandler(ModelContractException.class)
+    public ResponseEntity<ApiEnvelope<Void>> modelContract(ModelContractException exception,
+                                                            HttpServletRequest request) {
+        return ResponseEntity.unprocessableEntity().body(ApiEnvelope.failure(
+                exception.code(), "模型制品或输入契约校验失败", requestId(request)));
+    }
+
     @ExceptionHandler({MethodArgumentNotValidException.class, HttpMessageNotReadableException.class})
     public ResponseEntity<ApiEnvelope<Void>> badRequest(Exception exception, HttpServletRequest request) {
         return ResponseEntity.badRequest().body(ApiEnvelope.failure(
@@ -57,6 +69,7 @@ public class ApiExceptionHandler {
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiEnvelope<Void>> internalError(Exception exception, HttpServletRequest request) {
+        LOGGER.warn("未处理的 API 异常，requestId={}", requestId(request), exception);
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(ApiEnvelope.failure(
                 "INTERNAL_ERROR", "服务暂时无法处理请求", requestId(request)));
     }

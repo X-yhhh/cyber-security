@@ -2,11 +2,10 @@ package com.xyh.cybersecurity.identity;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.xyh.cybersecurity.common.api.ApiRequestException;
+import com.xyh.cybersecurity.audit.AuditMapper;
 import com.xyh.cybersecurity.identity.MachineClientController.ScopeBody;
 import com.xyh.cybersecurity.identity.MachineClientController.SourceAssetBindingBody;
 import jakarta.servlet.http.HttpServletRequest;
-import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -14,9 +13,8 @@ import org.springframework.transaction.annotation.Transactional;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
-import java.sql.PreparedStatement;
-import java.sql.Statement;
 import java.time.Instant;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.HexFormat;
@@ -29,13 +27,13 @@ import java.util.Set;
 public class MachineClientService {
 
     private static final SecureRandom RANDOM = new SecureRandom();
-    private final JdbcTemplate jdbc;
     private final IdentityMapper identityMapper;
+    private final AuditMapper auditMapper;
     private final ObjectMapper objectMapper;
 
-    public MachineClientService(JdbcTemplate jdbc, IdentityMapper identityMapper, ObjectMapper objectMapper) {
-        this.jdbc = jdbc;
+    public MachineClientService(IdentityMapper identityMapper, AuditMapper auditMapper, ObjectMapper objectMapper) {
         this.identityMapper = identityMapper;
+        this.auditMapper = auditMapper;
         this.objectMapper = objectMapper;
     }
 
@@ -61,32 +59,19 @@ public class MachineClientService {
             throw new IllegalStateException("Unable to serialize machine scopes", exception);
         }
 
-        GeneratedKeyHolder key = new GeneratedKeyHolder();
         try {
-            jdbc.update(connection -> {
-                PreparedStatement statement = connection.prepareStatement("INSERT INTO api_client "
-                        + "(client_key, client_type, secret_ref, credential_sha256, scope_json, status) "
-                        + "VALUES (?, 'connector', 'database-sha256-verifier', ?, ?, 'active')", Statement.RETURN_GENERATED_KEYS);
-                statement.setString(1, clientKey);
-                statement.setString(2, digest);
-                statement.setString(3, scopesJson);
-                return statement;
-            }, key);
+            identityMapper.insertMachineClient(clientKey, digest, scopesJson);
         } catch (org.springframework.dao.DuplicateKeyException exception) {
             throw ApiRequestException.conflict("机器客户端标识已存在");
         }
-        long clientId = key.getKey().longValue();
+        long clientId = identityMapper.findMachineClientId(clientKey);
         for (IssuedScope scope : scopes) {
-            jdbc.update("INSERT INTO api_client_scope (client_id, scope_type, scope_id) VALUES (?, ?, ?)",
-                    clientId, scope.scopeType(), scope.scopeId());
+            identityMapper.insertClientScope(clientId, scope.scopeType(), scope.scopeId());
         }
         for (SourceAssetBinding binding : bindings) {
-            jdbc.update("INSERT INTO api_client_source_asset_scope (client_id, data_source_id, asset_id) VALUES (?, ?, ?)",
-                    clientId, binding.dataSourceId(), binding.assetId());
+            identityMapper.insertClientBinding(clientId, binding.dataSourceId(), binding.assetId());
         }
-        jdbc.update("INSERT INTO api_client_permission (client_id, permission_id) "
-                        + "SELECT ?, id FROM sys_permission WHERE permission_key='machine.ingest.submit' AND status='active'",
-                clientId);
+        identityMapper.grantMachineIngestPermission(clientId);
         writeAudit(actor.id(), clientId, scopes, bindings, requestId);
         return new IssuedClient(clientId, clientKey, clientType, scopes, bindings, "mch_" + clientId + "." + secret,
                 Instant.now());
@@ -111,10 +96,9 @@ public class MachineClientService {
                     || !grantedScopes.contains("asset:" + assetId)) {
                 throw ApiRequestException.badRequest("配对资源必须同时位于机器主体范围内");
             }
-            Boolean active = jdbc.queryForObject("SELECT EXISTS (SELECT 1 FROM data_source ds "
-                            + "JOIN asset a ON a.id=? AND a.status='active' WHERE ds.id=? AND ds.status='active')",
-                    Boolean.class, binding.assetId(), binding.dataSourceId());
-            if (!Boolean.TRUE.equals(active)) throw ApiRequestException.badRequest("配对资源不存在或不可用");
+            if (!identityMapper.activeSourceAssetPair(binding.dataSourceId(), binding.assetId())) {
+                throw ApiRequestException.badRequest("配对资源不存在或不可用");
+            }
             String key = sourceId + ":" + assetId;
             if (!unique.add(key)) throw ApiRequestException.badRequest("数据源-资产配对不能重复");
             result.add(new SourceAssetBinding(binding.dataSourceId(), binding.assetId()));
@@ -148,30 +132,23 @@ public class MachineClientService {
     }
 
     private void requireGlobalPlatformAdmin(long userId) {
-        Integer allowed = jdbc.queryForObject("SELECT COUNT(*) FROM sys_user_role ur "
-                        + "JOIN sys_role r ON r.id=ur.role_id AND r.status='active' "
-                        + "JOIN sys_role_permission rp ON rp.role_id=r.id "
-                        + "JOIN sys_permission p ON p.id=rp.permission_id AND p.status='active' "
-                        + "WHERE ur.user_id=? AND r.role_key='platform_admin' AND p.permission_key='system.config.update' "
-                        + "AND ur.scope_type='global' AND ur.scope_id='*'", Integer.class, userId);
-        if (allowed == null || allowed == 0) throw new AccessDeniedException("Global platform administration required");
+        if (!identityMapper.hasGlobalConfigAdmin(userId)) {
+            throw new AccessDeniedException("Global platform administration required");
+        }
     }
 
     private void writeAudit(long actorId, long clientId, List<IssuedScope> scopes,
                             List<SourceAssetBinding> bindings, String requestId) {
-        jdbc.update("INSERT INTO audit_log (occurred_at,actor_type,actor_id,action,resource_type,resource_id,request_id,outcome,reason) "
-                        + "VALUES (?, 'human', ?, 'machine_client.created', 'api_client', ?, ?, 'success', 'connector credential issued once')",
-                java.sql.Timestamp.from(Instant.now()), Long.toString(actorId), Long.toString(clientId), requestId);
-        Long auditId = jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+        AuditMapper.AuditInsert audit = new AuditMapper.AuditInsert(LocalDateTime.now(), "human",
+                Long.toString(actorId), "machine_client.created", "api_client", Long.toString(clientId),
+                requestId, "success", "connector credential issued once");
+        auditMapper.insertAudit(audit);
         for (IssuedScope scope : scopes) {
-            jdbc.update("INSERT INTO audit_resource_scope (audit_id,scope_type,scope_id) VALUES (?,?,?)",
-                    auditId, scope.scopeType(), scope.scopeId());
+            auditMapper.insertResourceScope(audit.getId(), scope.scopeType(), scope.scopeId());
         }
         for (SourceAssetBinding binding : bindings) {
-            jdbc.update("INSERT IGNORE INTO audit_resource_scope (audit_id,scope_type,scope_id) VALUES (?, 'data_source', ?)",
-                    auditId, Long.toString(binding.dataSourceId()));
-            jdbc.update("INSERT IGNORE INTO audit_resource_scope (audit_id,scope_type,scope_id) VALUES (?, 'asset', ?)",
-                    auditId, Long.toString(binding.assetId()));
+            auditMapper.insertResourceScope(audit.getId(), "data_source", Long.toString(binding.dataSourceId()));
+            auditMapper.insertResourceScope(audit.getId(), "asset", Long.toString(binding.assetId()));
         }
     }
 

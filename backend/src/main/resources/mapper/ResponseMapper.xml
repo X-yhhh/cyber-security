@@ -1,0 +1,238 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.xyh.cybersecurity.response.infra.ResponseMapper">
+    <resultMap id="approvalRow" type="com.xyh.cybersecurity.response.infra.ResponseMapper$ApprovalRow">
+        <constructor>
+            <idArg column="id" javaType="_long"/>
+            <arg column="event_id" javaType="_long"/>
+            <arg column="asset_id" javaType="_long"/>
+            <arg column="action_request_json" javaType="string"/>
+            <arg column="status" javaType="string"/>
+            <arg column="requested_by" javaType="_long"/>
+            <arg column="reviewed_by" javaType="java.lang.Long"/>
+            <arg column="expires_at" javaType="java.time.LocalDateTime"/>
+            <arg column="created_at" javaType="java.time.LocalDateTime"/>
+            <arg column="request_digest" javaType="string"/>
+        </constructor>
+    </resultMap>
+
+    <resultMap id="policyRow" type="com.xyh.cybersecurity.response.infra.ResponseMapper$PolicyRow">
+        <constructor>
+            <idArg column="id" javaType="_long"/>
+            <arg column="policy_key" javaType="string"/>
+            <arg column="version" javaType="string"/>
+            <arg column="environment" javaType="string"/>
+            <arg column="match_json" javaType="string"/>
+            <arg column="action_type" javaType="string"/>
+            <arg column="action_params_json" javaType="string"/>
+            <arg column="risk_limit" javaType="java.math.BigDecimal"/>
+            <arg column="auto_execute" javaType="boolean"/>
+            <arg column="approval_required" javaType="boolean"/>
+            <arg column="max_duration_seconds" javaType="_int"/>
+            <arg column="status" javaType="string"/>
+            <arg column="approved_by" javaType="java.lang.Long"/>
+        </constructor>
+    </resultMap>
+
+    <resultMap id="assetRow" type="com.xyh.cybersecurity.response.infra.ResponseMapper$AssetRow">
+        <constructor>
+            <idArg column="id" javaType="_long"/>
+            <arg column="environment" javaType="string"/>
+        </constructor>
+    </resultMap>
+
+    <resultMap id="authorizationRow" type="com.xyh.cybersecurity.response.infra.ResponseMapper$AuthorizationRow">
+        <constructor>
+            <arg column="scope_json" javaType="string"/>
+            <arg column="valid_from" javaType="java.time.LocalDateTime"/>
+            <arg column="valid_until" javaType="java.time.LocalDateTime"/>
+        </constructor>
+    </resultMap>
+
+    <sql id="approvalSelect">
+        SELECT at.id, at.event_id, req.asset_id,
+               CAST(at.action_request_json AS CHAR) AS action_request_json,
+               at.status, at.requested_by, at.reviewed_by, at.expires_at, at.created_at,
+               at.request_digest
+        FROM approval_task at
+        JOIN JSON_TABLE(at.action_request_json, '$'
+             COLUMNS(asset_id BIGINT PATH '$.assetId')) req ON TRUE
+    </sql>
+
+    <sql id="approvalPermission">
+        EXISTS (
+            SELECT 1 FROM sys_user u
+            JOIN sys_user_role ur ON ur.user_id=u.id
+            JOIN sys_role r ON r.id=ur.role_id AND r.status='active'
+            JOIN sys_role_permission rp ON rp.role_id=r.id
+            JOIN sys_permission p ON p.id=rp.permission_id AND p.status='active'
+            WHERE u.id=#{userId} AND u.status='active' AND p.permission_key='approval.decide'
+              AND ((ur.scope_type='asset' AND ur.scope_id=CAST(req.asset_id AS CHAR))
+                OR (r.role_key='platform_admin' AND ur.scope_type='global' AND ur.scope_id='*'))
+        )
+    </sql>
+
+    <select id="findByIdempotency" resultMap="approvalRow">
+        <include refid="approvalSelect"/>
+        WHERE at.requested_by=#{userId} AND at.idempotency_key=#{key}
+    </select>
+
+    <select id="findApproval" resultMap="approvalRow">
+        <include refid="approvalSelect"/>
+        JOIN event_asset_link eal ON eal.event_id=at.event_id AND eal.asset_id=req.asset_id
+        WHERE at.id=#{id}
+    </select>
+
+    <select id="countPendingApprovals" resultType="long">
+        SELECT COUNT(*)
+        FROM approval_task at
+        JOIN JSON_TABLE(at.action_request_json, '$'
+             COLUMNS(asset_id BIGINT PATH '$.assetId')) req ON TRUE
+        JOIN event_asset_link eal ON eal.event_id=at.event_id AND eal.asset_id=req.asset_id
+        WHERE at.status='pending' AND <include refid="approvalPermission"/>
+    </select>
+
+    <select id="listPendingApprovals" resultMap="approvalRow">
+        <include refid="approvalSelect"/>
+        JOIN event_asset_link eal ON eal.event_id=at.event_id AND eal.asset_id=req.asset_id
+        WHERE at.status='pending' AND <include refid="approvalPermission"/>
+        ORDER BY at.created_at DESC, at.id DESC LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <sql id="policyColumns">
+        SELECT id, policy_key, version, environment, CAST(match_json AS CHAR) AS match_json,
+               action_type, CAST(action_params_json AS CHAR) AS action_params_json, risk_limit,
+               auto_execute, approval_required, max_duration_seconds, status, approved_by
+        FROM response_policy
+    </sql>
+
+    <select id="findPolicy" resultMap="policyRow">
+        <include refid="policyColumns"/> WHERE id=#{policyId}
+    </select>
+
+    <select id="findPolicyForUpdate" resultMap="policyRow">
+        <include refid="policyColumns"/> WHERE id=#{policyId} FOR UPDATE
+    </select>
+
+    <select id="findAsset" resultMap="assetRow">
+        SELECT id, environment FROM asset WHERE id=#{assetId} AND status='active'
+    </select>
+
+    <select id="findAssetForUpdate" resultMap="assetRow">
+        SELECT id, environment FROM asset WHERE id=#{assetId} AND status='active' FOR UPDATE
+    </select>
+
+    <select id="findCurrentAuthorization" resultMap="authorizationRow">
+        SELECT scope_json, valid_from, valid_until
+        FROM asset_authorization
+        WHERE asset_id=#{assetId} AND status='active'
+          AND valid_from&lt;=UTC_TIMESTAMP(3) AND valid_until&gt;UTC_TIMESTAMP(3)
+          AND JSON_CONTAINS(scope_json, JSON_QUOTE(#{actionType}), '$.actionTypes')
+        ORDER BY valid_until DESC LIMIT 1 FOR UPDATE
+    </select>
+
+    <select id="eventContainsAsset" resultType="boolean">
+        SELECT EXISTS (SELECT 1 FROM event_asset_link WHERE event_id=#{eventId} AND asset_id=#{assetId})
+    </select>
+
+    <select id="eventContainsAssetForUpdate" resultType="boolean">
+        SELECT event_id FROM event_asset_link
+        WHERE event_id=#{eventId} AND asset_id=#{assetId} FOR UPDATE
+    </select>
+
+    <select id="eventStatus" resultType="string">
+        SELECT status FROM security_event WHERE id=#{eventId}
+    </select>
+
+    <select id="eventStatusForUpdate" resultType="string">
+        SELECT status FROM security_event WHERE id=#{eventId} FOR UPDATE
+    </select>
+
+    <select id="hasAssetPermission" resultType="boolean">
+        SELECT EXISTS (
+            SELECT 1 FROM sys_user u
+            JOIN sys_user_role ur ON ur.user_id=u.id
+            JOIN sys_role r ON r.id=ur.role_id AND r.status='active'
+            JOIN sys_role_permission rp ON rp.role_id=r.id
+            JOIN sys_permission p ON p.id=rp.permission_id AND p.status='active'
+            WHERE u.id=#{userId} AND u.status='active' AND p.permission_key=#{permission}
+              AND ((ur.scope_type='asset' AND ur.scope_id=CAST(#{assetId} AS CHAR))
+                OR (r.role_key='platform_admin' AND ur.scope_type='global' AND ur.scope_id='*'))
+        )
+    </select>
+
+    <select id="lockScopedRoleIds" resultType="long">
+        SELECT role_id FROM sys_user_role
+        WHERE user_id=#{userId}
+          AND ((scope_type='asset' AND scope_id=CAST(#{assetId} AS CHAR))
+            OR (scope_type='global' AND scope_id='*'))
+        FOR UPDATE
+    </select>
+
+    <insert id="insertApproval" parameterType="com.xyh.cybersecurity.response.infra.ResponseMapper$ApprovalInsert"
+            useGeneratedKeys="true" keyProperty="id" keyColumn="id">
+        INSERT INTO approval_task
+            (task_key, event_id, policy_id, action_request_json, status, requested_by,
+             idempotency_key, request_digest, expires_at)
+        VALUES (#{taskKey}, #{eventId}, #{policyId}, #{snapshot}, 'pending', #{requestedBy},
+                #{idempotencyKey}, #{requestDigest}, #{expiresAt})
+    </insert>
+
+    <update id="updateApproval">
+        UPDATE approval_task at
+        SET status=#{status}, reviewed_by=#{reviewedBy}, reviewed_at=UTC_TIMESTAMP(3),
+            decision_reason=#{reason}
+        WHERE at.id=#{id} AND at.status='pending' AND at.requested_by&lt;&gt;#{actorId}
+          AND at.expires_at&gt;UTC_TIMESTAMP(3)
+          AND EXISTS (
+              SELECT 1 FROM sys_user u
+              JOIN sys_user_role ur ON ur.user_id=u.id
+              JOIN sys_role r ON r.id=ur.role_id AND r.status='active'
+              JOIN sys_role_permission rp ON rp.role_id=r.id
+              JOIN sys_permission p ON p.id=rp.permission_id AND p.status='active'
+              WHERE u.id=#{actorId} AND u.status='active' AND p.permission_key='approval.decide'
+                AND ((ur.scope_type='asset' AND ur.scope_id=CAST(#{assetId} AS CHAR))
+                  OR (r.role_key='platform_admin' AND ur.scope_type='global' AND ur.scope_id='*'))
+          )
+          AND EXISTS (
+              SELECT 1 FROM asset_authorization aa
+              WHERE aa.asset_id=#{assetId} AND aa.status='active'
+                AND aa.valid_from&lt;=UTC_TIMESTAMP(3) AND aa.valid_until&gt;UTC_TIMESTAMP(3)
+                AND JSON_CONTAINS(aa.scope_json, JSON_QUOTE(#{actionType}), '$.actionTypes')
+          )
+          AND EXISTS (
+              SELECT 1 FROM response_policy rp
+              WHERE rp.id=#{policyId} AND rp.status='active'
+                AND rp.approved_by IS NOT NULL AND rp.auto_execute=FALSE
+                AND rp.approval_required=TRUE AND rp.action_type=#{actionType}
+          )
+          AND EXISTS (
+              SELECT 1 FROM event_asset_link eal
+              JOIN security_event se ON se.id=eal.event_id
+              WHERE eal.event_id=#{eventId} AND eal.asset_id=#{assetId}
+                AND se.status IN ('open','investigating','contained')
+          )
+          AND EXISTS (SELECT 1 FROM asset a WHERE a.id=#{assetId} AND a.status='active')
+    </update>
+
+    <insert id="insertAudit" parameterType="com.xyh.cybersecurity.response.infra.ResponseMapper$AuditInsert"
+            useGeneratedKeys="true" keyProperty="id" keyColumn="id">
+        INSERT INTO audit_log
+            (occurred_at, actor_type, actor_id, action, resource_type, resource_id,
+             request_id, outcome, reason)
+        VALUES (#{occurredAt}, 'human', #{actorId}, #{action}, 'approval_task', #{approvalId},
+                #{requestId}, 'success', #{reason})
+    </insert>
+
+    <insert id="insertAuditResourceScope">
+        INSERT INTO audit_resource_scope (audit_id, scope_type, scope_id)
+        VALUES (#{auditId}, 'asset', CAST(#{assetId} AS CHAR))
+    </insert>
+
+    <insert id="insertTimeline">
+        INSERT INTO event_timeline
+            (event_id, occurred_at, entry_type, actor_type, actor_id, summary, details_json)
+        VALUES (#{eventId}, UTC_TIMESTAMP(3), #{entryType}, 'human', CAST(#{actorId} AS CHAR),
+                #{summary}, JSON_OBJECT('approvalTaskId', #{taskId}))
+    </insert>
+</mapper>

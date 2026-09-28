@@ -1,6 +1,35 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.xyh.cybersecurity.source.DataSourceMapper">
+    <insert id="insertSource">
+        INSERT INTO data_source (source_key, source_type, environment, schema_version, scope_json, status)
+        VALUES (#{sourceKey}, #{sourceType}, #{environment}, #{schemaVersion}, '{}', 'active')
+    </insert>
+
+    <select id="findIdByKey" resultType="long">
+        SELECT id FROM data_source WHERE source_key=#{sourceKey}
+    </select>
+
+    <insert id="insertMapping">
+        INSERT INTO source_mapping (data_source_id, mapping_version, source_schema_json, mapping_json, status)
+        VALUES (#{sourceId}, #{mappingVersion}, #{sourceSchemaJson}, #{mappingJson}, 'draft')
+    </insert>
+
+    <select id="findMappingId" resultType="long">
+        SELECT id FROM source_mapping WHERE data_source_id=#{sourceId} AND mapping_version=#{mappingVersion}
+        ORDER BY id DESC LIMIT 1
+    </select>
+
+    <select id="hasManageScope" resultType="boolean">
+        SELECT EXISTS (
+            SELECT 1 FROM sys_user_role ur
+            JOIN sys_role r ON r.id=ur.role_id AND r.status='active'
+            JOIN sys_role_permission rp ON rp.role_id=r.id
+            JOIN sys_permission p ON p.id=rp.permission_id AND p.status='active'
+            WHERE ur.user_id=#{userId} AND p.permission_key='source.manage'
+              AND ((r.role_key='platform_admin' AND ur.scope_type='global' AND ur.scope_id='*')
+                OR (ur.scope_type='data_source' AND ur.scope_id=CAST(#{sourceId} AS CHAR))))
+    </select>
     <resultMap id="sourceView" type="com.xyh.cybersecurity.source.DataSourceMapper$DataSourceView">
         <constructor>
             <idArg column="id" javaType="_long"/>

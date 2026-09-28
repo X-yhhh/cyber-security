@@ -185,12 +185,12 @@ const today = new Date().toLocaleDateString('zh-CN')
         <div>
           <p class="label">24 小时接入拒绝率</p>
           <p class="num mt-3 text-[1.5rem]">{{ !ops || ops.ingestRejectionRatio24h < 0 ? '—' : `${(ops.ingestRejectionRatio24h * 100).toFixed(1)}%` }}</p>
-          <p class="mt-1 text-[12px] text-ink-3">当前登录限速 {{ opsCount(ops?.loginThrottleBlocked) }}</p>
+          <p class="mt-1 text-[12px] text-ink-3">当前登录限速 {{ opsCount(ops?.loginThrottleBlocked) }} · 15 分钟失败 {{ opsCount(ops?.loginThrottleFailures15m) }}</p>
         </div>
         <div>
           <p class="label">最老待发布</p>
           <p class="num mt-3 text-[1.5rem]">{{ opsAge(ops?.oldestPendingAgeSeconds) }}</p>
-          <p class="mt-1 text-[12px] text-ink-3">发件箱延迟摘要</p>
+          <p class="mt-1 text-[12px] text-ink-3">过去 24 小时平均 {{ opsAge(ops?.averagePublishedDelaySeconds24h) }}</p>
         </div>
       </div>
     </section>

@@ -76,11 +76,11 @@ WHERE username = 'admin';
 
 当前已实现认证/CSRF、用户创建与列表、内置角色/权限模板只读、角色范围分配、资产登记/范围内更新/授权申请与独立审批、数据源范围查询/更新及映射版本登记、全关联范围审计，以及 connector 和 sensor 的无状态机器凭据、幂等批次接入。机器凭据只返回一次且数据库仅保存 SHA-256 验证值；接入需显式绑定数据源—资产配对，浏览器 session 不可冒充机器身份。connector 提交的是已规范化 JSON；sensor 批次还会复核配置、序号、批准映射和 26 个数值/2 个类别 raw feature 字段，并将不合格记录留痕为 rejected。
 
-传感器登记、一次性设备凭据、心跳、批准配置读取、健康窗口和流批次路由已实现；Java 侧已有有界双向流状态核心、事件时间 100 流窗口、raw Feature Builder、只读 UNSW CSV 回放适配器和按模板切分的 NetFlow v9/IPFIX 解码器。当前 v3.1 契约因 `ct_state_ttl` codebook 未冻结保持在线门禁关闭；Feature Builder 在缺少 codebook、窗口未预热、迟到/重复或单位未核实的情况下 fail-closed，合格字段校验可留痕但不会发布 outbox。outbox relay 默认关闭；显式启用并配置 RabbitMQ 后，会将 outbox 事件以持久化 JSON 消息发布到 durable topic exchange，等待 broker confirm 并拒绝不可路由消息，失败按指数退避、达到上限后进入 dead letter。本轮已通过进程级 `DB_TEST_*` 环境变量复验独立 MySQL schema 的迁移、认证、授权、资产、接入、事件、查询、模型和响应台账集成测试；RabbitMQ 测试因未启用 broker 跳过。本机应用 relay 仍未启用，且尚无下游消费者，因此不代表业务异步处理已贯通。实际抓包、macOS libpcap/Windows Npcap 传感器进程、collector 注册/UDP 服务和影子运行仍未验证。告警与事件范围查询/研判、模型候选登记、ONNX 制品校验、Java 离线回放、独立发布审批和显式本机激活台账已实现；真实流量推理 API、训练任务执行和远端推理仍未开放。响应策略没有管理 API；没有匹配且已批准的策略或有效资产授权时申请被拒绝。审批不触发执行，执行端点固定返回 `503 ACTION_EXECUTION_UNAVAILABLE`，不调用适配器且不写 `action_execution`。`database/init.sql` 中初始化的本机测试账号 `admin/admin` 已由测试验证；既存 `admin` 密码哈希必须保留且不由启动过程重置，非 `local` profile 只会在识别出初始化口令时写入不含哈希的警告。
+传感器登记、一次性设备凭据、心跳、批准配置读取、健康窗口和流批次路由已实现；Java 侧已有有界双向流状态核心、事件时间 100 流窗口、raw Feature Builder、只读 UNSW CSV 回放适配器和按模板切分的 NetFlow v9/IPFIX 解码器。当前 v3.1 契约因 `ct_state_ttl` codebook 未冻结保持在线门禁关闭；Feature Builder 在缺少 codebook、窗口未预热、迟到/重复或单位未核实的情况下 fail-closed，合格字段校验可留痕但不会发布 outbox。outbox relay 默认关闭；显式启用并配置 RabbitMQ 后，会将 outbox 事件以持久化 JSON 消息发布到 durable topic exchange，等待 broker confirm 并拒绝不可路由消息，失败按指数退避、达到上限后进入 dead letter，并记录 publisher Timer histogram。独立 MySQL 测试 schema 的迁移、认证、授权、资产、接入、事件、查询、模型和响应台账集成测试已通过；RabbitMQ 发布器的两项集成测试也已连接专用测试 vhost 并通过。本机应用 relay 仍未启用，且尚无下游消费者，因此不代表业务异步处理已贯通。实际抓包、macOS libpcap/Windows Npcap 传感器进程、collector 注册/UDP 服务和影子运行仍未验证。告警与事件范围查询/研判、模型候选登记、ONNX 制品校验、Java 离线回放、独立发布审批和显式本机激活台账已实现；真实流量推理 API、训练任务执行和远端推理仍未开放。响应策略没有管理 API；没有匹配且已批准的策略或有效资产授权时申请被拒绝。审批不触发执行，执行端点固定返回 `503 ACTION_EXECUTION_UNAVAILABLE`，不调用适配器且不写 `action_execution`。`database/init.sql` 中初始化的本机测试账号 `admin/admin` 已由测试验证；既存 `admin` 密码哈希必须保留且不由启动过程重置，非 `local` profile 只会在识别出初始化口令时写入不含哈希的警告。控制台日志使用 ECS JSON，request ID 通过 MDC 关联且异常日志不写入堆栈或连接详情。
 
 启用 RabbitMQ outbox relay 需在应用运行环境提供 `OUTBOX_RELAY_ENABLED=true`、`RABBITMQ_HOST`、`RABBITMQ_PORT`、`RABBITMQ_VHOST`、`RABBITMQ_USERNAME` 和 `RABBITMQ_PASSWORD`；exchange 默认为 `cyber-security.ingest.events`，可通过 `RABBITMQ_INGEST_EXCHANGE` 覆盖。下游必须先创建持久队列并绑定实际 routing key（当前批次事件为 `ingest.batch.received`），否则 publisher 会将 unroutable 消息留在 outbox 重试，不会错误标记为已发布。密码应由运行环境的受控密钥存储注入，不写入仓库。当前尚无下游消费者，故 relay 保持默认关闭。
 
-本机验收使用 Temurin JDK 25.0.2、Maven 3.9.13 和指定 Maven 本地仓库。请通过环境变量传入数据库 URL/用户名/密码及 `LOGIN_THROTTLE_HMAC_KEY`；不要把这些值写入仓库。Java 测试应使用项目指定 JDK 与 Maven，集成测试只连接独立测试 schema。
+本机验收使用 Temurin JDK 25.0.2、Maven 3.9.13 和指定 Maven 本地仓库。本机 macOS 登录 shell 从 macOS 钥匙串加载 `DB_URL`、`DB_USERNAME`、`DB_PASSWORD`、`DB_TEST_BASE_URL`、`DB_TEST_USERNAME`、`DB_TEST_PASSWORD`、`LOGIN_THROTTLE_HMAC_KEY`、`RABBITMQ_IT_ENABLED`、`RABBITMQ_IT_HOST`、`RABBITMQ_IT_PORT`、`RABBITMQ_IT_VHOST`、`RABBITMQ_IT_USERNAME`、`RABBITMQ_IT_PASSWORD`、`RABBITMQ_HOST`、`RABBITMQ_PORT`、`RABBITMQ_VHOST`、`RABBITMQ_USERNAME`、`RABBITMQ_PASSWORD` 和 `RABBITMQ_INGEST_EXCHANGE`；只保存变量名和加载方式，不把秘密写入仓库。其他环境应从各自受控密钥存储注入运行/测试所需变量。Java 测试应使用项目指定 JDK 与 Maven，集成测试只连接独立测试 schema。
 
 ## 文档
 
@@ -88,6 +88,7 @@ WHERE username = 'admin';
 - [功能模块设计](docs/功能模块设计.md)
 - [数据库设计](docs/数据库设计.md)
 - [接口设计](docs/接口设计.md)
+- [接口实现核对矩阵](docs/接口实现核对矩阵.md)
 - [模型训练与交付计划](docs/training-plan.md)
 
 首期覆盖边界是部署软件传感器的主机。主机级自动阻断不等同于网络边界防火墙或全网 DDoS 清洗；上游大流量攻击需要网络运营商/云清洗等外部基础设施协同，本项目仅预留受控联动边界，不承诺独立抵御任意规模攻击。主机限速不是所有操作系统防火墙都具备的通用能力，只有适配器实测支持后才能启用；否则提供告警及受控阻断。

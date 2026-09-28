@@ -6,6 +6,12 @@
         SELECT COALESCE(TIMESTAMPDIFF(SECOND,MIN(created_at),UTC_TIMESTAMP(3)),0)
         FROM outbox_event WHERE status='pending'
     </select>
+    <select id="averagePublishedDelaySeconds24h" resultType="double">
+        SELECT COALESCE(AVG(TIMESTAMPDIFF(MICROSECOND, created_at, published_at) / 1000000), 0)
+        FROM outbox_event
+        WHERE status='published' AND published_at IS NOT NULL
+          AND published_at &gt;= UTC_TIMESTAMP(3)-INTERVAL 24 HOUR
+    </select>
     <select id="countOnlineSensors" resultType="long">
         SELECT COUNT(*) FROM sensor_agent WHERE status='active'
           AND last_heartbeat_at&gt;=UTC_TIMESTAMP(3)-INTERVAL 3 MINUTE
@@ -26,5 +32,9 @@
     </select>
     <select id="countBlockedLogins" resultType="long">
         SELECT COUNT(*) FROM auth_login_throttle WHERE blocked_until&gt;UTC_TIMESTAMP(3)
+    </select>
+    <select id="countLoginThrottleFailures" resultType="long">
+        SELECT COALESCE(SUM(failed_attempts), 0) FROM auth_login_throttle
+        WHERE updated_at&gt;=UTC_TIMESTAMP(3)-INTERVAL 15 MINUTE
     </select>
 </mapper>

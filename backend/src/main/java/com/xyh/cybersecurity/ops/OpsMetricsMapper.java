@@ -7,10 +7,12 @@ import org.apache.ibatis.annotations.Mapper;
 public interface OpsMetricsMapper {
     long countOutbox(String status);
     double oldestPendingAgeSeconds();
+    double averagePublishedDelaySeconds24h();
     long countOnlineSensors();
     long countSensorHeartbeatTimeouts();
     RejectionCounts rejectionCounts24h();
     long countBlockedLogins();
+    long countLoginThrottleFailures();
 
     record RejectionCounts(long accepted, long manualReview, long rejected) { }
 }

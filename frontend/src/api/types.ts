@@ -36,10 +36,12 @@ export interface OpsStatusView {
   outboxFailed: number
   outboxDeadLetter: number
   oldestPendingAgeSeconds: number
+  averagePublishedDelaySeconds24h: number
   sensorsOnline: number
   sensorsHeartbeatTimeout: number
   ingestRejectionRatio24h: number
   loginThrottleBlocked: number
+  loginThrottleFailures15m: number
 }
 
 export const severityLabel: Record<string, string> = { critical: '严重', high: '高', medium: '中', low: '低' }

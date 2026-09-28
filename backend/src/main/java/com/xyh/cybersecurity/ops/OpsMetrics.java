@@ -24,6 +24,8 @@ public class OpsMetrics {
                 .tag("status", "dead_letter").description("进入死信的发件箱数量").register(registry);
         Gauge.builder("cyber_security_outbox_oldest_pending_age_seconds", this, OpsMetrics::oldestPendingAge)
                 .description("最老待发布发件箱年龄，秒").register(registry);
+        Gauge.builder("cyber_security_outbox_publish_delay_seconds_24h", this, OpsMetrics::averagePublishedDelay)
+                .description("过去 24 小时已确认发件箱平均发布延迟，秒").register(registry);
         Gauge.builder("cyber_security_sensors", this, self -> self.countOnlineSensors())
                 .tag("state", "online").description("最近三分钟内有心跳的活动传感器数量").register(registry);
         Gauge.builder("cyber_security_sensors", this, self -> self.countHeartbeatTimeouts())
@@ -33,15 +35,19 @@ public class OpsMetrics {
         Gauge.builder("cyber_security_login_throttle_blocked", this,
                         self -> self.countBlockedLogins())
                 .description("当前登录节流阻断窗口数量").register(registry);
+        Gauge.builder("cyber_security_login_throttle_failures_15m", this,
+                        self -> self.countLoginThrottleFailures())
+                .description("过去 15 分钟登录节流失败次数").register(registry);
     }
 
     public Snapshot snapshot() {
         return new Snapshot(
                 count("pending"), count("failed"), count("dead_letter"),
                 oldestPendingAge(),
+                averagePublishedDelay(),
                 countOnlineSensors(), countHeartbeatTimeouts(),
                 rejectionRatio(),
-                countBlockedLogins());
+                countBlockedLogins(), countLoginThrottleFailures());
     }
 
     private double oldestPendingAge() {
@@ -61,6 +67,10 @@ public class OpsMetrics {
         } catch (RuntimeException exception) { return -1; }
     }
 
+    private double averagePublishedDelay() {
+        try { return mapper.averagePublishedDelaySeconds24h(); } catch (RuntimeException exception) { return -1; }
+    }
+
     private double count(String status) {
         try {
             return mapper.countOutbox(status);
@@ -70,8 +80,11 @@ public class OpsMetrics {
     private double countOnlineSensors() { try { return mapper.countOnlineSensors(); } catch (RuntimeException e) { return -1; } }
     private double countHeartbeatTimeouts() { try { return mapper.countSensorHeartbeatTimeouts(); } catch (RuntimeException e) { return -1; } }
     private double countBlockedLogins() { try { return mapper.countBlockedLogins(); } catch (RuntimeException e) { return -1; } }
+    private double countLoginThrottleFailures() { try { return mapper.countLoginThrottleFailures(); } catch (RuntimeException e) { return -1; } }
 
     public record Snapshot(double outboxPending, double outboxFailed, double outboxDeadLetter,
-                           double oldestPendingAgeSeconds, double sensorsOnline, double sensorsHeartbeatTimeout,
-                           double ingestRejectionRatio24h, double loginThrottleBlocked) { }
+                           double oldestPendingAgeSeconds, double averagePublishedDelaySeconds24h,
+                           double sensorsOnline, double sensorsHeartbeatTimeout,
+                           double ingestRejectionRatio24h, double loginThrottleBlocked,
+                           double loginThrottleFailures15m) { }
 }

@@ -69,7 +69,9 @@ public class ApiExceptionHandler {
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiEnvelope<Void>> internalError(Exception exception, HttpServletRequest request) {
-        LOGGER.warn("未处理的 API 异常，requestId={}", requestId(request), exception);
+        // 只记录类型和关联 ID，避免把 JDBC URL、请求体或其他内部细节写入结构化日志。
+        LOGGER.warn("未处理的 API 异常，requestId={}, exceptionType={}", requestId(request),
+                exception.getClass().getSimpleName());
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(ApiEnvelope.failure(
                 "INTERNAL_ERROR", "服务暂时无法处理请求", requestId(request)));
     }

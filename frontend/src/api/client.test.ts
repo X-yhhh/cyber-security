@@ -60,4 +60,18 @@ describe('api client', () => {
       message: '无法连接后端服务',
     })
   })
+
+  it.each([
+    [403, 'FORBIDDEN', '当前身份无权执行此操作'],
+    [500, 'INTERNAL_ERROR', '服务暂时无法处理请求'],
+  ])('keeps the stable error contract for %s responses', async (status, code, message) => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({
+      success: false,
+      data: null,
+      error: { code, message },
+      requestId: `req-${status}`,
+    }, status)))
+
+    await expect(api.get('/events')).rejects.toMatchObject({ status, code, message, requestId: `req-${status}` })
+  })
 })

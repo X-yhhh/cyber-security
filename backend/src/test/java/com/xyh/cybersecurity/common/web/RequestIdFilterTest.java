@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.mock.web.MockFilterChain;
+import org.slf4j.MDC;
 
 import java.util.UUID;
 
@@ -31,8 +32,10 @@ class RequestIdFilterTest {
         request.addHeader("X-Request-Id", requestId);
         MockHttpServletResponse response = new MockHttpServletResponse();
 
-        filter.doFilter(request, response, new MockFilterChain());
+        filter.doFilter(request, response, (req, res) ->
+                assertThat(MDC.get("requestId")).isEqualTo(requestId));
 
         assertThat(response.getHeader("X-Request-Id")).isEqualTo(requestId);
+        assertThat(MDC.get("requestId")).isNull();
     }
 }

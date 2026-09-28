@@ -18,10 +18,12 @@ describe('overview operations summary', () => {
         outboxFailed: 1,
         outboxDeadLetter: 0,
         oldestPendingAgeSeconds: 75,
+        averagePublishedDelaySeconds24h: 2.5,
         sensorsOnline: 2,
         sensorsHeartbeatTimeout: 1,
         ingestRejectionRatio24h: 0.125,
         loginThrottleBlocked: 4,
+        loginThrottleFailures15m: 6,
       })
       if (path === '/overview') return Promise.resolve({ hourlyAlerts: [], quality24h: { accepted: 0, manualReview: 0, rejected: 0 } })
       return Promise.resolve([])
@@ -42,6 +44,7 @@ describe('overview operations summary', () => {
     expect(wrapper.text()).toContain('失败 1 · 死信 0')
     expect(wrapper.text()).toContain('12.5%')
     expect(wrapper.text()).toContain('75s')
+    expect(wrapper.text()).toContain('过去 24 小时平均 3s')
     expect(wrapper.text()).not.toContain('jdbc:')
     wrapper.unmount()
   })

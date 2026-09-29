@@ -146,6 +146,58 @@ class IncidentAuthorizationIntegrationTest {
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM event_timeline WHERE event_id=?", Integer.class, visibleEventId)).isEqualTo(1);
     }
 
+    @Test
+    void eventDetailEmbedsOnlyTheFirstPageAndPagesEvidenceNewestFirst() throws Exception {
+        // 可见事件再挂 24 条告警（共 25 条）与 25 条时间线，均在范围内；时间递增，id 递增。
+        Instant base = Instant.parse("2026-09-29T10:00:00Z");
+        for (int i = 1; i <= 24; i++) {
+            long alertId = alert("page-" + i, visibleSourceId, visibleAssetId, base.plusSeconds(i));
+            jdbc.update("INSERT INTO event_alert_link (event_id,alert_id,link_type) VALUES (?,?,'correlated')",
+                    visibleEventId, alertId);
+        }
+        for (int i = 1; i <= 25; i++) {
+            jdbc.update("INSERT INTO event_timeline (event_id,occurred_at,entry_type,actor_type,summary) "
+                    + "VALUES (?,?,'alert_linked','system',?)", visibleEventId, Timestamp.from(base.plusSeconds(i)), "entry-" + i);
+        }
+        Cookie session = login();
+
+        // 详情内嵌第一页 20 条并带总数；最新在前。
+        mockMvc.perform(get("/api/v1/events/{id}", visibleEventId).cookie(session))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.alerts.totalElements").value(25))
+                .andExpect(jsonPath("$.data.alerts.size").value(20))
+                .andExpect(jsonPath("$.data.alerts.items.length()").value(20))
+                .andExpect(jsonPath("$.data.timeline.totalElements").value(25))
+                .andExpect(jsonPath("$.data.timeline.items.length()").value(20))
+                .andExpect(jsonPath("$.data.timeline.items[0].summary").value("entry-25"))
+                .andExpect(jsonPath("$.data.assets.length()").value(1));
+
+        // 子资源分页：第二页只剩 5 条，顺序接续且不重叠。
+        mockMvc.perform(get("/api/v1/events/{id}/timeline?page=1&size=20", visibleEventId).cookie(session))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.page").value(1))
+                .andExpect(jsonPath("$.data.items.length()").value(5))
+                .andExpect(jsonPath("$.data.items[0].summary").value("entry-5"))
+                .andExpect(jsonPath("$.data.items[4].summary").value("entry-1"));
+        mockMvc.perform(get("/api/v1/events/{id}/alerts?page=0&size=10", visibleEventId).cookie(session))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.totalElements").value(25))
+                .andExpect(jsonPath("$.data.items.length()").value(10))
+                // 初始可见告警检测时间为当前时刻，最新；其后是 page-24。
+                .andExpect(jsonPath("$.data.items[0].alertKey").value("incident-test-visible"))
+                .andExpect(jsonPath("$.data.items[1].alertKey").value("incident-test-page-24"));
+        mockMvc.perform(get("/api/v1/events/{id}/alerts?page=2&size=10", visibleEventId).cookie(session))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.items.length()").value(5));
+
+        // 含越权告警的事件、不存在的事件都返回 404，而不是空页。
+        mockMvc.perform(get("/api/v1/events/{id}/alerts", mixedEventId).cookie(session)).andExpect(status().isNotFound());
+        mockMvc.perform(get("/api/v1/events/{id}/timeline", mixedEventId).cookie(session)).andExpect(status().isNotFound());
+        mockMvc.perform(get("/api/v1/events/{id}/timeline", Long.MAX_VALUE).cookie(session)).andExpect(status().isNotFound());
+
+        // 分页参数越界 400。
+        mockMvc.perform(get("/api/v1/events/{id}/alerts?size=101", visibleEventId).cookie(session)).andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/v1/events/{id}/timeline?size=0", visibleEventId).cookie(session)).andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/v1/events/{id}/timeline?page=-1", visibleEventId).cookie(session)).andExpect(status().isBadRequest());
+    }
+
     private long asset(String suffix) {
         jdbc.update("INSERT INTO asset (asset_key,asset_type,environment,criticality,owner,status,labels_json) VALUES (?,'host','lab','low','test','active','{}')",
                 "incident-test-" + suffix);
@@ -159,6 +211,10 @@ class IncidentAuthorizationIntegrationTest {
     }
 
     private long alert(String suffix, long sourceId, long assetId) {
+        return alert(suffix, sourceId, assetId, Instant.now());
+    }
+
+    private long alert(String suffix, long sourceId, long assetId, Instant detectedAt) {
         jdbc.update("INSERT INTO ingest_batch (batch_key,data_source_id,idempotency_key,status,total_count,accepted_count,rejected_count) VALUES (?,?,?,'completed',1,1,0)",
                 "incident-test-" + suffix, sourceId, "incident-test-" + suffix);
         long batchId = jdbc.queryForObject("SELECT id FROM ingest_batch WHERE batch_key=?", Long.class, "incident-test-" + suffix);
@@ -167,7 +223,7 @@ class IncidentAuthorizationIntegrationTest {
                 batchId, "incident-test-" + suffix, Timestamp.from(Instant.now()), assetId);
         long recordId = jdbc.queryForObject("SELECT id FROM ingest_record WHERE source_record_key=?", Long.class, "incident-test-" + suffix);
         jdbc.update("INSERT INTO detection_alert (alert_key,ingest_record_id,alert_type,severity,status,detected_at) VALUES (?,?,'rule','medium','new',?)",
-                "incident-test-" + suffix, recordId, Timestamp.from(Instant.now()));
+                "incident-test-" + suffix, recordId, Timestamp.from(detectedAt));
         return jdbc.queryForObject("SELECT id FROM detection_alert WHERE alert_key=?", Long.class, "incident-test-" + suffix);
     }
 

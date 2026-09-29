@@ -63,6 +63,24 @@ public class IncidentController {
         return ApiEnvelope.success(service.event(principal.id(), id), requestId(request));
     }
 
+    /** 事件关联告警分页（按检测时间倒序）；size 1-100，事件不可见 404。 */
+    @GetMapping("/events/{id}/alerts")
+    @PreAuthorize("hasAuthority('event.read')")
+    public ApiEnvelope<IncidentService.Page<IncidentMapper.AlertView>> eventAlerts(
+            @PathVariable long id, @RequestParam(defaultValue = "0") int page, @RequestParam(defaultValue = "20") int size,
+            @AuthenticationPrincipal IdentityPrincipal principal, HttpServletRequest request) {
+        return ApiEnvelope.success(service.eventAlerts(principal.id(), id, page, size), requestId(request));
+    }
+
+    /** 事件时间线分页（按发生时间倒序）；size 1-100，事件不可见 404。 */
+    @GetMapping("/events/{id}/timeline")
+    @PreAuthorize("hasAuthority('event.read')")
+    public ApiEnvelope<IncidentService.Page<IncidentMapper.TimelineView>> eventTimeline(
+            @PathVariable long id, @RequestParam(defaultValue = "0") int page, @RequestParam(defaultValue = "20") int size,
+            @AuthenticationPrincipal IdentityPrincipal principal, HttpServletRequest request) {
+        return ApiEnvelope.success(service.eventTimeline(principal.id(), id, page, size), requestId(request));
+    }
+
     @PostMapping("/events/{id}/transitions")
     @PreAuthorize("hasAuthority('event.read') and hasAuthority('event.investigate')")
     public ApiEnvelope<IncidentService.EventDetail> transition(@PathVariable long id,

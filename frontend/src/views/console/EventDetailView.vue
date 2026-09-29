@@ -1,17 +1,20 @@
 <script setup lang="ts">
 /**
  * 事件详情：左侧证据时间线与研判，右侧风险与处置申请。
- * 数据来自 GET /events/{id}；状态迁移、研判笔记和处置申请分别调用后端命令接口，
- * 成功后重新读取详情，不在本地伪造时间线。状态按钮只列出状态机允许的下一步，
+ * 数据来自 GET /events/{id}；时间线与关联告警只内嵌第一页（按时间倒序），翻页读
+ * GET /events/{id}/timeline、/events/{id}/alerts，不一次载入全部证据。
+ * 状态迁移、研判笔记和处置申请分别调用后端命令接口，成功后重新读取详情（回到第一页，
+ * 新写入的条目在最前），不在本地伪造时间线。状态按钮只列出状态机允许的下一步，
  * 最终合法性、资产授权与策略匹配均由后端校验（失败时展示后端脱敏原因）。
  */
-import { computed, reactive, ref } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
 import { ArrowLeft } from 'lucide-vue-next'
 import Tag from '@/components/Tag.vue'
 import Drawer from '@/components/Drawer.vue'
 import LoadState from '@/components/LoadState.vue'
-import { api, ApiError } from '@/api/client'
+import Pager from '@/components/Pager.vue'
+import { api, ApiError, type Page } from '@/api/client'
 import { can } from '@/api/session'
 import { alertSource, alertTypeLabel, basisEntries, eventStatusLabel, eventTransitions, fmtTime, severityLabel, type EventDetail, type EventStatus, type PolicyView } from '@/api/types'
 import { eventTone, severityTone, statusTone } from '@/data/tones'
@@ -25,6 +28,33 @@ const { data, loading, error, reload } = useLoad(() => api.get<EventDetail>(`/ev
 const ev = computed(() => data.value?.event)
 const notFound = computed(() => !loading.value && !data.value)
 const busy = ref(false)
+
+/**
+ * 服务端分页状态：以详情内嵌的第一页为初值，翻页时请求子资源。
+ * 以请求序号丢弃过期响应，避免快速翻页时旧页覆盖新页；失败只提示，保留当前页。
+ */
+function usePaged<T>(kind: 'timeline' | 'alerts', first: () => Page<T> | undefined) {
+  const state = ref<Page<T> | null>(null)
+  const turning = ref(false)
+  let seq = 0
+  watch(first, (p) => { seq++; turning.value = false; state.value = p ?? null }, { immediate: true })
+  async function go(page: number) {
+    const size = state.value?.size ?? 20
+    const mine = ++seq
+    turning.value = true
+    try {
+      const next = await api.get<Page<T>>(`/events/${encodeURIComponent(id)}/${kind}?page=${page}&size=${size}`)
+      if (mine === seq) state.value = next
+    } catch (e) {
+      if (mine === seq) toast(errText(e), 'threat')
+    } finally {
+      if (mine === seq) turning.value = false
+    }
+  }
+  return { state, turning, go }
+}
+const timeline = usePaged('timeline', () => data.value?.timeline)
+const alerts = usePaged('alerts', () => data.value?.alerts)
 
 // 状态迁移与笔记都要求理由，写入后端追加式时间线
 const pendingTo = ref<EventStatus | null>(null)
@@ -124,25 +154,32 @@ const riskBasis = computed(() => basisEntries(ev.value?.riskBasisJson ?? null))
 
     <div class="grid gap-20 lg:grid-cols-[1.35fr_1fr]">
       <section v-reveal>
-        <h2 class="mb-8 text-[15px]">证据时间线</h2>
-        <ol class="relative ml-1 border-l border-ink-hair">
-          <li v-for="t in data.timeline" :key="t.id" class="relative pb-9 pl-8">
+        <h2 class="mb-8 flex items-baseline justify-between text-[15px]">
+          <span>证据时间线<span class="num ml-2 text-[11px] text-ink-4">{{ timeline.state.value?.totalElements ?? 0 }}</span></span>
+          <span class="label">最新在前</span>
+        </h2>
+        <ol class="relative ml-1 border-l border-ink-hair transition-opacity duration-300" :class="timeline.turning.value ? 'opacity-50' : ''" :aria-busy="timeline.turning.value">
+          <li v-for="t in timeline.state.value?.items ?? []" :key="t.id" class="relative pb-9 pl-8">
             <span class="absolute -left-[3.5px] top-[7px] h-[6px] w-[6px]" :class="mark(t.entryType)" />
             <p class="num flex gap-4 text-[11.5px] text-ink-3"><span>{{ fmtTime(t.occurredAt) }}</span><span class="label !text-[10px]">{{ t.entryType }}</span><span>{{ t.actorType }}{{ t.actorId ? ' · ' + t.actorId : '' }}</span></p>
             <p class="mt-2 text-[14px] leading-relaxed">{{ t.summary }}</p>
           </li>
-          <li v-if="!data.timeline.length" class="pb-9 pl-8 text-[13px] text-ink-3">暂无时间线记录。</li>
+          <li v-if="!timeline.state.value?.items.length" class="pb-9 pl-8 text-[13px] text-ink-3">暂无时间线记录。</li>
         </ol>
+        <Pager v-if="timeline.state.value" class="!mt-0 mb-8 pl-8" label="证据时间线" :total="timeline.state.value.totalElements" :page="timeline.state.value.page" :size="timeline.state.value.size" :busy="timeline.turning.value" @change="timeline.go" />
         <form v-if="can('event.investigate')" class="mt-2 flex items-end gap-6 pl-8" @submit.prevent="addNote">
           <label class="flex-1"><span class="label">追加研判</span><input v-model="note" class="field mt-2" maxlength="1000" placeholder="写下依据，而不是结论" /></label>
           <button type="submit" class="link text-[13px]" :disabled="busy || !note.trim()">添加</button>
         </form>
 
-        <h2 class="mb-6 mt-20 text-[15px]">关联告警</h2>
-        <table class="table">
+        <h2 class="mb-6 mt-20 flex items-baseline justify-between text-[15px]">
+          <span>关联告警<span class="num ml-2 text-[11px] text-ink-4">{{ alerts.state.value?.totalElements ?? 0 }}</span></span>
+          <span class="label">最新在前</span>
+        </h2>
+        <table class="table transition-opacity duration-300" :class="alerts.turning.value ? 'opacity-50' : ''" :aria-busy="alerts.turning.value">
           <thead><tr><th>时间</th><th>告警</th><th>来源</th><th>分数</th><th>状态</th></tr></thead>
           <tbody>
-            <tr v-for="a in data.alerts" :key="a.id">
+            <tr v-for="a in alerts.state.value?.items ?? []" :key="a.id">
               <td class="num text-ink-3">{{ fmtTime(a.detectedAt) }}</td>
               <td class="num">{{ a.alertKey }}</td>
               <td>
@@ -152,9 +189,10 @@ const riskBasis = computed(() => basisEntries(ev.value?.riskBasisJson ?? null))
               <td class="num">{{ a.score == null ? '—' : Number(a.score).toFixed(3) }}</td>
               <td><Tag :tone="statusTone[a.status]" :label="a.status" /></td>
             </tr>
-            <tr v-if="!data.alerts.length"><td colspan="5" class="py-8 text-center text-ink-3">无可见关联告警。</td></tr>
+            <tr v-if="!alerts.state.value?.items.length"><td colspan="5" class="py-8 text-center text-ink-3">无可见关联告警。</td></tr>
           </tbody>
         </table>
+        <Pager v-if="alerts.state.value" label="关联告警" :total="alerts.state.value.totalElements" :page="alerts.state.value.page" :size="alerts.state.value.size" :busy="alerts.turning.value" @change="alerts.go" />
       </section>
 
       <aside v-reveal="120">

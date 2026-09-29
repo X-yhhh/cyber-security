@@ -3,6 +3,8 @@
  * 时间均为 UTC 的 LocalDateTime 字符串（无时区后缀）。
  */
 
+import type { Page } from './client'
+
 export type Severity = 'critical' | 'high' | 'medium' | 'low'
 export type EventStatus = 'open' | 'investigating' | 'contained' | 'resolved' | 'false_positive' | 'closed'
 
@@ -19,7 +21,8 @@ export interface EventView {
 }
 export interface EventAssetView { assetId: number; assetKey: string; relationType: string; evidenceCount: number }
 export interface TimelineView { id: number; occurredAt: string; entryType: string; actorType: string; actorId: string | null; summary: string; evidenceRef: string | null; detailsJson: string | null }
-export interface EventDetail { event: EventView; alerts: AlertView[]; assets: EventAssetView[]; timeline: TimelineView[] }
+/** 事件详情：alerts / timeline 只内嵌第一页（按时间倒序，带总数），后续页读 /events/{id}/alerts、/events/{id}/timeline。 */
+export interface EventDetail { event: EventView; alerts: Page<AlertView>; assets: EventAssetView[]; timeline: Page<TimelineView> }
 export interface AssetView { id: number; assetKey: string; assetType: string; environment: string; criticality: string; owner: string; status: string }
 export interface AuthorizationView { id: number; assetId: number; authorizationRef: string; status: string; validFrom: string; validUntil: string; requestedBy: string | null; approvedBy: string | null; createdAt: string }
 export interface SensorView { id: number; agentKey: string; assetId: number; assetKey: string; platform: string; agentVersion: string; status: string; lastHeartbeatAt: string | null; configVersion: string | null; flowWindowSeconds: number | null; healthWindowEnd: string | null; flowsSeen: number | null; flowsEmitted: number | null; flowsDropped: number | null; queueDepthMax: number | null }

@@ -233,10 +233,14 @@ class LocalInferenceIntegrationTest {
         JsonNode events = read(analystSession, "/api/v1/events");
         assertThat(events.path("totalElements").asLong()).isEqualTo(1);
         assertThat(read(analystSession, "/api/v1/alerts").path("totalElements").asLong()).isEqualTo(attacks + 1);
-        JsonNode detail = read(analystSession, "/api/v1/events/" + events.path("items").get(0).path("id").asLong());
-        assertThat(detail.path("alerts")).hasSize(attacks + 1);
+        long eventId = events.path("items").get(0).path("id").asLong();
+        JsonNode detail = read(analystSession, "/api/v1/events/" + eventId);
+        // 详情只内嵌第一页；全部关联告警经分页子资源读取（单页上限 100，本用例告警数更少）。
+        assertThat(detail.path("alerts").path("totalElements").asLong()).isEqualTo(attacks + 1);
         assertThat(detail.path("event").path("riskBasisJson").asText()).contains("formula");
-        for (JsonNode alert : detail.path("alerts")) {
+        JsonNode allAlerts = read(analystSession, "/api/v1/events/" + eventId + "/alerts?page=0&size=100");
+        assertThat(allAlerts.path("items")).hasSize(attacks + 1);
+        for (JsonNode alert : allAlerts.path("items")) {
             if ("model".equals(alert.path("alertType").asText())) {
                 assertThat(alert.path("modelKey").asText()).isEqualTo(MODEL_KEY);
                 assertThat(alert.path("contractVersion").asText()).isEqualTo(V4);

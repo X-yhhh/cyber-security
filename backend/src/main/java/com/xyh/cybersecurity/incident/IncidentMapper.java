@@ -27,11 +27,21 @@ public interface IncidentMapper {
 
     EventView findVisibleEvent(@Param("userId") long userId, @Param("eventId") long eventId);
 
-    List<AlertView> listEventAlertsVisible(@Param("userId") long userId, @Param("eventId") long eventId);
+    /** 事件关联告警总数；事件不可见（含任一关联资源越权）时为 0。 */
+    long countEventAlertsVisible(@Param("userId") long userId, @Param("eventId") long eventId);
+
+    /** 事件关联告警一页，按检测时间倒序；可见性与 {@link #findVisibleEvent} 同一 SQL 谓词。 */
+    List<AlertView> listEventAlertsVisible(@Param("userId") long userId, @Param("eventId") long eventId,
+                                           @Param("offset") int offset, @Param("limit") int limit);
 
     List<EventAssetView> listEventAssetsVisible(@Param("userId") long userId, @Param("eventId") long eventId);
 
-    List<TimelineView> listEventTimelineVisible(@Param("userId") long userId, @Param("eventId") long eventId);
+    /** 事件时间线总条数；事件不可见时为 0。 */
+    long countEventTimelineVisible(@Param("userId") long userId, @Param("eventId") long eventId);
+
+    /** 事件时间线一页，按发生时间倒序（最新证据与研判在第一页）。 */
+    List<TimelineView> listEventTimelineVisible(@Param("userId") long userId, @Param("eventId") long eventId,
+                                                @Param("offset") int offset, @Param("limit") int limit);
 
     int transitionVisibleEvent(@Param("userId") long userId, @Param("eventId") long eventId,
                                @Param("expectedStatus") String expectedStatus,

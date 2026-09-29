@@ -220,12 +220,27 @@
         WHERE e.id=#{eventId} AND <include refid="visibleEventReadPredicate"/>
     </select>
 
+    <!-- 事件可见性（全关联资源可见）只在派生表内对该事件判定一次，再按 event_id 取关联行；
+         不可见事件得到 0 行 / 0 条。关联告警与时间线按时间倒序分页，最新证据在第一页。 -->
+    <sql id="visibleEventOnly">
+        (SELECT e.id FROM security_event e
+         WHERE e.id=#{eventId} AND <include refid="visibleEventReadPredicate"/>) ve
+    </sql>
+
+    <select id="countEventAlertsVisible" resultType="long">
+        SELECT COUNT(*)
+        FROM event_alert_link eal
+        JOIN <include refid="visibleEventOnly"/> ON ve.id=eal.event_id
+        JOIN detection_alert da ON da.id=eal.alert_id
+        JOIN ingest_record ir ON ir.id=da.ingest_record_id
+        JOIN ingest_batch ib ON ib.id=ir.batch_id
+    </select>
+
     <select id="listEventAlertsVisible" resultMap="alertView">
         <include refid="alertSelect"/>
         JOIN event_alert_link eal ON eal.alert_id=da.id
-        JOIN security_event e ON e.id=eal.event_id
-        WHERE e.id=#{eventId} AND <include refid="visibleEventReadPredicate"/>
-        ORDER BY da.detected_at, da.id
+        JOIN <include refid="visibleEventOnly"/> ON ve.id=eal.event_id
+        ORDER BY da.detected_at DESC, da.id DESC LIMIT #{limit} OFFSET #{offset}
     </select>
 
     <select id="listEventAssetsVisible" resultMap="eventAssetView">
@@ -236,12 +251,16 @@
         ORDER BY a.id, ea.relation_type
     </select>
 
+    <select id="countEventTimelineVisible" resultType="long">
+        SELECT COUNT(*)
+        FROM event_timeline et JOIN <include refid="visibleEventOnly"/> ON ve.id=et.event_id
+    </select>
+
     <select id="listEventTimelineVisible" resultMap="timelineView">
         SELECT et.id, et.occurred_at, et.entry_type, et.actor_type, et.actor_id,
                et.summary, et.evidence_ref, et.details_json
-        FROM event_timeline et JOIN security_event e ON e.id=et.event_id
-        WHERE e.id=#{eventId} AND <include refid="visibleEventReadPredicate"/>
-        ORDER BY et.occurred_at, et.id
+        FROM event_timeline et JOIN <include refid="visibleEventOnly"/> ON ve.id=et.event_id
+        ORDER BY et.occurred_at DESC, et.id DESC LIMIT #{limit} OFFSET #{offset}
     </select>
 
     <update id="transitionVisibleEvent">

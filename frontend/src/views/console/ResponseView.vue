@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * 受控响应：审批队列、审批台账、本人申请、策略（只读）。
+ * 受控响应：审批队列、审批台账、本人申请、策略版本管理（M6：起草/提交/撤回、他人批准/驳回/退役）。
  * 审批决定调用 POST /approvals/{id}/decision；申请人不能审批本人申请由后端强制，
  * 前端仅提前禁用按钮。真实执行器未开放，执行状态如实显示为“未开放”。
  */
@@ -13,7 +13,7 @@ import Drawer from '@/components/Drawer.vue'
 import LoadState from '@/components/LoadState.vue'
 import { api } from '@/api/client'
 import { can, session } from '@/api/session'
-import { approvalLabel, execLabel, fmtTime, type LedgerView, type PolicyView } from '@/api/types'
+import { approvalLabel, execLabel, fmtTime, policyStatusLabel, type LedgerView, type PolicyView } from '@/api/types'
 import { approvalTone, execTone, statusTone } from '@/data/tones'
 import { toast } from '@/composables/toast'
 import { errText, optional, useLoad } from '@/composables/load'
@@ -53,6 +53,62 @@ const tabs = computed(() => [
   ...(can('action.request') ? [{ value: 'mine' as const, label: '我的申请', count: data.value.mine.length }] : []),
   ...(can('response.policy.read') ? [{ value: 'policies' as const, label: '策略', count: data.value.policies.length }] : []),
 ])
+
+// 策略版本管理（M6）：起草人提交/撤回本人版本，审批人批准/驳回他人版本并可退役 active 版本。
+// 按钮可见性只是提示；职责分离、状态迁移与内容校验以后端为准。
+const policy = ref<PolicyView | null>(null)
+const policyReason = ref('')
+const isAuthor = (p: PolicyView | null) => !!p && p.createdBy != null && p.createdBy === session.user?.id
+const canReview = (p: PolicyView | null) => !!p && can('response.policy.approve') && p.status === 'pending' && p.createdBy != null && !isAuthor(p)
+const canRetire = (p: PolicyView | null) => !!p && can('response.policy.approve') && p.status === 'active'
+const canAuthorAct = (p: PolicyView | null) => !!p && can('response.policy.draft') && isAuthor(p) && ['draft', 'pending'].includes(p.status)
+const canVersion = (p: PolicyView) => can('response.policy.draft') && ['active', 'rejected', 'retired'].includes(p.status)
+  && !data.value.policies.some((o) => o.policyKey === p.policyKey && ['draft', 'pending'].includes(o.status))
+
+async function policyAction(path: string, body: Record<string, unknown>, done: string, needReason = false) {
+  const p = policy.value
+  if (!p) return
+  if (needReason && !policyReason.value.trim()) return toast('请填写理由。', 'warn')
+  busy.value = true
+  try {
+    await api.post(`/response-policies/${p.id}/${path}`, needReason ? { ...body, reason: policyReason.value.trim() } : body)
+    toast(done)
+    policy.value = null
+    policyReason.value = ''
+    await reload()
+  } catch (e) { toast(errText(e), 'threat') } finally { busy.value = false }
+}
+
+// 起草表单：首期只有 temporary_block，自动执行恒为关闭（无经验证回滚证据时后端拒绝）。
+const drafting = ref(false)
+const baseId = ref<number | null>(null)
+const form = ref({ policyKey: '', environment: 'lab', targets: '', maxTtlSeconds: 600, maxDurationSeconds: 600, reason: '' })
+function openDraft(base: PolicyView | null) {
+  baseId.value = base?.id ?? null
+  form.value = base
+    ? { policyKey: base.policyKey, environment: base.environment, targets: base.actionParams?.allowedTargets?.join(', ') ?? '',
+        maxTtlSeconds: base.actionParams?.maxTtlSeconds ?? base.maxDurationSeconds, maxDurationSeconds: base.maxDurationSeconds, reason: '' }
+    : { policyKey: '', environment: 'lab', targets: '', maxTtlSeconds: 600, maxDurationSeconds: 600, reason: '' }
+  drafting.value = true
+}
+async function saveDraft() {
+  const f = form.value
+  if (!f.reason.trim()) return toast('请填写起草理由。', 'warn')
+  const allowedTargets = f.targets.split(/[\s,]+/).filter(Boolean)
+  const body = {
+    ...(baseId.value ? {} : { policyKey: f.policyKey.trim() }),
+    environment: f.environment.trim(), match: { environment: f.environment.trim() }, actionType: 'temporary_block',
+    actionParams: { maxTtlSeconds: Number(f.maxTtlSeconds), allowedTargets },
+    autoExecute: false, approvalRequired: true, maxDurationSeconds: Number(f.maxDurationSeconds), reason: f.reason.trim(),
+  }
+  busy.value = true
+  try {
+    await api.post(baseId.value ? `/response-policies/${baseId.value}/versions` : '/response-policies', body)
+    toast('草稿已登记；提交后须由其他审批员批准才生效。')
+    drafting.value = false
+    await reload()
+  } catch (e) { toast(errText(e), 'threat') } finally { busy.value = false }
+}
 </script>
 
 <template>
@@ -102,22 +158,27 @@ const tabs = computed(() => [
       </section>
 
       <section v-else key="p">
+        <div v-if="can('response.policy.draft')" class="mb-6 flex justify-end"><button class="act-ghost" @click="openDraft(null)">新建策略</button></div>
         <table class="table">
-          <thead><tr><th>策略</th><th>环境</th><th>动作</th><th>TTL 上限</th><th>允许目标</th><th>审批要求</th><th>状态</th></tr></thead>
+          <thead><tr><th>策略</th><th>环境</th><th>动作</th><th>TTL 上限</th><th>允许目标</th><th>审批要求</th><th>状态</th><th></th></tr></thead>
           <tbody>
             <tr v-for="p in data.policies" :key="p.id">
-              <td><span class="num block">{{ p.policyKey }}</span><span class="num text-[12px] text-ink-3">{{ p.version }}</span></td>
+              <td><span class="num block">{{ p.policyKey }}</span><span class="num text-[12px] text-ink-3">v{{ p.version }}{{ p.basedOnPolicyId ? ` · 基于 #${p.basedOnPolicyId}` : '' }}</span></td>
               <td class="text-ink-2">{{ p.environment }}</td>
               <td class="num text-ink-2">{{ p.actionType }}</td>
               <td class="num">{{ Math.floor(Math.min(p.actionParams?.maxTtlSeconds ?? p.maxDurationSeconds, p.maxDurationSeconds) / 60) }} min</td>
               <td class="num text-[12px] text-ink-2">{{ p.actionParams?.allowedTargets?.join(', ') ?? '—' }}</td>
               <td class="text-ink-2">{{ p.approvalRequired ? '人工审批' : '免审批' }}{{ p.autoExecute ? ' · 自动' : '' }}</td>
-              <td><Tag :tone="statusTone[p.status]" :label="p.status" /></td>
+              <td><Tag :tone="statusTone[p.status]" :label="policyStatusLabel[p.status] ?? p.status" /></td>
+              <td class="whitespace-nowrap text-right">
+                <button class="link text-[12.5px]" @click="policy = p; policyReason = ''">详情</button>
+                <button v-if="canVersion(p)" class="link ml-4 text-[12.5px]" @click="openDraft(p)">新版本</button>
+              </td>
             </tr>
-            <tr v-if="!data.policies.length"><td colspan="7" class="py-16 text-center text-ink-3">数据库中暂无响应策略。</td></tr>
+            <tr v-if="!data.policies.length"><td colspan="8" class="py-16 text-center text-ink-3">数据库中暂无响应策略。</td></tr>
           </tbody>
         </table>
-        <p class="mt-6 text-[12.5px] leading-relaxed text-ink-3">首期策略只读，不开放编辑。主机限速仅在适配器实测支持后启用，此前不会伪装为阻断或宣称已限速。</p>
+        <p class="mt-6 text-[12.5px] leading-relaxed text-ink-3">策略版本不可原地修改：变更即新建版本，经起草人提交、其他审批员批准后生效，旧版本同时退役。自动执行在动作具备经验证的回滚证据前不可配置。主机限速仅在适配器实测支持后启用。</p>
       </section>
     </Transition>
     </LoadState></div>
@@ -145,6 +206,56 @@ const tabs = computed(() => [
       <template #foot>
         <button class="link text-[13px]" :disabled="busy || isMine(picked) || !can('approval.decide')" @click="decide(false)">拒绝</button>
         <button class="act" :disabled="busy || isMine(picked) || !can('approval.decide')" @click="decide(true)">批准</button>
+      </template>
+    </Drawer>
+
+    <Drawer :open="!!policy" :title="policy ? `${policy.policyKey} v${policy.version}` : ''" :kicker="policy ? `策略 #${policy.id}` : ''" @close="policy = null">
+      <template v-if="policy">
+        <dl class="border-t border-ink">
+          <div v-for="[k, v] in [
+            ['状态', policyStatusLabel[policy.status] ?? policy.status],
+            ['环境', policy.environment],
+            ['动作', policy.actionType],
+            ['允许目标', policy.actionParams?.allowedTargets?.join(', ') ?? '—'],
+            ['TTL 上限', `${policy.actionParams?.maxTtlSeconds ?? '—'} 秒（策略上限 ${policy.maxDurationSeconds} 秒）`],
+            ['审批要求', policy.approvalRequired ? '人工审批' : '免审批'],
+            ['起草理由', policy.changeReason ?? '—'],
+            ['审批理由', policy.decisionReason ?? '—'],
+            ['内容哈希', policy.contentSha256 ? policy.contentSha256.slice(0, 16) + '…' : '—'],
+            ['登记', fmtTime(policy.createdAt)],
+          ]" :key="k" class="grid grid-cols-[7rem_1fr] border-b border-ink-hair py-3 text-[13px]">
+            <dt class="text-ink-3">{{ k }}</dt><dd class="num break-all">{{ v }}</dd>
+          </div>
+        </dl>
+        <label v-if="canReview(policy) || canRetire(policy)" class="mt-10 block"><span class="label">理由</span><textarea v-model="policyReason" rows="3" maxlength="1000" class="field mt-2 h-auto resize-none py-2" placeholder="记录到审计" /></label>
+        <p v-if="policy.status === 'pending' && isAuthor(policy)" class="mt-6 border-l-2 border-threat pl-4 text-[12.5px] leading-relaxed text-threat">你是该版本的起草人，不能审批本人版本。</p>
+      </template>
+      <template #foot>
+        <template v-if="canAuthorAct(policy)">
+          <button class="link text-[13px]" :disabled="busy" @click="policyAction('withdraw', {}, '已撤回。')">撤回</button>
+          <button v-if="policy?.status === 'draft'" class="act" :disabled="busy" @click="policyAction('submit', {}, '已提交审批。')">提交审批</button>
+        </template>
+        <template v-if="canReview(policy)">
+          <button class="link text-[13px]" :disabled="busy" @click="policyAction('decision', { decision: 'reject' }, '已驳回。', true)">驳回</button>
+          <button class="act" :disabled="busy" @click="policyAction('decision', { decision: 'approve' }, '已批准；该版本生效，旧版本已退役。', true)">批准生效</button>
+        </template>
+        <button v-if="canRetire(policy)" class="act-ghost" :disabled="busy" @click="policyAction('retire', {}, '已退役。', true)">退役</button>
+      </template>
+    </Drawer>
+
+    <Drawer :open="drafting" :title="baseId ? `${form.policyKey} 新版本` : '新建响应策略'" kicker="temporary_block" @close="drafting = false">
+      <div class="space-y-6">
+        <label v-if="!baseId" class="block"><span class="label">策略键</span><input v-model="form.policyKey" class="field mt-2" maxlength="64" placeholder="小写字母、数字、. _ -" /></label>
+        <label class="block"><span class="label">环境</span><input v-model="form.environment" class="field mt-2" maxlength="32" /></label>
+        <label class="block"><span class="label">允许目标（IPv4，逗号分隔）</span><input v-model="form.targets" class="field mt-2 num" placeholder="192.0.2.25" /></label>
+        <label class="block"><span class="label">动作 TTL 上限（秒）</span><input v-model.number="form.maxTtlSeconds" type="number" min="1" max="3600" class="field mt-2 num" /></label>
+        <label class="block"><span class="label">策略最大持续时间（秒，≤ 3600）</span><input v-model.number="form.maxDurationSeconds" type="number" min="1" max="3600" class="field mt-2 num" /></label>
+        <label class="block"><span class="label">起草理由</span><textarea v-model="form.reason" rows="3" maxlength="1000" class="field mt-2 h-auto resize-none py-2" /></label>
+        <p class="text-[12.5px] leading-relaxed text-ink-3">人工审批恒为开启，自动执行不可选。登记后为草稿，须提交并由其他审批员批准。</p>
+      </div>
+      <template #foot>
+        <button class="link text-[13px]" @click="drafting = false">取消</button>
+        <button class="act" :disabled="busy" @click="saveDraft">登记草稿</button>
       </template>
     </Drawer>
   </div>

@@ -25,7 +25,16 @@ export interface AuthorizationView { id: number; assetId: number; authorizationR
 export interface SensorView { id: number; agentKey: string; assetId: number; assetKey: string; platform: string; agentVersion: string; status: string; lastHeartbeatAt: string | null; configVersion: string | null; flowWindowSeconds: number | null; healthWindowEnd: string | null; flowsSeen: number | null; flowsEmitted: number | null; flowsDropped: number | null; queueDepthMax: number | null }
 export interface DataSourceView { id: number; sourceKey: string; sourceType: string; environment: string; schemaVersion: string; status: string; lastSuccessAt: string | null }
 export interface IngestSummary { dataSourceId: number; batches: number; accepted: number; rejected: number; lastBatchAt: string | null; mappingVersion: string | null; mappingStatus: string | null }
-export interface PolicyView { id: number; policyKey: string; version: string; environment: string; actionType: string; actionParams: { maxTtlSeconds?: number; allowedTargets?: string[] } | null; autoExecute: boolean; approvalRequired: boolean; maxDurationSeconds: number; status: string; approved: boolean }
+/** 响应策略版本（M6）。版本不可变；status 为 draft/pending/active/rejected/retired（approved 仅历史兼容）。 */
+export interface PolicyView {
+  id: number; policyKey: string; version: string; environment: string; match: Record<string, unknown> | null; actionType: string
+  actionParams: { maxTtlSeconds?: number; allowedTargets?: string[] } | null; riskLimit: number | null
+  autoExecute: boolean; approvalRequired: boolean; maxDurationSeconds: number; status: string; approved: boolean
+  createdBy: number | null; basedOnPolicyId: number | null; changeReason: string | null; contentSha256: string | null
+  submittedAt: string | null; approvedBy: number | null; reviewedBy: number | null; reviewedAt: string | null
+  decisionReason: string | null; retiredAt: string | null; retiredBy: number | null; createdAt: string
+}
+export const policyStatusLabel: Record<string, string> = { draft: '草稿', pending: '待审批', approved: '已批准', active: '生效', rejected: '已驳回', retired: '已退役' }
 export interface LedgerView { id: number; eventId: number; eventKey: string; assetId: number; assetKey: string; actionRequest: { actionType?: string; parameters?: { targetAddress?: string; ttlSeconds?: number }; policyKey?: string; policyVersion?: string; reason?: string }; status: string; requester: string; reviewer: string | null; decisionReason: string | null; expiresAt: string; createdAt: string; reviewedAt: string | null; executionStatus: string | null }
 export interface ModelView { id: number; modelKey: string; version: string; taskType: string; manifestVersion: string; manifest: Record<string, unknown>; artifactRef: string; artifactSha256: string; featureContractVersion: string; approvalStatus: string; createdAt: string }
 export interface ReleaseView { id: number; releaseStatus: string; reviewStatus: string; requester: string | null; approver: string | null; requestReason: string | null; decisionReason: string | null; reviewedAt: string | null; createdAt: string }

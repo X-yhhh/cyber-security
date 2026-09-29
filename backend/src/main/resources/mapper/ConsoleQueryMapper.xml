@@ -67,14 +67,6 @@
             <arg column="last_batch_at" javaType="java.time.LocalDateTime"/><arg column="mapping_version" javaType="string"/>
             <arg column="mapping_status" javaType="string"/></constructor>
     </resultMap>
-    <resultMap id="policyRow" type="com.xyh.cybersecurity.query.ConsoleQueryMapper$PolicyRow">
-        <constructor><idArg column="id" javaType="_long"/><arg column="policy_key" javaType="string"/>
-            <arg column="version" javaType="string"/><arg column="environment" javaType="string"/>
-            <arg column="action_type" javaType="string"/><arg column="params" javaType="string"/>
-            <arg column="auto_execute" javaType="_boolean"/><arg column="approval_required" javaType="_boolean"/>
-            <arg column="max_duration_seconds" javaType="_int"/><arg column="status" javaType="string"/>
-            <arg column="approved" javaType="_boolean"/></constructor>
-    </resultMap>
     <resultMap id="ledgerRow" type="com.xyh.cybersecurity.query.ConsoleQueryMapper$LedgerRow">
         <constructor><idArg column="id" javaType="_long"/><arg column="event_id" javaType="_long"/>
             <arg column="event_key" javaType="string"/><arg column="asset_id" javaType="_long"/>
@@ -172,12 +164,6 @@
         FROM data_source ds LEFT JOIN ingest_batch ib ON ib.data_source_id=ds.id
         WHERE <include refid="sourceScope"><property name="permission" value="ingest.batch.read"/><property name="sourceExpr" value="ds.id"/></include>
         GROUP BY ds.id ORDER BY ds.id LIMIT 200
-    </select>
-
-    <select id="policies" resultMap="policyRow">
-        SELECT id,policy_key,version,environment,action_type,CAST(action_params_json AS CHAR) params,
-               auto_execute,approval_required,max_duration_seconds,status,approved_by IS NOT NULL approved
-        FROM response_policy ORDER BY policy_key,id DESC LIMIT 200
     </select>
 
     <select id="ledger" resultMap="ledgerRow">

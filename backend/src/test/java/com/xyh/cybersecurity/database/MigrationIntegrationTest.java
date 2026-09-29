@@ -55,16 +55,17 @@ class MigrationIntegrationTest {
         try (Connection connection = DriverManager.getConnection(schemaUrl(EMPTY_SCHEMA), username, password);
              Statement statement = connection.createStatement()) {
             assertThat(count(statement, "information_schema.tables", "table_schema='" + EMPTY_SCHEMA + "' AND table_type='BASE TABLE'"))
-                    .isEqualTo(45);
+                    .isEqualTo(46);
             assertThat(count(statement, EMPTY_SCHEMA + ".sys_role", "is_builtin=1 AND status='active'"))
                     .isEqualTo(7);
             assertThat(count(statement, EMPTY_SCHEMA + ".sys_permission", "status='active'"))
-                    .isEqualTo(39);
-            // V12 新增 inference.request.read（四个角色）与 model.replay.run（仅 model_operator）。
-            assertThat(rolePermissionCount(statement, "platform_admin")).isEqualTo(22);
+                    .isEqualTo(42);
+            // V12 新增 inference.request.read（四个角色）与 model.replay.run（仅 model_operator）；
+            // V13 新增 detection.rule.read（平台管理员、分析员、审批人）、manage（分析员）、approve（审批人）。
+            assertThat(rolePermissionCount(statement, "platform_admin")).isEqualTo(23);
             assertThat(rolePermissionCount(statement, "asset_source_admin")).isEqualTo(11);
-            assertThat(rolePermissionCount(statement, "security_analyst")).isEqualTo(9);
-            assertThat(rolePermissionCount(statement, "response_approver")).isEqualTo(5);
+            assertThat(rolePermissionCount(statement, "security_analyst")).isEqualTo(11);
+            assertThat(rolePermissionCount(statement, "response_approver")).isEqualTo(7);
             assertThat(rolePermissionCount(statement, "model_operator")).isEqualTo(7);
             assertThat(rolePermissionCount(statement, "model_releaser")).isEqualTo(2);
             assertThat(rolePermissionCount(statement, "auditor")).isEqualTo(3);
@@ -77,7 +78,7 @@ class MigrationIntegrationTest {
                     + ".sys_role r ON r.id=rp.role_id", "r.role_key='platform_admin' AND p.permission_key IN ('approval.decide','model.release.approve')"))
                     .isZero();
             assertThat(count(statement, EMPTY_SCHEMA + ".sys_user", "1=1")).isZero();
-            assertThat(count(statement, EMPTY_SCHEMA + ".flyway_schema_history", "success=1")).isEqualTo(12);
+            assertThat(count(statement, EMPTY_SCHEMA + ".flyway_schema_history", "success=1")).isEqualTo(13);
             assertThat(count(statement, "information_schema.tables", "table_schema='" + EMPTY_SCHEMA
                     + "' AND table_name='auth_login_throttle'"))
                     .isEqualTo(1);
@@ -119,6 +120,26 @@ class MigrationIntegrationTest {
                     + " VALUES ('ck', 1, 'local', 'succeeded', UTC_TIMESTAMP(3))"))
                     .isInstanceOf(java.sql.SQLException.class)
                     .hasMessageContaining("ck_inference_request_result_snapshot");
+            // V13：版本化检测策略（每类恰一个 active 默认版本）与告警追溯约束（路线 B §11）。
+            assertThat(count(statement, EMPTY_SCHEMA + ".detection_policy", "status='active'")).isEqualTo(3);
+            for (String column : List.of("model_version_id", "contract_version", "contract_sha256", "detection_rule_id",
+                    "severity_policy_version", "basis_json")) {
+                assertThat(columnCount(statement, "detection_alert", column)).as(column).isEqualTo(1);
+            }
+            assertThat(columnCount(statement, "security_event", "correlation_key")).isEqualTo(1);
+            assertThat(columnCount(statement, "security_event", "risk_basis_json")).isEqualTo(1);
+            assertThat(columnCount(statement, "detection_rule", "requested_by")).isEqualTo(1);
+            assertThatThrownBy(() -> statement.executeUpdate("INSERT INTO " + EMPTY_SCHEMA
+                    + ".detection_policy (policy_type, version, config_json, status)"
+                    + " VALUES ('correlation', 'second-active', '{}', 'active')"))
+                    .isInstanceOf(java.sql.SQLException.class)
+                    .hasMessageContaining("uk_detection_policy_active");
+            // 模型告警缺推理请求与模型版本必须被 CHECK 拒绝；断言约束名，避免外键失败掩盖。
+            assertThatThrownBy(() -> statement.executeUpdate("INSERT INTO " + EMPTY_SCHEMA
+                    + ".detection_alert (alert_key, ingest_record_id, alert_type, severity, status, detected_at)"
+                    + " VALUES ('ck', 1, 'model', 'high', 'new', UTC_TIMESTAMP(3))"))
+                    .isInstanceOf(java.sql.SQLException.class)
+                    .hasMessageContaining("ck_detection_alert_model_trace");
         }
     }
 

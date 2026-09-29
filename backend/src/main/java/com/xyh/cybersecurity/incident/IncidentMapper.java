@@ -43,12 +43,20 @@ public interface IncidentMapper {
                                       @Param("summary") String summary,
                                       @Param("detailsJson") String detailsJson);
 
+    /**
+     * 告警视图。V13 起追加来源追溯：模型告警带模型版本、契约版本与哈希、分级策略版本；规则告警带规则键与版本；
+     * {@code basisJson} 为生成时的评分依据快照（分数、阈值或命中条件），不含记录原文。
+     */
     record AlertView(long id, String alertKey, String alertType, String severity, String status,
-                     BigDecimal score, LocalDateTime detectedAt, long dataSourceId, Long assetId) { }
+                     BigDecimal score, LocalDateTime detectedAt, long dataSourceId, Long assetId,
+                     Long modelVersionId, String modelKey, String modelVersion, String contractVersion,
+                     String contractSha256, Long detectionRuleId, String ruleKey, String ruleVersion,
+                     String severityPolicyVersion, String thresholdVersion, String basisJson) { }
 
     record EventView(long id, String eventKey, String title, String category, String severity,
                      String status, BigDecimal riskScore, LocalDateTime firstSeenAt, LocalDateTime lastSeenAt,
-                     Long assigneeId, long alertCount, long assetCount) { }
+                     Long assigneeId, long alertCount, long assetCount, String riskRuleVersion,
+                     String riskBasisJson, String correlationKey, String correlationPolicyVersion) { }
 
     record EventAssetView(long assetId, String assetKey, String relationType, long evidenceCount) { }
 

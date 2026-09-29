@@ -12,6 +12,17 @@
             <arg column="detected_at" javaType="java.time.LocalDateTime"/>
             <arg column="data_source_id" javaType="_long"/>
             <arg column="asset_id" javaType="java.lang.Long"/>
+            <arg column="model_version_id" javaType="java.lang.Long"/>
+            <arg column="model_key" javaType="string"/>
+            <arg column="model_version" javaType="string"/>
+            <arg column="contract_version" javaType="string"/>
+            <arg column="contract_sha256" javaType="string"/>
+            <arg column="detection_rule_id" javaType="java.lang.Long"/>
+            <arg column="rule_key" javaType="string"/>
+            <arg column="rule_version" javaType="string"/>
+            <arg column="severity_policy_version" javaType="string"/>
+            <arg column="threshold_version" javaType="string"/>
+            <arg column="basis_json" javaType="string"/>
         </constructor>
     </resultMap>
 
@@ -29,6 +40,10 @@
             <arg column="assignee_id" javaType="java.lang.Long"/>
             <arg column="alert_count" javaType="_long"/>
             <arg column="asset_count" javaType="_long"/>
+            <arg column="risk_rule_version" javaType="string"/>
+            <arg column="risk_basis_json" javaType="string"/>
+            <arg column="correlation_key" javaType="string"/>
+            <arg column="correlation_policy_version" javaType="string"/>
         </constructor>
     </resultMap>
 
@@ -142,10 +157,14 @@
 
     <sql id="alertSelect">
         SELECT da.id, da.alert_key, da.alert_type, da.severity, da.status, da.score, da.detected_at,
-               ib.data_source_id, ir.asset_id
+               ib.data_source_id, ir.asset_id, da.model_version_id, amv.model_key, amv.version model_version,
+               da.contract_version, da.contract_sha256, da.detection_rule_id, adr.rule_key, adr.version rule_version,
+               da.severity_policy_version, da.threshold_version, CAST(da.basis_json AS CHAR) basis_json
         FROM detection_alert da
         JOIN ingest_record ir ON ir.id=da.ingest_record_id
         JOIN ingest_batch ib ON ib.id=ir.batch_id
+        LEFT JOIN model_version amv ON amv.id=da.model_version_id
+        LEFT JOIN detection_rule adr ON adr.id=da.detection_rule_id
     </sql>
 
     <select id="countVisibleAlerts" resultType="long">
@@ -180,7 +199,9 @@
         SELECT e.id, e.event_key, e.title, e.category, e.severity, e.status, e.risk_score,
                e.first_seen_at, e.last_seen_at, e.assignee_id,
                (SELECT COUNT(*) FROM event_alert_link eal WHERE eal.event_id=e.id) AS alert_count,
-               (SELECT COUNT(*) FROM event_asset_link ea WHERE ea.event_id=e.id) AS asset_count
+               (SELECT COUNT(*) FROM event_asset_link ea WHERE ea.event_id=e.id) AS asset_count,
+               e.risk_rule_version, CAST(e.risk_basis_json AS CHAR) risk_basis_json, e.correlation_key,
+               e.correlation_policy_version
         FROM security_event e
     </sql>
 

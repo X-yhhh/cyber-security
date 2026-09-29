@@ -68,6 +68,8 @@ class IngestBatchConsumerRabbitMqIntegrationTest {
         registry.add("cyber.security.login-throttle.hmac-key", () -> "ingest-consumer-it-hmac-key-with-32-bytes-minimum");
         registry.add("cyber.ingest.outbox-relay.enabled", () -> false);
         registry.add("cyber.ingest.consumer.enabled", () -> true);
+        // 本测试只验证 M2 投递语义，使用下方测试提交端口；关闭本机推理提交端口，避免出现两个候选 Bean。
+        registry.add("cyber.inference.local.enabled", () -> false);
         registry.add("cyber.ingest.consumer.queue", () -> QUEUE);
         registry.add("cyber.ingest.consumer.dead-letter-queue", () -> DLQ);
         registry.add("cyber.ingest.consumer.retry-queue-prefix", () -> RETRY_PREFIX);

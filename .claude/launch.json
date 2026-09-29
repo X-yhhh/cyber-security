@@ -1,6 +1,7 @@
 {
   "version": "0.0.1",
   "configurations": [
-    { "name": "frontend-preview", "runtimeExecutable": "sh", "runtimeArgs": ["-c", "cd frontend && exec npx vite --port ${PORT:-5190} --strictPort"], "port": 5190, "autoPort": true }
+    { "name": "frontend-preview", "runtimeExecutable": "sh", "runtimeArgs": ["-c", "cd frontend && exec npx vite --port ${PORT:-5190} --strictPort"], "port": 5190, "autoPort": true },
+    { "name": "backend-local", "runtimeExecutable": "zsh", "runtimeArgs": ["-lc", "export JAVA_HOME=$HOME/Workspace/development/runtimes/java/temurin-25.0.2/Contents/Home; export PATH=$JAVA_HOME/bin:$PATH; cd backend && exec mvn -B -o spring-boot:run -Dspring-boot.run.profiles=local -Dspring-boot.run.arguments=--cyber.model-artifact.root=$HOME/Workspace/deliveries"], "port": 18080 }
   ]
 }

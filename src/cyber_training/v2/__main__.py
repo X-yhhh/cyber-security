@@ -7,8 +7,8 @@ import sys
 from importlib import import_module
 from pathlib import Path
 
-STEPS = ("register", "eda", "split", "preprocess-compare", "feature-compare", "train", "train-multiclass", "final-eval", "export")
-SIMPLE = {"register": "register", "split": "split", "eda": "eda"}
+STEPS = ("register", "eda", "split", "preprocess-compare", "feature-compare", "train", "train-multiclass", "final-eval", "export", "feature-audit", "feature-ablation", "feature-diagnose")
+SIMPLE = {"register": "register", "split": "split", "eda": "eda", "feature-audit": "feature_audit", "feature-diagnose": "feature_diagnose"}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -85,6 +85,11 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         print(final_eval.run_evaluate(args.unlock_holdout, candidate=args.candidate, resume=args.resume,
                                       only_generalization=args.final_stage == "generalization"))
+        return 0
+    if args.step == "feature-ablation":
+        from . import feature_ablation
+
+        print(feature_ablation.run(resume=args.resume))
         return 0
     if args.step == "export":
         from . import export

@@ -1,0 +1,17 @@
+{
+  "file": "d1_raw-v4-recomputed.parquet",
+  "rows": 2540047,
+  "sha256": "c45e43151a57dc6cab0c0ca61e9584feac89728260279d27dadb73568ba9aa76",
+  "columns": [
+    "ct_srv_src_v4",
+    "ct_srv_dst_v4",
+    "ct_dst_ltm_v4",
+    "ct_src_ltm_v4",
+    "ct_src_dport_ltm_v4",
+    "ct_dst_sport_ltm_v4",
+    "ct_dst_src_ltm_v4",
+    "service_v4",
+    "window_ready",
+    "excluded"
+  ]
+}

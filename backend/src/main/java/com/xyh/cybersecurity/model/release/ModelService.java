@@ -163,10 +163,16 @@ public class ModelService {
         int approvalCount = mapper.countApprovedReleases(modelId);
         if (approvalCount == 0) throw ApiRequestException.conflict("缺少已批准的发布审查记录");
 
-        OnnxModelRuntime prepared;
-        try { prepared = onnx.prepare(modelView(model.id(), model.modelKey(), model.version(), model.taskType(),
+        ModelView view = modelView(model.id(), model.modelKey(), model.version(), model.taskType(),
                 model.manifestVersion(), model.manifestJson(), model.artifactRef(), model.artifactSha256(),
-                model.featureContractVersion(), model.approvalStatus(), model.createdAt())); }
+                model.featureContractVersion(), model.approvalStatus(), model.createdAt());
+        OnnxModelRuntime prepared;
+        OnnxModelManager.ActiveModel descriptor;
+        try {
+            prepared = onnx.prepare(view);
+            // 描述在数据库写入前生成（prepare 已校验过阈值策略），提交后的内存切换不会再因校验失败而中断。
+            descriptor = OnnxModelManager.describe(view, prepared);
+        }
         catch (RuntimeException exception) { throw ApiRequestException.conflict("激活前模型制品复核失败"); }
         try {
             mapper.lockLocalDeployments();
@@ -175,7 +181,7 @@ public class ModelService {
             mapper.insertDeployment(modelId, actor.id());
             mapper.activateRelease(modelId, actor.id());
             audit(actor.id(), "model.deployment.activated", "model_version", modelId, model.modelKey(), request, summary);
-            onnx.activateAfterCommit(modelId, prepared);
+            onnx.activateAfterCommit(descriptor, prepared);
         } catch (RuntimeException exception) {
             try { prepared.close(); } catch (Exception ignored) { }
             throw exception;

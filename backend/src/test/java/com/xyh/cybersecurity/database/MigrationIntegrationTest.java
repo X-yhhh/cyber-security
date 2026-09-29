@@ -75,7 +75,7 @@ class MigrationIntegrationTest {
                     + ".sys_role r ON r.id=rp.role_id", "r.role_key='platform_admin' AND p.permission_key IN ('approval.decide','model.release.approve')"))
                     .isZero();
             assertThat(count(statement, EMPTY_SCHEMA + ".sys_user", "1=1")).isZero();
-            assertThat(count(statement, EMPTY_SCHEMA + ".flyway_schema_history", "success=1")).isEqualTo(10);
+            assertThat(count(statement, EMPTY_SCHEMA + ".flyway_schema_history", "success=1")).isEqualTo(11);
             assertThat(count(statement, "information_schema.tables", "table_schema='" + EMPTY_SCHEMA
                     + "' AND table_name='auth_login_throttle'"))
                     .isEqualTo(1);
@@ -91,6 +91,17 @@ class MigrationIntegrationTest {
             assertThat(indexCount(statement, "audit_log", "idx_audit_log_occurred_id")).isEqualTo(1);
             assertThat(indexCount(statement, "approval_task", "idx_approval_task_status_created")).isEqualTo(1);
             assertThat(columnCount(statement, "consumed_message", "message_key")).isEqualTo(1);
+            // V11：映射与配置登记契约版本和契约文件 SHA-256（路线 B §3.3）。
+            assertThat(columnCount(statement, "sensor_config", "feature_contract_sha256")).isEqualTo(1);
+            assertThat(columnCount(statement, "source_mapping", "feature_contract_version")).isEqualTo(1);
+            assertThat(columnCount(statement, "source_mapping", "feature_contract_sha256")).isEqualTo(1);
+            assertThatThrownBy(() -> statement.executeUpdate("INSERT INTO " + EMPTY_SCHEMA
+                    + ".source_mapping (data_source_id, mapping_version, source_schema_json, mapping_json,"
+                    + " feature_contract_version, feature_contract_sha256, status) VALUES (1, 'ck', '{}', '{}',"
+                    + " 'unsw-nb15-flow-v4', '" + "A".repeat(64) + "', 'draft')"))
+                    .isInstanceOf(java.sql.SQLException.class)
+                    // 断言约束名，避免外键失败（空 schema 无 data_source）掩盖 CHECK 未生效。
+                    .hasMessageContaining("ck_source_mapping_contract_sha256");
         }
     }
 

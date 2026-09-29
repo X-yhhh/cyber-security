@@ -3,6 +3,7 @@ package com.xyh.cybersecurity.model.runtime;
 import ai.onnxruntime.OrtException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.xyh.cybersecurity.ingest.contract.ActiveModelInputs;
 import com.xyh.cybersecurity.model.artifact.ModelArtifactStore;
 import com.xyh.cybersecurity.model.release.ModelMapper;
 import com.xyh.cybersecurity.model.release.ModelService;
@@ -13,13 +14,19 @@ import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
+import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
-/** 验证并缓存明确批准的 ONNX 版本；进程重启时只恢复数据库标记为 active 的本机版本。 */
+/**
+ * 验证并缓存明确批准的 ONNX 版本；进程重启时只恢复数据库标记为 active 的本机版本。
+ *
+ * <p>同时实现 {@link ActiveModelInputs}：向接入层提供激活模型的类别词表与评估范围，仅用于非阻断遥测。</p>
+ */
 @Component
-public class OnnxModelManager implements DisposableBean {
+public class OnnxModelManager implements DisposableBean, ActiveModelInputs {
 
     private final ModelRuntimeMapper mapper;
     private final ObjectMapper objectMapper;
@@ -80,6 +87,22 @@ public class OnnxModelManager implements DisposableBean {
                 });
     }
 
+    /** 返回绑定该契约版本的激活模型输入范围；没有激活模型或契约不同时为空。 */
+    @Override
+    public Optional<ActiveModelInputs.Scope> forContract(String contractVersion) {
+        activeLock.readLock().lock();
+        try {
+            return active.entrySet().stream()
+                    .filter(entry -> entry.getValue().inputs().contractVersion().equals(contractVersion))
+                    .findFirst()
+                    .map(entry -> {
+                        ModelInputContract inputs = entry.getValue().inputs();
+                        return new ActiveModelInputs.Scope("model-" + entry.getKey(), inputs.vocabularies(),
+                                inputs.supportedViewpoints(), inputs.supportedAddressFamilies());
+                    });
+        } finally { activeLock.readLock().unlock(); }
+    }
+
     public OnnxModelRuntime active(long modelId) {
         activeLock.readLock().lock();
         try {
@@ -105,12 +128,19 @@ public class OnnxModelManager implements DisposableBean {
         finally { activeLock.writeLock().unlock(); }
     }
 
-    /** 激活前使用契约允许的零值样本预热，并要求运行时返回恰好一条完整预测。 */
+    /**
+     * 激活前按模型输入契约的维度构造一条图冒烟样本（数值全 0、类别取各自词表内的确定值），
+     * 并要求运行时返回恰好一条完整预测。该样本只验证图可执行，不代表合法流记录。
+     */
     private static List<OnnxModelRuntime.Prediction> smokePredict(OnnxModelRuntime runtime) {
         try {
-            double[] numeric = new double[OnnxModelRuntime.NUMERIC_FEATURE_COUNT];
+            ModelInputContract inputs = runtime.inputs();
+            double[] numeric = new double[inputs.numericCount()];
+            String[] categorical = inputs.categoricalFields().stream()
+                    .map(field -> smokeCategory(field, inputs.vocabularies().getOrDefault(field, Set.of())))
+                    .toArray(String[]::new);
             List<OnnxModelRuntime.Prediction> results = runtime.predict(List.of(new OnnxModelRuntime.FlowInput(
-                    numeric, new String[]{"tcp", "-"})));
+                    numeric, categorical)));
             if (results.size() != 1) throw new ModelContractException("MODEL_OUTPUT_CONTRACT_MISMATCH");
             return results;
         } catch (OrtException exception) {
@@ -118,8 +148,15 @@ public class OnnxModelManager implements DisposableBean {
         }
     }
 
+    /** 优先使用常见取值，保证冒烟样本在不同 JVM 间确定；词表缺失时交给图按 −1 编码。 */
+    private static String smokeCategory(String field, Set<String> vocabulary) {
+        if ("proto".equals(field) && vocabulary.contains("tcp")) return "tcp";
+        if ("service".equals(field) && vocabulary.contains("-")) return "-";
+        return vocabulary.stream().sorted().findFirst().orElse("-");
+    }
+
     private OnnxModelRuntime open(ModelArtifactStore.VerifiedArtifact artifact) {
-        try { return OnnxModelRuntime.open(artifact.modelPath()); }
+        try { return OnnxModelRuntime.open(artifact.modelPath(), artifact.inputs()); }
         catch (OrtException | IllegalArgumentException exception) {
             throw new ModelContractException("MODEL_ONNX_CONTRACT_MISMATCH");
         }

@@ -35,9 +35,12 @@ public interface IngestMapper {
     boolean overlapsHealthWindow(@Param("sensorId") long sensorId, @Param("windowStart") Instant windowStart,
                                  @Param("windowEnd") Instant windowEnd);
     int insertHealthWindow(HealthWindowInsert input);
-    boolean hasActiveConfig(@Param("sensorId") long sensorId, @Param("configVersion") String configVersion,
-                            @Param("contractVersion") String contractVersion);
-    boolean hasApprovedSourceMapping(@Param("sourceId") long sourceId, @Param("mappingVersion") String mappingVersion);
+    /** 返回传感器指定版本的 active 配置及其契约绑定；不存在或非 active 时为 {@code null}。 */
+    ConfigContractBinding findActiveConfigBinding(@Param("sensorId") long sensorId,
+                                                  @Param("configVersion") String configVersion);
+    /** 返回活动数据源下已批准映射的契约绑定；映射不存在、未批准或数据源停用时为 {@code null}。 */
+    MappingContractBinding findApprovedSourceMapping(@Param("sourceId") long sourceId,
+                                                     @Param("mappingVersion") String mappingVersion);
     boolean hasSensorSourcePair(@Param("clientId") long clientId, @Param("sourceId") long sourceId,
                                 @Param("assetId") long assetId);
     boolean hasAssetAuthorization(@Param("assetId") long assetId);
@@ -112,6 +115,12 @@ public interface IngestMapper {
     record SensorInsert(String agentKey, long assetId, String platform, String agentVersion,
                         String capabilities, Instant registeredAt) { }
     record SensorClientInsert(String clientKey, long sensorId, String credentialSha256, String scopeJson) { }
+    /** @param contractSha256 服务端按注册表写入的契约文件哈希（V11），不接受客户端传入 */
     record SensorConfigInsert(long sensorId, String configVersion, String interfaceScope, String filterPolicy,
-                              int flowWindowSeconds, String contractVersion, String samplingPolicy, long approvedBy) { }
+                              int flowWindowSeconds, String contractVersion, String contractSha256,
+                              String samplingPolicy, long approvedBy) { }
+    /** 传感器配置绑定的契约版本与批准时契约文件哈希；历史行哈希为 {@code null}。 */
+    record ConfigContractBinding(String configVersion, String contractVersion, String contractSha256) { }
+    /** 来源映射绑定的契约；未绑定契约的历史映射两项均为 {@code null}（V11 约束保证成对出现）。 */
+    record MappingContractBinding(long id, String contractVersion, String contractSha256) { }
 }

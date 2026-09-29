@@ -11,8 +11,10 @@
     </select>
 
     <insert id="insertMapping">
-        INSERT INTO source_mapping (data_source_id, mapping_version, source_schema_json, mapping_json, status)
-        VALUES (#{sourceId}, #{mappingVersion}, #{sourceSchemaJson}, #{mappingJson}, 'draft')
+        INSERT INTO source_mapping (data_source_id, mapping_version, source_schema_json, mapping_json,
+                                    feature_contract_version, feature_contract_sha256, status)
+        VALUES (#{sourceId}, #{mappingVersion}, #{sourceSchemaJson}, #{mappingJson},
+                #{contractVersion}, #{contractSha256}, 'draft')
     </insert>
 
     <select id="findMappingId" resultType="long">
@@ -49,6 +51,8 @@
             <arg column="mapping_json" javaType="string"/>
             <arg column="status" javaType="string"/>
             <arg column="approved_by" javaType="java.lang.Long"/>
+            <arg column="feature_contract_version" javaType="string"/>
+            <arg column="feature_contract_sha256" javaType="string"/>
         </constructor>
     </resultMap>
 
@@ -107,7 +111,8 @@
     </update>
 
     <select id="listMappingsVisible" resultMap="mappingView">
-        SELECT sm.id, sm.mapping_version, sm.source_schema_json, sm.mapping_json, sm.status, sm.approved_by
+        SELECT sm.id, sm.mapping_version, sm.source_schema_json, sm.mapping_json, sm.status, sm.approved_by,
+               sm.feature_contract_version, sm.feature_contract_sha256
         FROM source_mapping sm JOIN data_source ds ON ds.id=sm.data_source_id
         WHERE ds.id=#{sourceId} AND <include refid="visibleSourcePredicate"/>
         ORDER BY sm.id

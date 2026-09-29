@@ -1,11 +1,14 @@
-package com.xyh.cybersecurity.ingest.feature;
+package com.xyh.cybersecurity.ingest.feature.legacy;
 
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
 /**
- * 训练侧冻结的状态/TTL 编码表。没有明确编码表时，构造器拒绝创建，避免把本地猜测写入模型输入。
+ * v3.1 历史实现：训练侧冻结的状态/TTL 编码表。没有明确编码表时，构造器拒绝创建，避免把本地猜测写入模型输入。
+ *
+ * <p>v3.1 的训练端从未产出该编码表，路线 B 决定不为其编造或推导映射（§2.2、§19.1）。类与测试保留作历史对照，
+ * 不接入 v4 在线路径。</p>
  */
 public final class CtStateTtlCodebook {
     private final List<Entry> entries;

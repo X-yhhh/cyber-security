@@ -5,6 +5,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.xyh.cybersecurity.audit.AuditMapper;
 import com.xyh.cybersecurity.common.api.ApiRequestException;
 import com.xyh.cybersecurity.identity.IdentityPrincipal;
+import com.xyh.cybersecurity.ingest.contract.FeatureContract;
+import com.xyh.cybersecurity.ingest.contract.FeatureContractRegistry;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
@@ -23,11 +25,14 @@ public class DataSourceService {
     private final DataSourceMapper mapper;
     private final AuditMapper auditMapper;
     private final ObjectMapper objectMapper;
+    private final FeatureContractRegistry contracts;
 
-    public DataSourceService(DataSourceMapper mapper, AuditMapper auditMapper, ObjectMapper objectMapper) {
+    public DataSourceService(DataSourceMapper mapper, AuditMapper auditMapper, ObjectMapper objectMapper,
+                             FeatureContractRegistry contracts) {
         this.mapper = mapper;
         this.auditMapper = auditMapper;
         this.objectMapper = objectMapper;
+        this.contracts = contracts;
     }
 
     public Page list(long userId, int page, int size) {
@@ -79,8 +84,18 @@ public class DataSourceService {
         validateName(input.mappingVersion(), "mappingVersion");
         String sourceSchema = canonicalObject(input.sourceSchema());
         String mapping = canonicalObject(input.mapping());
+        // 可选绑定特征契约：版本必须已注册，哈希由服务端按注册表写入（V11），绑定后映射只服务该契约的批次。
+        String contractVersion = null;
+        String contractSha256 = null;
+        if (input.featureContractVersion() != null) {
+            FeatureContract contract = contracts.find(input.featureContractVersion());
+            if (contract == null) throw ApiRequestException.badRequest("特征契约版本未登记");
+            contractVersion = contract.version();
+            contractSha256 = contract.fileSha256();
+        }
         try {
-            mapper.insertMapping(new DataSourceMapper.MappingInsert(sourceId, input.mappingVersion(), sourceSchema, mapping));
+            mapper.insertMapping(new DataSourceMapper.MappingInsert(sourceId, input.mappingVersion(), sourceSchema, mapping,
+                    contractVersion, contractSha256));
         } catch (org.springframework.dao.DuplicateKeyException exception) {
             throw ApiRequestException.conflict("该映射版本已存在");
         }
@@ -136,6 +151,11 @@ public class DataSourceService {
 
     public record CreateRequest(String sourceKey, String sourceType, String environment, String schemaVersion) { }
     public record UpdateRequest(String environment, String schemaVersion, String status) { }
-    public record MappingRequest(String mappingVersion, String sourceSchema, String mapping) { }
+    /** @param featureContractVersion 可选；为空表示不绑定契约（在线契约的批次不能使用此类映射） */
+    public record MappingRequest(String mappingVersion, String sourceSchema, String mapping, String featureContractVersion) {
+        public MappingRequest(String mappingVersion, String sourceSchema, String mapping) {
+            this(mappingVersion, sourceSchema, mapping, null);
+        }
+    }
     public record Page(long totalElements, int page, int size, List<DataSourceMapper.DataSourceView> items) { }
 }

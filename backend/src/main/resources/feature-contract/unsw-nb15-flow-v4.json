@@ -1,0 +1,72 @@
+{
+  "version": "unsw-nb15-flow-v4",
+  "task": "binary_flow_classification",
+  "specDocument": "docs/特征规格-unsw-nb15-flow-v4.md",
+  "specSha256": "dbba110432c2c381ec291e2ec373601256c7ca990efa3e7bdad405c25120c6f1",
+  "directionBasis": "initiator_to_responder",
+  "viewpoints": ["responder", "initiator"],
+  "addressFamilies": ["ipv4", "ipv6"],
+  "window": {
+    "kind": "last_n_completed_flows",
+    "size": 100,
+    "scope": "per_sensor_per_address_family",
+    "includesCurrentFlow": true,
+    "orderBy": ["flowEndAt", "flowStartAt", "exportSeq"],
+    "allowedLatenessSeconds": 0
+  },
+  "flowClosure": { "tcpIdleSeconds": 60, "udpIdleSeconds": 30, "otherIdleSeconds": 30, "maxLifetimeSeconds": 60 },
+  "packetNormalization": { "basis": "on_wire_segments", "oversizeRule": "split_by_mss" },
+  "excludedFlows": ["multicast_destination", "broadcast_destination", "loopback_destination", "unspecified_destination", "no_local_endpoint"],
+  "numericFields": [
+    { "name": "dur", "unit": "second", "source": "flow", "min": 0, "integer": false, "unitVerified": true, "specSection": "2.1#0" },
+    { "name": "sbytes", "unit": "byte", "source": "flow", "min": 0, "integer": true, "unitVerified": true, "specSection": "2.1#1" },
+    { "name": "dbytes", "unit": "byte", "source": "flow", "min": 0, "integer": true, "unitVerified": true, "specSection": "2.1#2" },
+    { "name": "sload", "unit": "bit_per_second", "source": "flow", "min": 0, "integer": false, "unitVerified": true, "specSection": "2.1#3" },
+    { "name": "dload", "unit": "bit_per_second", "source": "flow", "min": 0, "integer": false, "unitVerified": true, "specSection": "2.1#4" },
+    { "name": "tcprtt", "unit": "second", "source": "flow", "min": 0, "integer": false, "unitVerified": true, "specSection": "2.1#5" },
+    { "name": "ackdat", "unit": "second", "source": "flow", "min": 0, "integer": false, "unitVerified": true, "specSection": "2.1#6" },
+    { "name": "synack", "unit": "second", "source": "flow", "min": 0, "integer": false, "unitVerified": true, "specSection": "2.1#7" },
+    { "name": "smean", "unit": "byte", "source": "flow", "min": 0, "integer": true, "unitVerified": true, "specSection": "2.1#8" },
+    { "name": "dmean", "unit": "byte", "source": "flow", "min": 0, "integer": true, "unitVerified": true, "specSection": "2.1#9" },
+    { "name": "spkts", "unit": "packet", "source": "flow", "min": 1, "integer": true, "unitVerified": true, "specSection": "2.1#10" },
+    { "name": "dpkts", "unit": "packet", "source": "flow", "min": 0, "integer": true, "unitVerified": true, "specSection": "2.1#11" },
+    { "name": "ct_srv_src", "unit": "flow_count", "source": "window", "min": 1, "max": 100, "integer": true, "unitVerified": true, "specSection": "2.1#12" },
+    { "name": "ct_srv_dst", "unit": "flow_count", "source": "window", "min": 1, "max": 100, "integer": true, "unitVerified": true, "specSection": "2.1#13" },
+    { "name": "ct_dst_ltm", "unit": "flow_count", "source": "window", "min": 1, "max": 100, "integer": true, "unitVerified": true, "specSection": "2.1#14" },
+    { "name": "ct_src_ltm", "unit": "flow_count", "source": "window", "min": 1, "max": 100, "integer": true, "unitVerified": true, "specSection": "2.1#15" },
+    { "name": "ct_src_dport_ltm", "unit": "flow_count", "source": "window", "min": 1, "max": 100, "integer": true, "unitVerified": true, "specSection": "2.1#16" }
+  ],
+  "categoricalFields": [
+    { "name": "proto", "rule": "iana_protocol_keyword_lowercase", "vocabularySource": "active_model_preprocessing", "specSection": "2.2" },
+    { "name": "service", "rule": "service_rules", "vocabularySource": "active_model_preprocessing", "specSection": "2.3" }
+  ],
+  "consistencyRules": [
+    "handshake_zero_when_not_tcp",
+    "reverse_direction_zero_when_no_packets",
+    "load_zero_when_insufficient_packets_or_duration"
+  ],
+  "serviceRules": {
+    "basis": "responder_port",
+    "protocols": ["tcp", "udp"],
+    "portMap": {
+      "udp/67": "dhcp", "udp/68": "dhcp",
+      "tcp/53": "dns", "udp/53": "dns",
+      "tcp/21": "ftp", "tcp/20": "ftp-data",
+      "tcp/80": "http", "tcp/8080": "http",
+      "tcp/6667": "irc", "tcp/110": "pop3",
+      "udp/1812": "radius", "udp/1813": "radius",
+      "tcp/25": "smtp",
+      "udp/161": "snmp", "udp/162": "snmp",
+      "tcp/22": "ssh", "tcp/443": "ssl"
+    },
+    "default": "-"
+  },
+  "removedFromV31": ["sttl", "ct_state_ttl", "sloss", "sjit", "djit", "dinpkt", "ct_flw_http_mthd", "ct_dst_sport_ltm", "ct_dst_src_ltm"],
+  "goldenFixtures": {
+    "path": "feature-contract/fixtures/unsw-nb15-flow-v4/",
+    "sourceDelivery": "unsw-binary-2026.10.0",
+    "checksumsSha256": "beda9a00d48dbf298700fe4ced34b8d7d143be5ad8cdc9a10f935e9124c81636"
+  },
+  "onlineEnabled": true,
+  "onlineScope": "契约本身可用于在线特征构造；传感器能否上线仍由已批准配置、已激活且契约一致的模型、部署模式三道门控制（路线 B §3.1 约定 3）"
+}

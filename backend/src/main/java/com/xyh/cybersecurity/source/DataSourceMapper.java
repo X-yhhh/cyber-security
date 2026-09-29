@@ -40,10 +40,13 @@ public interface DataSourceMapper {
     record DataSourceView(long id, String sourceKey, String sourceType, String environment,
                           String schemaVersion, String status, java.time.LocalDateTime lastSuccessAt) { }
 
+    /** @param featureContractVersion 映射绑定的特征契约（V11）；历史映射为 {@code null} */
     record MappingView(long id, String mappingVersion, String sourceSchemaJson, String mappingJson,
-                       String status, Long approvedBy) { }
+                       String status, Long approvedBy, String featureContractVersion, String featureContractSha256) { }
 
     record SourceInsert(String sourceKey, String sourceType, String environment, String schemaVersion) { }
 
-    record MappingInsert(long sourceId, String mappingVersion, String sourceSchemaJson, String mappingJson) { }
+    /** 契约版本与哈希成对出现或同时为空；哈希由服务端按注册表写入。 */
+    record MappingInsert(long sourceId, String mappingVersion, String sourceSchemaJson, String mappingJson,
+                         String contractVersion, String contractSha256) { }
 }

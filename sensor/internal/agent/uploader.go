@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/xyh/cyber-security/sensor/internal/feature"
@@ -32,12 +33,15 @@ type Uploader struct {
 	queueMax     int64
 	backoffStart time.Duration
 	backoffMax   time.Duration
+	// logf 记录重试原因（只含序号、状态码与错误码，不含记录内容或凭据）。
+	logf func(format string, args ...any)
 }
 
 // NewUploader 创建上报器；队列容量为 local.SpoolBatches 个批次。
 func NewUploader(sub Submitter, state *State, local LocalConfig, cfgVersion string) *Uploader {
 	return &Uploader{sub: sub, state: state, local: local, cfgVersion: cfgVersion,
-		queue: make(chan []uplink.RecordOut, local.SpoolBatches), backoffStart: time.Second, backoffMax: time.Minute}
+		queue: make(chan []uplink.RecordOut, local.SpoolBatches), backoffStart: time.Second, backoffMax: time.Minute,
+		logf: func(format string, args ...any) { fmt.Fprintf(os.Stderr, "sensor: "+format+"\n", args...) }}
 }
 
 // Add 接收流水线释放的记录，只保留 ready 记录；攒满一批即入队。
@@ -124,9 +128,12 @@ func (u *Uploader) send(ctx context.Context, key string, b uplink.Batch) error {
 		if !errors.As(err, &ue) || ue.Class != uplink.Retryable {
 			return fmt.Errorf("%w: %v", ErrUploadStopped, err)
 		}
+		u.logf("批次 %d 提交失败（%v），%s 后重试", b.Sequence, err, wait)
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			// 停止时仍有批次未送达：不能当作正常退出，否则调用方会以退出码 0 掩盖数据未上报。
+			return fmt.Errorf("%w: 停止时批次 %d 仍未送达（最后错误: %v），队列中另有 %d 批",
+				ErrUploadStopped, b.Sequence, err, len(u.queue))
 		case <-time.After(wait):
 		}
 		if wait *= 2; wait > u.backoffMax {

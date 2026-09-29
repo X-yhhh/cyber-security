@@ -82,13 +82,14 @@ func TestStateAllocatesAndPersists(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for want := int64(0); want < 3; want++ {
+	// 后端 sequence 为 @Positive：第一个序号必须是 1。
+	for want := int64(1); want <= 3; want++ {
 		if got, err := s.Allocate("cfg-1"); err != nil || got != want {
 			t.Fatalf("序号错误: %d %v", got, err)
 		}
 	}
-	if got, _ := s.Allocate("cfg-2"); got != 0 {
-		t.Fatal("不同配置版本应独立计数")
+	if got, _ := s.Allocate("cfg-2"); got != 1 {
+		t.Fatal("不同配置版本应独立计数，且从 1 开始")
 	}
 	info, _ := os.Stat(filepath.Join(dir, "state.json"))
 	if info.Mode().Perm() != 0o600 {
@@ -98,7 +99,7 @@ func TestStateAllocatesAndPersists(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, _ := s2.Allocate("cfg-1"); got != 3 {
+	if got, _ := s2.Allocate("cfg-1"); got != 4 {
 		t.Fatalf("重启后不应复用序号: %d", got)
 	}
 	os.WriteFile(filepath.Join(dir, "state.json"), []byte("{bad"), 0o600)

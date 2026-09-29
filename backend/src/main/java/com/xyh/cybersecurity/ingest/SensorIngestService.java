@@ -153,12 +153,17 @@ public class SensorIngestService {
             throw ApiRequestException.badRequest("健康窗口或资源摘要无效");
         }
         JsonNode sanitizedErrors = sanitizeHealthErrors(window.errors());
+        // 列为 DATETIME(3) 且 MySQL 默认对亚毫秒四舍五入：若按原精度比较，上一窗口结束进位后会大于本窗口开始，
+        // 相邻窗口被误判为重叠。先按毫秒截断，再判重叠与写入。
+        Instant start = window.windowStart().truncatedTo(java.time.temporal.ChronoUnit.MILLIS);
+        Instant end = window.windowEnd().truncatedTo(java.time.temporal.ChronoUnit.MILLIS);
+        if (!end.isAfter(start)) throw ApiRequestException.badRequest("健康窗口或资源摘要无效");
         lockActiveSensor(sensorId);
-        if (mapper.overlapsHealthWindow(sensorId, window.windowStart(), window.windowEnd())) {
+        if (mapper.overlapsHealthWindow(sensorId, start, end)) {
             throw new ApiRequestException(HttpStatus.CONFLICT, "HEALTH_WINDOW_OVERLAP", "健康窗口与已提交窗口重叠");
         }
         try {
-            mapper.insertHealthWindow(new IngestMapper.HealthWindowInsert(sensorId, window.windowStart(), window.windowEnd(),
+            mapper.insertHealthWindow(new IngestMapper.HealthWindowInsert(sensorId, start, end,
                     window.flowsSeen(), window.flowsEmitted(), window.flowsDropped(), window.queueDepthMax(), window.cpuPercent(),
                     window.memoryBytes(), writeJson(sanitizedErrors)));
         } catch (org.springframework.dao.DuplicateKeyException e) {
@@ -300,7 +305,7 @@ public class SensorIngestService {
 
     private void validateRequest(String key, SensorBatchRequest request) {
         if (key == null || !key.matches("[A-Za-z0-9._:-]{1,160}")) throw ApiRequestException.badRequest("Idempotency-Key 格式无效");
-        if (request == null || request.dataSourceId() < 1 || request.sequence() < 0 || request.configVersion() == null
+        if (request == null || request.dataSourceId() < 1 || request.sequence() < 1 || request.configVersion() == null
                 || request.sourceMappingVersion() == null || request.featureContractVersion() == null
                 || request.observedAt() == null || request.observedAt().isAfter(Instant.now().plusSeconds(300))
                 || request.records() == null || request.records().isEmpty() || request.records().size() > 500) {

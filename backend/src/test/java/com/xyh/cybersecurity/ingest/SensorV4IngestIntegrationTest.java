@@ -144,6 +144,41 @@ class SensorV4IngestIntegrationTest {
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM outbox_event", Integer.class)).isZero();
     }
 
+    /**
+     * 回归：序号 0 违反 {@code @Positive}。该接口参数上直接声明了约束，Spring 走方法级校验并抛
+     * HandlerMethodValidationException；此前落到 500，传感器把 5xx 当作可重试而无限重发。必须是 400 且不写批次。
+     */
+    @Test
+    void nonPositiveSequenceIsBadRequestNotServerError() throws Exception {
+        Sensor sensor = register("sensor-v4-seq0", V4);
+        MvcResult result = submit(sensor, "v4-seq0", 0, "1.0", V4, record("r-seq0", true))
+                .andExpect(status().isBadRequest()).andReturn();
+        assertThat(objectMapper.readTree(result.getResponse().getContentAsString()).path("error").path("code").asText())
+                .isEqualTo("INVALID_REQUEST");
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM ingest_batch WHERE sensor_id=?", Integer.class, sensor.id())).isZero();
+    }
+
+    /**
+     * 回归：健康窗口列为 DATETIME(3)，MySQL 默认对亚毫秒四舍五入。上一窗口结束（.840512345 → .841）进位后大于
+     * 本窗口开始，相邻窗口被误判为重叠（409）；本机冒烟中多个窗口因此丢失。服务端按毫秒截断后再判重叠与写入。
+     */
+    @Test
+    void adjacentHealthWindowsWithSubMillisecondBoundaryDoNotOverlap() throws Exception {
+        Sensor sensor = register("sensor-v4-health", V4);
+        String boundary = "2026-09-29T20:02:02.840512345Z";
+        health(sensor, "2026-09-29T20:01:02.654Z", boundary).andExpect(status().isNoContent());
+        health(sensor, boundary, "2026-09-29T20:03:03.024Z").andExpect(status().isNoContent());
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM sensor_health_window WHERE sensor_id=?", Integer.class,
+                sensor.id())).isEqualTo(2);
+    }
+
+    private org.springframework.test.web.servlet.ResultActions health(Sensor sensor, String start, String end) throws Exception {
+        return mockMvc.perform(post("/api/v1/machine/sensors/{id}/health-windows", sensor.id())
+                .header("Authorization", "Machine " + sensor.credential()).contentType(APPLICATION_JSON)
+                .content("{\"windowStart\":\"" + start + "\",\"windowEnd\":\"" + end + "\",\"flowsSeen\":10,"
+                        + "\"flowsEmitted\":5,\"flowsDropped\":0,\"queueDepthMax\":1,\"errors\":{}}"));
+    }
+
     private Sensor register(String agentKey, String contract) throws Exception {
         Cookie admin = login();
         String token = csrf(admin);

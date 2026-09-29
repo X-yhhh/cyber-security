@@ -23,8 +23,10 @@ import (
 	"time"
 
 	"github.com/xyh/cyber-security/sensor/internal/agent"
+	"github.com/xyh/cyber-security/sensor/internal/capture"
 	"github.com/xyh/cyber-security/sensor/internal/extract"
 	"github.com/xyh/cyber-security/sensor/internal/keystore"
+	"github.com/xyh/cyber-security/sensor/internal/privdrop"
 	"github.com/xyh/cyber-security/sensor/internal/uplink"
 )
 
@@ -58,14 +60,36 @@ func fail(err error) {
 func run(args []string) error {
 	fs := flag.NewFlagSet("run", flag.ExitOnError)
 	cfgPath := fs.String("config", "sensor.json", "本机配置文件")
+	iface := fs.String("interface", "", "抓包接口（须同时在本机白名单与后端批准配置中）")
+	duration := fs.Duration("duration", 0, "运行时长上限；0 表示直到收到终止信号")
 	fs.Parse(args)
-	// 不以 root 运行：抓包权限通过 macOS access_bpf 组授予，避免整个进程持有 root。
-	if runtime.GOOS != "windows" && os.Geteuid() == 0 {
-		return errors.New("拒绝以 root 运行；请把运行用户加入 access_bpf 组")
+	if *duration < 0 {
+		return errors.New("-duration 不能为负")
 	}
 	local, err := agent.LoadLocalConfig(*cfgPath)
 	if err != nil {
 		return err
+	}
+	// 抓包句柄需要特权。以 root 运行时只允许经 sudo 启动：打开句柄后立即降到 sudo 调用者，
+	// 之后读取凭据、联网、写状态都以普通用户身份进行。普通用户直接运行时需已有 BPF 访问权限（access_bpf）。
+	var target *privdrop.Target
+	if runtime.GOOS != "windows" && os.Geteuid() == 0 {
+		t, err := privdrop.FromSudo()
+		if err != nil {
+			return err
+		}
+		target = &t
+	}
+	h, err := capture.OpenLive(*iface, local.AllowedInterfaces)
+	if err != nil {
+		return err
+	}
+	defer h.Close()
+	if target != nil {
+		if err := privdrop.Drop(*target); err != nil {
+			return err
+		}
+		fmt.Fprintf(os.Stderr, "sensor: 已打开 %s，并降权到 %s（uid %d），无法恢复 root\n", h.Interface, target.Name, target.UID)
 	}
 	cred, err := agent.LoadCredential(keystore.Default(), local)
 	if err != nil {
@@ -77,7 +101,12 @@ func run(args []string) error {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	return agent.RunLive(ctx, local, client, bootID())
+	if *duration > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, *duration)
+		defer cancel()
+	}
+	return agent.RunLive(ctx, local, client, bootID(), h)
 }
 
 // bootID 是本进程的随机记录键前缀，重启后记录键不会与上次重复。

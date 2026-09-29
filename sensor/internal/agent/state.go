@@ -48,11 +48,11 @@ func LoadState(dir string) (*State, error) {
 	return s, nil
 }
 
-// Allocate 为 configVersion 分配下一个序号并先持久化，返回分配到的序号。
+// Allocate 为 configVersion 分配下一个序号并先持久化，返回分配到的序号。序号从 1 开始（后端 `sequence` 为 @Positive）。
 func (s *State) Allocate(configVersion string) (int64, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	seq := s.data.NextSequence[configVersion]
+	seq := max(s.data.NextSequence[configVersion], 1)
 	s.data.NextSequence[configVersion] = seq + 1
 	if err := s.save(); err != nil {
 		s.data.NextSequence[configVersion] = seq

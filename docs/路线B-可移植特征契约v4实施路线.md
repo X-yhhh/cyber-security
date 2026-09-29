@@ -389,14 +389,14 @@ v4 没有可为 null 的数值字段（v3.1 唯一的 nullable 字段 `ct_flw_ht
 | 2 | v4 重训与交付 | 训练 | 1 | 3～5 天 | `unsw-binary-2026.10.0` 交付包 + golden fixtures | 完成（`ready_for_review`，见 §8.4） |
 | 3 | 后端契约改造（新 M1） | main | 1（规格）；2（fixtures） | 4 天 | 契约驱动的注册表/校验器/Builder/运行时 | 完成（提交 `f484948`，见 §9.4） |
 | 4 | M3 本机 ONNX 推理 | main | 2、3 | 4 天 | 推理服务、`inference_request` 落库、Java 回放一致 | 完成（提交 `a59595b`～`4d36916`，见 §10.3） |
-| 5 | M4 告警与事件关联 | main | 4 | 4 天 | 回放 → 告警 → 事件闭环（里程碑 R1） | 代码与验收测试完成（见 §11.1） |
+| 5 | M4 告警与事件关联 | main | 4 | 4 天 | 回放 → 告警 → 事件闭环（里程碑 R1） | 完成（R1，见 §11.1、§11.2） |
 | 6 | M5 Go 软件传感器 | sensor/ | 1（规格） | 8～10 天 | macOS 传感器 + 一致性报告（G2）；Windows 构建与补测后期完成 | 未开始 |
 | 7 | 影子验证 | 授权终端 | 5、6 | 1～2 周（日历） | 影子报告（决策门 G3） | 未开始 |
 | 8 | M6 策略 API → M7 执行器 | main + sensor/ | M6 无；M7 需 G3 | 11 天 | 受控处置与回滚证据 | 未开始 |
 | 9 | M8～M13 闭环与扩展 | main + 训练 | 按模块 | 按需 | 漂移、反馈、离线再训练编排等 | 未开始 |
 | 10 | 最终验收 | 全部 | 8 | 3～5 天 | 隔离靶场端到端验收与能力边界声明 | 未开始 |
 
-进度（2026-09-29）：阶段 0～4 完成，下一步阶段 5（§11）。
+进度（2026-09-29）：阶段 0～5 完成（R1 达成，开发库原始 CSV 回放见 §11.2），下一步阶段 6（§12），M6 可并行。
 
 里程碑：
 
@@ -905,7 +905,41 @@ F1→F2（删除 Argus 实现细节字段）造成的落差不单独处理：这
 
 - 关联不含对端 IP（§21）：同一主机窗口内来自不同对端的独立攻击会并入同一事件。
 - 规则已生效后的主动停用接口未提供（新版本批准时旧版本自动退役）；策略表无管理接口，调整参数须新增迁移。
-- 端到端验收以 golden fixtures 经 Java Feature Builder 输出驱动，未从 UNSW 原始 CSV 文件经独立回放程序写库。
+- 端到端验收以 golden fixtures 经 Java Feature Builder 输出驱动，未从 UNSW 原始 CSV 文件经独立回放程序写库。（已由 §11.2 的开发库原始 CSV 回放补上。）
+
+### 11.2 开发库原始 CSV 回放与连接时区修复（2026-09-29）
+
+问题：开发库首次准备在登记传感器时返回 400。开发库 `DB_URL` 未带 `connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true`，连接会话跟随服务端 `SYSTEM`（本机 UTC+8）；Java 写入的 `Instant` 按本地时间落库，而 SQL 以 `UTC_TIMESTAMP(3)` 判断，刚批准的资产授权 `valid_from` 被判为“尚未生效”。集成测试地址自带这两个参数，所以一直未暴露。
+
+处理：
+
+1. `application.yml` 在 Hikari `data-source-properties` 中固定两项参数，由应用保证会话时区为 UTC，不依赖 `DB_URL`，不改 MySQL 服务端全局时区（同实例还有其他库）。新增 `DataSourceTimeZoneIntegrationTest` 以不带时区参数的地址启动，去掉配置时 2 项失败、加回后通过；全量 `mvn verify` 173 项 0 失败。单独提交（`074b95b`）。
+2. 开发库先全量备份当前状态，再用 V14 前的备份（SHA-256 前缀 `b321e303`）恢复，删除半成品（资产、数据源、口令丢失的两个账号、错位 8 小时的授权与映射）；后端以 UTC 口径重启，Flyway 重新执行 V14。连接池 10 个连接的会话时区均为 `+00:00`。
+3. 准备脚本（仓库外）改为创建用户前即以 0600 落盘口令、每步原子更新，失败时打印 HTTP 状态、错误码、说明与 requestId。重跑成功：资产 #1、数据源 #1、用户 #7/#8、授权 #1（申请人 #7、批准人 #1，`valid_from` 与数据库 UTC 时间一致）、映射 #1、传感器 #1。
+4. 为此补齐的实现：V14 迁移为 `source_mapping` 增加登记人 `requested_by` 与“批准人≠登记人”CHECK，新增权限 `source.mapping.approve`（`platform_admin`）和接口 `POST /api/v1/data-sources/{id}/mappings/{mappingId}/approve`（登记人自批 403，V14 前缺登记人的映射 409 `MAPPING_REQUESTER_UNKNOWN`）；此前映射没有批准途径，只能直接改库。`UnswRawFlowReplayAdapter` 支持按 skip/limit 读取文件片段；新增 `SensorReplayCli`（原始行 → Feature Builder → 传感器批次接口，时间整体平移到锚点前 120 秒，固定锚点与幂等键前缀即可幂等重放；凭据取环境变量，只发往 HTTPS 或回环地址，不打印）。
+5. `SensorReplayCli` 以传感器身份回放 `UNSW-NB15_1.csv` 第 80000–99999 行（`--sensor-host 149.171.126.18`）：READY 2777 条（窗口预热 99、排除 17124），14 批全部接收、0 拒绝；outbox 14 条 published、消费台账 14 条 consumed；推理 2777 条，其中 `not_in_model_scope` 1276 条（视角/地址族不在模型评估范围），`succeeded` 1501 条（Attack 1499、Normal 2）；模型告警 1499 条（critical 1496、medium 3），同资产并入 1 个事件（critical，风险评分 1.0）。回放锚点 `2026-09-29T15:23:00Z`、幂等键前缀 `unsw-replay`。
+
+离线标签对照（按 `source_record_key` 的行号回查 CSV `Label`，标签不上报）：
+
+- 2777 条全部对上。模型范围内的 1501 条全是 `responder` 视角、CSV 标签全为攻击：检出 1499、漏报 2（均为 Exploits）；范围外的 1276 条全是 `initiator` 视角、标签全为正常。
+- 因此这段回放只验证了链路与幂等，不能证明误报率：正常流量在这段数据中全部不在模型评估范围内。`UNSW-NB15_1.csv` 中以 `.18` 为目的的流为正常 251 条、攻击 7962 条，该主机不适合评估误报；误报评估须另选正常入站占比高的主机或数据段，并以阶段 7 影子验证为准。
+
+前端核对（开发库真实数据，本机测试账号）：`EventsView` 显示 1 个事件、1499 条告警；`EventDetailView` 显示模型键与版本 `unsw-binary-2026.10.0`、契约 `unsw-nb15-flow-v4`、分级/关联/风险策略版本（`severity-v1`/`correlation-v1`/`risk-v1`）与完整评分依据（风险 1.0，资产重要性 high）。接口时间不带时区后缀，前端按 UTC 解析后以浏览器本地时区显示（15:20Z 显示为 23:20），口径正确。数据源页的批次/接收/拒绝与回放一致（14 · 2777 / 0）。
+
+R1 结论：UNSW 原始 CSV 回放在 v4 下跑通“接入 → 特征 → 推理 → 告警 → 事件”，前端可见来源、模型版本、契约版本与评分依据；重复投递不重复告警、越权不可见由 §11.1 的集成测试覆盖。R1 完成。
+
+R1 后续（不阻塞阶段 6）：
+
+- 事件详情时间线一次渲染全部条目（本事件 1500 条），需分页或折叠。
+- `data_source.last_success_at` 只读不写，数据源页“最后成功”始终为空。
+- 1499 条告警并入 1 个事件，是 §21“关联不含对端 IP”的直接后果，阶段 7 视合并程度再评估。
+
+历史时间列只读核查（恢复后的 V13 库）：
+
+- 参与判断的列（资产授权有效期、机器凭据/审批到期、outbox 重试时间、传感器心跳、登录限速 `blocked_until`）在恢复后的库中全部为空；登录限速仅 1 行、未封禁、窗口已超过 24 小时，偏移不改变结论。模型激活与发布时间由 SQL `UTC_TIMESTAMP(3)` 写入，本身正确，且激活模型按状态而非时间选取。结论：无需重做正式流程。
+- 仅展示/审计的列比实际晚 8 小时：列默认值写入的 `created_at`/`updated_at`、`audit_log.occurred_at`、`sys_user.last_login_at` 等。保持不动，作为已知问题。
+
+后续修复：审计 `occurred_at` 与 `ModelService` 激活返回值原先用 `LocalDateTime.now()` 取 JVM 默认时区，连接参数管不到，连接修复后新写入的审计时间仍比 UTC 快 8 小时（本机 JVM 为 UTC+8）。已把 14 处统一为 `LocalDateTime.now(ZoneOffset.UTC)`（与 `SecurityAuditWriter` 一致）；新增 `UtcClockGuardTest` 扫描生产源码，禁止按默认时区取时（`LocalDateTime/LocalDate/LocalTime/OffsetDateTime/ZonedDateTime.now()`、`ZoneId.systemDefault()` 等）；`AssetLifecycleIntegrationTest` 断言审计时间与 `UTC_TIMESTAMP` 同口径。撤回 `AssetService` 一处时两项测试均失败，恢复后全量 `mvn verify` 174 项 0 失败。开发后端以新代码重启后，新写入的登录审计 `occurred_at` 与 `UTC_TIMESTAMP(3)` 相差 0 秒。修复前写入的审计行仍晚 8 小时，按上文保持不动。
 
 ## 12. 阶段 6：M5 Go 软件传感器（约 8～10 天）
 
@@ -1135,7 +1169,7 @@ G3 阈值（2026-09-29 定案）。数值以「单人值守的毕设项目能处
 | `docs/项目详细设计.md` | 数据流中“`ct_state_ttl` codebook 已冻结”条件改为“v4 契约 + golden fixtures” | 3 | 未开始 |
 | `docs/接口设计.md` | 新错误码 `FEATURE_CONTRACT_MODEL_MISMATCH`；推理接口 | 3、4 | 未开始 |
 | `docs/数据库设计.md` | V11 契约哈希列 | 3 | 未开始 |
-| `docs/接口实现核对矩阵.md` | 各阶段完成后同步 | 3～10 | 未开始 |
+| `docs/接口实现核对矩阵.md` | 各阶段完成后同步 | 3～10 | 进行中（阶段 5 已同步 V14 映射批准接口） |
 | `README.md` | 契约版本说明、启用步骤、能力边界 | 3、10 | 未开始 |
 
 ## 21. 决策记录
@@ -1177,5 +1211,6 @@ G3 阈值（2026-09-29 定案）。数值以「单人值守的毕设项目能处
 | 2026-09-29 | 阶段 5：事件状态机沿用代码与数据库设计的 `open/investigating/contained/resolved/false_positive/closed`，M4 文档改为此口径 | 代码、CHECK、处置申请条件与现有测试均使用该口径；改用 `new/triaging/confirmed` 需迁移约束与数据而无收益 | 按 M4 文档改状态机 |
 | 2026-09-29 | 阶段 5：分级映射、关联时间窗、风险评分参数存版本化表 `detection_policy`（每类至多一个 active），告警/事件写入所用版本与计算依据 | 满足“配置化、版本化、快照引用”；历史告警语义不随参数修改而变 | 写在应用配置文件（无版本留痕） |
 | 2026-09-29 | 阶段 5：告警在 M2 消费事务内、推理之后生成；是否生成以数据库中的 `succeeded` + `Attack` 推理行为准，`alert_key` 唯一键保证幂等 | 消费台账被清后重放时推理函数返回为空，依赖返回值会漏告警；唯一键使重复投递不产生重复告警 | 依赖推理返回值；异步二次队列 |
+| 2026-09-29 | 连接时区由 `application.yml` 的 Hikari 数据源属性固定为 UTC（含会话时区）；开发库用 V14 前备份恢复后重跑准备；历史时间列只读核查后不改库 | 应用自身保证口径，不依赖 `DB_URL`；恢复可清掉口令丢失账号与错位授权，备份后仅有准备半成品；参与判断的历史时间列为空，其余仅展示/审计 | 改 MySQL 全局时区（同实例有其他库）；在现有库上换新用户重来（遗留 active 无主账号与错位审计链）；等 8 小时让授权生效（数据仍错）；批量改写历史时间 |
 | 待填 | G2 Go/Java 一致性结论 | | |
 | 待填 | G3 影子验证结论与阈值 | | |

@@ -32,7 +32,8 @@ import java.util.Map;
  */
 public final class ModelReplayCli {
     private static final int EXPECTED_ROWS = 10_000;
-    private static final double MAX_PROBABILITY_DELTA = 1e-4;
+    /** 路线 B §10.2：Java 回放与训练端概率最大误差 ≤ 1e-5（严于训练端导出门槛 1e-4）。 */
+    private static final double MAX_PROBABILITY_DELTA = 1e-5;
     private static final int BATCH = 1024;
 
     private ModelReplayCli() { }
@@ -85,7 +86,7 @@ public final class ModelReplayCli {
                 + "- 平均概率绝对误差：" + (summary.totalDelta / Math.max(1, summary.rows)) + "\n"
                 + "- 逐位概率相同：" + summary.bitwise + "/" + summary.rows + "\n- 标签不一致：" + summary.mismatches + "\n"
                 + "- 总运行时间：" + seconds + " 秒；吞吐：" + (summary.rows / seconds) + " 条/秒\n"
-                + "- 1e-4 门限及 100% 标签一致：" + (passed ? "通过" : "失败") + "\n"
+                + "- " + MAX_PROBABILITY_DELTA + " 门限及 100% 标签一致：" + (passed ? "通过" : "失败") + "\n"
                 + "- 逐行记录：`backend-replay-results.csv`（SHA-256 `" + sha256(results) + "`）\n";
         Files.writeString(reportPath, report, StandardCharsets.UTF_8, StandardOpenOption.CREATE_NEW);
         System.out.println(report);

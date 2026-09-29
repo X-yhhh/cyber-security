@@ -72,7 +72,8 @@ class LocalInferenceRunnerTest {
     @Test
     void submitterTurnsTransientFailuresIntoConsumerRetries() {
         InferenceService service = mock(InferenceService.class);
-        LocalInferenceTaskSubmitter submitter = new LocalInferenceTaskSubmitter(service);
+        LocalInferenceTaskSubmitter submitter = new LocalInferenceTaskSubmitter(service,
+                mock(com.xyh.cybersecurity.detection.DetectionService.class));
         IngestBatchEvent event = new IngestBatchEvent("e-1", "ingest.batch.received", 7, 3, 1);
         when(service.inferBatch(anyLong(), anyList()))
                 .thenThrow(new InferenceUnavailableException("INFERENCE_CAPACITY_EXHAUSTED", null))

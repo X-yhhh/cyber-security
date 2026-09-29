@@ -72,7 +72,8 @@ class LocalInferenceIntegrationTest {
         // 上下文启动时会恢复 active 部署；必须在上下文加载前清空，保证“无激活模型”步骤可重复执行。
         try (var connection = java.sql.DriverManager.getConnection(url, username, dbCredential);
              var statement = connection.createStatement()) {
-            for (String table : List.of("SPRING_SESSION", "audit_resource_scope", "inference_request", "consumed_message",
+            for (String table : List.of("SPRING_SESSION", "audit_resource_scope", "event_timeline", "event_alert_link",
+                    "event_asset_link", "security_event", "detection_alert", "detection_rule", "inference_request", "consumed_message",
                     "outbox_event", "ingest_record", "ingest_batch", "sensor_health_window", "sensor_config",
                     "api_client_source_asset_scope", "api_client_scope", "api_client_permission", "api_client",
                     "sensor_agent", "source_mapping", "data_source", "asset_authorization", "asset", "model_deployment",
@@ -115,7 +116,10 @@ class LocalInferenceIntegrationTest {
         bindRole(operator, "model_operator", "data_source", Long.toString(sourceId));
         bindRole(releaser, "model_releaser", "model_registry", MODEL_KEY);
         bindRole(analyst, "security_analyst", "data_source", Long.toString(sourceId));
+        bindRole(analyst, "security_analyst", "asset", Long.toString(assetId));
+        // 范围外用户：资产在范围内但数据源不在，事件须整体不可见（不返回部分结果）。
         bindRole(outsider, "security_analyst", "data_source", Long.toString(sourceId + 1000));
+        bindRole(outsider, "security_analyst", "asset", Long.toString(assetId));
         Sensor sensor = registerSensor(login("m3-admin"), assetId);
 
         Map<Long, FeatureBuilder.BuildResult> built = V4Fixtures.buildAll();
@@ -131,6 +135,33 @@ class LocalInferenceIntegrationTest {
 
         // 2. 走既有发布流程激活真实交付包：候选登记 → 制品校验 → 发布申请 → 他人批准 → 本机激活。
         long modelId = activate(login("m3-operator"), login("m3-releaser"));
+
+        // 确定性规则经接口登记与他人批准后才生效（只命中 initiator 视角记录）：
+        // 分析员登记为 pending；受限条件外的运算符 400；分析员无批准权限 403；审批人批准后 active。
+        long approver = jdbc.queryForObject("SELECT id FROM sys_user WHERE username='m3-approver'", Long.class);
+        bindRole(approver, "response_approver", "asset", Long.toString(assetId));
+        Cookie ruleAuthor = login("m3-analyst");
+        String ruleBody = "{\"ruleKey\":\"m4-initiator-watch\",\"version\":\"1\",\"severity\":\"low\","
+                + "\"scope\":{\"featureContractVersion\":\"" + V4 + "\"},"
+                + "\"condition\":{\"all\":[{\"field\":\"metadata.viewpoint\",\"op\":\"eq\",\"value\":\"initiator\"}]},"
+                + "\"reason\":\"watch initiator-side records\"}";
+        assertThat(send(post("/api/v1/detection-rules"), ruleAuthor, ruleBody.replace("\"eq\"", "\"regex\""))
+                .getResponse().getStatus()).isEqualTo(400);
+        MvcResult createdRule = send(post("/api/v1/detection-rules"), ruleAuthor, ruleBody);
+        assertThat(createdRule.getResponse().getStatus()).as(createdRule.getResponse().getContentAsString()).isEqualTo(201);
+        long ruleId = data(createdRule).path("id").asLong();
+        assertThat(data(createdRule).path("status").asText()).isEqualTo("pending");
+        String approve = "{\"decision\":\"approve\",\"reason\":\"independent review\"}";
+        assertThat(send(post("/api/v1/detection-rules/{id}/decision", ruleId), ruleAuthor, approve)
+                .getResponse().getStatus()).isEqualTo(403);
+        MvcResult decided = send(post("/api/v1/detection-rules/{id}/decision", ruleId), login("m3-approver"), approve);
+        assertThat(decided.getResponse().getStatus()).as(decided.getResponse().getContentAsString()).isEqualTo(200);
+        assertThat(jdbc.queryForMap("SELECT status,requested_by,approved_by FROM detection_rule WHERE id=?", ruleId))
+                .containsEntry("status", "active");
+        assertThat(((Number) jdbc.queryForObject("SELECT requested_by FROM detection_rule WHERE id=?", Long.class,
+                ruleId)).longValue()).isEqualTo(analyst);
+        assertThat(jdbc.queryForObject("SELECT approved_by FROM detection_rule WHERE id=?", Long.class, ruleId))
+                .isEqualTo(approver);
 
         // 3. 50 条 golden fixture（Java Feature Builder 输出）+ 1 条 initiator 视角记录，经 M2 消费事务推理。
         List<String> records = new ArrayList<>();
@@ -156,11 +187,37 @@ class LocalInferenceIntegrationTest {
         }
         assertThat(statusOf("initiator-1")).isEqualTo("not_in_model_scope");
 
+        // 3a. 阶段 5（M4）：Attack 结论生成模型告警、initiator 记录命中规则告警，同资产同窗口并入一个事件。
+        int attacks = 0;
+        for (JsonNode row : expected) if (row.get("is_attack").asBoolean()) attacks++;
+        assertThat(attacks).isPositive();
+        assertThat(alertCount("model")).isEqualTo(attacks);
+        assertThat(alertCount("rule")).isEqualTo(1);
+        for (Map<String, Object> alert : jdbc.queryForList("SELECT severity,score,model_version_id,contract_sha256,"
+                + "severity_policy_version,inference_request_id FROM detection_alert WHERE alert_type='model'")) {
+            double score = ((Number) alert.get("score")).doubleValue();
+            assertThat(alert.get("severity")).isEqualTo(score >= 0.9 ? "critical" : score >= 0.7 ? "high" : "medium");
+            assertThat(((Number) alert.get("model_version_id")).longValue()).isEqualTo(modelId);
+            assertThat(alert.get("contract_sha256")).isEqualTo(contractSha);
+            assertThat(alert.get("severity_policy_version")).isEqualTo("severity-v1");
+            assertThat(alert.get("inference_request_id")).isNotNull();
+        }
+        Map<String, Object> event = jdbc.queryForMap("SELECT correlation_key,correlation_policy_version,risk_rule_version,"
+                + "risk_score,status FROM security_event");
+        assertThat(event).containsEntry("correlation_key", "asset:" + assetId).containsEntry("status", "open")
+                .containsEntry("correlation_policy_version", "correlation-v1").containsEntry("risk_rule_version", "risk-v1");
+        assertThat(event.get("risk_score")).isNotNull();
+        assertThat(linkCount()).isEqualTo(attacks + 1);
+
         // 4. 重复投递：消费台账去重；台账被人为清掉后重放，request_key 仍保证不重复推理。
         assertThat(process(main, FIXTURE_ROWS + 1)).isEqualTo(IngestBatchProcessingService.ProcessResult.DUPLICATE);
         jdbc.update("DELETE FROM consumed_message WHERE message_key=?", "sensor.ingest.batch:" + main);
         assertThat(process(main, FIXTURE_ROWS + 1)).isEqualTo(IngestBatchProcessingService.ProcessResult.PROCESSED);
         assertThat(count()).isEqualTo(FIXTURE_ROWS + 2);
+        // 重复投递（含台账被清后重放）不产生重复告警、事件或关联。
+        assertThat(alertCount("model") + alertCount("rule")).isEqualTo(attacks + 1);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM security_event", Integer.class)).isEqualTo(1);
+        assertThat(linkCount()).isEqualTo(attacks + 1);
 
         // 5. 台账只读查询按数据源范围过滤；参数类型错误返回 400。
         Cookie analystSession = login("m3-analyst");
@@ -170,6 +227,28 @@ class LocalInferenceIntegrationTest {
         assertThat(list(login("m3-outsider")).path("totalElements").asLong()).isZero();
         assertThat(mockMvc.perform(get("/api/v1/inference-requests").param("size", "abc").cookie(analystSession))
                 .andReturn().getResponse().getStatus()).isEqualTo(400);
+
+        // 5a. 事件范围：资产与数据源都在范围内的分析员可见，并能看到告警来源、契约与评分依据；
+        //     数据源不在范围内的用户看不到事件和告警。
+        JsonNode events = read(analystSession, "/api/v1/events");
+        assertThat(events.path("totalElements").asLong()).isEqualTo(1);
+        assertThat(read(analystSession, "/api/v1/alerts").path("totalElements").asLong()).isEqualTo(attacks + 1);
+        JsonNode detail = read(analystSession, "/api/v1/events/" + events.path("items").get(0).path("id").asLong());
+        assertThat(detail.path("alerts")).hasSize(attacks + 1);
+        assertThat(detail.path("event").path("riskBasisJson").asText()).contains("formula");
+        for (JsonNode alert : detail.path("alerts")) {
+            if ("model".equals(alert.path("alertType").asText())) {
+                assertThat(alert.path("modelKey").asText()).isEqualTo(MODEL_KEY);
+                assertThat(alert.path("contractVersion").asText()).isEqualTo(V4);
+                assertThat(alert.path("basisJson").asText()).contains("attackProbability");
+            } else {
+                assertThat(alert.path("ruleKey").asText()).isEqualTo("m4-initiator-watch");
+                assertThat(alert.path("basisJson").asText()).contains("metadata.viewpoint");
+            }
+        }
+        Cookie outsiderSession = login("m3-outsider");
+        assertThat(read(outsiderSession, "/api/v1/events").path("totalElements").asLong()).isZero();
+        assertThat(read(outsiderSession, "/api/v1/alerts").path("totalElements").asLong()).isZero();
 
         // 6. dry-run：同一推理路径，只写审计不写 inference_request；需 model.replay.run，且仅限回放数据源。
         Cookie operatorSession = login("m3-operator");
@@ -288,6 +367,18 @@ class LocalInferenceIntegrationTest {
     }
 
     private int count() { return jdbc.queryForObject("SELECT COUNT(*) FROM inference_request", Integer.class); }
+
+    private int alertCount(String type) {
+        return jdbc.queryForObject("SELECT COUNT(*) FROM detection_alert WHERE alert_type=?", Integer.class, type);
+    }
+
+    private int linkCount() { return jdbc.queryForObject("SELECT COUNT(*) FROM event_alert_link", Integer.class); }
+
+    private JsonNode read(Cookie session, String path) throws Exception {
+        MvcResult result = mockMvc.perform(get(path).cookie(session)).andReturn();
+        assertThat(result.getResponse().getStatus()).as(result.getResponse().getContentAsString()).isEqualTo(200);
+        return data(result);
+    }
 
     private JsonNode list(Cookie session, String... params) throws Exception {
         MockHttpServletRequestBuilder request = get("/api/v1/inference-requests").cookie(session);

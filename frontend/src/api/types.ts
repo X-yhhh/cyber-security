@@ -7,8 +7,16 @@ export type Severity = 'critical' | 'high' | 'medium' | 'low'
 export type EventStatus = 'open' | 'investigating' | 'contained' | 'resolved' | 'false_positive' | 'closed'
 
 export interface SessionUser { id: number; userKey: string; username: string; displayName: string; roles: string[]; permissions: string[] }
-export interface AlertView { id: number; alertKey: string; alertType: string; severity: Severity; status: string; score: number | null; detectedAt: string; dataSourceId: number; assetId: number | null }
-export interface EventView { id: number; eventKey: string; title: string; category: string; severity: Severity; status: EventStatus; riskScore: number | null; firstSeenAt: string; lastSeenAt: string; assigneeId: number | null; alertCount: number; assetCount: number }
+/** 告警视图；V13 起带来源追溯（模型/规则版本、契约版本与哈希、分级策略）和评分依据快照 basisJson。 */
+export interface AlertView {
+  id: number; alertKey: string; alertType: string; severity: Severity; status: string; score: number | null; detectedAt: string; dataSourceId: number; assetId: number | null
+  modelVersionId: number | null; modelKey: string | null; modelVersion: string | null; contractVersion: string | null; contractSha256: string | null
+  detectionRuleId: number | null; ruleKey: string | null; ruleVersion: string | null; severityPolicyVersion: string | null; thresholdVersion: string | null; basisJson: string | null
+}
+export interface EventView {
+  id: number; eventKey: string; title: string; category: string; severity: Severity; status: EventStatus; riskScore: number | null; firstSeenAt: string; lastSeenAt: string; assigneeId: number | null; alertCount: number; assetCount: number
+  riskRuleVersion: string | null; riskBasisJson: string | null; correlationKey: string | null; correlationPolicyVersion: string | null
+}
 export interface EventAssetView { assetId: number; assetKey: string; relationType: string; evidenceCount: number }
 export interface TimelineView { id: number; occurredAt: string; entryType: string; actorType: string; actorId: string | null; summary: string; evidenceRef: string | null; detailsJson: string | null }
 export interface EventDetail { event: EventView; alerts: AlertView[]; assets: EventAssetView[]; timeline: TimelineView[] }
@@ -49,11 +57,29 @@ export const eventStatusLabel: Record<string, string> = { open: '待处理', inv
 /** security_event 合法迁移，与后端 IncidentService 状态机一致；最终是否允许以后端为准。 */
 export const eventTransitions: Record<string, EventStatus[]> = {
   open: ['investigating'],
-  investigating: ['contained', 'false_positive', 'closed'],
-  contained: ['resolved', 'closed'],
+  investigating: ['contained', 'resolved', 'false_positive', 'closed'],
+  contained: ['investigating', 'resolved', 'closed'],
   resolved: ['closed'],
   false_positive: ['closed'],
   closed: [],
+}
+export const alertTypeLabel: Record<string, string> = { model: '模型', rule: '规则' }
+/** 告警来源：模型告警为「模型键@版本」，规则告警为「规则键@版本」。 */
+export function alertSource(a: AlertView): string {
+  if (a.alertType === 'model' && a.modelKey) return `${a.modelKey}@${a.modelVersion ?? '?'}`
+  if (a.alertType === 'rule' && a.ruleKey) return `${a.ruleKey}@${a.ruleVersion ?? '?'}`
+  return '—'
+}
+/** 解析后端保存的评分依据快照；缺失或不是对象时返回空列表，不猜测内容。 */
+export function basisEntries(json: string | null): [string, string][] {
+  if (!json) return []
+  try {
+    const value: unknown = JSON.parse(json)
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return []
+    return Object.entries(value as Record<string, unknown>).map(([k, v]) => [k, typeof v === 'object' ? JSON.stringify(v) : String(v)])
+  } catch {
+    return []
+  }
 }
 export const approvalLabel: Record<string, string> = { pending: '待审批', approved: '已批准', rejected: '已驳回', expired: '已过期', cancelled: '已撤销' }
 export const execLabel: Record<string, string> = { queued: '排队', running: '执行中', succeeded: '已生效', failed: '失败', timed_out: '超时', rollback_pending: '待回滚', rolled_back: '已回滚', rollback_failed: '回滚失败' }

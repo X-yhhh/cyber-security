@@ -13,7 +13,7 @@ import Drawer from '@/components/Drawer.vue'
 import LoadState from '@/components/LoadState.vue'
 import { api, ApiError } from '@/api/client'
 import { can } from '@/api/session'
-import { eventStatusLabel, eventTransitions, fmtTime, severityLabel, type EventDetail, type EventStatus, type PolicyView } from '@/api/types'
+import { alertSource, alertTypeLabel, basisEntries, eventStatusLabel, eventTransitions, fmtTime, severityLabel, type EventDetail, type EventStatus, type PolicyView } from '@/api/types'
 import { eventTone, severityTone, statusTone } from '@/data/tones'
 import { toast } from '@/composables/toast'
 import { errText, optional, useLoad } from '@/composables/load'
@@ -94,6 +94,7 @@ async function submitAction() {
 
 const mark = (t: string) => (t.includes('alert') ? 'bg-threat' : t.includes('transition') || t.includes('status') ? 'bg-ink' : t.includes('action') ? 'bg-signal' : 'bg-ink-4')
 const risk = computed(() => (ev.value?.riskScore == null ? null : Math.round(Number(ev.value.riskScore) * 100)))
+const riskBasis = computed(() => basisEntries(ev.value?.riskBasisJson ?? null))
 </script>
 
 <template>
@@ -139,12 +140,15 @@ const risk = computed(() => (ev.value?.riskScore == null ? null : Math.round(Num
 
         <h2 class="mb-6 mt-20 text-[15px]">关联告警</h2>
         <table class="table">
-          <thead><tr><th>时间</th><th>告警</th><th>类型</th><th>分数</th><th>状态</th></tr></thead>
+          <thead><tr><th>时间</th><th>告警</th><th>来源</th><th>分数</th><th>状态</th></tr></thead>
           <tbody>
             <tr v-for="a in data.alerts" :key="a.id">
               <td class="num text-ink-3">{{ fmtTime(a.detectedAt) }}</td>
               <td class="num">{{ a.alertKey }}</td>
-              <td class="text-ink-2">{{ a.alertType }}</td>
+              <td>
+                <span class="block text-ink-2">{{ alertTypeLabel[a.alertType] ?? a.alertType }} · {{ alertSource(a) }}</span>
+                <span class="num text-[12px] text-ink-3">契约 {{ a.contractVersion ?? '—' }}{{ a.severityPolicyVersion ? ' · 分级 ' + a.severityPolicyVersion : '' }}</span>
+              </td>
               <td class="num">{{ a.score == null ? '—' : Number(a.score).toFixed(3) }}</td>
               <td><Tag :tone="statusTone[a.status]" :label="a.status" /></td>
             </tr>
@@ -157,6 +161,14 @@ const risk = computed(() => (ev.value?.riskScore == null ? null : Math.round(Num
         <h2 class="mb-8 text-[15px]">风险评分</h2>
         <p class="num text-[4.5rem] font-extralight leading-none tracking-[-0.04em]" :class="(risk ?? 0) > 70 ? 'text-threat' : ''">{{ risk ?? '—' }}<span class="ml-2 text-[14px] text-ink-3">/ 100</span></p>
         <div class="mt-8 h-1.5 w-full bg-paper-deep"><span class="block h-full bg-ink" :style="{ width: (risk ?? 0) + '%' }" /></div>
+        <h3 class="label mb-4 mt-12">评分依据</h3>
+        <dl class="border-t border-ink">
+          <div v-for="[k, v] in riskBasis" :key="k" class="grid grid-cols-[9rem_1fr] border-b border-ink-hair py-2.5 text-[12.5px]">
+            <dt class="text-ink-3">{{ k }}</dt><dd class="num break-all">{{ v }}</dd>
+          </div>
+          <p v-if="!riskBasis.length" class="py-3 text-[12.5px] text-ink-3">该事件未保存评分依据。</p>
+        </dl>
+        <p v-if="ev.correlationKey" class="num mt-4 text-[12px] text-ink-3">关联 {{ ev.correlationKey }} · {{ ev.correlationPolicyVersion ?? '—' }}</p>
         <h3 class="label mb-4 mt-12">关联资产</h3>
         <ul class="border-t border-ink">
           <li v-for="a in data.assets" :key="a.assetId" class="flex justify-between border-b border-ink-hair py-3.5 text-[13px]">

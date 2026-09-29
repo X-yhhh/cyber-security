@@ -12,7 +12,7 @@ import Drawer from '@/components/Drawer.vue'
 import LoadState from '@/components/LoadState.vue'
 import { api, type Page } from '@/api/client'
 import { can } from '@/api/session'
-import { eventStatusLabel, fmtTime, severityLabel, type AlertView, type EventView, type Severity } from '@/api/types'
+import { alertSource, alertTypeLabel, basisEntries, eventStatusLabel, fmtTime, severityLabel, type AlertView, type EventView, type Severity } from '@/api/types'
 import { eventTone, severityTone, statusTone } from '@/data/tones'
 import { useLoad } from '@/composables/load'
 
@@ -39,15 +39,16 @@ const shownEvents = computed(() =>
   ),
 )
 const shownAlerts = computed(() =>
-  data.value.alerts.filter((a) => (sev.value === 'all' || a.severity === sev.value) && (!q.value || (a.alertKey + a.alertType).toLowerCase().includes(q.value.toLowerCase()))),
+  data.value.alerts.filter((a) => (sev.value === 'all' || a.severity === sev.value) && (!q.value || (a.alertKey + a.alertType + alertSource(a)).toLowerCase().includes(q.value.toLowerCase()))),
 )
 const picked = ref<AlertView | null>(null)
+const pickedBasis = computed(() => basisEntries(picked.value?.basisJson ?? null))
 const sevs: (Severity | 'all')[] = ['all', 'critical', 'high', 'medium', 'low']
 </script>
 
 <template>
   <div>
-    <PageHead no="02" title="告警与事件" desc="告警由冻结模型与确定性规则产生，按资产、时间窗与对端归并为事件。只显示全部关联资源都在你授权范围内的事件。">
+    <PageHead no="02" title="告警与事件" desc="告警由冻结模型与确定性规则产生，按资产与时间窗归并为事件。只显示全部关联资源都在你授权范围内的事件。">
       <template #kicker>Detection</template>
     </PageHead>
 
@@ -93,7 +94,7 @@ const sevs: (Severity | 'all')[] = ['all', 'critical', 'high', 'medium', 'low']
           <tr v-for="a in shownAlerts" :key="a.id" class="row-link" tabindex="0" @click="picked = a" @keydown.enter="picked = a">
             <td class="num text-ink-3">{{ fmtTime(a.detectedAt) }}</td>
             <td><span class="num block">{{ a.alertKey }}</span><span class="num text-[12px] text-ink-3">资产 #{{ a.assetId ?? '—' }} · 数据源 #{{ a.dataSourceId }}</span></td>
-            <td class="text-ink-2">{{ a.alertType }}</td>
+            <td><span class="block text-ink-2">{{ alertTypeLabel[a.alertType] ?? a.alertType }}</span><span class="num text-[12px] text-ink-3">{{ alertSource(a) }}</span></td>
             <td class="num">{{ a.score == null ? '—' : Number(a.score).toFixed(3) }}</td>
             <td><Tag :tone="statusTone[a.status]" :label="a.status" /></td>
             <td><Tag :tone="severityTone[a.severity]" :label="severityLabel[a.severity] ?? a.severity" /></td>
@@ -109,17 +110,28 @@ const sevs: (Severity | 'all')[] = ['all', 'critical', 'high', 'medium', 'low']
         <dl class="border-t border-ink">
           <div v-for="[k, v] in [
             ['时间', fmtTime(picked.detectedAt)],
-            ['类型', picked.alertType],
+            ['类型', alertTypeLabel[picked.alertType] ?? picked.alertType],
+            ['来源', alertSource(picked)],
+            ['特征契约', picked.contractVersion ?? '—'],
+            ['分级策略', picked.severityPolicyVersion ?? '—'],
+            ['阈值策略', picked.thresholdVersion ?? '—'],
             ['资产', picked.assetId == null ? '—' : `#${picked.assetId}`],
             ['数据源', `#${picked.dataSourceId}`],
             ['分数', picked.score == null ? '—' : Number(picked.score).toFixed(4)],
             ['状态', picked.status],
             ['严重度', severityLabel[picked.severity] ?? picked.severity],
           ]" :key="k" class="grid grid-cols-[8rem_1fr] border-b border-ink-hair py-3 text-[13px]">
-            <dt class="text-ink-3">{{ k }}</dt><dd class="num">{{ v }}</dd>
+            <dt class="text-ink-3">{{ k }}</dt><dd class="num break-all">{{ v }}</dd>
           </div>
         </dl>
-        <p class="mt-6 text-[12.5px] leading-relaxed text-ink-3">告警可回溯到原始来源、特征映射与模型版本。模型分数不单独决定放行或隔离；归属事件请在事件视图中查看。</p>
+        <h3 class="label mb-4 mt-10">评分依据</h3>
+        <dl class="border-t border-ink">
+          <div v-for="[k, v] in pickedBasis" :key="k" class="grid grid-cols-[10rem_1fr] border-b border-ink-hair py-2.5 text-[12.5px]">
+            <dt class="text-ink-3">{{ k }}</dt><dd class="num break-all">{{ v }}</dd>
+          </div>
+          <p v-if="!pickedBasis.length" class="py-3 text-[12.5px] text-ink-3">该告警未保存评分依据。</p>
+        </dl>
+        <p class="mt-6 text-[12.5px] leading-relaxed text-ink-3">评分依据为告警生成时的快照，不随后续策略修改而变化。模型分数不单独决定放行或隔离；归属事件请在事件视图中查看。</p>
       </template>
     </Drawer>
   </div>

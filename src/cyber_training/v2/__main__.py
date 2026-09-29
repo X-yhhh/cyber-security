@@ -7,8 +7,8 @@ import sys
 from importlib import import_module
 from pathlib import Path
 
-STEPS = ("register", "eda", "split", "preprocess-compare", "feature-compare", "train", "train-multiclass", "final-eval", "export", "feature-audit", "feature-ablation", "feature-diagnose")
-SIMPLE = {"register": "register", "split": "split", "eda": "eda", "feature-audit": "feature_audit", "feature-diagnose": "feature_diagnose"}
+STEPS = ("register", "eda", "split", "preprocess-compare", "feature-compare", "train", "train-multiclass", "final-eval", "export", "feature-audit", "feature-ablation", "feature-diagnose", "prepare-v4", "final-v4", "export-v4")
+SIMPLE = {"register": "register", "split": "split", "eda": "eda", "feature-audit": "feature_audit", "feature-diagnose": "feature_diagnose", "prepare-v4": "route_b_v4"}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -85,6 +85,23 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         print(final_eval.run_evaluate(args.unlock_holdout, candidate=args.candidate, resume=args.resume,
                                       only_generalization=args.final_stage == "generalization"))
+        return 0
+    if args.step == "final-v4":
+        from . import route_b_final
+
+        if args.final_stage == "freeze":
+            if args.unlock_holdout:
+                parser.error("freeze 不读取 holdout，不能与 --unlock-holdout 同用")
+            print(route_b_final.freeze())
+            return 0
+        if args.final_stage != "evaluate":
+            parser.error("final-v4 只支持 --final-stage freeze 或 evaluate")
+        print(route_b_final.run_evaluate(args.unlock_holdout))
+        return 0
+    if args.step == "export-v4":
+        from . import route_b_export
+
+        print(route_b_export.run(version=args.model_version or route_b_export.DEFAULT_VERSION))
         return 0
     if args.step == "feature-ablation":
         from . import feature_ablation

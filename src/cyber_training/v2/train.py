@@ -652,7 +652,9 @@ def failures(rows: pd.DataFrame, key: tuple[str, ...] = ("model",)) -> list[dict
     """仍未成功的失败记录；续跑已补齐的旧失败行不再列出（原始行保留在逐次 CSV 中）。"""
     ok = {tuple(r) for r in rows.loc[rows["status"] == "ok", list(key)].itertuples(index=False)}
     bad = rows[(rows["status"] == "failed")]
-    bad = bad[[tuple(r) not in ok for r in bad[list(key)].itertuples(index=False)]]
+    # 用按索引对齐的布尔掩码：bad 为空时列表推导得到 []，bad[[]] 会被 pandas 当作「选 0 列」
+    mask = pd.Series([tuple(r) not in ok for r in bad[list(key)].itertuples(index=False)], index=bad.index, dtype=bool)
+    bad = bad.loc[mask]
     return bad[[*key, "error"]].to_dict("records")
 
 
@@ -682,7 +684,12 @@ class Context:
         self.split = SplitIndex.load(self.split_dir / "split-d1-raw.npz")
         if spec["split_fingerprint"] != self.split.fingerprint:
             raise LeakageError("feature views were built on a different split")
-        frame, self.labels = load_frame(manifest)
+        if spec.get("frame") == "route-b-v4":  # 路线 B 阶段 2：v4 训练帧（单主机 ct_*、端口口径 service）
+            from .route_b_v4 import load_frame as load_v4_frame
+
+            frame, self.labels, _, _ = load_v4_frame(manifest)
+        else:
+            frame, self.labels = load_frame(manifest)
         self.matrices = Matrices(frame, self.labels, self.split, self.columns)
 
     def params(self) -> dict[str, Any]:

@@ -8,6 +8,11 @@ spring:
     hikari:
       maximum-pool-size: ${DB_POOL_SIZE:10}
       connection-timeout: 3000
+      # 应用统一以 UTC 读写时间：驱动按 UTC 转换 Instant，并把会话 time_zone 设为 UTC，
+      # 使列默认值 CURRENT_TIMESTAMP 与 SQL 中的 UTC_TIMESTAMP 比较口径一致；不依赖 DB_URL 写法。
+      data-source-properties:
+        connectionTimeZone: UTC
+        forceConnectionTimeZoneToSession: true
   flyway:
     enabled: true
     baseline-on-migrate: false

@@ -55,7 +55,7 @@ MySQL 8 初始化脚本位于 [`database/init.sql`](database/init.sql)，默认�
 mysql --protocol=TCP -h127.0.0.1 -P3306 -uroot -p < database/init.sql
 ```
 
-所有时间列按 UTC 语义保存；应用连接应设置 UTC 时区。后端上线后以 Flyway 版本化迁移管理 schema。现存库须先完整对照基线、备份并登记版本，不得把 `IF NOT EXISTS` 当成 schema 一致性的证明；脚本不会删除或清空已有对象，也不会重置已存在的 `admin` 密码。
+所有时间列按 UTC 语义保存。后端在 `application.yml` 的 Hikari 数据源属性中固定 `connectionTimeZone=UTC` 与 `forceConnectionTimeZoneToSession=true`，连接会话时区由应用保证为 UTC，不依赖 `DB_URL` 是否带时区参数，也不修改 MySQL 服务端全局时区（`DataSourceTimeZoneIntegrationTest` 以不带时区参数的地址验证）。后端上线后以 Flyway 版本化迁移管理 schema。现存库须先完整对照基线、备份并登记版本，不得把 `IF NOT EXISTS` 当成 schema 一致性的证明；脚本不会删除或清空已有对象，也不会重置已存在的 `admin` 密码。
 
 本机已安装 Temurin JDK 25.0.2，位于 `/Users/xyh/Workspace/development/runtimes/java/temurin-25.0.2`；当前 shell 的 `JAVA_HOME` 仍指向 JDK 17，实施时需使用项目级 Java 25 配置并验证实际构建运行时。
 

@@ -12,6 +12,7 @@ import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.ResultSet;
 import java.sql.Statement;
+import java.util.List;
 import java.util.Properties;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -58,12 +59,13 @@ class MigrationIntegrationTest {
             assertThat(count(statement, EMPTY_SCHEMA + ".sys_role", "is_builtin=1 AND status='active'"))
                     .isEqualTo(7);
             assertThat(count(statement, EMPTY_SCHEMA + ".sys_permission", "status='active'"))
-                    .isEqualTo(37);
-            assertThat(rolePermissionCount(statement, "platform_admin")).isEqualTo(21);
-            assertThat(rolePermissionCount(statement, "asset_source_admin")).isEqualTo(10);
-            assertThat(rolePermissionCount(statement, "security_analyst")).isEqualTo(8);
+                    .isEqualTo(39);
+            // V12 新增 inference.request.read（四个角色）与 model.replay.run（仅 model_operator）。
+            assertThat(rolePermissionCount(statement, "platform_admin")).isEqualTo(22);
+            assertThat(rolePermissionCount(statement, "asset_source_admin")).isEqualTo(11);
+            assertThat(rolePermissionCount(statement, "security_analyst")).isEqualTo(9);
             assertThat(rolePermissionCount(statement, "response_approver")).isEqualTo(5);
-            assertThat(rolePermissionCount(statement, "model_operator")).isEqualTo(5);
+            assertThat(rolePermissionCount(statement, "model_operator")).isEqualTo(7);
             assertThat(rolePermissionCount(statement, "model_releaser")).isEqualTo(2);
             assertThat(rolePermissionCount(statement, "auditor")).isEqualTo(3);
             assertThat(count(statement, EMPTY_SCHEMA + ".sys_role_permission rp JOIN " + EMPTY_SCHEMA
@@ -75,7 +77,7 @@ class MigrationIntegrationTest {
                     + ".sys_role r ON r.id=rp.role_id", "r.role_key='platform_admin' AND p.permission_key IN ('approval.decide','model.release.approve')"))
                     .isZero();
             assertThat(count(statement, EMPTY_SCHEMA + ".sys_user", "1=1")).isZero();
-            assertThat(count(statement, EMPTY_SCHEMA + ".flyway_schema_history", "success=1")).isEqualTo(11);
+            assertThat(count(statement, EMPTY_SCHEMA + ".flyway_schema_history", "success=1")).isEqualTo(12);
             assertThat(count(statement, "information_schema.tables", "table_schema='" + EMPTY_SCHEMA
                     + "' AND table_name='auth_login_throttle'"))
                     .isEqualTo(1);
@@ -102,6 +104,21 @@ class MigrationIntegrationTest {
                     .isInstanceOf(java.sql.SQLException.class)
                     // 断言约束名，避免外键失败（空 schema 无 data_source）掩盖 CHECK 未生效。
                     .hasMessageContaining("ck_source_mapping_contract_sha256");
+            // V12：推理结果快照列与状态不变量（路线 B §10.1）。
+            for (String column : List.of("contract_sha256", "attack_probability", "binary_label", "decision_threshold",
+                    "threshold_policy_version", "reject_reason")) {
+                assertThat(columnCount(statement, "inference_request", column)).as(column).isEqualTo(1);
+            }
+            assertThat(indexCount(statement, "inference_request", "idx_inference_request_time")).isEqualTo(1);
+            assertThat(count(statement, "information_schema.columns", "table_schema='" + EMPTY_SCHEMA
+                    + "' AND table_name='inference_request' AND column_name='model_version_id' AND is_nullable='YES'"))
+                    .isEqualTo(1);
+            // succeeded 行缺分数与阈值快照必须被 CHECK 拒绝；断言约束名，避免外键失败掩盖。
+            assertThatThrownBy(() -> statement.executeUpdate("INSERT INTO " + EMPTY_SCHEMA
+                    + ".inference_request (request_key, ingest_record_id, deployment_mode, status, requested_at)"
+                    + " VALUES ('ck', 1, 'local', 'succeeded', UTC_TIMESTAMP(3))"))
+                    .isInstanceOf(java.sql.SQLException.class)
+                    .hasMessageContaining("ck_inference_request_result_snapshot");
         }
     }
 

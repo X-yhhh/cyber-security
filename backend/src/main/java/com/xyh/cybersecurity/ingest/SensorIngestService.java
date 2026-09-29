@@ -20,6 +20,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.List;
@@ -273,7 +274,7 @@ public class SensorIngestService {
     }
 
     private void audit(long batchId, long sourceId, long assetId, String actor, String requestId, String outcome, String reason) {
-        AuditMapper.AuditInsert audit = new AuditMapper.AuditInsert(LocalDateTime.now(), "machine", actor,
+        AuditMapper.AuditInsert audit = new AuditMapper.AuditInsert(LocalDateTime.now(ZoneOffset.UTC), "machine", actor,
                 "sensor.ingest", "ingest_batch", batchId == 0 ? null : Long.toString(batchId), requestId, outcome, reason);
         auditMapper.insertAudit(audit);
         if (sourceId > 0) auditMapper.insertResourceScope(audit.getId(), "data_source", Long.toString(sourceId));

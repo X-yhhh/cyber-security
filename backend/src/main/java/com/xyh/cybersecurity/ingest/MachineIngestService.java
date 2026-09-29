@@ -13,6 +13,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -166,7 +167,7 @@ public class MachineIngestService {
     }
 
     private void insertAudit(long batchId, long sourceId, Set<Long> assetIds, String clientKey, String requestId) {
-        AuditMapper.AuditInsert audit = new AuditMapper.AuditInsert(LocalDateTime.now(), "machine", clientKey,
+        AuditMapper.AuditInsert audit = new AuditMapper.AuditInsert(LocalDateTime.now(ZoneOffset.UTC), "machine", clientKey,
                 "ingest.batch.received", "ingest_batch", Long.toString(batchId), requestId, "success",
                 "scoped normalized batch accepted");
         auditMapper.insertAudit(audit);

@@ -14,6 +14,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Set;
 import java.util.regex.Pattern;
@@ -123,7 +124,7 @@ public class DetectionRuleService {
 
     private void audit(long actorId, String action, long ruleId, HttpServletRequest request, String reason) {
         Object requestId = request.getAttribute(REQUEST_ID_ATTRIBUTE);
-        auditMapper.insertAudit(new AuditMapper.AuditInsert(LocalDateTime.now(), "human", Long.toString(actorId), action,
+        auditMapper.insertAudit(new AuditMapper.AuditInsert(LocalDateTime.now(ZoneOffset.UTC), "human", Long.toString(actorId), action,
                 "detection_rule", Long.toString(ruleId), requestId instanceof String value ? value : null, "success",
                 reason));
     }

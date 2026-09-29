@@ -14,6 +14,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 
 import static com.xyh.cybersecurity.common.web.RequestIdFilter.REQUEST_ID_ATTRIBUTE;
@@ -152,7 +153,7 @@ public class DataSourceService {
     private void audit(HttpServletRequest request, long actorId, String action, String resourceType, long resourceId,
                        long sourceId, String outcome, String reason) {
         Object requestId = request.getAttribute(REQUEST_ID_ATTRIBUTE);
-        AuditMapper.AuditInsert audit = new AuditMapper.AuditInsert(LocalDateTime.now(), "human",
+        AuditMapper.AuditInsert audit = new AuditMapper.AuditInsert(LocalDateTime.now(ZoneOffset.UTC), "human",
                 Long.toString(actorId), action, resourceType, Long.toString(resourceId),
                 requestId instanceof String value ? value : null, outcome, reason);
         auditMapper.insertAudit(audit);

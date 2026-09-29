@@ -13,6 +13,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.Set;
@@ -99,7 +100,7 @@ public class InferenceAdminService {
 
     private void audit(long actorId, long batchId, long sourceId, HttpServletRequest request, String reason) {
         Object requestId = request.getAttribute(REQUEST_ID_ATTRIBUTE);
-        AuditMapper.AuditInsert audit = new AuditMapper.AuditInsert(LocalDateTime.now(), "human",
+        AuditMapper.AuditInsert audit = new AuditMapper.AuditInsert(LocalDateTime.now(ZoneOffset.UTC), "human",
                 Long.toString(actorId), "inference.dry_run", "ingest_batch", Long.toString(batchId),
                 requestId instanceof String value ? value : null, "success", reason);
         auditMapper.insertAudit(audit);

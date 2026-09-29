@@ -114,6 +114,10 @@ class AssetLifecycleIntegrationTest {
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM audit_resource_scope ars JOIN audit_log al ON al.id=ars.audit_id "
                         + "WHERE ars.scope_type='asset' AND ars.scope_id=? AND al.action='asset.updated'",
                 Integer.class, Long.toString(assetId))).isEqualTo(1);
+        // 审计时间按 UTC 写入：与数据库 UTC 当前时刻同一口径。JVM 默认时区非 UTC 时（如本机 UTC+8），
+        // 按默认时区取时会产生整小时偏差。
+        assertThat(jdbc.queryForObject("SELECT MAX(ABS(TIMESTAMPDIFF(SECOND, occurred_at, UTC_TIMESTAMP(3)))) "
+                + "FROM audit_log WHERE action IN ('asset.created','asset.updated')", Long.class)).isLessThanOrEqualTo(60L);
     }
 
     @Test

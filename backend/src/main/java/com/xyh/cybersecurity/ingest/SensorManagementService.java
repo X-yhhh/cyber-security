@@ -18,6 +18,7 @@ import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.Base64;
 import java.util.HexFormat;
 import java.util.List;
@@ -101,7 +102,7 @@ public class SensorManagementService {
     }
 
     private void writeAudit(long actorId, long sensorId, long assetId, long sourceId, String requestId) {
-        AuditMapper.AuditInsert audit = new AuditMapper.AuditInsert(LocalDateTime.now(), "human", Long.toString(actorId),
+        AuditMapper.AuditInsert audit = new AuditMapper.AuditInsert(LocalDateTime.now(ZoneOffset.UTC), "human", Long.toString(actorId),
                 "sensor.registered", "sensor_agent", Long.toString(sensorId), requestId, "success",
                 "sensor credential issued once");
         auditMapper.insertAudit(audit);

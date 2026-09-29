@@ -14,6 +14,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 import com.xyh.cybersecurity.security.AbsoluteSessionFilter;
 
@@ -78,7 +79,7 @@ public class AuthService {
 
     private void writeAudit(HttpServletRequest request, Long actorId, String action, String outcome, String reason) {
         Object requestId = request.getAttribute(REQUEST_ID_ATTRIBUTE);
-        auditMapper.insertAudit(new AuditMapper.AuditInsert(LocalDateTime.now(), "human",
+        auditMapper.insertAudit(new AuditMapper.AuditInsert(LocalDateTime.now(ZoneOffset.UTC), "human",
                 actorId == null ? null : actorId.toString(), action, "system", null,
                 requestId instanceof String value ? value : null, outcome, reason));
     }

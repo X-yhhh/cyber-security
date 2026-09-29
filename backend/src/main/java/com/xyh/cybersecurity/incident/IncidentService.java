@@ -9,6 +9,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -103,7 +104,7 @@ public class IncidentService {
 
     private void audit(long userId, long eventId, String action, HttpServletRequest request) {
         Object requestId = request.getAttribute(REQUEST_ID_ATTRIBUTE);
-        AuditMapper.AuditInsert audit = new AuditMapper.AuditInsert(LocalDateTime.now(), "human",
+        AuditMapper.AuditInsert audit = new AuditMapper.AuditInsert(LocalDateTime.now(ZoneOffset.UTC), "human",
                 Long.toString(userId), action, "security_event", Long.toString(eventId),
                 requestId instanceof String value ? value : null, "success", "scoped analyst workflow");
         auditMapper.insertAudit(audit);

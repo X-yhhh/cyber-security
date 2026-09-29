@@ -15,6 +15,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.net.URI;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
@@ -187,7 +188,7 @@ public class ModelService {
             throw exception;
         }
         return new DeploymentView(modelId, model.modelKey(), model.version(), "local", "active",
-                "onnxruntime-java-1.23.2", LocalDateTime.now());
+                "onnxruntime-java-1.23.2", LocalDateTime.now(ZoneOffset.UTC));
     }
 
     private ModelMapper.ModelRow findVisibleModel(long userId, long modelId, String permission) {
@@ -270,7 +271,7 @@ public class ModelService {
     private void audit(long actorId, String action, String resourceType, long resourceId, String modelKey,
                        HttpServletRequest request, String reason) {
         Object requestId = request.getAttribute(REQUEST_ID_ATTRIBUTE);
-        AuditMapper.AuditInsert audit = new AuditMapper.AuditInsert(LocalDateTime.now(), "human",
+        AuditMapper.AuditInsert audit = new AuditMapper.AuditInsert(LocalDateTime.now(ZoneOffset.UTC), "human",
                 Long.toString(actorId), action, resourceType, Long.toString(resourceId),
                 requestId instanceof String value ? value : null, "success", reason);
         auditMapper.insertAudit(audit);

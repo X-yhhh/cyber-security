@@ -387,8 +387,8 @@ v4 没有可为 null 的数值字段（v3.1 唯一的 nullable 字段 `ct_flw_ht
 | 0 | 收口与决策 | main | 无 | 1 天 | M2 独立提交、决策记录、待开发文档修订 | 完成 |
 | 1 | 传感器探测 + 特征审计 + 规格冻结 | 授权主机 + 训练 + main | 0；§7.0.2 授权（已取得） | 6～8 天 | 探测报告、特征规格（冻结）、消融报告（决策门 G1） | 完成（G1 通过，规格冻结） |
 | 2 | v4 重训与交付 | 训练 | 1 | 3～5 天 | `unsw-binary-2026.10.0` 交付包 + golden fixtures | 完成（`ready_for_review`，见 §8.4） |
-| 3 | 后端契约改造（新 M1） | main | 1（规格）；2（fixtures） | 4 天 | 契约驱动的注册表/校验器/Builder/运行时 | 未开始 |
-| 4 | M3 本机 ONNX 推理 | main | 2、3 | 4 天 | 推理服务、`inference_request` 落库、Java 回放一致 | 未开始 |
+| 3 | 后端契约改造（新 M1） | main | 1（规格）；2（fixtures） | 4 天 | 契约驱动的注册表/校验器/Builder/运行时 | 完成（提交 `f484948`，见 §9.4） |
+| 4 | M3 本机 ONNX 推理 | main | 2、3 | 4 天 | 推理服务、`inference_request` 落库、Java 回放一致 | 代码与验收测试完成；本机开发库迁移 V12 与激活待执行（见 §10.3） |
 | 5 | M4 告警与事件关联 | main | 4 | 4 天 | 回放 → 告警 → 事件闭环（里程碑 R1） | 未开始 |
 | 6 | M5 Go 软件传感器 | sensor/ | 1（规格） | 8～10 天 | macOS 传感器 + 一致性报告（G2）；Windows 构建与补测后期完成 | 未开始 |
 | 7 | 影子验证 | 授权终端 | 5、6 | 1～2 周（日历） | 影子报告（决策门 G3） | 未开始 |
@@ -396,7 +396,7 @@ v4 没有可为 null 的数值字段（v3.1 唯一的 nullable 字段 `ct_flw_ht
 | 9 | M8～M13 闭环与扩展 | main + 训练 | 按模块 | 按需 | 漂移、反馈、离线再训练编排等 | 未开始 |
 | 10 | 最终验收 | 全部 | 8 | 3～5 天 | 隔离靶场端到端验收与能力边界声明 | 未开始 |
 
-进度（2026-09-29）：阶段 0～2 完成，下一步阶段 3（§9）。
+进度（2026-09-29）：阶段 0～3 完成；阶段 4 代码与测试完成，剩本机开发库迁移与激活（§10.3），之后进入阶段 5（§11）。
 
 里程碑：
 
@@ -807,6 +807,10 @@ F1→F2（删除 Argus 实现细节字段）造成的落差不单独处理：这
 
 使用 UNSW CSV 回放（v4 映射）时，合格记录进入 outbox，拒绝原因可查询；golden fixtures 100% 通过；v3.1 在线路径仍然 fail-closed。
 
+### 9.4 执行结果（2026-09-29，阶段 3 完成）
+
+提交 `f484948`（分支 `route-b/stage1-v4-spec`）。JDK 25.0.2 下 `mvn clean verify` 141 个测试全部通过（含 V11 迁移与传感器 v4 接入集成测试）；golden fixtures 400 条逐字段一致；UNSW 回放 1 万条与训练端参考逐字段一致；fixtures 经 Java 特征 → ONNX 300 条标签一致、概率误差 ≤ 1e-5；`ModelReplayCli` v4 与 v3.1 各 1 万条标签全一致。决策见 §21 阶段 3 各条。出口条件 §9.3 全部满足。未验证：真实传感器抓包上报、Go/Java 一致性（G2，阶段 6）。
+
 ## 10. 阶段 4：M3 本机 ONNX 推理（约 4 天）
 
 设计沿用 `docs/项目待开发模块文档.md` M3，本节只写路线 B 带来的差异与验收要求。
@@ -828,6 +832,45 @@ F1→F2（删除 Argus 实现细节字段）造成的落差不单独处理：这
 - Java 用 `replay-sample.csv` 回放 1 万条，与训练端输出的概率最大误差 ≤ 1e-5（沿用 M3 设计要求，严于训练端 1e-4），判定 100% 一致；结果写回交付报告（补齐训练计划 §9 第 6 项）。
 - 使用 onnxruntime Java 1.23.2，与 manifest 运行时要求一致；本机 Python 1.27.0 的验证不能替代这一项。
 - 测试覆盖：重复消息不重复推理；超时显式失败；无激活模型拒绝；契约不一致拒绝；模型切换期间请求不混用版本。
+
+### 10.3 执行结果（2026-09-29，代码与验收测试完成）
+
+实现（包 `com.xyh.cybersecurity.inference`）：
+
+- `LocalInferenceTaskSubmitter` 实现 M2 的 `InferenceTaskSubmitter`，在 M2 消费事务内同步推理并写 `inference_request`，与消费幂等台账同一事务提交；`cyber.inference.local.enabled=false` 时不注册，M2 仍按“端口不可用即 fail-closed”进死信。
+- `InferenceService`：批次契约 → 配置绑定（须 `active`）→ 激活模型 → `FeatureContractModelGate` → 按 manifest 字段顺序读取 `normalized_payload.features`（不插补、不编码、不派生）→ `LocalInferenceRunner` 推理 → 结果快照。`request_key = local:record:<ingest_record_id>`，重复投递先查已有键再跳过。
+- `LocalInferenceRunner`：有界线程池与队列，单批超时默认 2000 ms（`cyber.inference.local.batch-timeout-ms`）；推理在 `OnnxModelManager.runOnActive` 读锁内执行，超时后工作线程持锁直到 ONNX 调用返回，版本切换不会关闭在用会话。
+- `OnnxModelManager` 激活时生成 `ActiveModel` 描述（模型版本、阈值快照、阈值策略版本 `fixed:<model_version>`、输入契约）；`decision.adjustable=true` 拒绝激活（`MODEL_THRESHOLD_POLICY_UNSUPPORTED`）。
+- V12 迁移：`inference_request` 增加结果快照列与状态不变量 CHECK，状态增加 `not_in_model_scope`；新增权限 `inference.request.read`、`model.replay.run`。
+- 管理接口：`GET /api/v1/inference-requests`（按数据源范围，默认 24 小时、最长 7 天）；`POST /api/v1/inference/dry-run`（仅 `source_type='replay'` 的活动数据源，不写 `inference_request`，只写审计）。
+- `ModelReplayCli` 门限由 1e-4 收紧为 1e-5。
+
+失败语义：
+
+| 情形 | 状态 | 错误码 / 原因 |
+|---|---|---|
+| 批次未声明契约（connector 通用事件） | `rejected` | `FEATURE_CONTRACT_MODEL_MISMATCH` / `record_contract_missing` |
+| 配置不存在或已非 `active` | `rejected` | `FEATURE_CONTRACT_MODEL_MISMATCH` / `config_not_active` |
+| 无激活模型 | `rejected` | `ACTIVE_MODEL_UNAVAILABLE`，`model_version_id` 为空 |
+| 门禁不一致 | `rejected` | `FEATURE_CONTRACT_MODEL_MISMATCH` / 门禁细分原因 |
+| 视角/地址族不在模型范围 | `not_in_model_scope` | 仅原因，不算拒绝 |
+| 字段缺失、类型不符、非有限值 | `rejected` | `MODEL_INPUT_CONTRACT_MISMATCH` / `feature_missing:<字段>` 等 |
+| 单批超时 | `timed_out` | `INFERENCE_TIMEOUT` |
+| 会话错误、输出与阈值不一致 | `failed` | `MODEL_RUNTIME_FAILED` / `MODEL_OUTPUT_CONTRACT_MISMATCH` |
+| 容量耗尽、判定后版本切换、激活不变量被破坏 | 不落行，整批回滚 | M2 延迟重试直至死信 |
+
+验证（JDK 25.0.2，本机 MySQL 8 专用测试 schema）：
+
+- Java 回放：`ModelReplayCli` 在 1e-5 门限下重跑，`unsw-binary-2026.10.0` 1 万条最大概率误差 7.15e-7、标签不一致 0，逐行结果 SHA-256 `442d781f8163246ecedd60a2e6d26a6c7a518bd1fed4fef2e5d8c8d494737d9f`（与阶段 3 一致，回放确定）；`2026.09.0`（v3.1，仅离线）最大误差 9.54e-7、标签不一致 0。报告在仓库外 `deliveries/backend-replay-20260929-m3/`，未写入交付包目录。
+- 端到端集成测试 `LocalInferenceIntegrationTest`：真实交付包走候选登记 → 制品校验 → 发布申请 → 他人批准 → 本机激活；50 条 golden fixture 经传感器接口 → M2 消费事务 → 推理，概率与 `expected-outputs.jsonl` 误差 ≤ 1e-5、标签全一致；覆盖无激活模型拒绝、initiator 视角 `not_in_model_scope`、重复投递（含消费台账被清后重放）不重复推理、按数据源范围查询、dry-run 不落库且非回放源 409、接入后配置撤销按 `config_not_active` 拒绝。
+- 单元测试覆盖超时、会话错误、标签与阈值不一致、版本切换整批回滚、切换写锁等待进行中的推理后才关闭旧会话。
+
+出口条件 §10.2：Java 回放 ≤ 1e-5 与 100% 标签一致、onnxruntime Java 1.23.2、五项测试覆盖均已满足。
+
+未完成：
+
+- 本机开发库尚未应用 V11/V12，`unsw-binary-2026.10.0` 尚未在本机开发库激活。README 约定现存库迁移前须完成结构核对与备份并获准；激活还需两名不同用户分别申请与批准，由用户执行。激活流程已在测试 schema 中用真实交付包跑通。
+- 在线结果尚未传给 M4（阶段 5）；阶段 5 从 `inference_request` 的 `succeeded` 行生成告警。
 
 ## 11. 阶段 5：M4 告警与事件关联（约 4 天）
 
@@ -1060,7 +1103,7 @@ G3 阈值（2026-09-29 定案）。数值以「单人值守的毕设项目能处
 | 文档 | 修改内容 | 阶段 | 状态 |
 |---|---|---|---|
 | `docs/项目待开发模块文档.md` | M1 改为引用本文；M3 输入维度改为按 manifest；M5 字段集改为 v4；依赖表与“迁移 V9”修正 | 0 | 阶段 0 完成（阶段 1 字段数已同步） |
-| `docs/数据接入与特征提取模块开发设计.md` | v3.1 定位为离线回放；新增 v4 字段表与规格引用；G1、`ct_state_ttl` 条目状态更新 | 0、3 | 阶段 0 完成；v4 字段表待阶段 3 |
+| `docs/数据接入与特征提取模块开发设计.md` | v3.1 定位为离线回放；新增 v4 字段表与规格引用；G1、`ct_state_ttl` 条目状态更新 | 0、3 | 完成（阶段 3 提交 `f484948`） |
 | `docs/模型训练计划.md` | 新增 v4 章节（特征审计、消融、新切分种子、fixtures） | 1、2 | 完成（§12） |
 | `docs/特征规格-unsw-nb15-flow-v4.md` | 新建 | 1 | 完成（已冻结） |
 | `docs/项目详细设计.md` | 数据流中“`ct_state_ttl` codebook 已冻结”条件改为“v4 契约 + golden fixtures” | 3 | 未开始 |
@@ -1094,5 +1137,14 @@ G3 阈值（2026-09-29 定案）。数值以「单人值守的毕设项目能处
 | 2026-09-29 | 阶段 3：保留 `spkts ≥ 1` 下限 | 冻结规格要求；训练数据仅 10 行 `spkts=0`，回放时按规格拒绝 | 放宽为 ≥ 0。会让规格与接入端口径不一致 |
 | 2026-09-29 | 阶段 3：`ModelReplayCli` 改为输出到独立目录 | 交付包内文件都登记在 checksums.json，原地追加报告会使后续制品校验失败 | 继续原地追加 `evaluation-report.md` |
 | 2026-09-29 | 阶段 3：运行时只允许契约声明 nullable 的列为 NaN | v3.1 交付包 `ct_flw_http_mthd` 空值由图内插补；旧实现拒绝一切非有限值，导致 v3.1 样本无法离线回放；v4 无 nullable 字段，行为不变 | 回放 CLI 自行补值（违反不造值原则） |
+| 2026-09-29 | 阶段 4：超时沿用 V1 已有状态 `timed_out`，错误码 `INFERENCE_TIMEOUT` | V1 CHECK 与数据库设计文档均为 `timed_out`；改名需改约束与文档而无收益 | 新增 `timeout` 状态（与既有状态机重复） |
+| 2026-09-29 | 阶段 4：V12 将 `inference_request.model_version_id`、`contract_version` 改为可空，并以 CHECK 约束状态与结果快照的不变量 | 无激活模型、批次未声明契约时仍须留下 rejected 证据，不能伪造模型或契约引用；只有 `succeeded` 行可带分数 | 无激活模型时不写行（审计链缺失）；写占位模型/契约（伪造引用） |
+| 2026-09-29 | 阶段 4：阈值策略版本取 `fixed:<manifest model_version>`；`decision.adjustable=true` 拒绝激活 | manifest 无独立阈值策略版本，且 2026.10.0 声明阈值不可调；阈值随模型版本不可变即可追溯 | 另建阈值策略登记表（本期无可调阈值需求） |
+| 2026-09-29 | 阶段 4：`request_key = local:record:<ingest_record_id>`，同一记录本机只推理一次 | 与消费台账双重保证重复投递不重复推理；版本切换后的重放不产生第二行 | 键含模型版本（重放会对同一记录重复推理并可能重复告警） |
+| 2026-09-29 | 阶段 4：推理在 M2 消费事务内同步执行；容量耗尽、判定后版本切换整批回滚重试，单条门禁/输入/超时/会话错误写显式结论后正常 ack | 与消费幂等台账同一事务提交；暂时性故障不应固化为记录级失败结论 | 异步二次队列（增加一跳投递语义，本期无吞吐需求） |
+| 2026-09-29 | 阶段 4：推理要求批次对应的传感器配置在消费时仍为 `active`，否则 `config_not_active` | 与接入端 `requireActiveConfig` 口径一致；配置撤销后不再对其产出推理结论 | 按接入时配置状态放行（撤销配置无法及时生效） |
+| 2026-09-29 | 阶段 4：dry-run 仅限 `source_type='replay'` 的活动数据源，需在该数据源范围持有新权限 `model.replay.run`（仅授予 `model_operator`）；只写审计 | 落实“仅回放数据”；`source_type` 创建后不可经 API 修改，可作为稳定判据 | 请求体直接提交特征（无法证明是回放数据） |
+| 2026-09-29 | 阶段 4：`ModelReplayCli` 门限由 1e-4 收紧为 1e-5 | §10.2 要求 Java 回放严于训练端 1e-4；实测最大误差 7.2e-7 | 保留 1e-4（与验收要求不一致） |
+| 2026-09-29 | 阶段 4：本机开发库迁移 V11/V12 与模型激活由用户执行，代码侧只在测试 schema 验证 | README 约定现存库迁移前须结构核对、备份并获准；激活需两名不同用户分离审批 | 由实现者直接迁移并激活本机开发库 |
 | 待填 | G2 Go/Java 一致性结论 | | |
 | 待填 | G3 影子验证结论与阈值 | | |

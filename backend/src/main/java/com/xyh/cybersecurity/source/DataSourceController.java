@@ -90,6 +90,15 @@ public class DataSourceController {
                 requestId(request));
     }
 
+    /** 独立批准他人登记的映射版本；登记人自批 403，历史映射缺登记人 409。 */
+    @PostMapping("/{id}/mappings/{mappingId}/approve")
+    @PreAuthorize("hasAuthority('source.mapping.approve')")
+    public ApiEnvelope<DataSourceMapper.MappingView> approveMapping(@PathVariable long id, @PathVariable long mappingId,
+                                                                     @AuthenticationPrincipal IdentityPrincipal principal,
+                                                                     HttpServletRequest request) {
+        return ApiEnvelope.success(service.approveMapping(id, mappingId, principal, request), requestId(request));
+    }
+
     private String requestId(HttpServletRequest request) {
         Object value = request.getAttribute(REQUEST_ID_ATTRIBUTE);
         return value instanceof String id ? id : "unknown";

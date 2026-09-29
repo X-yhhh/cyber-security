@@ -47,11 +47,24 @@ public final class UnswRawFlowReplayAdapter {
      * @throws IllegalArgumentException 列数不符或必需数值无法解析（fail-closed，报告行号，不回显内容）
      */
     public List<RawFlow> read(Path csv, long firstRowNumber) throws IOException {
+        return read(csv, firstRowNumber, 0, Integer.MAX_VALUE);
+    }
+
+    /**
+     * 只读取文件中的一段连续行，避免把 70 万行整文件载入内存。
+     *
+     * @param skip  跳过文件开头的行数（跳过的行不解析、不校验）
+     * @param limit 最多返回的行数；导出序号仍按文件内位置计算，与整文件读取一致
+     */
+    public List<RawFlow> read(Path csv, long firstRowNumber, long skip, int limit) throws IOException {
         if (csv == null || !Files.isRegularFile(csv)) throw new IOException("回放文件不存在");
+        if (skip < 0 || limit < 1) throw new IllegalArgumentException("skip 须 ≥ 0，limit 须 ≥ 1");
         List<RawFlow> rows = new ArrayList<>();
         try (Reader reader = Files.newBufferedReader(csv, StandardCharsets.UTF_8)) {
             for (CSVRecord record : CSVFormat.DEFAULT.builder().setIgnoreEmptyLines(true).get().parse(reader)) {
+                if (record.getRecordNumber() <= skip) continue;
                 rows.add(toFlow(record, firstRowNumber + record.getRecordNumber() - 1));
+                if (rows.size() >= limit) break;
             }
         }
         return List.copyOf(rows);

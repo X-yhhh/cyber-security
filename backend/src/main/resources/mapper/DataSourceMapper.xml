@@ -12,9 +12,9 @@
 
     <insert id="insertMapping">
         INSERT INTO source_mapping (data_source_id, mapping_version, source_schema_json, mapping_json,
-                                    feature_contract_version, feature_contract_sha256, status)
+                                    feature_contract_version, feature_contract_sha256, status, requested_by)
         VALUES (#{sourceId}, #{mappingVersion}, #{sourceSchemaJson}, #{mappingJson},
-                #{contractVersion}, #{contractSha256}, 'draft')
+                #{contractVersion}, #{contractSha256}, 'draft', #{requestedBy})
     </insert>
 
     <select id="findMappingId" resultType="long">
@@ -53,6 +53,15 @@
             <arg column="approved_by" javaType="java.lang.Long"/>
             <arg column="feature_contract_version" javaType="string"/>
             <arg column="feature_contract_sha256" javaType="string"/>
+            <arg column="requested_by" javaType="java.lang.Long"/>
+        </constructor>
+    </resultMap>
+
+    <resultMap id="mappingRow" type="com.xyh.cybersecurity.source.DataSourceMapper$MappingRow">
+        <constructor>
+            <idArg column="id" javaType="_long"/>
+            <arg column="status" javaType="string"/>
+            <arg column="requested_by" javaType="java.lang.Long"/>
         </constructor>
     </resultMap>
 
@@ -112,7 +121,7 @@
 
     <select id="listMappingsVisible" resultMap="mappingView">
         SELECT sm.id, sm.mapping_version, sm.source_schema_json, sm.mapping_json, sm.status, sm.approved_by,
-               sm.feature_contract_version, sm.feature_contract_sha256
+               sm.feature_contract_version, sm.feature_contract_sha256, sm.requested_by
         FROM source_mapping sm JOIN data_source ds ON ds.id=sm.data_source_id
         WHERE ds.id=#{sourceId} AND <include refid="visibleSourcePredicate"/>
         ORDER BY sm.id
@@ -123,4 +132,27 @@
         WHERE ur.user_id=#{userId} AND r.role_key='platform_admin' AND r.status='active'
           AND ur.scope_type='global' AND ur.scope_id='*'
     </select>
+
+    <select id="hasMappingApproveScope" resultType="boolean">
+        SELECT EXISTS (
+            SELECT 1 FROM sys_user_role ur
+            JOIN sys_role r ON r.id=ur.role_id AND r.status='active'
+            JOIN sys_role_permission rp ON rp.role_id=r.id
+            JOIN sys_permission p ON p.id=rp.permission_id AND p.status='active'
+            WHERE ur.user_id=#{userId} AND p.permission_key='source.mapping.approve'
+              AND ((r.role_key='platform_admin' AND ur.scope_type='global' AND ur.scope_id='*')
+                OR (ur.scope_type='data_source' AND ur.scope_id=CAST(#{sourceId} AS CHAR))))
+    </select>
+
+    <select id="findMappingForUpdate" resultMap="mappingRow">
+        SELECT id, status, requested_by FROM source_mapping
+        WHERE id=#{mappingId} AND data_source_id=#{sourceId} FOR UPDATE
+    </select>
+
+    <!-- 只批准 draft/pending，且批准人不能是登记人；V14 CHECK 在库层再兜底。 -->
+    <update id="approveMapping">
+        UPDATE source_mapping SET status='approved', approved_by=#{approvedBy}, updated_at=CURRENT_TIMESTAMP(3)
+        WHERE id=#{mappingId} AND status IN ('draft', 'pending')
+          AND requested_by IS NOT NULL AND requested_by &lt;&gt; #{approvedBy}
+    </update>
 </mapper>

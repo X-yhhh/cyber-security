@@ -95,7 +95,7 @@ public class DataSourceService {
         }
         try {
             mapper.insertMapping(new DataSourceMapper.MappingInsert(sourceId, input.mappingVersion(), sourceSchema, mapping,
-                    contractVersion, contractSha256));
+                    contractVersion, contractSha256, actor.id()));
         } catch (org.springframework.dao.DuplicateKeyException exception) {
             throw ApiRequestException.conflict("该映射版本已存在");
         }
@@ -103,6 +103,35 @@ public class DataSourceService {
         audit(request, actor.id(), "source.mapping.created", "source_mapping", mappingId, sourceId,
                 "success", "draft mapping version created");
         return mapper.listMappingsVisible(actor.id(), sourceId).stream().filter(row -> row.id() == mappingId)
+                .findFirst().orElseThrow();
+    }
+
+    /**
+     * 独立批准映射（V14）：批准人须有 {@code source.mapping.approve} 且在该数据源范围内，不能是登记人。
+     * V14 之前登记的映射没有登记人记录，无法证明职责分离，拒绝经接口批准。
+     */
+    @Transactional
+    public DataSourceMapper.MappingView approveMapping(long sourceId, long mappingId, IdentityPrincipal actor,
+                                                        HttpServletRequest request) {
+        if (mapper.findVisible(actor.id(), sourceId) == null || !mapper.hasMappingApproveScope(actor.id(), sourceId)) {
+            throw ApiRequestException.notFound();
+        }
+        DataSourceMapper.MappingRow row = mapper.findMappingForUpdate(sourceId, mappingId);
+        if (row == null) throw ApiRequestException.notFound();
+        if (row.requestedBy() == null) {
+            throw new ApiRequestException(org.springframework.http.HttpStatus.CONFLICT, "MAPPING_REQUESTER_UNKNOWN",
+                    "映射缺少登记人记录，不能经接口批准");
+        }
+        if (row.requestedBy() == actor.id()) throw new AccessDeniedException("Self approval denied");
+        if (!"draft".equals(row.status()) && !"pending".equals(row.status())) {
+            throw ApiRequestException.conflict("映射状态不可审批");
+        }
+        if (mapper.approveMapping(mappingId, actor.id()) != 1) {
+            throw ApiRequestException.conflict("映射状态已被其他请求更新");
+        }
+        audit(request, actor.id(), "source.mapping.approved", "source_mapping", mappingId, sourceId,
+                "success", "mapping version approved");
+        return mapper.listMappingsVisible(actor.id(), sourceId).stream().filter(item -> item.id() == mappingId)
                 .findFirst().orElseThrow();
     }
 

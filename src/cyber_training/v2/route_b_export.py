@@ -175,7 +175,8 @@ def run(version: str = DEFAULT_VERSION) -> Path:
         write_json(run_dir / "preprocessing.json", v4_preprocessing(contract))
         write_replay(run_dir / "replay-sample.csv", inputs, contract, prob, decision, labels)
         fixtures = build_fixtures(manifest, ROOT / record["split"]["dir"], re_all["excluded"].to_numpy(dtype=bool),
-                                  session(model_bytes), run_dir / "fixtures")
+                                  re_all["ct_src_ltm_v4"].to_numpy(dtype=np.float64), session(model_bytes),
+                                  run_dir / "fixtures")
         del re_all
         say(f"fixtures: {fixtures['flows']} flows, {fixtures['scored']} scored, missing={fixtures['missing_coverage']}")
         files = {n: sha256_file(run_dir / n) for n in ("model.onnx", "preprocessing.json", "replay-sample.csv")}

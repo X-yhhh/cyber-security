@@ -1,0 +1,21 @@
+{
+  "ranking": [
+    "XGBoost",
+    "LightGBM",
+    "MLP",
+    "RF",
+    "ET",
+    "LR",
+    "SVM",
+    "GNB",
+    "DT"
+  ],
+  "tune_candidates": [
+    "XGBoost",
+    "LightGBM",
+    "MLP"
+  ],
+  "skipped_untunable": [],
+  "failed": [],
+  "rule": "初筛 Macro-F1 前 3 名（只计有搜索空间的模型）外加 MLP 必选，合计 ≤ 4 个"
+}

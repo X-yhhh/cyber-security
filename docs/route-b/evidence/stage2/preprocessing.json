@@ -1,0 +1,470 @@
+{
+  "contract_version": "unsw-nb15-flow-v4",
+  "embedded_in_onnx": true,
+  "note": "预处理已打包进 model.onnx；后端只负责按顺序提供原始字段、校验单位与缺失规则，不得自行插补或编码。",
+  "inputs": {
+    "flow_numeric": {
+      "dtype": "float64",
+      "shape": [
+        "N",
+        17
+      ],
+      "fields": [
+        {
+          "index": 0,
+          "name": "dur",
+          "unit": "秒",
+          "description": "末包时间 − 首包时间",
+          "nullable": false,
+          "min": 0
+        },
+        {
+          "index": 1,
+          "name": "sbytes",
+          "unit": "字节",
+          "description": "initiator→responder IP 字节和",
+          "nullable": false,
+          "min": 0
+        },
+        {
+          "index": 2,
+          "name": "dbytes",
+          "unit": "字节",
+          "description": "responder→initiator IP 字节和",
+          "nullable": false,
+          "min": 0
+        },
+        {
+          "index": 3,
+          "name": "sload",
+          "unit": "比特/秒",
+          "description": "sbytes×8×(spkts−1)/spkts/dur；spkts≤1 或 dur=0 时为 0",
+          "nullable": false,
+          "min": 0
+        },
+        {
+          "index": 4,
+          "name": "dload",
+          "unit": "比特/秒",
+          "description": "dbytes×8×(dpkts−1)/dpkts/dur；dpkts≤1 或 dur=0 时为 0",
+          "nullable": false,
+          "min": 0
+        },
+        {
+          "index": 5,
+          "name": "tcprtt",
+          "unit": "秒",
+          "description": "synack + ackdat；非 TCP 或握手不完整时为 0",
+          "nullable": false,
+          "min": 0
+        },
+        {
+          "index": 6,
+          "name": "ackdat",
+          "unit": "秒",
+          "description": "SYN-ACK → 其后首个纯 ACK",
+          "nullable": false,
+          "min": 0
+        },
+        {
+          "index": 7,
+          "name": "synack",
+          "unit": "秒",
+          "description": "首个纯 SYN → 首个 SYN-ACK",
+          "nullable": false,
+          "min": 0
+        },
+        {
+          "index": 8,
+          "name": "smean",
+          "unit": "字节",
+          "description": "round(sbytes/spkts)",
+          "nullable": false,
+          "min": 0
+        },
+        {
+          "index": 9,
+          "name": "dmean",
+          "unit": "字节",
+          "description": "round(dbytes/dpkts)",
+          "nullable": false,
+          "min": 0
+        },
+        {
+          "index": 10,
+          "name": "spkts",
+          "unit": "包",
+          "description": "initiator→responder 包数",
+          "nullable": false,
+          "min": 0
+        },
+        {
+          "index": 11,
+          "name": "dpkts",
+          "unit": "包",
+          "description": "responder→initiator 包数",
+          "nullable": false,
+          "min": 0
+        },
+        {
+          "index": 12,
+          "name": "ct_srv_src",
+          "unit": "条",
+          "description": "本机窗口内 service 与源地址都相同的流数",
+          "nullable": false,
+          "min": 0
+        },
+        {
+          "index": 13,
+          "name": "ct_srv_dst",
+          "unit": "条",
+          "description": "本机窗口内 service 与目的地址都相同的流数",
+          "nullable": false,
+          "min": 0
+        },
+        {
+          "index": 14,
+          "name": "ct_dst_ltm",
+          "unit": "条",
+          "description": "本机窗口内目的地址相同的流数",
+          "nullable": false,
+          "min": 0
+        },
+        {
+          "index": 15,
+          "name": "ct_src_ltm",
+          "unit": "条",
+          "description": "本机窗口内源地址相同的流数",
+          "nullable": false,
+          "min": 0
+        },
+        {
+          "index": 16,
+          "name": "ct_src_dport_ltm",
+          "unit": "条",
+          "description": "本机窗口内源地址与目的端口都相同的流数",
+          "nullable": false,
+          "min": 0
+        }
+      ]
+    },
+    "flow_categorical": {
+      "dtype": "string",
+      "shape": [
+        "N",
+        2
+      ],
+      "fields": [
+        {
+          "index": 0,
+          "name": "proto",
+          "description": "IANA 协议号关键字（小写）",
+          "vocabulary": [
+            "3pc",
+            "a/n",
+            "aes-sp3-d",
+            "any",
+            "argus",
+            "aris",
+            "arp",
+            "ax.25",
+            "bbn-rcc",
+            "bna",
+            "br-sat-mon",
+            "cbt",
+            "cftp",
+            "chaos",
+            "compaq-peer",
+            "cphb",
+            "cpnx",
+            "crtp",
+            "crudp",
+            "dcn",
+            "ddp",
+            "ddx",
+            "dgp",
+            "egp",
+            "eigrp",
+            "emcon",
+            "encap",
+            "esp",
+            "etherip",
+            "fc",
+            "fire",
+            "ggp",
+            "gmtp",
+            "gre",
+            "hmp",
+            "i-nlsp",
+            "iatp",
+            "ib",
+            "icmp",
+            "idpr",
+            "idpr-cmtp",
+            "idrp",
+            "ifmp",
+            "igp",
+            "il",
+            "ip",
+            "ipcomp",
+            "ipcv",
+            "ipip",
+            "iplt",
+            "ipnip",
+            "ippc",
+            "ipv6",
+            "ipv6-frag",
+            "ipv6-no",
+            "ipv6-opts",
+            "ipv6-route",
+            "ipx-n-ip",
+            "irtp",
+            "isis",
+            "iso-ip",
+            "iso-tp4",
+            "kryptolan",
+            "l2tp",
+            "larp",
+            "leaf-1",
+            "leaf-2",
+            "merit-inp",
+            "mfe-nsp",
+            "mhrp",
+            "micp",
+            "mobile",
+            "mtp",
+            "mux",
+            "narp",
+            "netblt",
+            "nsfnet-igp",
+            "nvp",
+            "ospf",
+            "pgm",
+            "pim",
+            "pipe",
+            "pnni",
+            "pri-enc",
+            "prm",
+            "ptp",
+            "pup",
+            "pvp",
+            "qnx",
+            "rdp",
+            "rsvp",
+            "rtp",
+            "rvd",
+            "sat-expak",
+            "sat-mon",
+            "sccopmce",
+            "scps",
+            "sctp",
+            "sdrp",
+            "secure-vmtp",
+            "sep",
+            "skip",
+            "sm",
+            "smp",
+            "snp",
+            "sprite-rpc",
+            "sps",
+            "srp",
+            "st2",
+            "stp",
+            "sun-nd",
+            "swipe",
+            "tcf",
+            "tcp",
+            "tlsp",
+            "tp++",
+            "trunk-1",
+            "trunk-2",
+            "ttp",
+            "udp",
+            "udt",
+            "unas",
+            "uti",
+            "vines",
+            "visa",
+            "vmtp",
+            "vrrp",
+            "wb-expak",
+            "wb-mon",
+            "wsn",
+            "xnet",
+            "xns-idp",
+            "xtp",
+            "zero"
+          ],
+          "unknown_encoded_as": -1
+        },
+        {
+          "index": 1,
+          "name": "service",
+          "description": "按 responder 端口固定映射，未命中为 -",
+          "vocabulary": [
+            "-",
+            "dhcp",
+            "dns",
+            "ftp",
+            "http",
+            "irc",
+            "pop3",
+            "radius",
+            "smtp",
+            "snmp",
+            "ssh",
+            "ssl"
+          ],
+          "unknown_encoded_as": -1
+        }
+      ]
+    }
+  },
+  "input_rules": [
+    "字段按 docs/特征规格-unsw-nb15-flow-v4.md（SHA-256 dbba110432c2…）计算；数值字段均不可为空，出现 NaN、±Inf 或负数时拒绝推理，不得补值。",
+    "ct_* 来自本机单主机窗口（每个地址族最近 100 条已完成流，含当前流）；窗口未满时不推理，状态记 window_not_ready。",
+    "首个模型只评估 IPv4 且本机为 responder 的流；IPv6 与出站流记 not_in_model_scope，不送推理。",
+    "类别词表外取值在图内编码为 -1，后端记录为漂移信号，不拒绝记录；后端不得自行插补、编码或调整阈值。"
+  ],
+  "derived_features": [
+    {
+      "name": "rate",
+      "formula": "(spkts + dpkts - 1) / dur；dur = 0 时为缺失",
+      "inputs": [
+        "spkts",
+        "dpkts",
+        "dur"
+      ],
+      "precision": "float64（原始值）",
+      "non_finite": "NaN（随后插补）"
+    },
+    {
+      "name": "sbytes_per_spkt",
+      "formula": "sbytes / (spkts + 1)",
+      "inputs": [
+        "sbytes",
+        "spkts"
+      ],
+      "precision": "输入先舍入为 float32 再以 float64 计算",
+      "non_finite": "NaN（随后插补）"
+    },
+    {
+      "name": "dbytes_per_dpkt",
+      "formula": "dbytes / (dpkts + 1)",
+      "inputs": [
+        "dbytes",
+        "dpkts"
+      ],
+      "precision": "输入先舍入为 float32 再以 float64 计算",
+      "non_finite": "NaN（随后插补）"
+    },
+    {
+      "name": "sbytes_dbytes_ratio",
+      "formula": "sbytes / (dbytes + 1)",
+      "inputs": [
+        "sbytes",
+        "dbytes"
+      ],
+      "precision": "输入先舍入为 float32 再以 float64 计算",
+      "non_finite": "NaN（随后插补）"
+    },
+    {
+      "name": "spkts_dpkts_ratio",
+      "formula": "spkts / (dpkts + 1)",
+      "inputs": [
+        "spkts",
+        "dpkts"
+      ],
+      "precision": "输入先舍入为 float32 再以 float64 计算",
+      "non_finite": "NaN（随后插补）"
+    },
+    {
+      "name": "synack_ackdat_diff",
+      "formula": "synack - ackdat",
+      "inputs": [
+        "synack",
+        "ackdat"
+      ],
+      "precision": "输入先舍入为 float32 再以 float64 计算",
+      "non_finite": "NaN（随后插补）"
+    },
+    {
+      "name": "bytes_rate",
+      "formula": "(sbytes + dbytes) / (dur + 1e-6)",
+      "inputs": [
+        "sbytes",
+        "dbytes",
+        "dur"
+      ],
+      "precision": "输入先舍入为 float32 再以 float64 计算",
+      "non_finite": "NaN（随后插补）"
+    }
+  ],
+  "imputation": {
+    "strategy": "median（仅训练分区拟合）",
+    "medians": {
+      "dur": 0.03299050033092499,
+      "sbytes": 2158.0,
+      "dbytes": 3380.0,
+      "rate": 2003.399658203125,
+      "sload": 528085.625,
+      "dload": 675000.0,
+      "tcprtt": 0.0006559999892488122,
+      "ackdat": 0.00013000000035390258,
+      "smean": 73.0,
+      "dmean": 132.0,
+      "ct_srv_src": 5.0,
+      "ct_dst_ltm": 100.0,
+      "ct_src_dport_ltm": 1.0,
+      "ct_src_ltm": 11.0,
+      "ct_srv_dst": 57.0,
+      "sbytes_per_spkt": 62.512821197509766,
+      "dbytes_per_dpkt": 126.78739929199219,
+      "sbytes_dbytes_ratio": 0.739982545375824,
+      "spkts_dpkts_ratio": 0.9189189076423645,
+      "synack_ackdat_diff": 0.00037700001848861575,
+      "bytes_rate": 298068.0625
+    },
+    "missing_indicators": [
+      "missingindicator_rate"
+    ]
+  },
+  "encoding": {
+    "method": "ordinal（词表顺序即编码值）",
+    "unknown_or_missing": -1
+  },
+  "model_feature_order": [
+    "dur",
+    "sbytes",
+    "dbytes",
+    "rate",
+    "sload",
+    "dload",
+    "tcprtt",
+    "ackdat",
+    "smean",
+    "dmean",
+    "ct_srv_src",
+    "ct_dst_ltm",
+    "ct_src_dport_ltm",
+    "ct_src_ltm",
+    "ct_srv_dst",
+    "sbytes_per_spkt",
+    "dbytes_per_dpkt",
+    "sbytes_dbytes_ratio",
+    "spkts_dpkts_ratio",
+    "synack_ackdat_diff",
+    "bytes_rate",
+    "missingindicator_rate",
+    "proto",
+    "service"
+  ],
+  "outputs": {
+    "attack_probability": "float32[N]，攻击概率",
+    "is_attack": "bool[N]，attack_probability >= 0.35351091623306274"
+  },
+  "spec": {
+    "document": "docs/特征规格-unsw-nb15-flow-v4.md",
+    "sha256": "dbba110432c2c381ec291e2ec373601256c7ca990efa3e7bdad405c25120c6f1"
+  }
+}

@@ -1,0 +1,66 @@
+{
+  "freeze_file": "docs/route-b/pre-final-freeze-v4.json",
+  "freeze_sha256": "a0f558b0f6da757f1caa9f0ed3c1af1791ea839a7a5aa1718993f77a01052b24",
+  "attempt": 1,
+  "run": "final-eval-v4-20260929-1602",
+  "candidate": "XGBoost",
+  "threshold": 0.35351091623306274,
+  "holdout_rows": 308150,
+  "gates": [
+    {
+      "metric": "macro_f1",
+      "name": "Macro-F1",
+      "value": 0.9455992831161322,
+      "op": ">=",
+      "threshold": 0.92,
+      "passed": true
+    },
+    {
+      "metric": "fnr",
+      "name": "FNR",
+      "value": 0.049411411861738024,
+      "op": "<=",
+      "threshold": 0.05,
+      "passed": true
+    },
+    {
+      "metric": "fpr",
+      "name": "FPR",
+      "value": 0.0077269319873954,
+      "op": "<=",
+      "threshold": 0.015,
+      "passed": true
+    },
+    {
+      "metric": "pr_auc",
+      "name": "PR-AUC",
+      "value": 0.9741326977202944,
+      "op": ">=",
+      "threshold": 0.93,
+      "passed": true
+    },
+    {
+      "metric": "roc_auc",
+      "name": "ROC-AUC",
+      "value": 0.9987694163938236,
+      "op": ">=",
+      "threshold": 0.99,
+      "passed": true
+    }
+  ],
+  "validation_gate": {
+    "metric": "fnr_std",
+    "name": "多种子 FNR 标准差（验证集）",
+    "value": 0.0,
+    "op": "<=",
+    "threshold": 0.02,
+    "passed": true
+  },
+  "deferred_to_export": [
+    "单条推理延迟 P95 ≤ 5 ms（ONNX Runtime CPU）",
+    "batch 1024 吞吐 ≥ 20k 条/秒",
+    "ONNX 与训练框架概率最大绝对误差 ≤ 1e-4"
+  ],
+  "passed_step9": true,
+  "deliverable": "pending_export"
+}

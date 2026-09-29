@@ -1,0 +1,205 @@
+{
+  "register_manifest_sha256": "a9cb06f9e16f8bca319d6bb93d4f4e5669d454a9f4b6ad6dab5420185ed5ca32",
+  "d1_raw": {
+    "strategy": "usable rows (window ready, not excluded) + dedup on v4 inputs + endpoint-pair grouped split",
+    "usable_rows": 2529401,
+    "dedup_key": [
+      "dur",
+      "sbytes",
+      "dbytes",
+      "sload",
+      "dload",
+      "tcprtt",
+      "ackdat",
+      "synack",
+      "smean",
+      "dmean",
+      "spkts",
+      "dpkts",
+      "ct_srv_src",
+      "ct_srv_dst",
+      "ct_dst_ltm",
+      "ct_src_ltm",
+      "ct_src_dport_ltm",
+      "proto",
+      "service"
+    ],
+    "dedup": {
+      "input_rows": 2529401,
+      "label_conflict_rows_removed": 945,
+      "duplicate_rows_removed": 549434,
+      "rows_retained": 1979022
+    },
+    "selected_seed": 20261001,
+    "seed_attempts": [
+      {
+        "seed": 20261001,
+        "passed": true,
+        "max_attack_rate_deviation": 0.0014543580981289175,
+        "mean_attack_category_share_deviation": 0.008633317359954793,
+        "shares": {
+          "train": 0.6967876051908468,
+          "validation": 0.147504171252265,
+          "holdout": 0.1557082235568882
+        }
+      },
+      {
+        "seed": 20261002,
+        "passed": true,
+        "max_attack_rate_deviation": 0.0016998949385165357,
+        "mean_attack_category_share_deviation": 0.011851225947160903,
+        "shares": {
+          "train": 0.6983252333728478,
+          "validation": 0.1467219667088087,
+          "holdout": 0.15495279991834351
+        }
+      },
+      {
+        "seed": 20261003,
+        "passed": true,
+        "max_attack_rate_deviation": 0.0009540684313755141,
+        "mean_attack_category_share_deviation": 0.012579583655380644,
+        "shares": {
+          "train": 0.6967896263912174,
+          "validation": 0.14813882816866109,
+          "holdout": 0.15507154544012144
+        }
+      },
+      {
+        "seed": 20261004,
+        "passed": true,
+        "max_attack_rate_deviation": 0.0013476431703198788,
+        "mean_attack_category_share_deviation": 0.011254647220915947,
+        "shares": {
+          "train": 0.6970003365298617,
+          "validation": 0.14863099045892364,
+          "holdout": 0.15436867301121462
+        }
+      },
+      {
+        "seed": 20261005,
+        "passed": true,
+        "max_attack_rate_deviation": 0.000848365011669891,
+        "mean_attack_category_share_deviation": 0.011183850550820827,
+        "shares": {
+          "train": 0.6971499053572926,
+          "validation": 0.14697764855570075,
+          "holdout": 0.15587244608700662
+        }
+      }
+    ],
+    "attack_cat_by_partition": {
+      "train": {
+        "Normal": 1317130,
+        "Exploits": 21611,
+        "Fuzzers": 14103,
+        "Generic": 11115,
+        "Reconnaissance": 8556,
+        "DoS": 4123,
+        "Shellcode": 1042,
+        "Analysis": 657,
+        "Backdoor": 502,
+        "Worms": 119
+      },
+      "validation": {
+        "Normal": 278547,
+        "Exploits": 4635,
+        "Fuzzers": 3203,
+        "Generic": 2213,
+        "Reconnaissance": 1842,
+        "DoS": 999,
+        "Shellcode": 215,
+        "Analysis": 140,
+        "Backdoor": 96,
+        "Worms": 24
+      },
+      "holdout": {
+        "Normal": 294813,
+        "Exploits": 4650,
+        "Fuzzers": 3660,
+        "Generic": 1827,
+        "Reconnaissance": 1806,
+        "DoS": 871,
+        "Shellcode": 237,
+        "Analysis": 145,
+        "Backdoor": 114,
+        "Worms": 27
+      }
+    },
+    "overall_attack_rate": 0.04473522780444078,
+    "partitions": {
+      "train": {
+        "rows": 1378958,
+        "share": 0.6967876051908468,
+        "attack_rows": 61828,
+        "attack_rate": 0.044836753548694014,
+        "groups": 111
+      },
+      "validation": {
+        "rows": 291914,
+        "share": 0.147504171252265,
+        "attack_rows": 13367,
+        "attack_rate": 0.045790883616407575,
+        "groups": 25
+      },
+      "holdout": {
+        "rows": 308150,
+        "share": 0.1557082235568882,
+        "attack_rows": 13337,
+        "attack_rate": 0.04328086970631186,
+        "groups": 22
+      }
+    },
+    "checks": {
+      "size_within_tolerance": true,
+      "attack_rate_within_tolerance": true,
+      "every_partition_has_attacks": true,
+      "endpoint_group_overlap_zero": true,
+      "feature_vector_overlap_zero": true
+    },
+    "endpoint_group_overlap": 0,
+    "feature_vector_overlap": 0,
+    "passed": true
+  },
+  "d2": {
+    "strategy": "stratified sample by Attack then stratified 70/15/15 (no IP fields available)",
+    "sample_rows": 1500000,
+    "overall_attack_rate": 0.7258437405150062,
+    "partitions": {
+      "train": {
+        "rows": 1050000,
+        "share": 0.7,
+        "attack_rows": 762136,
+        "attack_rate": 0.7258438095238096,
+        "groups": null
+      },
+      "validation": {
+        "rows": 225000,
+        "share": 0.15,
+        "attack_rows": 163315,
+        "attack_rate": 0.7258444444444444,
+        "groups": null
+      },
+      "holdout": {
+        "rows": 225000,
+        "share": 0.15,
+        "attack_rows": 163315,
+        "attack_rate": 0.7258444444444444,
+        "groups": null
+      }
+    },
+    "checks": {
+      "attack_rate_within_tolerance": true,
+      "every_partition_has_attacks": true
+    },
+    "passed": true
+  },
+  "split-d1-raw.npz": {
+    "sha256": "f7d2f3e2e63aaa7b47f3bca36ce8f33bb9d175757f38235dadf01cb6501684b6",
+    "fingerprint": "6e95020367e18949130b731cbc73febc64efeb40ab871fe8c7fe22c74d70d2f4"
+  },
+  "split-d2.npz": {
+    "sha256": "050f57fbc91cb07322fc2e591b85d28a1f4b96e06b8ababe59565b74d5b59006",
+    "fingerprint": "839a491966049f5be6e42571c8fbecd426f1d63795577309bf796a4631b0f244"
+  }
+}

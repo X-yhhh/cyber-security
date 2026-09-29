@@ -1,0 +1,133 @@
+{
+  "rule": "FNR 标准差 ≤ 2% → 平均 FNR ≤ 5% 且平均 FPR ≤ 1.5% → Macro-F1 最高；差距 ≤ 0.003 时选延迟 P95 更低、体积更小者",
+  "checks": [
+    {
+      "model": "XGBoost",
+      "fnr_std_ok": true,
+      "rates_ok": true,
+      "macro_f1_mean": 0.9517392708314804,
+      "latency_p95_ms": 0.8318489982048044,
+      "model_bytes": 4327266.4
+    },
+    {
+      "model": "LightGBM",
+      "fnr_std_ok": true,
+      "rates_ok": true,
+      "macro_f1_mean": 0.9499306454298738,
+      "latency_p95_ms": 1.097645998233929,
+      "model_bytes": 966280.0
+    },
+    {
+      "model": "MLP",
+      "fnr_std_ok": true,
+      "rates_ok": true,
+      "macro_f1_mean": 0.9388910737683871,
+      "latency_p95_ms": 1.0031580018403472,
+      "model_bytes": 2800734.0
+    }
+  ],
+  "tie": 0.003,
+  "selected": "XGBoost",
+  "top_by_macro_f1": "XGBoost",
+  "tied": [
+    "XGBoost",
+    "LightGBM"
+  ],
+  "models": [
+    "XGBoost",
+    "LightGBM",
+    "MLP"
+  ],
+  "incomplete": [],
+  "tune_dir": "train-tune-20260929-1528",
+  "params": {
+    "XGBoost": {
+      "n_estimators": 2000,
+      "learning_rate": 0.04481927638918875,
+      "max_depth": 10,
+      "subsample": 0.9044347707872524,
+      "colsample_bytree": 0.7210569132065112,
+      "min_child_weight": 1.432401355102924,
+      "gamma": 0.8603614226946629,
+      "early_stopping_rounds": 100
+    },
+    "LightGBM": {
+      "n_estimators": 3000,
+      "learning_rate": 0.08870774875656119,
+      "num_leaves": 109,
+      "min_child_samples": 29,
+      "colsample_bytree": 0.8,
+      "subsample": 0.8,
+      "subsample_freq": 1,
+      "reg_lambda": 2.125092618200376,
+      "early_stopping_rounds": 100
+    },
+    "MLP": {
+      "width": 1024,
+      "layers": 3,
+      "dropout": 0.13054325716706672,
+      "lr": 0.0007662266553657184,
+      "weight_decay": 0.0001,
+      "batch_size": 8192,
+      "max_epochs": 30,
+      "patience": 5
+    }
+  },
+  "candidate": {
+    "model": "XGBoost",
+    "seed": 20260927,
+    "params": {
+      "n_estimators": 2000,
+      "learning_rate": 0.04481927638918875,
+      "max_depth": 10,
+      "subsample": 0.9044347707872524,
+      "colsample_bytree": 0.7210569132065112,
+      "min_child_weight": 1.432401355102924,
+      "gamma": 0.8603614226946629,
+      "early_stopping_rounds": 100
+    },
+    "threshold": 0.35351091623306274,
+    "constraint_met": true,
+    "scheme": "P1",
+    "view": "v4",
+    "columns": [
+      "dur",
+      "proto",
+      "service",
+      "sbytes",
+      "dbytes",
+      "rate",
+      "sload",
+      "dload",
+      "tcprtt",
+      "ackdat",
+      "smean",
+      "dmean",
+      "ct_srv_src",
+      "ct_dst_ltm",
+      "ct_src_dport_ltm",
+      "ct_src_ltm",
+      "ct_srv_dst",
+      "sbytes_per_spkt",
+      "dbytes_per_dpkt",
+      "sbytes_dbytes_ratio",
+      "spkts_dpkts_ratio",
+      "synack_ackdat_diff",
+      "bytes_rate"
+    ],
+    "split_fingerprint": "6e95020367e18949130b731cbc73febc64efeb40ab871fe8c7fe22c74d70d2f4",
+    "best_iteration": 150,
+    "validation_metrics": {
+      "macro_f1": 0.9539007172497391,
+      "fnr": 0.03994912845066208,
+      "fpr": 0.006946763023834398,
+      "pr_auc": 0.9793375102840549,
+      "auc": 0.9989610327451388
+    },
+    "files": {
+      "model.json": "8bfc41c965fa11035051a64935e1d038b54330dfdb1f6eb108e04d3d8ae29694",
+      "preprocessor.pkl": "b23c117f118700f011b45b738962ab3b47bc1e93b58d4064fea5d4868a47c856"
+    },
+    "note": "验证集阈值与指标；holdout 未读取。XGBoost/LightGBM/MLP 使用验证集早停。"
+  }
+}

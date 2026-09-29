@@ -25,6 +25,20 @@ def test_contract_inputs_order_and_boundaries():
     assert cat[:, 1].tolist() == re["service_v4"].tolist() == view["service"].tolist()
 
 
+def test_select_slice_covers_every_boundary_case():
+    n = 600
+    raw = pd.DataFrame({"srcip": ["a"] * n, "dstip": ["h"] * n, "Stime": np.arange(n), "Ltime": np.arange(n),
+                        "Label": 0, "proto": ["tcp"] * n, "Spkts": 3, "Dpkts": 2, "dur": 1.0, "tcprtt": 0.1})
+    raw.loc[50, ["srcip", "dstip"]] = ["h", "b"]  # 出站
+    raw.loc[200, ["proto", "Spkts", "Dpkts", "dur"]] = ["udp", 1, 0, 0.0]  # 单包、dur=0、非 TCP、无反向包
+    raw.loc[210, "tcprtt"] = 0.0  # 握手不完整
+    raw.loc[250, "Label"] = 1
+    rows, host = fx.select_slice(raw, np.zeros(n, bool), np.arange(n), np.full(n, 60.0))
+    assert host == "h" and len(rows) == fx.SLICE
+    assert {50, 200, 210, 250} <= set(rows.tolist())
+    assert raw.loc[rows[fx.WINDOW - 1], "dstip"] == "h"
+
+
 def test_doc_addresses_unique_and_not_network_or_broadcast():
     addrs = [fx.doc_address(i) for i in range(fx.MAX_ADDRESSES)]
     assert len(set(addrs)) == len(addrs)

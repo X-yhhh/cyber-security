@@ -38,15 +38,46 @@ def doc_address(i: int) -> str:
     return f"{DOC_BLOCKS[i // 250]}{i % 250 + 1}"
 
 
-def select_slice(raw: pd.DataFrame, excluded: np.ndarray, validation: np.ndarray) -> tuple[np.ndarray, str]:
+SLICE, WINDOW = BEFORE + AFTER, 100
+
+
+def select_slice(raw: pd.DataFrame, excluded: np.ndarray, validation: np.ndarray, dense: np.ndarray
+                 ) -> tuple[np.ndarray, str]:
+    """在验证分区有入站攻击的主机上搜索连续 400 条流，要求覆盖全部边界情形；选其中验证集攻击最多的起点。
+
+    片段内每条流都经过主机 H，因此第 i 条（i ≥ 99）的窗口与全时间轴上 H 的窗口相同，
+    ``dense``（全时间轴重算的 ``ct_src_ltm``）可直接用于判断「同一端点密集连接」。
+    """
     v = raw.iloc[validation]
-    host = v.loc[v["Label"].to_numpy() == 1, "dstip"].value_counts().index[0]
+    hosts = v.loc[v["Label"].to_numpy() == 1, "dstip"].value_counts().index
     src, dst = raw["srcip"].to_numpy(), raw["dstip"].to_numpy()
-    touch = np.flatnonzero(((src == host) | (dst == host)) & ~excluded)
-    order = touch[np.lexsort((touch, raw["Stime"].to_numpy()[touch], raw["Ltime"].to_numpy()[touch]))]
-    anchor_ok = np.isin(order, validation) & (raw["Label"].to_numpy()[order] == 1) & (dst[order] == host)
-    anchor = int(np.flatnonzero(anchor_ok & (np.arange(order.size) >= BEFORE))[0])
-    return order[anchor - BEFORE: anchor + AFTER], host
+    in_val = np.zeros(len(raw), dtype=bool)
+    in_val[validation] = True
+    label = raw["Label"].to_numpy() == 1
+    proto = raw["proto"].astype("string").str.lower().fillna("").to_numpy()
+    sp, dp = raw["Spkts"].to_numpy(), raw["Dpkts"].to_numpy()
+    dur, rtt = raw["dur"].to_numpy(), raw["tcprtt"].to_numpy()
+    for host in hosts:
+        touch = np.flatnonzero(((src == host) | (dst == host)) & ~excluded)
+        if touch.size < SLICE:
+            continue
+        o = touch[np.lexsort((touch, raw["Stime"].to_numpy()[touch], raw["Ltime"].to_numpy()[touch]))]
+        inb = dst[o] == host
+        scored_conds = [inb & (sp[o] + dp[o] == 1), inb & (dur[o] == 0), inb & (proto[o] == "tcp") & (rtt[o] == 0),
+                        inb & (proto[o] != "tcp"), inb & (dp[o] == 0), inb & (dense[o] >= 50)]
+        cs = lambda m: np.r_[0, np.cumsum(m)]  # noqa: E731
+        starts = np.arange(o.size - SLICE + 1)
+        end, ready = starts + SLICE, starts + WINDOW - 1
+        ok = inb[ready] & (cs(~inb)[end] - cs(~inb)[starts] > 0)
+        ok &= cs(inb)[end] - cs(inb)[starts + OOV_POSITION] > 0
+        for c in scored_conds:
+            ok &= cs(c)[end] - cs(c)[ready] > 0
+        attacks = cs(inb & in_val[o] & label[o])
+        score = np.where(ok, attacks[end] - attacks[ready], -1)
+        if score.size and score.max() > 0:
+            s = int(np.argmax(score))
+            return o[s: s + SLICE], host
+    raise ValueError("no 400-flow slice on a validation attack host covers every boundary case")
 
 
 def _dump(path: Path, records: list[dict[str, Any]]) -> None:
@@ -55,11 +86,12 @@ def _dump(path: Path, records: list[dict[str, Any]]) -> None:
             stream.write(json.dumps(r, ensure_ascii=False) + "\n")
 
 
-def build(manifest: dict[str, Any], split_dir: Path, excluded: np.ndarray, sess: Any, out_dir: Path) -> dict[str, Any]:
-    """生成 fixtures 目录（含 checksums.json），返回写入 manifest 的摘要。"""
+def build(manifest: dict[str, Any], split_dir: Path, excluded: np.ndarray, dense: np.ndarray, sess: Any,
+          out_dir: Path) -> dict[str, Any]:
+    """生成 fixtures 目录（含 checksums.json），返回写入 manifest 的摘要。覆盖不全即终止，不产出交付物。"""
     raw = load_cached("d1_raw.parquet", manifest, columns=[*META, *SINGLE.values(), "Label"])
     split = SplitIndex.load(Path(split_dir) / "split-d1-raw.npz")  # 不传审计日志：holdout 无法解锁
-    rows, host = select_slice(raw, excluded, np.sort(split.validation))
+    rows, host = select_slice(raw, excluded, np.sort(split.validation), dense)
     flows = raw.iloc[rows][[*META, *SINGLE.values()]].reset_index(drop=True)
     del raw
     uniq = list(dict.fromkeys(np.column_stack([flows["srcip"].to_numpy(), flows["dstip"].to_numpy()]).ravel()))
@@ -119,6 +151,8 @@ def build(manifest: dict[str, Any], split_dir: Path, excluded: np.ndarray, sess:
             "status_counts": {k: int(v) for k, v in pd.Series(status).value_counts().items()},
             "coverage": coverage, "missing_coverage": [k for k, v in coverage.items() if not v],
             "address_mapping": "RFC 5737 文档保留地址，按首次出现顺序一一映射", "oov_seq": oov, "oov_value": OOV_PROTO}
+    if info["missing_coverage"]:
+        raise ValueError(f"golden fixtures miss boundary cases: {info['missing_coverage']}")
     write_json(out_dir / "fixture.json", info)
     RunContext.checksum_dir(out_dir)
     return {**info, "checksums_sha256": sha256_file(out_dir / "checksums.json")}

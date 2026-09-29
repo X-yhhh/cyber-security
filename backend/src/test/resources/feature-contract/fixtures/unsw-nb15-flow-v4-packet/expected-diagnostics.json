@@ -1,0 +1,33 @@
+{
+  "frames": 514,
+  "parse_status": {
+    "non_ip": 1,
+    "ok": 513
+  },
+  "close_reasons": {
+    "idle_timeout": 154,
+    "max_lifetime": 2,
+    "shutdown": 110,
+    "tcp_fin": 1,
+    "tcp_rst": 1
+  },
+  "flow": {
+    "post_close_packets": 1,
+    "orphan_fragments": 1,
+    "oversize_tcp_packets": 1,
+    "flow_capacity_drops": 0,
+    "max_active_flows": 150
+  },
+  "feature": {
+    "flows_excluded": {
+      "broadcast_destination": 2,
+      "multicast_destination": 1,
+      "no_local_endpoint": 1
+    },
+    "records_by_status": {
+      "ready": 65,
+      "rejected": 1,
+      "window_not_ready": 198
+    }
+  }
+}

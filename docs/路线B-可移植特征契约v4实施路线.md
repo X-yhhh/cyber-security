@@ -1378,12 +1378,12 @@ M7 仍按 §14.2 需要 G3 通过，本次不调整。
 | `docs/数据接入与特征提取模块开发设计.md` | v3.1 定位为离线回放；新增 v4 字段表与规格引用；G1、`ct_state_ttl` 条目状态更新 | 0、3 | 完成（阶段 3 提交 `f484948`） |
 | `docs/模型训练计划.md` | 新增 v4 章节（特征审计、消融、新切分种子、fixtures） | 1、2 | 完成（§12） |
 | `docs/特征规格-unsw-nb15-flow-v4.md` | 新建 | 1 | 完成（已冻结） |
-| `docs/项目详细设计.md` | 数据流中“`ct_state_ttl` codebook 已冻结”条件改为“v4 契约 + golden fixtures” | 3 | 未开始 |
+| `docs/项目详细设计.md` | 数据流中“`ct_state_ttl` codebook 已冻结”条件改为“v4 契约 + golden fixtures” | 3 | 完成（第 73 行已是 v4 表述；2026-09-30 同步第 9 行实现现状：V1–V16、v4 契约校验、`2026.10.1`、M5 与阶段 7 状态） |
 | `docs/接口设计.md` | 新错误码 `FEATURE_CONTRACT_MODEL_MISMATCH`；推理接口；M6 策略管理端点；阶段 7 标注/复核/影子报告端点与错误码（`ALERT_NOT_LABELABLE`、`ALERT_ALREADY_LABELED`、`FEEDBACK_ALREADY_REVIEWED`、`REVIEW_SEPARATION_REQUIRED`、`MODEL_BASELINE_STATS_INVALID`） | 3、4、7、8 | 进行中（M6、阶段 7 端点与错误码已同步） |
 | `docs/数据库设计.md` | V11 契约哈希列；V15 策略生命周期；V16 漂移窗口唯一键、标注复核列与 3 个权限；`ingest_batch` 由消费事务置 `completed` | 3、7、8 | 进行中（V11～V16 已同步） |
-| `docs/接口实现核对矩阵.md` | 各阶段完成后同步 | 3～10 | 进行中（阶段 5 已同步 V14 映射批准接口；M6 已同步策略管理接口；阶段 7 待同步） |
+| `docs/接口实现核对矩阵.md` | 各阶段完成后同步 | 3～10 | 进行中（阶段 5 已同步 V14 映射批准接口；M6 已同步策略管理接口；阶段 7 已同步标注、复核、影子报告与漂移任务） |
 | `docs/模型训练计划.md`（训练分支） | v4 基线统计方法与 `2026.10.1` 交付 | 7 | 进行中（训练分支 `training/stage7-baseline`） |
-| `README.md` | 契约版本说明、启用步骤、能力边界 | 3、10 | 未开始 |
+| `README.md` | 契约版本说明、启用步骤、能力边界 | 3、10 | 进行中（2026-09-30 同步至阶段 7：在线模型、M5、M6、阶段 7 与第一轮 G3 结论；阶段 10 再补启用步骤与最终能力边界） |
 
 ## 21. 决策记录
 

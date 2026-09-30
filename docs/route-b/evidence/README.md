@@ -3,7 +3,7 @@
 来源运行：`runs/feature-audit-20260929-1327`（公式对拍、`ct_*` 与 `service` 重算）、`runs/feature-ablation-20260929-1359`（F0～F5 消融与泛化对照）、`runs/feature-diagnose-20260929-1420`（F2→F3 异常核查，原文件名 `diagnose.csv`）。
 只含字段级与模型级统计，不含地址、绝对路径、权重或数据行；重算列缓存本体（parquet）不入库，`recomputed-cache.json` 记录其 SHA-256。
 所有统计只用 train + validation，holdout 未读取。结论见 main 仓库 `docs/路线B-可移植特征契约v4实施路线.md` §7.1.1～§7.2 与 `docs/特征规格-unsw-nb15-flow-v4.md`。
-阶段 2（训练、锁定评估、导出 `2026.10.0`）证据见 [`stage2/`](stage2/README.md)；阶段 7（训练切分特征基线、交付 `2026.10.1`）证据见 [`stage7/`](stage7/README.md)。
+阶段 2（训练、锁定评估、导出 `2026.10.0`）证据见 [`stage2/`](stage2/README.md)；阶段 7（训练切分特征基线、交付 `2026.10.1`）证据见 [`stage7/`](stage7/README.md)；开发路线阶段 1 A1（收窄评估范围、交付 `2026.10.2`）证据见 [`scope-v4/`](scope-v4/README.md)。
 
 | 文件 | SHA-256 |
 |---|---|

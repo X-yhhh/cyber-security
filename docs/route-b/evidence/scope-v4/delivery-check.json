@@ -1,0 +1,38 @@
+{
+  "delivery": "unsw-binary-2026.10.2",
+  "source_delivery": "unsw-binary-2026.10.1",
+  "passed": true,
+  "checks": {
+    "checksums_cover_all_files": true,
+    "checksums_match": true,
+    "model_onnx_sha256_expected": true,
+    "manifest_files_hashes": true,
+    "fixtures_checksums": true,
+    "same_file_set": true,
+    "copied_files_byte_identical": true,
+    "manifest_diff_only_allowed": true,
+    "scope_values": true,
+    "baseline_unchanged": true,
+    "decision_unchanged": true,
+    "manifest_values": true,
+    "manifest_json_format_crlf": true,
+    "permissions_match_source": true
+  },
+  "manifest_sha256": "f2f3464b7af3218b75246454483eb490757b85b306f7ab8fa3b31ba685b2d52d",
+  "source_manifest_sha256": "8c278343551f45efe92df0ab2ee4151ec7a35be37a42dd63c36d72c81e4526fb",
+  "model_onnx_sha256": "c87b883d0ac32b0a827441eb5d97164acaa46e67653fb79cd369b9c794949358",
+  "checksums_sha256": "21c996d8c029b8093059883b133e577af9e330e28b0ea33b54972d5b8e6e7ec2",
+  "manifest_diff": [
+    "/created_at",
+    "/feature_contract/requires_handshake_seen",
+    "/feature_contract/supported_protocols",
+    "/limitations",
+    "/model_version",
+    "/provenance/derived_from/change",
+    "/provenance/derived_from/manifest_sha256",
+    "/provenance/derived_from/model_version",
+    "/provenance/derived_from/previous",
+    "/version"
+  ],
+  "checksum_entries": 21
+}

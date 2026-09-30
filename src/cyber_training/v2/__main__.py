@@ -7,7 +7,7 @@ import sys
 from importlib import import_module
 from pathlib import Path
 
-STEPS = ("register", "eda", "split", "preprocess-compare", "feature-compare", "train", "train-multiclass", "final-eval", "export", "feature-audit", "feature-ablation", "feature-diagnose", "prepare-v4", "final-v4", "export-v4", "baseline-v4")
+STEPS = ("register", "eda", "split", "preprocess-compare", "feature-compare", "train", "train-multiclass", "final-eval", "export", "feature-audit", "feature-ablation", "feature-diagnose", "prepare-v4", "final-v4", "export-v4", "baseline-v4", "scope-v4")
 SIMPLE = {"register": "register", "split": "split", "eda": "eda", "feature-audit": "feature_audit", "feature-diagnose": "feature_diagnose", "prepare-v4": "route_b_v4"}
 
 
@@ -29,9 +29,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--model-version", help="export：交付版本号（缺省 2026.09.0），目录为 delivery/unsw-binary-<版本>")
     parser.add_argument("--baseline-stage", choices=("compute", "package", "verify"), default="compute",
                         help="baseline-v4：compute 复现切分并算训练分区基线；package 写新交付并自校验；verify 只读自校验")
+    parser.add_argument("--scope-stage", choices=("package", "verify"), default="package",
+                        help="scope-v4：package 由 2026.10.1 派生收窄评估范围的新交付并自校验；verify 只读自校验")
     parser.add_argument("--raw-root", type=Path, help="baseline-v4 compute：D1 原始 CSV 目录（缺省 data/raw/unsw-nb15）")
-    parser.add_argument("--source-delivery", type=Path, help="baseline-v4：源交付目录（缺省 delivery/unsw-binary-2026.10.0）")
-    parser.add_argument("--delivery-root", type=Path, help="baseline-v4 package/verify：新交付的父目录（缺省 delivery/）")
+    parser.add_argument("--source-delivery", type=Path, help="baseline-v4：源交付目录（缺省 delivery/unsw-binary-2026.10.0）；scope-v4：缺省 delivery/unsw-binary-2026.10.1")
+    parser.add_argument("--delivery-root", type=Path, help="baseline-v4 / scope-v4 package/verify：新交付的父目录（缺省 delivery/）")
     args = parser.parse_args(argv)
     if args.step in SIMPLE:
         print(import_module(f".{SIMPLE[args.step]}", __package__).run())
@@ -114,6 +116,12 @@ def main(argv: list[str] | None = None) -> int:
         print(route_b_baseline.run(args.baseline_stage, raw_root=args.raw_root, source_delivery=args.source_delivery,
                                    baseline_run=args.source, delivery_root=args.delivery_root,
                                    version=args.model_version or route_b_baseline.TARGET_VERSION))
+        return 0
+    if args.step == "scope-v4":
+        from . import route_b_scope
+
+        print(route_b_scope.run(args.scope_stage, source_delivery=args.source_delivery, delivery_root=args.delivery_root,
+                                version=args.model_version or route_b_scope.TARGET_VERSION))
         return 0
     if args.step == "feature-ablation":
         from . import feature_ablation

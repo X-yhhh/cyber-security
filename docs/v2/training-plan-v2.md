@@ -493,6 +493,19 @@ T1 验收判定（holdout 300,494 行，攻击 12,108 行，4.03%）：
 - 本机初步回放（2026-09-27，macOS arm64，onnxruntime 1.27.0，Python 脚本）：16 个文件哈希全部一致；1 万条概率最大误差 4.8e-7，9,804 条逐位相同，判定 0 条不一致；单线程 P95 0.038 ms、吞吐约 52 万条/秒。注意本机版本不是 manifest 要求的 1.23.2，且这不是后端（Java）加载验证。
 - 未完成：§9 第 6 项"后端加载模型回放"。当前后端只有模型登记与审批接口，没有 ONNX 推理运行时；需要在 `main` 分支按 manifest 实现哈希校验、输入契约校验和 ONNX Runtime（Java，版本 1.23.2）推理后，再用 `replay-sample.csv` 回放并把结果写回交付报告。在此之前模型保持 `candidate` 状态，不能激活。
 
+### 9.3 阶段 7 基线统计（2026.10.1，路线 B 影子验证）
+
+背景：影子验证与 M8 漂移按 v4 原始输入字段计算 PSI，`unsw-binary-2026.10.0` 的 manifest 没有基线块。本步不训练、不改权重/预处理/阈值，只补基线并换版本号。
+
+- 命令 `v2 baseline-v4 --baseline-stage compute|package|verify`（`src/cyber_training/v2/route_b_baseline.py`，提交 `7ea8836`）。compute 从 4 个原始 CSV 按 `register`、`feature_audit.recompute_ct`、`prepare-v4` 的同一代码重建训练帧并复现切分，逐项核对原始文件哈希、数据指纹、切分指纹与切分审计内容，任一绑定项不符即终止、不产出基线。
+- 范围：`split-v4-20260929-1450` 的训练分区 1,378,958 行，即 `train.Matrices` 拟合 XGBoost 所用的全部行（窗口已满、未被 D12 排除；responder 视角、IPv4）。holdout 行位置只参与切分复现核对，不参与统计。
+- 取值口径：ONNX 输入口径，即 `route_b_export.contract_inputs` 的 float64 原始值（`sload`/`dload` 按规格 §4 置 0，`ct_*` 为训练端重算值，`service` 为端口口径）；已核对其 float32 值与训练帧 17 个数值字段、2 个类别字段逐行相等。不用 float32 训练帧做基线：`tcprtt`/`ackdat`/`synack` 的大量值恰在分位点上，float32 舍入会使 1.8 万～7.1 万行换箱。
+- 方法：数值字段取 0.1…0.9 分位数（`numpy.quantile`，`method="linear"`）去重作 edges，箱号 = 严格小于 v 的 edge 数；类别字段占比 ≥ 0.001 单独成键，其余并入 `__other__`；PSI 参数 epsilon 1e-4、warning 0.2、alert 0.3、min_samples 200。
+- 结果：数值字段 edges 数为 9（`dur`、`sbytes`、`dbytes`、`sload`、`dload`、`smean`、`dmean`、`spkts`、`ct_srv_src`、`ct_srv_dst`、`ct_src_ltm`）、8（`tcprtt`、`ackdat`、`synack`、`dpkts`）、4（`ct_src_dport_ltm`）、2（`ct_dst_ltm`，89.4% 为 100）。`proto` 单独成键 tcp/udp/ospf，`service` 单独成键 -/dns/http/smtp/ssh/ftp。训练分区无非有限值、负值或空类别；`dsport` 缺失 6 行，`service` 按训练口径记 `-`，未丢弃任何行。
+- 复现环境：本次在 macOS（Darwin arm64，Python 3.12.14，依赖版本与 `requirements.lock` 一致）上执行，切分指纹 `6e950203…d70d2f4` 与 manifest 一致，两个 parquet 缓存字节哈希也与训练主机一致；D2 未重算（不参与本基线）。win-dev 恢复后可在训练主机上重跑 compute 复算核对。
+- 交付 `unsw-binary-2026.10.1`（本机 `~/Workspace/deliveries/`，Git 忽略）：manifest 由 2026.10.0 深拷贝，只改 `model_version`、`version`、`created_at`，新增 `feature_baseline_stats` 与 `provenance.derived_from`；其余文件逐字节复制，`model.onnx` SHA-256 不变（`c87b883d…4949358`）；`checksums.json` 重建（21 项，比旧版多列出 `fixtures/checksums.json`）；`activation.status` 仍为 `candidate`，须经后端校验、影子验证与人工审批。
+- 证据见 `docs/route-b/evidence/stage7/`。
+
 ## 10. 执行顺序与时间预估
 
 | 步骤 | 命令 | 预计耗时 | 产物 | 提交 |

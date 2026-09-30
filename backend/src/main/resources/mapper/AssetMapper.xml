@@ -37,6 +37,16 @@
         WHERE id=#{id} AND status='pending'
     </update>
 
+    <update id="revokeAuthorization">
+        UPDATE asset_authorization SET status='revoked', revoked_by=#{revokedBy}, revoked_at=UTC_TIMESTAMP(3),
+          revoke_reason=#{reason}, updated_at=CURRENT_TIMESTAMP(3)
+        WHERE id=#{id} AND status IN ('pending', 'active')
+    </update>
+
+    <select id="lockStatus" resultType="string">
+        SELECT status FROM asset WHERE id=#{assetId} FOR UPDATE
+    </select>
+
     <select id="hasScope" resultType="boolean">
         SELECT EXISTS (
             SELECT 1 FROM sys_user_role ur

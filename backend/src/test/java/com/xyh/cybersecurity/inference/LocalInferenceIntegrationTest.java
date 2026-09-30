@@ -123,7 +123,12 @@ class LocalInferenceIntegrationTest {
         Sensor sensor = registerSensor(login("m3-admin"), assetId);
 
         Map<Long, FeatureBuilder.BuildResult> built = V4Fixtures.buildAll();
-        List<JsonNode> expected = V4Fixtures.jsonl("expected-outputs.jsonl").subList(0, FIXTURE_ROWS);
+        JsonNode manifest = objectMapper.readTree(delivery().resolve("model_manifest.json").toFile());
+        boolean tcpOnly = manifest.at("/feature_contract/requires_handshake_seen").asBoolean(false);
+        List<JsonNode> expected = V4Fixtures.jsonl("expected-outputs.jsonl").stream()
+                .filter(row -> !tcpOnly || "tcp".equals(built.get(row.get("seq").asLong()).features().path("proto").asText()))
+                .limit(FIXTURE_ROWS).toList();
+        assertThat(expected).hasSize(FIXTURE_ROWS);
         JsonNode firstFeatures = built.get(expected.getFirst().get("seq").asLong()).features();
 
         // 1. 无激活模型：记录照常接入，推理显式 rejected，不写模型引用或分数，不回退。
@@ -182,7 +187,7 @@ class LocalInferenceIntegrationTest {
                     .isCloseTo(row.get("attack_probability").asDouble(), within(1e-5));
             assertThat(got.get("binary_label")).isEqualTo(row.get("is_attack").asBoolean() ? "Attack" : "Normal");
             assertThat(((Number) got.get("model_version_id")).longValue()).isEqualTo(modelId);
-            assertThat(got.get("threshold_policy_version")).isEqualTo("fixed:unsw-binary-2026.10.0");
+            assertThat(got.get("threshold_policy_version")).isEqualTo("fixed:" + manifest.path("model_version").asText());
             assertThat(got.get("contract_sha256")).isEqualTo(contractSha);
         }
         assertThat(statusOf("initiator-1")).isEqualTo("not_in_model_scope");
@@ -274,13 +279,31 @@ class LocalInferenceIntegrationTest {
         assertThat(notReplay.getResponse().getStatus()).isEqualTo(409);
         assertThat(notReplay.getResponse().getContentAsString()).contains("DRY_RUN_REPLAY_SOURCE_REQUIRED");
 
+        // 阶段 1 A1：真实 10.2 制品的范围外记录仍接入并留痕，但不得送入 ONNX 或生成模型告警。
+        if (tcpOnly) {
+            ObjectNode udp = firstFeatures.deepCopy();
+            udp.put("proto", "udp");
+            udp.put("synack", 0).put("ackdat", 0).put("tcprtt", 0);
+            String noHandshake = flow("no-handshake", firstFeatures, "responder")
+                    .replace("\"handshakeSeen\":true", "\"handshakeSeen\":false");
+            long outside = submit(sensor, 3, List.of(flow("udp-outside", udp, "responder"), noHandshake));
+            process(outside, 2);
+            assertThat(statusOf("udp-outside")).isEqualTo("not_in_model_scope");
+            assertThat(statusOf("no-handshake")).isEqualTo("not_in_model_scope");
+            assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM inference_request ir JOIN ingest_record r "
+                    + "ON r.id=ir.ingest_record_id WHERE r.source_record_key IN ('udp-outside','no-handshake') "
+                    + "AND ir.attack_probability IS NOT NULL", Integer.class)).isZero();
+        }
+
+
         // 7. 接入后配置被撤销：消费时按 config_not_active 拒绝，不推理。
-        long late = submit(sensor, 3, List.of(flow("late-1", firstFeatures, "responder")));
+        long late = submit(sensor, 4, List.of(flow("late-1", firstFeatures, "responder")));
         jdbc.update("UPDATE sensor_config SET status='retired' WHERE sensor_id=?", sensor.id());
         process(late, 1);
         assertThat(jdbc.queryForMap("SELECT ir.status,ir.reject_reason FROM inference_request ir JOIN ingest_record r "
                 + "ON r.id=ir.ingest_record_id WHERE r.source_record_key='late-1'"))
                 .containsEntry("status", "rejected").containsEntry("reject_reason", "config_not_active");
+
     }
 
     private long seedAssetAndSource() {

@@ -72,8 +72,17 @@ public class DataSourceService {
         if (!List.of("active", "disabled", "retired").contains(input.status())) {
             throw ApiRequestException.badRequest("数据源状态无效");
         }
+        // 状态迁移：active ↔ disabled，active/disabled → retired；retired 为终态。停用或退役后接入只认 active，
+        // 新批次立即被拒绝，历史批次与记录保留。
+        String current = mapper.lockStatus(sourceId);
+        if ("retired".equals(current)) {
+            throw new ApiRequestException(org.springframework.http.HttpStatus.CONFLICT, "SOURCE_STATUS_CONFLICT",
+                    "数据源已退役，不能再修改");
+        }
         mapper.updateVisible(actor.id(), sourceId, input.environment(), input.schemaVersion(), input.status());
-        audit(request, actor.id(), "source.updated", "data_source", sourceId, sourceId, "success", "scoped source update");
+        boolean statusChanged = !input.status().equals(current);
+        audit(request, actor.id(), statusChanged ? "source.status.changed" : "source.updated", "data_source", sourceId,
+                sourceId, "success", statusChanged ? "status " + current + " -> " + input.status() : "scoped source update");
         return mapper.findVisible(actor.id(), sourceId);
     }
 
@@ -134,6 +143,64 @@ public class DataSourceService {
                 "success", "mapping version approved");
         return mapper.listMappingsVisible(actor.id(), sourceId).stream().filter(item -> item.id() == mappingId)
                 .findFirst().orElseThrow();
+    }
+
+    /**
+     * 驳回待批准映射（{@code draft/pending → rejected}）。驳回人须有 {@code source.mapping.approve} 且不是登记人；
+     * 被驳回的版本号不能复用，修正后须登记新版本。
+     */
+    @Transactional
+    public DataSourceMapper.MappingView rejectMapping(long sourceId, long mappingId, String reason, IdentityPrincipal actor,
+                                                       HttpServletRequest request) {
+        String why = reason(reason);
+        DataSourceMapper.MappingRow row = lockMappingForDecision(sourceId, mappingId, actor);
+        if (row.requestedBy() != null && row.requestedBy() == actor.id()) throw new AccessDeniedException("Self review denied");
+        if (!"draft".equals(row.status()) && !"pending".equals(row.status())) {
+            throw mappingConflict("映射状态不可驳回");
+        }
+        if (mapper.rejectMapping(mappingId, actor.id(), why) != 1) throw mappingConflict("映射状态已被其他请求更新");
+        audit(request, actor.id(), "source.mapping.rejected", "source_mapping", mappingId, sourceId, "success", why);
+        return findMapping(actor.id(), sourceId, mappingId);
+    }
+
+    /**
+     * 退役已批准映射（{@code approved → retired}）。退役后使用该映射版本的新批次被拒绝（接入只认 approved），
+     * 已接入的记录保留原映射版本引用。
+     */
+    @Transactional
+    public DataSourceMapper.MappingView retireMapping(long sourceId, long mappingId, String reason, IdentityPrincipal actor,
+                                                       HttpServletRequest request) {
+        String why = reason(reason);
+        DataSourceMapper.MappingRow row = lockMappingForDecision(sourceId, mappingId, actor);
+        if (!"approved".equals(row.status())) throw mappingConflict("只有已批准的映射可以退役");
+        if (mapper.retireMapping(mappingId, actor.id(), why) != 1) throw mappingConflict("映射状态已被其他请求更新");
+        audit(request, actor.id(), "source.mapping.retired", "source_mapping", mappingId, sourceId, "success", why);
+        return findMapping(actor.id(), sourceId, mappingId);
+    }
+
+    private DataSourceMapper.MappingRow lockMappingForDecision(long sourceId, long mappingId, IdentityPrincipal actor) {
+        if (mapper.findVisible(actor.id(), sourceId) == null || !mapper.hasMappingApproveScope(actor.id(), sourceId)) {
+            throw ApiRequestException.notFound();
+        }
+        DataSourceMapper.MappingRow row = mapper.findMappingForUpdate(sourceId, mappingId);
+        if (row == null) throw ApiRequestException.notFound();
+        return row;
+    }
+
+    private DataSourceMapper.MappingView findMapping(long userId, long sourceId, long mappingId) {
+        return mapper.listMappingsVisible(userId, sourceId).stream().filter(item -> item.id() == mappingId)
+                .findFirst().orElseThrow();
+    }
+
+    private static ApiRequestException mappingConflict(String message) {
+        return new ApiRequestException(org.springframework.http.HttpStatus.CONFLICT, "MAPPING_STATUS_CONFLICT", message);
+    }
+
+    private static String reason(String reason) {
+        if (reason == null || reason.isBlank() || reason.length() > 1000) {
+            throw ApiRequestException.badRequest("须填写 1-1000 字的理由");
+        }
+        return reason.trim();
     }
 
     private void requireSourceManage(long userId, long sourceId) {

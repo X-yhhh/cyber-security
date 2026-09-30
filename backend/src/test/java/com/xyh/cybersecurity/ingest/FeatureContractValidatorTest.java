@@ -179,6 +179,30 @@ class FeatureContractValidatorTest {
         assertThat(ipv6.advisories()).extracting("code").containsExactly("NOT_IN_MODEL_SCOPE");
     }
 
+    /** 2026.10.2 收窄范围后，接入遥测与推理门禁同口径：UDP 与无握手 TCP 记范围外，但仍被接收。 */
+    @Test
+    void narrowedModelScopeMarksUdpAndHandshakeLessTcpAsOutsideScope() {
+        ActiveModelInputs model = version -> V4.equals(version)
+                ? Optional.of(new ActiveModelInputs.Scope("model-2", Map.of("proto", Set.of("tcp", "udp"),
+                        "service", Set.of("-", "dns", "http")), List.of("responder"), List.of("ipv4"), List.of("tcp"), true))
+                : Optional.empty();
+        FeatureContractValidator withModel = new FeatureContractValidator(registry, model);
+
+        assertThat(withModel.validate(V4, v4Features(), INBOUND).advisories()).isEmpty();
+
+        FeatureValidationResult noHandshake = withModel.validate(V4, zeroHandshake(v4Features()),
+                new RecordMetadata("responder", "ipv4", false));
+        assertThat(noHandshake.valid()).isTrue();
+        assertThat(noHandshake.advisories()).extracting("code").containsExactly("NOT_IN_MODEL_SCOPE");
+
+        ObjectNode udp = zeroHandshake(v4Features());
+        udp.put("proto", "udp");
+        udp.put("service", "dns");
+        FeatureValidationResult udpResult = withModel.validate(V4, udp, new RecordMetadata("responder", "ipv4", false));
+        assertThat(udpResult.valid()).isTrue();
+        assertThat(udpResult.advisories()).extracting("code").containsExactly("NOT_IN_MODEL_SCOPE");
+    }
+
     @Test
     void v4ContractIsOnlineAndV31StaysOffline() {
         FeatureContract v4 = registry.require(V4);

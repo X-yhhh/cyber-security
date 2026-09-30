@@ -59,14 +59,15 @@ class MigrationIntegrationTest {
             assertThat(count(statement, EMPTY_SCHEMA + ".sys_role", "is_builtin=1 AND status='active'"))
                     .isEqualTo(7);
             assertThat(count(statement, EMPTY_SCHEMA + ".sys_permission", "status='active'"))
-                    .isEqualTo(48);
+                    .isEqualTo(49);
             // V12 新增 inference.request.read（四个角色）与 model.replay.run（仅 model_operator）；
             // V13 新增 detection.rule.read（平台管理员、分析员、审批人）、manage（分析员）、approve（审批人）；
             // V14 新增 source.mapping.approve（平台管理员）；
             // V15 新增 response.policy.draft（分析员）、approve（审批人），并为分析员追加 response.policy.read；
             // V16 新增 alert.feedback.label（分析员）、feedback.review（分析员、审批人）、
-            //     shadow.report.read（平台管理员、分析员、模型运维）。
-            assertThat(rolePermissionCount(statement, "platform_admin")).isEqualTo(25);
+            //     shadow.report.read（平台管理员、分析员、模型运维）；
+            // V17 新增 sensor.config.approve（平台管理员）。
+            assertThat(rolePermissionCount(statement, "platform_admin")).isEqualTo(26);
             assertThat(rolePermissionCount(statement, "asset_source_admin")).isEqualTo(11);
             assertThat(rolePermissionCount(statement, "security_analyst")).isEqualTo(16);
             assertThat(rolePermissionCount(statement, "response_approver")).isEqualTo(9);
@@ -82,7 +83,7 @@ class MigrationIntegrationTest {
                     + ".sys_role r ON r.id=rp.role_id", "r.role_key='platform_admin' AND p.permission_key IN ('approval.decide','model.release.approve')"))
                     .isZero();
             assertThat(count(statement, EMPTY_SCHEMA + ".sys_user", "1=1")).isZero();
-            assertThat(count(statement, EMPTY_SCHEMA + ".flyway_schema_history", "success=1")).isEqualTo(16);
+            assertThat(count(statement, EMPTY_SCHEMA + ".flyway_schema_history", "success=1")).isEqualTo(17);
             assertThat(count(statement, "information_schema.tables", "table_schema='" + EMPTY_SCHEMA
                     + "' AND table_name='auth_login_throttle'"))
                     .isEqualTo(1);
@@ -104,6 +105,15 @@ class MigrationIntegrationTest {
             assertThat(columnCount(statement, "feedback_sample", "review_status")).isEqualTo(1);
             assertThat(columnCount(statement, "feedback_sample", "second_reviewed_by")).isEqualTo(1);
             assertThat(indexCount(statement, "feedback_sample", "uk_feedback_active_alert")).isEqualTo(1);
+            // V17：实体生命周期（开发路线 §4.1）：改密时间、授权撤销、映射驳回/退役、配置起草与审批、凭据吊销。
+            assertThat(columnCount(statement, "sys_user", "password_changed_at")).isEqualTo(1);
+            assertThat(columnCount(statement, "asset_authorization", "revoked_by")).isEqualTo(1);
+            assertThat(columnCount(statement, "source_mapping", "retired_at")).isEqualTo(1);
+            assertThat(columnCount(statement, "sensor_config", "requested_by")).isEqualTo(1);
+            assertThat(columnCount(statement, "api_client", "revoked_at")).isEqualTo(1);
+            assertThat(count(statement, "information_schema.check_constraints", "constraint_schema='" + EMPTY_SCHEMA
+                    + "' AND constraint_name IN ('ck_sensor_config_separation','ck_source_mapping_review_separation')"))
+                    .isEqualTo(2);
             // V11：映射与配置登记契约版本和契约文件 SHA-256（路线 B §3.3）。
             assertThat(columnCount(statement, "sensor_config", "feature_contract_sha256")).isEqualTo(1);
             assertThat(columnCount(statement, "source_mapping", "feature_contract_version")).isEqualTo(1);

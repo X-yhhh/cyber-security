@@ -108,7 +108,7 @@ public class InferenceService {
                 continue;
             }
             FeatureContractModelGate.Decision decision = gate.check(recordContract, context.configContractVersion(),
-                    context.configContractSha256(), model.inputs(), parsed.metadata());
+                    context.configContractSha256(), model.inputs(), parsed.metadata(), parsed.proto());
             if (decision.outcome() == FeatureContractModelGate.Outcome.REJECT) {
                 results[i] = InferenceResult.unscored(record, snapshot, InferenceResult.REJECTED,
                         decision.errorCode(), decision.reason(), null, requestedAt);

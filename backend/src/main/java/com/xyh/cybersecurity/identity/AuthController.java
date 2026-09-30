@@ -30,10 +30,12 @@ import static com.xyh.cybersecurity.common.web.RequestIdFilter.REQUEST_ID_ATTRIB
 public class AuthController {
 
     private final AuthService authService;
+    private final UserService userService;
     private final SecurityContextLogoutHandler logoutHandler = new SecurityContextLogoutHandler();
 
-    public AuthController(AuthService authService) {
+    public AuthController(AuthService authService, UserService userService) {
         this.authService = authService;
+        this.userService = userService;
     }
 
     @GetMapping("/csrf")
@@ -72,6 +74,19 @@ public class AuthController {
         return ApiEnvelope.success(Map.of("status", "logged_out"), requestId(request));
     }
 
+    /**
+     * 自助改密：核对当前口令，成功后撤销本人全部会话并使当前会话失效，客户端须重新登录。
+     * 当前口令错误 400 {@code CURRENT_PASSWORD_INVALID}，连续失败按登录限速返回 429。
+     */
+    @PostMapping("/password")
+    public ApiEnvelope<Map<String, String>> changePassword(@Valid @RequestBody ChangePasswordRequest body,
+                                                           @AuthenticationPrincipal IdentityPrincipal principal,
+                                                           HttpServletRequest request, HttpServletResponse response) {
+        userService.changeOwnPassword(principal, body.currentPassword(), body.newPassword(), request);
+        logoutHandler.logout(request, response, SecurityContextHolder.getContext().getAuthentication());
+        return ApiEnvelope.success(Map.of("status", "password_changed"), requestId(request));
+    }
+
     private String requestId(HttpServletRequest request) {
         Object requestId = request.getAttribute(REQUEST_ID_ATTRIBUTE);
         return requestId instanceof String value ? value : "unknown";
@@ -79,6 +94,10 @@ public class AuthController {
 
     public record LoginRequest(@NotBlank @Size(max = 64) String username,
                                @NotBlank @Size(max = 128) String password) {
+    }
+
+    public record ChangePasswordRequest(@NotBlank @Size(max = 128) String currentPassword,
+                                        @NotBlank @Size(min = 12, max = 128) String newPassword) {
     }
 
     public record CsrfInfo(String headerName, String parameterName, String token) {

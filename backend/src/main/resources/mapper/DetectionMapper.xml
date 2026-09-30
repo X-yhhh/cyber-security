@@ -72,6 +72,31 @@
         SELECT feature_contract_version FROM ingest_batch WHERE id=#{batchId}
     </select>
 
+    <resultMap id="windowRecord" type="com.xyh.cybersecurity.detection.DetectionMapper$WindowRecord"><constructor>
+        <idArg column="id" javaType="_long"/><arg column="event_time" javaType="java.time.Instant"/>
+        <arg column="normalized_payload" javaType="string"/>
+    </constructor></resultMap>
+
+    <!-- 走 idx_ingest_record_asset_time；只取已通过门禁的记录，载荷只在 Java 中按受限条件求值。 -->
+    <select id="findAssetWindowRecords" resultMap="windowRecord">
+        SELECT r.id, r.event_time, CAST(r.normalized_payload AS CHAR) normalized_payload
+        FROM ingest_record r
+        <if test="contract != null">JOIN ingest_batch b ON b.id=r.batch_id AND b.feature_contract_version=#{contract}</if>
+        WHERE r.asset_id=#{assetId} AND r.event_time &gt;= #{from} AND r.event_time &lt;= #{to}
+          AND r.quality_status='accepted'
+        ORDER BY r.event_time, r.id
+        LIMIT #{limit}
+        FOR SHARE
+    </select>
+
+    <select id="findRuleFiringTimes" resultType="java.time.Instant">
+        SELECT r.event_time FROM detection_alert da JOIN ingest_record r ON r.id=da.ingest_record_id
+        WHERE da.detection_rule_id=#{ruleId} AND da.alert_type='rule' AND r.asset_id=#{assetId}
+          AND r.event_time &gt;= #{from} AND r.event_time &lt;= #{to}
+        ORDER BY r.event_time
+        FOR SHARE
+    </select>
+
     <select id="lockAsset" resultMap="assetRow">
         SELECT id, asset_key, criticality FROM asset WHERE id=#{assetId} FOR UPDATE
     </select>

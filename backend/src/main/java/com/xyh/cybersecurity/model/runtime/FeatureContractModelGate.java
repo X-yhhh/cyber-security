@@ -13,7 +13,11 @@ import org.springframework.stereotype.Component;
  * {@code FEATURE_CONTRACT_MODEL_MISMATCH}，不切换模型、不回退到其他契约。</p>
  *
  * <p>契约一致但视角或地址族不在模型评估范围（manifest {@code supported_viewpoints}/
- * {@code supported_address_families}）时返回 {@link Outcome#NOT_IN_MODEL_SCOPE}：记录不推理，但不算作拒绝。</p>
+ * {@code supported_address_families}）时返回 {@link Outcome#NOT_IN_MODEL_SCOPE}：记录不推理，但不算作拒绝。
+ * manifest 另声明 {@code supported_protocols}、{@code requires_handshake_seen}（{@code 2026.10.2} 起）时，
+ * 协议不在范围或 {@code handshakeSeen} 不为 true 的记录同样记为范围外，细分原因分别为
+ * {@code not_in_model_scope:protocol} 与 {@code not_in_model_scope:handshake_not_seen}；未声明的交付包行为不变。
+ * {@code handshakeSeen} 是契约元数据，不进模型输入，因此收窄范围不改契约（开发路线 §3.7 A1）。</p>
  *
  * <p>本类是纯判定组件，不访问数据库；阶段 4 的推理任务提交实现在写 {@code inference_request} 前调用它。</p>
  */
@@ -33,9 +37,10 @@ public final class FeatureContractModelGate {
      * @param configContractSha  配置登记的契约文件 SHA-256（V11 {@code sensor_config.feature_contract_sha256}）
      * @param model              激活模型的输入契约；{@code null} 表示没有激活模型
      * @param metadata           记录元数据；契约要求元数据时必填
+     * @param proto              记录 {@code features.proto}；模型声明协议范围时用于判定，缺失按范围外处理
      */
     public Decision check(String recordContract, String configContract, String configContractSha,
-                          ModelInputContract model, RecordMetadata metadata) {
+                          ModelInputContract model, RecordMetadata metadata, String proto) {
         if (model == null) return Decision.reject("model_unavailable");
         if (recordContract == null || !recordContract.equals(configContract)) return Decision.reject("record_config_mismatch");
         if (!recordContract.equals(model.contractVersion())) return Decision.reject("record_model_mismatch");
@@ -55,6 +60,12 @@ public final class FeatureContractModelGate {
             boolean familyOk = model.supportedAddressFamilies().isEmpty()
                     || model.supportedAddressFamilies().contains(metadata.addressFamily());
             if (!viewpointOk || !familyOk) return new Decision(Outcome.NOT_IN_MODEL_SCOPE, null, "not_in_model_scope");
+            if (!model.supportedProtocols().isEmpty() && (proto == null || !model.supportedProtocols().contains(proto))) {
+                return new Decision(Outcome.NOT_IN_MODEL_SCOPE, null, "not_in_model_scope:protocol");
+            }
+            if (model.requiresHandshakeSeen() && !Boolean.TRUE.equals(metadata.handshakeSeen())) {
+                return new Decision(Outcome.NOT_IN_MODEL_SCOPE, null, "not_in_model_scope:handshake_not_seen");
+            }
         }
         return new Decision(Outcome.ACCEPT, null, null);
     }

@@ -9,6 +9,7 @@ import com.xyh.cybersecurity.model.validation.ModelContractException;
 import org.junit.jupiter.api.Test;
 
 import java.util.function.Consumer;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -82,12 +83,58 @@ class ModelInputContractTest {
     }
 
     @Test
+    void protocolAndHandshakeScopeIsOptionalAndParsed() {
+        ModelInputContract legacy = ModelInputContract.from(manifest(), preprocessing(), v4);
+        assertThat(legacy.supportedProtocols()).isEmpty();
+        assertThat(legacy.requiresHandshakeSeen()).isFalse();
+
+        ObjectNode m = manifest();
+        ((ObjectNode) m.get("feature_contract")).putArray("supported_protocols").add("tcp");
+        ((ObjectNode) m.get("feature_contract")).put("requires_handshake_seen", true);
+        ModelInputContract narrowed = ModelInputContract.from(m, preprocessing(), v4);
+        assertThat(narrowed.supportedProtocols()).containsExactly("tcp");
+        assertThat(narrowed.requiresHandshakeSeen()).isTrue();
+    }
+
+    @Test
+    void invalidProtocolOrHandshakeScopeIsRejected() {
+        // 握手只对 TCP 有定义：要求握手时协议范围必须恰为 tcp。
+        assertCode("MODEL_SCOPE_CONTRACT_MISMATCH", m -> ((ObjectNode) m.get("feature_contract"))
+                .put("requires_handshake_seen", true), p -> { });
+        assertCode("MODEL_SCOPE_CONTRACT_MISMATCH", m -> {
+            ((ObjectNode) m.get("feature_contract")).putArray("supported_protocols").add("tcp").add("udp");
+            ((ObjectNode) m.get("feature_contract")).put("requires_handshake_seen", true);
+        }, p -> { });
+        assertCode("MODEL_SCOPE_CONTRACT_MISMATCH", m -> ((ObjectNode) m.get("feature_contract"))
+                .put("requires_handshake_seen", "yes"), p -> { });
+        // 协议取值须合法、不重复，且在模型的 proto 词表内。
+        assertCode("MODEL_SCOPE_CONTRACT_MISMATCH", m -> ((ObjectNode) m.get("feature_contract"))
+                .putArray("supported_protocols").add("TCP"), p -> { });
+        assertCode("MODEL_SCOPE_CONTRACT_MISMATCH", m -> ((ObjectNode) m.get("feature_contract"))
+                .putArray("supported_protocols").add("tcp").add("tcp"), p -> { });
+        assertCode("MODEL_SCOPE_CONTRACT_MISMATCH", m -> ((ObjectNode) m.get("feature_contract"))
+                .putArray("supported_protocols").add("sctp"), p -> { });
+    }
+
+    @Test
     void unregisteredOrMismatchedContractIsRejected() {
         assertThatThrownBy(() -> ModelInputContract.from(manifest(), preprocessing(), null))
                 .isInstanceOf(ModelContractException.class).hasMessage("MODEL_FEATURE_CONTRACT_UNREGISTERED");
         // 记录 v4 + 模型 v3.1：同一 manifest 不能套用另一份契约。
         assertThatThrownBy(() -> ModelInputContract.from(manifest(), preprocessing(), registry.require("unsw-nb15-flow-v3.1")))
                 .isInstanceOf(ModelContractException.class).hasMessage("MODEL_FEATURE_CONTRACT_UNREGISTERED");
+    }
+
+    @Test
+    void explicitMalformedOrEmptyScopeCannotDisableRestrictions() {
+        for (String field : List.of("supported_protocols", "supported_viewpoints", "supported_address_families")) {
+            assertCode("MODEL_SCOPE_CONTRACT_MISMATCH", m -> ((ObjectNode) m.get("feature_contract"))
+                    .put(field, "tcp"), p -> { });
+            assertCode("MODEL_SCOPE_CONTRACT_MISMATCH", m -> ((ObjectNode) m.get("feature_contract"))
+                    .putNull(field), p -> { });
+            assertCode("MODEL_SCOPE_CONTRACT_MISMATCH", m -> ((ObjectNode) m.get("feature_contract"))
+                    .putArray(field), p -> { });
+        }
     }
 
     @Test

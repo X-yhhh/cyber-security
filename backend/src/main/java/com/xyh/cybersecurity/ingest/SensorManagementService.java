@@ -111,7 +111,8 @@ public class SensorManagementService {
     }
 
     private String requestId(HttpServletRequest request) { Object value = request.getAttribute(com.xyh.cybersecurity.common.web.RequestIdFilter.REQUEST_ID_ATTRIBUTE); return value instanceof String s ? s : "unknown"; }
-    private String json(JsonNode value) {
+    /** 配置/能力字段校验：有限大小的结构化 JSON，不能包含命令、脚本或外部地址类字段。 */
+    String json(JsonNode value) {
         try {
             if (value == null || !value.isContainerNode() || value.toString().getBytes(StandardCharsets.UTF_8).length > 65_536
                     || containsExecutableField(value)) throw new IllegalArgumentException();

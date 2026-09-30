@@ -47,6 +47,16 @@ public class DataSourceController {
         return ApiEnvelope.success(service.list(principal.id(), page, size), requestId(request));
     }
 
+    @GetMapping("/{id}")
+    @PreAuthorize("hasAuthority('source.read')")
+    public ApiEnvelope<DataSourceMapper.DataSourceView> get(@PathVariable long id,
+                                                             @AuthenticationPrincipal IdentityPrincipal principal,
+                                                             HttpServletRequest request) {
+        DataSourceMapper.DataSourceView view = mapper.findVisible(principal.id(), id);
+        if (view == null) throw com.xyh.cybersecurity.common.api.ApiRequestException.notFound();
+        return ApiEnvelope.success(view, requestId(request));
+    }
+
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     @PreAuthorize("hasAuthority('source.manage')")
@@ -99,6 +109,28 @@ public class DataSourceController {
         return ApiEnvelope.success(service.approveMapping(id, mappingId, principal, request), requestId(request));
     }
 
+    /** 驳回他人登记的待批准映射；登记人本人 403，状态不符 409 {@code MAPPING_STATUS_CONFLICT}。 */
+    @PostMapping("/{id}/mappings/{mappingId}/reject")
+    @PreAuthorize("hasAuthority('source.mapping.approve')")
+    public ApiEnvelope<DataSourceMapper.MappingView> rejectMapping(@PathVariable long id, @PathVariable long mappingId,
+                                                                    @Valid @RequestBody ReasonBody body,
+                                                                    @AuthenticationPrincipal IdentityPrincipal principal,
+                                                                    HttpServletRequest request) {
+        return ApiEnvelope.success(service.rejectMapping(id, mappingId, body.reason(), principal, request),
+                requestId(request));
+    }
+
+    /** 退役已批准映射；退役后该版本的新批次被拒绝。 */
+    @PostMapping("/{id}/mappings/{mappingId}/retire")
+    @PreAuthorize("hasAuthority('source.mapping.approve')")
+    public ApiEnvelope<DataSourceMapper.MappingView> retireMapping(@PathVariable long id, @PathVariable long mappingId,
+                                                                    @Valid @RequestBody ReasonBody body,
+                                                                    @AuthenticationPrincipal IdentityPrincipal principal,
+                                                                    HttpServletRequest request) {
+        return ApiEnvelope.success(service.retireMapping(id, mappingId, body.reason(), principal, request),
+                requestId(request));
+    }
+
     private String requestId(HttpServletRequest request) {
         Object value = request.getAttribute(REQUEST_ID_ATTRIBUTE);
         return value instanceof String id ? id : "unknown";
@@ -111,6 +143,7 @@ public class DataSourceController {
     public record UpdateBody(@NotBlank @Size(max = 32) String environment,
                              @NotBlank @Size(max = 64) String schemaVersion,
                              @NotBlank String status) { }
+    public record ReasonBody(@NotBlank @Size(max = 1000) String reason) { }
     /** @param featureContractVersion 可选：映射绑定的特征契约版本（V11） */
     public record MappingBody(@NotBlank @Size(max = 64) String mappingVersion,
                               @NotNull JsonNode sourceSchema, @NotNull JsonNode mapping,

@@ -45,16 +45,30 @@ public interface DataSourceMapper {
 
     int approveMapping(@Param("mappingId") long mappingId, @Param("approvedBy") long approvedBy);
 
+    /** {@code draft/pending → rejected}；驳回人不能是登记人（V17 CHECK 兜底）。 */
+    int rejectMapping(@Param("mappingId") long mappingId, @Param("reviewedBy") long reviewedBy,
+                      @Param("reason") String reason);
+
+    /** {@code approved → retired}。 */
+    int retireMapping(@Param("mappingId") long mappingId, @Param("retiredBy") long retiredBy,
+                      @Param("reason") String reason);
+
+    /** 锁定数据源行并返回当前状态；不存在时为 {@code null}。 */
+    String lockStatus(@Param("sourceId") long sourceId);
+
     record DataSourceView(long id, String sourceKey, String sourceType, String environment,
                           String schemaVersion, String status, java.time.LocalDateTime lastSuccessAt) { }
 
     /**
      * @param featureContractVersion 映射绑定的特征契约（V11）；历史映射为 {@code null}
      * @param requestedBy            登记用户（V14）；V14 之前的映射为 {@code null}
+     * @param reviewedBy             驳回用户（V17）；批准人见 {@code approvedBy}
+     * @param decisionReason         驳回或退役理由（V17）
      */
     record MappingView(long id, String mappingVersion, String sourceSchemaJson, String mappingJson,
                        String status, Long approvedBy, String featureContractVersion, String featureContractSha256,
-                       Long requestedBy) { }
+                       Long requestedBy, Long reviewedBy, String decisionReason, Long retiredBy,
+                       java.time.Instant retiredAt, java.time.Instant createdAt) { }
 
     record MappingRow(long id, String status, Long requestedBy) { }
 

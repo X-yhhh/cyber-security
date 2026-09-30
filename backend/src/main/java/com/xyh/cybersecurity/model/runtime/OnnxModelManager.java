@@ -134,7 +134,8 @@ public class OnnxModelManager implements DisposableBean, ActiveModelInputs {
                     .map(entry -> {
                         ModelInputContract inputs = entry.getValue().descriptor().inputs();
                         return new ActiveModelInputs.Scope("model-" + entry.getKey(), inputs.vocabularies(),
-                                inputs.supportedViewpoints(), inputs.supportedAddressFamilies());
+                                inputs.supportedViewpoints(), inputs.supportedAddressFamilies(),
+                                inputs.supportedProtocols(), inputs.requiresHandshakeSeen());
                     });
         } finally { activeLock.readLock().unlock(); }
     }

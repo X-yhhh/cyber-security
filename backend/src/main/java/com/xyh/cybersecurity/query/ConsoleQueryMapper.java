@@ -51,7 +51,8 @@ public interface ConsoleQueryMapper {
 
     record AuthorizationRow(long id, long assetId, String authorizationRef, String status,
                             LocalDateTime validFrom, LocalDateTime validUntil, String requestedBy,
-                            String approvedBy, LocalDateTime createdAt) { }
+                            String approvedBy, LocalDateTime createdAt, String revokedBy,
+                            LocalDateTime revokedAt, String revokeReason) { }
 
     record IngestSummaryRow(long dataSourceId, long batches, long accepted, long rejected,
                             LocalDateTime lastBatchAt, String mappingVersion, String mappingStatus) { }

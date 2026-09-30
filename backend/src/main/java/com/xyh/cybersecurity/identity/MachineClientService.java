@@ -78,6 +78,44 @@ public class MachineClientService {
                 Instant.now());
     }
 
+    /** 机器客户端台账（connector 与 sensor），按 ID 分页；不返回凭据值、摘要或密钥引用。 */
+    public Page list(IdentityPrincipal actor, int page, int size) {
+        requireGlobalPlatformAdmin(actor.id());
+        if (page < 0 || size < 1 || size > 100 || (long) page * size > Integer.MAX_VALUE) {
+            throw ApiRequestException.badRequest("分页参数超出允许范围");
+        }
+        return new Page(identityMapper.countMachineClients(), page, size,
+                identityMapper.listMachineClients(page * size, size));
+    }
+
+    /**
+     * 吊销 connector 凭据：{@code active/disabled → revoked}，立即失效且不可恢复（须重新签发新客户端）。
+     * sensor 凭据属于传感器生命周期，须经 {@code /sensors/{id}/credentials/revoke} 吊销（409）。
+     */
+    @Transactional
+    public IdentityMapper.MachineClientView revoke(long clientId, String reason, IdentityPrincipal actor,
+                                                   String requestId) {
+        requireGlobalPlatformAdmin(actor.id());
+        if (reason == null || reason.isBlank() || reason.length() > 1000) {
+            throw ApiRequestException.badRequest("须填写 1-1000 字的吊销理由");
+        }
+        IdentityMapper.MachineClientView client = identityMapper.lockMachineClient(clientId);
+        if (client == null) throw ApiRequestException.notFound();
+        if (!"connector".equals(client.clientType())) {
+            throw new ApiRequestException(org.springframework.http.HttpStatus.CONFLICT, "CLIENT_TYPE_CONFLICT",
+                    "传感器凭据须在传感器管理中吊销");
+        }
+        if (identityMapper.revokeMachineClient(clientId, actor.id(), reason.trim()) != 1) {
+            throw new ApiRequestException(org.springframework.http.HttpStatus.CONFLICT, "CREDENTIAL_STATUS_CONFLICT",
+                    "凭据已吊销");
+        }
+        AuditMapper.AuditInsert audit = new AuditMapper.AuditInsert(LocalDateTime.now(ZoneOffset.UTC), "human",
+                Long.toString(actor.id()), "machine_client.revoked", "api_client", Long.toString(clientId),
+                requestId, "success", reason.trim());
+        auditMapper.insertAudit(audit);
+        return identityMapper.lockMachineClient(clientId);
+    }
+
     private List<SourceAssetBinding> normalizeBindings(List<SourceAssetBindingBody> requestedBindings,
                                                         List<IssuedScope> scopes) {
         if (requestedBindings == null || requestedBindings.isEmpty() || requestedBindings.size() > 32) {
@@ -162,6 +200,7 @@ public class MachineClientService {
         }
     }
 
+    public record Page(long totalElements, int page, int size, List<IdentityMapper.MachineClientView> items) { }
     public record IssuedScope(String scopeType, String scopeId) { }
     public record SourceAssetBinding(long dataSourceId, long assetId) { }
     public record IssuedClient(long id, String clientKey, String clientType, List<IssuedScope> scopes,

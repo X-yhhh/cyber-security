@@ -29,6 +29,19 @@ public interface DetectionMapper {
 
     String findBatchContract(@Param("batchId") long batchId);
 
+    /**
+     * 时间窗规则的上下文：资产在 {@code [from, to]} 内已通过门禁的记录，按 {@code (事件时间, ID)} 排序。
+     *
+     * @param contract 规则范围声明的契约版本；为 {@code null} 时不按契约过滤
+     */
+    List<WindowRecord> findAssetWindowRecords(@Param("assetId") long assetId, @Param("from") Instant from,
+                                              @Param("to") Instant to, @Param("contract") String contract,
+                                              @Param("limit") int limit);
+
+    /** 同一规则在该资产 {@code [from, to]} 内已有告警对应记录的事件时间（用于告警抑制）。 */
+    List<Instant> findRuleFiringTimes(@Param("ruleId") long ruleId, @Param("assetId") long assetId,
+                                      @Param("from") Instant from, @Param("to") Instant to);
+
     /** 锁定资产行，使同一资产的事件关联串行执行。 */
     AssetRow lockAsset(@Param("assetId") long assetId);
 
@@ -95,6 +108,8 @@ public interface DetectionMapper {
                        String basisJson, Instant detectedAt) { }
 
     record AssetRow(long id, String assetKey, String criticality) { }
+
+    record WindowRecord(long id, Instant eventTime, String normalizedPayload) { }
 
     record EventInsert(String eventKey, String title, String severity, Instant firstSeenAt, Instant lastSeenAt,
                        String correlationKey, String correlationPolicyVersion) { }

@@ -20,7 +20,13 @@ final class InferencePayload {
     private InferencePayload() { }
 
     /** @param metadata 记录元数据；三项全缺时为 {@code null}，由门禁按契约判定 */
-    record Parsed(RecordMetadata metadata, JsonNode features) { }
+    record Parsed(RecordMetadata metadata, JsonNode features) {
+        /** {@code features.proto}；缺失或非文本时为 {@code null}（门禁按范围外处理，输入提取另行拒绝）。 */
+        String proto() {
+            JsonNode value = features == null ? null : features.get("proto");
+            return value != null && value.isTextual() ? value.asText() : null;
+        }
+    }
 
     /** @param reason 仅失败时非空，例如 {@code feature_missing:dur} */
     record Extraction(OnnxModelRuntime.FlowInput input, String reason) {

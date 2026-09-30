@@ -42,15 +42,63 @@ public class AssetService {
         return mapper.findVisible(actor.id(), id);
     }
 
+    /**
+     * 范围内修改资产关键性、责任人与状态。状态迁移受限：{@code active ↔ disabled}，{@code active/disabled → retired}，
+     * {@code retired} 为终态且不再可修改（409 {@code ASSET_STATUS_CONFLICT}）。停用或退役后，接入与处置查询
+     * 只认 {@code active} 资产，立即 fail-closed；已有记录与告警保留。
+     */
     @Transactional
     public AssetMapper.AssetView update(long assetId, UpdateAssetRequest input, IdentityPrincipal actor,
                                         HttpServletRequest request) {
+        String current = mapper.lockStatus(assetId);
+        if (current == null || mapper.findVisible(actor.id(), assetId) == null) throw ApiRequestException.notFound();
+        if ("retired".equals(current)) {
+            throw new ApiRequestException(org.springframework.http.HttpStatus.CONFLICT, "ASSET_STATUS_CONFLICT",
+                    "资产已退役，不能再修改");
+        }
         if (mapper.updateVisible(actor.id(), assetId, input.criticality(), input.owner(), input.status()) == 0) {
+            throw new org.springframework.security.access.AccessDeniedException("Asset manage scope denied");
+        }
+        String reason = current.equals(input.status()) ? "scoped asset update"
+                : "status " + current + " -> " + input.status();
+        audit(request, actor.id(), current.equals(input.status()) ? "asset.updated" : "asset.status.changed",
+                "asset", assetId, assetId, "success", reason);
+        return mapper.findVisible(actor.id(), assetId);
+    }
+
+    /**
+     * 撤销资产授权：{@code pending/active → revoked}，记录撤销人、时间与理由。申请或批准权限任一即可撤销
+     * （收紧方向的操作不要求职责分离）。撤销后该资产的接入与处置立即 fail-closed。
+     */
+    @Transactional
+    public AuthorizationView revokeAuthorization(long assetId, long authorizationId, String reason,
+                                                 IdentityPrincipal actor, HttpServletRequest request) {
+        if (!hasAnyScope(actor.id(), assetId, "asset.authorization.manage", "asset.authorization.approve")) {
             throw ApiRequestException.notFound();
         }
-        if (mapper.findVisible(actor.id(), assetId) == null) throw ApiRequestException.notFound();
-        audit(request, actor.id(), "asset.updated", "asset", assetId, assetId, "success", "scoped asset update");
-        return mapper.findVisible(actor.id(), assetId);
+        if (reason == null || reason.isBlank() || reason.length() > 1000) {
+            throw ApiRequestException.badRequest("须填写 1-1000 字的撤销理由");
+        }
+        AssetMapper.AuthorizationRow row = mapper.findAuthorizationForUpdate(authorizationId, assetId);
+        if (row == null) throw ApiRequestException.notFound();
+        if (!"pending".equals(row.status()) && !"active".equals(row.status())) {
+            throw new ApiRequestException(org.springframework.http.HttpStatus.CONFLICT, "AUTHORIZATION_STATUS_CONFLICT",
+                    "授权已撤销或已失效");
+        }
+        if (mapper.revokeAuthorization(authorizationId, actor.id(), reason.trim()) != 1) {
+            throw ApiRequestException.conflict("授权状态已被其他请求更新");
+        }
+        audit(request, actor.id(), "authorization.revoked", "asset_authorization", authorizationId, assetId, "success",
+                reason.trim());
+        return findAuthorization(authorizationId);
+    }
+
+    private boolean hasAnyScope(long userId, long assetId, String... permissions) {
+        for (String permission : permissions) {
+            if (hasScope(userId, permission, "asset", Long.toString(assetId))
+                    || mapper.hasGlobalPlatformAdmin(userId, permission)) return true;
+        }
+        return false;
     }
 
     @Transactional

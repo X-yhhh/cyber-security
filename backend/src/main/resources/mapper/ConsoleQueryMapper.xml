@@ -59,7 +59,8 @@
             <arg column="authorization_ref" javaType="string"/><arg column="status" javaType="string"/>
             <arg column="valid_from" javaType="java.time.LocalDateTime"/><arg column="valid_until" javaType="java.time.LocalDateTime"/>
             <arg column="requested_by" javaType="string"/><arg column="approved_by" javaType="string"/>
-            <arg column="created_at" javaType="java.time.LocalDateTime"/></constructor>
+            <arg column="created_at" javaType="java.time.LocalDateTime"/><arg column="revoked_by" javaType="string"/>
+            <arg column="revoked_at" javaType="java.time.LocalDateTime"/><arg column="revoke_reason" javaType="string"/></constructor>
     </resultMap>
     <resultMap id="ingestSummaryRow" type="com.xyh.cybersecurity.query.ConsoleQueryMapper$IngestSummaryRow">
         <constructor><idArg column="data_source_id" javaType="_long"/><arg column="batches" javaType="_long"/>
@@ -148,9 +149,10 @@
 
     <select id="authorizations" resultMap="authorizationRow">
         SELECT aa.id,aa.asset_id,aa.authorization_ref,aa.status,aa.valid_from,aa.valid_until,
-               rq.username requested_by,ap.username approved_by,aa.created_at
+               rq.username requested_by,ap.username approved_by,aa.created_at,
+               rv.username revoked_by,aa.revoked_at,aa.revoke_reason
         FROM asset_authorization aa LEFT JOIN sys_user rq ON rq.id=aa.requested_by
-        LEFT JOIN sys_user ap ON ap.id=aa.approved_by
+        LEFT JOIN sys_user ap ON ap.id=aa.approved_by LEFT JOIN sys_user rv ON rv.id=aa.revoked_by
         WHERE aa.asset_id=#{assetId} AND
           <include refid="assetScope"><property name="permission" value="asset.authorization.read"/><property name="assetExpr" value="aa.asset_id"/></include>
         ORDER BY aa.valid_until DESC,aa.id DESC LIMIT 200

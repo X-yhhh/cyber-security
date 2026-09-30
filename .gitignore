@@ -39,6 +39,7 @@ frontend/*.tsbuildinfo
 # Local agent/editor state and staged-work scratch directories
 .stage6-edit/
 .claude/settings.local.json
+.idea/
 
 # Frontend test coverage output
 frontend/coverage/

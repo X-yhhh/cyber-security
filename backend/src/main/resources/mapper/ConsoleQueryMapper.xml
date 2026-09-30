@@ -210,8 +210,12 @@
     <select id="feedback" resultMap="feedbackRow">
         SELECT fs.id,fs.alert_id,da.alert_key,fs.label,fs.label_source,rv.username reviewer,
                fs.reviewed_at,fs.dataset_version,fs.training_eligible
-        FROM feedback_sample fs LEFT JOIN detection_alert da ON da.id=fs.alert_id
-        LEFT JOIN sys_user rv ON rv.id=fs.reviewed_by ORDER BY fs.id DESC LIMIT 200
+        FROM feedback_sample fs JOIN detection_alert da ON da.id=fs.alert_id
+        JOIN model_version mv ON mv.id=da.model_version_id
+        LEFT JOIN sys_user rv ON rv.id=fs.reviewed_by
+        <!-- 只返回调用者模型登记范围内、模型告警的标注；此前未按范围过滤。规则告警的标注不在模型视图中出现。 -->
+        WHERE <include refid="modelScope"><property name="permission" value="model.validation.read"/><property name="modelExpr" value="mv.model_key"/></include>
+        ORDER BY fs.id DESC LIMIT 200
     </select>
 
     <select id="trainingJobs" resultMap="trainingJobRow">

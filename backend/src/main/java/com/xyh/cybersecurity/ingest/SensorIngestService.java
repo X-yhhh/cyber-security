@@ -12,6 +12,8 @@ import com.xyh.cybersecurity.ingest.contract.FeatureContractValidator;
 import com.xyh.cybersecurity.ingest.contract.FeatureValidationResult;
 import com.xyh.cybersecurity.ingest.contract.RecordMetadata;
 import com.xyh.cybersecurity.identity.MachinePrincipal;
+import com.xyh.cybersecurity.ingest.outbox.OutboxAppended;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -36,9 +38,11 @@ public class SensorIngestService {
     private final ObjectMapper objectMapper;
     private final FeatureContractRegistry contracts;
     private final FeatureContractValidator validator;
+    private final ApplicationEventPublisher events;
 
     public SensorIngestService(IngestMapper mapper, AuditMapper auditMapper, ObjectMapper objectMapper, FeatureContractRegistry contracts,
-                               FeatureContractValidator validator) {
+                               FeatureContractValidator validator, ApplicationEventPublisher events) {
+        this.events = events;
         this.mapper = mapper;
         this.auditMapper = auditMapper;
         this.objectMapper = objectMapper;
@@ -276,6 +280,9 @@ public class SensorIngestService {
     private void insertOutbox(long batchId, long sourceId, int count) {
         mapper.insertOutbox("sensor.ingest.batch:" + batchId, "ingest_batch", Long.toString(batchId), "ingest.batch.received",
                 "{\"batchId\":" + batchId + ",\"dataSourceId\":" + sourceId + ",\"recordCount\":" + count + "}");
+        // 提交后唤醒 relay；有记录通过门禁即记为数据源最近成功时间。
+        mapper.touchSourceSuccess(sourceId);
+        events.publishEvent(new OutboxAppended(batchId));
     }
 
     private void audit(long batchId, long sourceId, long assetId, String actor, String requestId, String outcome, String reason) {

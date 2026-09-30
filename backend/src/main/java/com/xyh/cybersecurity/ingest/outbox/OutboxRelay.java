@@ -20,7 +20,7 @@ import java.util.List;
 @ConditionalOnProperty(name = "cyber.ingest.outbox-relay.enabled", havingValue = "true")
 public class OutboxRelay {
     private static final int MAX_ATTEMPTS = 12;
-    private static final int PAGE_SIZE = 32;
+    static final int PAGE_SIZE = 32;
     private final IngestMapper ingestMapper;
     private final ObjectMapper mapper;
     private final ObjectProvider<Publisher> publisher;

@@ -62,6 +62,11 @@ logging:
     format:
       console: ecs
 cyber:
+  drift:
+    # M8 漂移窗口计算（路线 B §13.2）；默认关闭，影子运行时设 CYBER_DRIFT_ENABLED=true。
+    enabled: ${CYBER_DRIFT_ENABLED:false}
+    initial-delay-ms: ${CYBER_DRIFT_INITIAL_DELAY_MS:60000}
+    poll-ms: ${CYBER_DRIFT_POLL_MS:600000}
   security:
     login-throttle:
       hmac-key: ${LOGIN_THROTTLE_HMAC_KEY}

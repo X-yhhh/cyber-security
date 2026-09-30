@@ -6,6 +6,8 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.xyh.cybersecurity.common.api.ApiRequestException;
 import com.xyh.cybersecurity.audit.AuditMapper;
+import com.xyh.cybersecurity.ingest.outbox.OutboxAppended;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -28,11 +30,14 @@ public class MachineIngestService {
     private final IngestMapper mapper;
     private final AuditMapper auditMapper;
     private final ObjectMapper objectMapper;
+    private final ApplicationEventPublisher events;
 
-    public MachineIngestService(IngestMapper mapper, AuditMapper auditMapper, ObjectMapper objectMapper) {
+    public MachineIngestService(IngestMapper mapper, AuditMapper auditMapper, ObjectMapper objectMapper,
+                                ApplicationEventPublisher events) {
         this.mapper = mapper;
         this.auditMapper = auditMapper;
         this.objectMapper = objectMapper;
+        this.events = events;
     }
 
     @Transactional
@@ -164,6 +169,9 @@ public class MachineIngestService {
     private void insertOutbox(long batchId, long sourceId, int count) {
         mapper.insertOutbox("ingest.batch:" + batchId, "ingest_batch", Long.toString(batchId), "ingest.batch.received",
                 "{\"batchId\":" + batchId + ",\"dataSourceId\":" + sourceId + ",\"recordCount\":" + count + "}");
+        // 提交后唤醒 relay；接入成功即记为数据源最近成功时间（HTTP 已持久化，推理结论由批次状态另行体现）。
+        mapper.touchSourceSuccess(sourceId);
+        events.publishEvent(new OutboxAppended(batchId));
     }
 
     private void insertAudit(long batchId, long sourceId, Set<Long> assetIds, String clientKey, String requestId) {

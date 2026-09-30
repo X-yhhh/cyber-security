@@ -69,6 +69,41 @@
         </constructor>
     </resultMap>
 
+    <resultMap id="alertTarget" type="com.xyh.cybersecurity.incident.IncidentMapper$AlertTarget">
+        <constructor>
+            <idArg column="id" javaType="_long"/>
+            <arg column="alert_key" javaType="string"/>
+            <arg column="alert_type" javaType="string"/>
+            <arg column="status" javaType="string"/>
+            <arg column="ingest_record_id" javaType="_long"/>
+            <arg column="inference_request_id" javaType="java.lang.Long"/>
+            <arg column="data_source_id" javaType="_long"/>
+            <arg column="asset_id" javaType="_long"/>
+        </constructor>
+    </resultMap>
+
+    <resultMap id="feedbackView" type="com.xyh.cybersecurity.incident.IncidentMapper$FeedbackView">
+        <constructor>
+            <idArg column="id" javaType="_long"/>
+            <arg column="alert_id" javaType="_long"/>
+            <arg column="alert_key" javaType="string"/>
+            <arg column="alert_type" javaType="string"/>
+            <arg column="label" javaType="string"/>
+            <arg column="note" javaType="string"/>
+            <arg column="reviewed_by" javaType="_long"/>
+            <arg column="reviewer_name" javaType="string"/>
+            <arg column="reviewed_at" javaType="java.time.LocalDateTime"/>
+            <arg column="review_status" javaType="string"/>
+            <arg column="second_reviewed_by" javaType="java.lang.Long"/>
+            <arg column="second_reviewer_name" javaType="string"/>
+            <arg column="second_reviewed_at" javaType="java.time.LocalDateTime"/>
+            <arg column="second_review_reason" javaType="string"/>
+            <arg column="training_eligible" javaType="_boolean"/>
+            <arg column="data_source_id" javaType="_long"/>
+            <arg column="asset_id" javaType="_long"/>
+        </constructor>
+    </resultMap>
+
     <sql id="visibleAssetScope">
         EXISTS (
             SELECT 1 FROM sys_user_role ur
@@ -278,4 +313,126 @@
         FROM security_event e
         WHERE e.id=#{eventId} AND <include refid="visibleEventInvestigatePredicate"/>
     </insert>
+    <!-- ================= 告警级人工标注（V16） ================= -->
+
+    <!-- 功能权限（不带范围）：范围由 visibleAlertPredicate 的资产/数据源谓词另行约束。 -->
+    <sql id="userPermission">
+        EXISTS (
+            SELECT 1 FROM sys_user_role ur
+            JOIN sys_role r ON r.id=ur.role_id AND r.status='active'
+            JOIN sys_role_permission rp ON rp.role_id=r.id
+            JOIN sys_permission p ON p.id=rp.permission_id AND p.status='active'
+            WHERE ur.user_id=#{userId} AND p.permission_key=${permissionKey}
+        )
+    </sql>
+
+    <sql id="feedbackSelect">
+        SELECT fs.id, fs.alert_id, da.alert_key, da.alert_type, fs.label, fs.note, fs.reviewed_by,
+               u1.username reviewer_name, fs.reviewed_at, fs.review_status, fs.second_reviewed_by,
+               u2.username second_reviewer_name, fs.second_reviewed_at, fs.second_review_reason,
+               fs.training_eligible, ib.data_source_id, ir.asset_id
+        FROM feedback_sample fs
+        JOIN detection_alert da ON da.id=fs.alert_id
+        JOIN ingest_record ir ON ir.id=da.ingest_record_id
+        JOIN ingest_batch ib ON ib.id=ir.batch_id
+        JOIN sys_user u1 ON u1.id=fs.reviewed_by
+        LEFT JOIN sys_user u2 ON u2.id=fs.second_reviewed_by
+    </sql>
+
+    <select id="lockVisibleAlert" resultMap="alertTarget">
+        SELECT da.id, da.alert_key, da.alert_type, da.status, da.ingest_record_id, da.inference_request_id,
+               ib.data_source_id, ir.asset_id
+        FROM detection_alert da
+        JOIN ingest_record ir ON ir.id=da.ingest_record_id
+        JOIN ingest_batch ib ON ib.id=ir.batch_id
+        WHERE da.id=#{alertId}
+          AND <include refid="visibleAlertPredicate">
+                <property name="assetId" value="ir.asset_id"/>
+                <property name="sourceId" value="ib.data_source_id"/>
+              </include>
+          AND <include refid="userPermission"><property name="permissionKey" value="#{permission}"/></include>
+        FOR UPDATE OF da
+    </select>
+
+    <select id="findActiveFeedback" resultMap="feedbackView">
+        <include refid="feedbackSelect"/>
+        WHERE fs.active_alert_id=#{alertId}
+    </select>
+
+    <insert id="insertFeedback" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO feedback_sample (source_record_id, alert_id, label, label_source, evidence_ref, note,
+            reviewed_by, reviewed_at, training_eligible, review_status)
+        VALUES (#{sourceRecordId}, #{alertId}, #{label}, 'analyst', #{evidenceRef}, #{note,jdbcType=VARCHAR},
+            #{reviewedBy}, UTC_TIMESTAMP(3), FALSE, 'pending')
+    </insert>
+
+    <update id="transitionAlert">
+        UPDATE detection_alert SET status=#{status}, updated_at=UTC_TIMESTAMP(3)
+        WHERE id=#{alertId} AND status=#{expected}
+    </update>
+
+    <select id="lockVisibleFeedback" resultMap="feedbackView">
+        <include refid="feedbackSelect"/>
+        WHERE fs.id=#{feedbackId}
+          AND <include refid="visibleAlertPredicate">
+                <property name="assetId" value="ir.asset_id"/>
+                <property name="sourceId" value="ib.data_source_id"/>
+              </include>
+          AND <include refid="userPermission"><property name="permissionKey" value="'feedback.review'"/></include>
+        FOR UPDATE OF fs
+    </select>
+
+    <!-- 职责分离在 WHERE 与 CHECK 两处兜底：复核人不能是标注人。 -->
+    <update id="decideReview">
+        UPDATE feedback_sample
+        SET review_status=#{status}, training_eligible=#{trainingEligible}, second_reviewed_by=#{reviewerId},
+            second_reviewed_at=UTC_TIMESTAMP(3), second_review_reason=#{reason}
+        WHERE id=#{feedbackId} AND review_status='pending' AND reviewed_by&lt;&gt;#{reviewerId}
+    </update>
+
+    <select id="listForAlert" resultMap="feedbackView">
+        <include refid="feedbackSelect"/>
+        WHERE fs.alert_id=#{alertId}
+          AND <include refid="visibleAlertPredicate">
+                <property name="assetId" value="ir.asset_id"/>
+                <property name="sourceId" value="ib.data_source_id"/>
+              </include>
+        ORDER BY fs.id DESC LIMIT 50
+    </select>
+
+    <sql id="pendingReviewWhere">
+        WHERE fs.review_status='pending' AND fs.reviewed_by&lt;&gt;#{userId}
+          AND <include refid="visibleAlertPredicate">
+                <property name="assetId" value="ir.asset_id"/>
+                <property name="sourceId" value="ib.data_source_id"/>
+              </include>
+          AND <include refid="userPermission"><property name="permissionKey" value="'feedback.review'"/></include>
+    </sql>
+
+    <select id="countPendingReviews" resultType="long">
+        SELECT COUNT(*)
+        FROM feedback_sample fs
+        JOIN detection_alert da ON da.id=fs.alert_id
+        JOIN ingest_record ir ON ir.id=da.ingest_record_id
+        JOIN ingest_batch ib ON ib.id=ir.batch_id
+        <include refid="pendingReviewWhere"/>
+    </select>
+
+    <select id="filterVisibleAlertIds" resultType="long">
+        SELECT da.id
+        FROM detection_alert da
+        JOIN ingest_record ir ON ir.id=da.ingest_record_id
+        JOIN ingest_batch ib ON ib.id=ir.batch_id
+        WHERE da.id IN <foreach collection="alertIds" item="alertId" open="(" separator="," close=")">#{alertId}</foreach>
+          AND <include refid="visibleAlertPredicate">
+                <property name="assetId" value="ir.asset_id"/>
+                <property name="sourceId" value="ib.data_source_id"/>
+              </include>
+    </select>
+
+    <select id="listPendingReviews" resultMap="feedbackView">
+        <include refid="feedbackSelect"/>
+        <include refid="pendingReviewWhere"/>
+        ORDER BY fs.reviewed_at, fs.id LIMIT #{limit} OFFSET #{offset}
+    </select>
 </mapper>

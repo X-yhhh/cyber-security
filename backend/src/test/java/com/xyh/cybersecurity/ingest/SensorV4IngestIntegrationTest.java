@@ -105,6 +105,7 @@ class SensorV4IngestIntegrationTest {
     @Test
     void v4RecordsReachOutboxAndBindingViolationsFailClosed() throws Exception {
         Sensor sensor = register("sensor-v4-a", V4);
+        assertThat(jdbc.queryForObject("SELECT last_success_at FROM data_source WHERE id=?", java.sql.Timestamp.class, sourceId)).isNull();
         assertThat(jdbc.queryForObject("SELECT feature_contract_sha256 FROM sensor_config WHERE sensor_id=?", String.class,
                 sensor.id())).isEqualTo(FeatureContractRegistry.fromClasspath().require(V4).fileSha256());
 
@@ -114,6 +115,10 @@ class SensorV4IngestIntegrationTest {
                 "sensor.ingest.batch:" + batchId)).isEqualTo(1);
         String issues = jdbc.queryForObject("SELECT quality_issues_json FROM ingest_record WHERE batch_id=?", String.class, batchId);
         assertThat(issues).contains("VOCABULARY_UNAVAILABLE");
+        // 有记录通过门禁即刷新数据源最近成功时间，口径为 UTC。
+        assertThat(jdbc.queryForObject("SELECT TIMESTAMPDIFF(SECOND, last_success_at, UTC_TIMESTAMP(3)) FROM data_source WHERE id=?",
+                Long.class, sourceId)).isBetween(0L, 60L);
+        jdbc.update("UPDATE data_source SET last_success_at=NULL WHERE id=?", sourceId);
         assertThat(jdbc.queryForObject("SELECT JSON_UNQUOTE(JSON_EXTRACT(normalized_payload,'$.metadata.viewpoint')) "
                 + "FROM ingest_record WHERE batch_id=?", String.class, batchId)).isEqualTo("responder");
 
@@ -126,6 +131,7 @@ class SensorV4IngestIntegrationTest {
                 .contains("RECORD_METADATA_INVALID");
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM outbox_event WHERE event_key=?", Integer.class,
                 "sensor.ingest.batch:" + rejectedBatch)).isZero();
+        assertThat(jdbc.queryForObject("SELECT last_success_at FROM data_source WHERE id=?", java.sql.Timestamp.class, sourceId)).isNull();
 
         submit(sensor, "v4-unbound-mapping", 3, "2.0", V4, record("r-unbound", true)).andExpect(status().isConflict());
         jdbc.update("UPDATE sensor_config SET feature_contract_sha256=? WHERE sensor_id=?", "0".repeat(64), sensor.id());

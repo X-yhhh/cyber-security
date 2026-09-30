@@ -54,6 +54,7 @@ public class IngestBatchProcessingService {
         } catch (RuntimeException exception) {
             throw new RetryableConsumerException("INFERENCE_TASK_SUBMISSION_FAILED", exception);
         }
+        mapper.markBatchProcessed(event.batchId());
         mapper.markConsumed(CONSUMER_NAME, event.eventKey());
         return ProcessResult.PROCESSED;
     }

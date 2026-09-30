@@ -2,6 +2,7 @@ package com.xyh.cybersecurity.model.artifact;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.xyh.cybersecurity.drift.FeatureBaseline;
 import com.xyh.cybersecurity.ingest.contract.FeatureContractRegistry;
 import com.xyh.cybersecurity.model.release.ModelService;
 import com.xyh.cybersecurity.model.runtime.ModelInputContract;
@@ -60,6 +61,8 @@ public class ModelArtifactStore {
             // checksums.json 的路径相对于本次交付目录；交付目录本身仍必须位于受控根目录内。
             verifyChecksums(checksums, artifact.getParent(), root, artifact);
             ModelInputContract inputs = verifyPreprocessingContract(artifact, root, manifest);
+            // 可选的训练基线统计（M8/阶段 7 PSI）：存在时必须结构合规且字段与输入契约一致，否则拒绝激活。
+            FeatureBaseline.fromManifest(manifest, inputs.numericFields(), inputs.categoricalFields());
             return new VerifiedArtifact(artifact, manifest, sha256, inputs);
         } catch (IOException | SecurityException exception) {
             throw new ModelContractException("MODEL_ARTIFACT_UNAVAILABLE");

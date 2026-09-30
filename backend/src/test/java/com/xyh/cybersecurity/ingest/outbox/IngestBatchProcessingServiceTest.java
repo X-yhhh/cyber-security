@@ -46,6 +46,8 @@ class IngestBatchProcessingServiceTest {
                 .isEqualTo(IngestBatchProcessingService.ProcessResult.PROCESSED);
         verify(submitter).submit(new IngestBatchEvent("event-2", RabbitTopologyConfig.INGEST_ROUTE, 7, 3, 1),
                 List.of(record));
+        verify(mapper).markBatchProcessed(7);
+        verify(mapper).markConsumed(IngestBatchProcessingService.CONSUMER_NAME, "event-2");
     }
 
     @Test
@@ -61,6 +63,7 @@ class IngestBatchProcessingServiceTest {
                 .isInstanceOf(RetryableConsumerException.class)
                 .hasMessage("INFERENCE_TASK_SUBMITTER_UNAVAILABLE");
         verify(mapper, never()).markConsumed(IngestBatchProcessingService.CONSUMER_NAME, "event-3");
+        verify(mapper, never()).markBatchProcessed(7);
     }
 
     @Test

@@ -86,6 +86,15 @@ public interface IngestMapper {
 
     int markConsumed(@Param("consumer") String consumer, @Param("messageKey") String messageKey);
 
+    /** 有记录通过门禁的批次落库时刷新数据源最近成功接入时间（UTC）。 */
+    int touchSourceSuccess(@Param("sourceId") long sourceId);
+
+    /**
+     * 消费事务内把批次标记为处理完成：{@code received → completed}；接收时已判为 {@code completed_with_errors}
+     * 的批次保持状态，只补 {@code finished_at}。重复投递时条件不再成立，返回 0。
+     */
+    int markBatchProcessed(@Param("batchId") long batchId);
+
     int recordConsumedFailure(@Param("consumer") String consumer, @Param("messageKey") String messageKey,
                               @Param("status") String status, @Param("errorCode") String errorCode,
                               @Param("errorMessage") String errorMessage);

@@ -72,8 +72,18 @@ def load_frame(manifest: dict[str, Any], audit_dir: Path | None = None
         raise DataIntegrityError(f"SHA-256 mismatch for {cache.name}")
     raw = load_cached("d1_raw.parquet", manifest, columns=[*V1_RAW_COLUMNS, "Label", "attack_cat"])
     re = pd.read_parquet(cache)
+    return assemble_frame(raw, re)
+
+
+def assemble_frame(raw: pd.DataFrame, re: pd.DataFrame) -> tuple[pd.DataFrame, np.ndarray, pd.Series, np.ndarray]:
+    """由 ``d1_raw``（至少含 ``V1_RAW_COLUMNS``、``Label``、``attack_cat``）与按行对齐的重算列组装 v4 训练帧。
+
+    ``load_frame`` 与阶段 7 ``baseline-v4``（从原始 CSV 重建、不落缓存）共用本函数，保证两条路径得到同一帧。
+    行数不一致即终止；返回值语义同 ``load_frame``。
+    """
     if len(re) != len(raw):
         raise DataIntegrityError("recomputed cache is not row-aligned with d1_raw.parquet")
+    raw = raw[[*V1_RAW_COLUMNS, "Label", "attack_cat"]]
     labels = raw["Label"].to_numpy(dtype=np.int8)
     cats = raw["attack_cat"].astype("string").fillna("Normal").reset_index(drop=True)
     frame = build_v2(raw).reset_index(drop=True)

@@ -6,6 +6,7 @@
  * 状态迁移、研判笔记和处置申请分别调用后端命令接口，成功后重新读取详情（回到第一页，
  * 新写入的条目在最前），不在本地伪造时间线。状态按钮只列出状态机允许的下一步，
  * 最终合法性、资产授权与策略匹配均由后端校验（失败时展示后端脱敏原因）。
+ * 关联告警每行可打开人工标注抽屉（阶段 7），标注成功后重新读取告警当前页。
  */
 import { computed, reactive, ref, watch } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
@@ -14,9 +15,10 @@ import Tag from '@/components/Tag.vue'
 import Drawer from '@/components/Drawer.vue'
 import LoadState from '@/components/LoadState.vue'
 import Pager from '@/components/Pager.vue'
+import AlertFeedbackDrawer from '@/components/AlertFeedbackDrawer.vue'
 import { api, ApiError, type Page } from '@/api/client'
 import { can } from '@/api/session'
-import { alertSource, alertTypeLabel, basisEntries, eventStatusLabel, eventTransitions, fmtTime, severityLabel, type EventDetail, type EventStatus, type PolicyView } from '@/api/types'
+import { alertSource, alertTypeLabel, basisEntries, eventStatusLabel, eventTransitions, fmtTime, severityLabel, type AlertView, type EventDetail, type EventStatus, type PolicyView } from '@/api/types'
 import { eventTone, severityTone, statusTone } from '@/data/tones'
 import { toast } from '@/composables/toast'
 import { errText, optional, useLoad } from '@/composables/load'
@@ -55,6 +57,14 @@ function usePaged<T>(kind: 'timeline' | 'alerts', first: () => Page<T> | undefin
 }
 const timeline = usePaged('timeline', () => data.value?.timeline)
 const alerts = usePaged('alerts', () => data.value?.alerts)
+
+// 告警人工标注：抽屉内读取标注历史并提交；标注会改变告警状态，成功后重新读取当前页
+const labeling = ref<AlertView | null>(null)
+/** 抽屉中的告警状态以刷新后的当前页为准，找不到时沿用打开时的快照。 */
+const labelingStatus = computed(() => alerts.state.value?.items.find((a) => a.id === labeling.value?.id)?.status ?? labeling.value?.status ?? null)
+const onFeedbackChanged = () => alerts.go(alerts.state.value?.page ?? 0)
+/** 按钮文案只是入口提示：可标注状态显示「标注」，否则只读查看；是否已有有效标注在抽屉内按历史判断。 */
+const feedbackAction = (a: AlertView) => (can('alert.feedback.label') && ['new', 'acknowledged'].includes(a.status) ? '标注' : '查看标注')
 
 // 状态迁移与笔记都要求理由，写入后端追加式时间线
 const pendingTo = ref<EventStatus | null>(null)
@@ -177,7 +187,7 @@ const riskBasis = computed(() => basisEntries(ev.value?.riskBasisJson ?? null))
           <span class="label">最新在前</span>
         </h2>
         <table class="table transition-opacity duration-300" :class="alerts.turning.value ? 'opacity-50' : ''" :aria-busy="alerts.turning.value">
-          <thead><tr><th>时间</th><th>告警</th><th>来源</th><th>分数</th><th>状态</th></tr></thead>
+          <thead><tr><th>时间</th><th>告警</th><th>来源</th><th>分数</th><th>状态</th><th>标注</th></tr></thead>
           <tbody>
             <tr v-for="a in alerts.state.value?.items ?? []" :key="a.id">
               <td class="num text-ink-3">{{ fmtTime(a.detectedAt) }}</td>
@@ -188,8 +198,12 @@ const riskBasis = computed(() => basisEntries(ev.value?.riskBasisJson ?? null))
               </td>
               <td class="num">{{ a.score == null ? '—' : Number(a.score).toFixed(3) }}</td>
               <td><Tag :tone="statusTone[a.status]" :label="a.status" /></td>
+              <td>
+                <button v-if="can('alert.read')" type="button" class="link text-[13px]" :aria-label="`${feedbackAction(a)} ${a.alertKey}`" @click="labeling = a">{{ feedbackAction(a) }}</button>
+                <span v-else class="text-ink-3">—</span>
+              </td>
             </tr>
-            <tr v-if="!alerts.state.value?.items.length"><td colspan="5" class="py-8 text-center text-ink-3">无可见关联告警。</td></tr>
+            <tr v-if="!alerts.state.value?.items.length"><td colspan="6" class="py-8 text-center text-ink-3">无可见关联告警。</td></tr>
           </tbody>
         </table>
         <Pager v-if="alerts.state.value" label="关联告警" :total="alerts.state.value.totalElements" :page="alerts.state.value.page" :size="alerts.state.value.size" :busy="alerts.turning.value" @change="alerts.go" />
@@ -250,6 +264,12 @@ const riskBasis = computed(() => basisEntries(ev.value?.riskBasisJson ?? null))
         <button class="act" :disabled="!allOk || busy" @click="submitAction">提交审批</button>
       </template>
     </Drawer>
+
+    <AlertFeedbackDrawer
+      :open="!!labeling" :alert-id="labeling?.id ?? null" :alert-key="labeling?.alertKey ?? ''"
+      :status="labelingStatus" :alert-type="labeling?.alertType ?? null"
+      @close="labeling = null" @changed="onFeedbackChanged"
+    />
     </div>
     <div v-else-if="notFound" class="py-32 text-center">
       <p class="label">404</p>

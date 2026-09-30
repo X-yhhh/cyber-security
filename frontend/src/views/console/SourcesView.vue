@@ -3,12 +3,14 @@
  * 数据源与回放：数据源 / 映射版本 / 接入批次汇总（/data-sources、/data-sources/ingest-summary），
  * 以及隔离靶场回放场景与最近运行（/replay-scenarios）。
  * 回放是重放已有数据，不生成或发起攻击流量；回放控制接口尚未实现，本页只读展示数据库记录。
+ * 「影子验证」页签（仅 shadow.report.read）见 SourcesShadowPanel：只读汇总 + 人工标注 / 复核。
  */
 import { computed, ref } from 'vue'
 import PageHead from '@/components/PageHead.vue'
 import Segmented from '@/components/Segmented.vue'
 import Tag from '@/components/Tag.vue'
 import LoadState from '@/components/LoadState.vue'
+import SourcesShadowPanel from './SourcesShadowPanel.vue'
 import { api, type Page } from '@/api/client'
 import { can } from '@/api/session'
 import { fmtTime, type DataSourceView, type IngestSummary, type ReplayScenarioView } from '@/api/types'
@@ -24,8 +26,14 @@ const { data, loading, error } = useLoad(async () => {
   return { sources, summary, replay }
 }, { sources: [] as DataSourceView[], summary: [] as IngestSummary[], replay: [] as ReplayScenarioView[] })
 
-const tab = ref<'sources' | 'replay'>('sources')
+const tab = ref<'sources' | 'replay' | 'shadow'>('sources')
 const sum = computed(() => new Map(data.value.summary.map((s) => [s.dataSourceId, s])))
+/** 影子验证页签只在具备 shadow.report.read 时出现；授权以后端为准。 */
+const tabs = computed(() => [
+  { value: 'sources' as const, label: '数据源', count: data.value.sources.length },
+  { value: 'replay' as const, label: '回放', count: data.value.replay.length },
+  ...(can('shadow.report.read') ? [{ value: 'shadow' as const, label: '影子验证' }] : []),
+])
 </script>
 
 <template>
@@ -34,7 +42,7 @@ const sum = computed(() => new Map(data.value.summary.map((s) => [s.dataSourceId
       <template #kicker>Sources</template>
     </PageHead>
 
-    <Segmented v-model="tab" :options="[{ value: 'sources', label: '数据源', count: data.sources.length }, { value: 'replay', label: '回放', count: data.replay.length }]" />
+    <Segmented v-model="tab" :options="tabs" />
 
     <LoadState :loading="loading" :error="error">
     <Transition name="fade" mode="out-in">
@@ -55,6 +63,8 @@ const sum = computed(() => new Map(data.value.summary.map((s) => [s.dataSourceId
           <tr v-if="!data.sources.length"><td colspan="6" class="py-16 text-center text-ink-3">数据库中暂无授权范围内的数据源。</td></tr>
         </tbody>
       </table>
+
+      <SourcesShadowPanel v-else-if="tab === 'shadow'" key="h" :sources="data.sources" />
 
       <div v-else key="r" class="mt-10">
         <table class="table">

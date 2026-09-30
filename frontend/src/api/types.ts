@@ -64,6 +64,76 @@ export interface OpsStatusView {
   loginThrottleFailures15m: number
 }
 
+/**
+ * 告警人工标注（阶段 7 人工抽检），对应后端 IncidentMapper.FeedbackView。
+ * 与模型页 /feedback-samples 用的 FeedbackView 是不同契约，不要混用。
+ * reviewedAt / secondReviewedAt 为 UTC LocalDateTime；reviewStatus 为 rejected 时标注已失效。
+ */
+export interface AlertFeedbackView {
+  id: number; alertId: number; alertKey: string; alertType: string; label: 'false_positive' | 'true_positive'; note: string
+  reviewedBy: number; reviewerName: string; reviewedAt: string; reviewStatus: 'pending' | 'training_approved' | 'rejected'
+  secondReviewedBy: number | null; secondReviewerName: string | null; secondReviewedAt: string | null; secondReviewReason: string | null
+  trainingEligible: boolean; dataSourceId: number; assetId: number
+}
+
+/** 影子验证按日覆盖；date 为所选时区下的 LocalDate（原样显示），observed 表示当天覆盖 ≥ 12 小时。 */
+export interface ShadowDay { date: string; weekend: boolean; coveredHours: number; observed: boolean; modelAlerts: number }
+/** 停机段；start / end 为带 Z 的 Instant。 */
+export interface ShadowGap { start: string; end: string; minutes: number }
+export interface ShadowCoverage {
+  sensors: number; healthWindows: number; coveredHours: number; rangeHours: number; coverageRatio: number
+  observedDays: number; observedWeekdays: number; observedWeekendDays: number; days: ShadowDay[]
+  gapCount: number; gapHours: number; gaps: ShadowGap[]; flowsSeen: number; flowsEmitted: number; flowsDropped: number; queueDepthMax: number
+}
+/** 记录与契约：contractRejectRate =（接入拒绝 + 推理契约拒绝）/ 全部记录，运行故障单列不计入。 */
+export interface ShadowRecords {
+  total: number; ingestRejected: number; manualReview: number; ingestIssueCodes: Record<string, number>
+  notInferred: number; inferenceStatus: Record<string, number>; rejectReasons: Record<string, number>
+  contractRejected: number; operationalFailed: number; contractRejectRate: number | null; notInModelScope: number
+  scored: number; scoredAttack: number; scopeAttackRatio: number | null
+  outOfVocabulary: Record<string, number>; outOfVocabularyRatio: Record<string, number | null>
+}
+/** maxDay 为 LocalDate。 */
+export interface ShadowAlerts { modelAlerts: number; assetsWithAlerts: number; meanPerAssetDay: number | null; maxPerAssetDay: number; maxDay: string | null }
+/** 抽检样本；detectedAt 为 UTC LocalDateTime，label / reviewStatus 为 null 表示尚未标注。 */
+export interface ShadowReviewItem { alertId: number; alertKey: string; detectedAt: string; severity: string; score: number | null; label: string | null; reviewStatus: string | null }
+/** sample 只在调用者有 alert.read 时返回，且已按告警可见性过滤；计数不受过滤影响。 */
+export interface ShadowReview {
+  rule: string; population: number; sampleSize: number; labeled: number; falsePositive: number; truePositive: number
+  falsePositiveRate: number | null; sample: ShadowReviewItem[]
+}
+export interface ShadowModelUse { modelVersionId: number; version: string; artifactSha256: string; scored: number }
+export type ShadowDriftStatus = 'computed' | 'insufficient_samples' | 'baseline_unavailable' | 'mixed_artifacts' | 'no_samples'
+export interface ShadowDrift {
+  status: ShadowDriftStatus; baselineModelVersionId: number | null; baselineVersion: string | null; models: ShadowModelUse[]
+  samples: number; minSamples: number; psi: Record<string, number | null>; otherRatio: Record<string, number | null>
+  invalid: Record<string, number>; fieldsAboveWarning: string[]; maxPsi: number | null
+}
+/** 端到端延迟：批次接收 → 该批最后一条推理完成，仅含有推理成功记录的批次。 */
+export interface ShadowPerformance {
+  batches: number; p50Ms: number | null; p95Ms: number | null; p99Ms: number | null; maxMs: number | null
+  deadLetters: number; consumerRetrying: number; outboxPending: number; oldestPendingSeconds: number | null
+}
+export type CriterionStatus = 'pass' | 'fail' | 'pending' | 'not_evaluable'
+export interface ShadowCriterion { key: string; title: string; threshold: string; value: string; status: CriterionStatus; note: string | null }
+export type ShadowVerdict = 'pass' | 'fail' | 'incomplete'
+/**
+ * 影子验证汇总（GET /data-sources/{id}/shadow-report），对应后端 record ShadowReport。
+ * 只含计数、比例与分布统计；generatedAt / from / to 为带 Z 的 Instant。
+ * verdict：任一 fail 为 fail；否则任一 pending / not_evaluable 为 incomplete；全部 pass 为 pass。
+ */
+export interface ShadowReport {
+  reportVersion: string; thresholdsVersion: string; generatedAt: string; dataSourceId: number; from: string; to: string; timeZone: string
+  coverage: ShadowCoverage; records: ShadowRecords; alerts: ShadowAlerts; review: ShadowReview; drift: ShadowDrift
+  performance: ShadowPerformance; criteria: ShadowCriterion[]; verdict: ShadowVerdict; limitations: string[]
+}
+
+export const feedbackLabel: Record<string, string> = { false_positive: '误报', true_positive: '真报' }
+export const feedbackReviewLabel: Record<string, string> = { pending: '待复核', training_approved: '可用于训练', rejected: '已驳回' }
+export const criterionLabel: Record<string, string> = { pass: '达标', fail: '未达标', pending: '待定', not_evaluable: '无法判定' }
+export const verdictLabel: Record<string, string> = { pass: '通过', fail: '未通过', incomplete: '未完成' }
+export const driftStatusLabel: Record<string, string> = { computed: '已计算', insufficient_samples: '样本不足', baseline_unavailable: '无基线', mixed_artifacts: '制品混用', no_samples: '无样本' }
+
 export const severityLabel: Record<string, string> = { critical: '严重', high: '高', medium: '中', low: '低' }
 export const eventStatusLabel: Record<string, string> = { open: '待处理', investigating: '研判中', contained: '已遏制', resolved: '已解决', false_positive: '误报', closed: '已关闭' }
 /** security_event 合法迁移，与后端 IncidentService 状态机一致；最终是否允许以后端为准。 */

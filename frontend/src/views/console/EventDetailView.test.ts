@@ -2,10 +2,10 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { ref } from 'vue'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { getMock, toastMock } = vi.hoisted(() => ({ getMock: vi.fn(), toastMock: vi.fn() }))
+const { getMock, toastMock, canMock, fixture } = vi.hoisted(() => ({ getMock: vi.fn(), toastMock: vi.fn(), canMock: vi.fn(), fixture: { alerts: null as unknown } }))
 
 vi.mock('@/api/client', () => ({ api: { get: getMock, post: vi.fn() }, ApiError: class extends Error {} }))
-vi.mock('@/api/session', () => ({ can: vi.fn(() => false) }))
+vi.mock('@/api/session', () => ({ can: canMock }))
 vi.mock('@/composables/reveal', () => ({ vReveal: { mounted: vi.fn() } }))
 vi.mock('@/composables/toast', () => ({ toast: toastMock }))
 vi.mock('@/composables/load', () => ({
@@ -23,7 +23,7 @@ const page = <T>(items: T[], total: number, p = 0) => ({ totalElements: total, p
 function detail() {
   return {
     event: { id: 7, eventKey: 'evt-7', title: '批量告警', category: 'network', severity: 'critical', status: 'open', riskScore: 1, firstSeenAt: '2026-09-29T15:00:00', lastSeenAt: '2026-09-29T15:20:00', assigneeId: null, alertCount: 45, assetCount: 1, riskRuleVersion: 'risk-v1', riskBasisJson: null, correlationKey: null, correlationPolicyVersion: null },
-    alerts: page([], 0),
+    alerts: fixture.alerts ?? page([], 0),
     assets: [{ assetId: 1, assetKey: 'host-1', relationType: 'affected', evidenceCount: 45 }],
     timeline: page(Array.from({ length: 20 }, (_, i) => entry(45 - i)), 45),
   }
@@ -35,7 +35,7 @@ function mountView() {
 }
 
 describe('EventDetailView paging', () => {
-  beforeEach(() => { getMock.mockReset(); toastMock.mockReset() })
+  beforeEach(() => { getMock.mockReset(); toastMock.mockReset(); canMock.mockReset().mockReturnValue(false); fixture.alerts = null })
 
   it('renders only the embedded first page and requests the next page from the sub-resource', async () => {
     getMock.mockResolvedValue(page(Array.from({ length: 20 }, (_, i) => entry(25 - i)), 45, 1))
@@ -80,6 +80,26 @@ describe('EventDetailView paging', () => {
 
     expect(wrapper.text()).toContain('entry-5')
     expect(wrapper.text()).not.toContain('entry-25')
+    wrapper.unmount()
+  })
+
+  it('opens the feedback drawer from an alert row and reloads the current alert page after a label', async () => {
+    canMock.mockImplementation((p: string) => p === 'alert.read' || p === 'alert.feedback.label')
+    const alert = { id: 31, alertKey: 'alt-31', alertType: 'model', severity: 'high', status: 'new', score: 0.9, detectedAt: '2026-09-29T15:00:00', dataSourceId: 1, assetId: 1, modelKey: 'unsw', modelVersion: 'v1', contractVersion: 'v4', ruleKey: null, ruleVersion: null, severityPolicyVersion: null }
+    fixture.alerts = page([alert], 1)
+    getMock.mockResolvedValue(page([{ ...alert, status: 'false_positive' }], 1))
+    const wrapper = mount(EventDetailView, { global: { stubs: ['Tag', 'Drawer', 'AlertFeedbackDrawer'], directives: { reveal: () => undefined } } })
+
+    const drawer = wrapper.findComponent({ name: 'AlertFeedbackDrawer' })
+    expect(drawer.props('open')).toBe(false)
+    await wrapper.get('button[aria-label="标注 alt-31"]').trigger('click')
+    expect(drawer.props()).toMatchObject({ open: true, alertId: 31, alertKey: 'alt-31', status: 'new', alertType: 'model' })
+
+    drawer.vm.$emit('changed')
+    await flushPromises()
+    expect(getMock).toHaveBeenCalledWith('/events/7/alerts?page=0&size=20')
+    expect(wrapper.findComponent({ name: 'AlertFeedbackDrawer' }).props('status')).toBe('false_positive')
+    expect(wrapper.find('button[aria-label="查看标注 alt-31"]').exists()).toBe(true)
     wrapper.unmount()
   })
 

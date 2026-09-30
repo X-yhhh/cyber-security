@@ -55,13 +55,6 @@ public class ConsoleQueryService {
                         row.lastBatchAt(), row.mappingVersion(), row.mappingStatus())).toList();
     }
 
-    public List<PolicyView> policies() {
-        return mapper.policies().stream()
-                .map(row -> new PolicyView(row.id(), row.policyKey(), row.version(), row.environment(), row.actionType(),
-                        json(row.params()), row.autoExecute(), row.approvalRequired(), row.maxDurationSeconds(),
-                        row.status(), row.approved())).toList();
-    }
-
     /**
      * 审批/申请台账。mine=true 时只列本人申请；否则列 permission 资产范围内全部状态的审批。
      * 执行状态取该审批最新的 action_execution；执行器未开放时为 null。
@@ -150,9 +143,6 @@ public class ConsoleQueryService {
                                     String approvedBy, LocalDateTime createdAt) { }
     public record IngestSummary(long dataSourceId, long batches, long accepted, long rejected,
                                 LocalDateTime lastBatchAt, String mappingVersion, String mappingStatus) { }
-    public record PolicyView(long id, String policyKey, String version, String environment, String actionType,
-                             JsonNode actionParams, boolean autoExecute, boolean approvalRequired,
-                             int maxDurationSeconds, String status, boolean approved) { }
     public record LedgerView(long id, long eventId, String eventKey, long assetId, String assetKey,
                              JsonNode actionRequest, String status, String requester, String reviewer,
                              String decisionReason, LocalDateTime expiresAt, LocalDateTime createdAt,

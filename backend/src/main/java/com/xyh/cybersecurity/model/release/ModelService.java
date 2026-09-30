@@ -15,6 +15,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.net.URI;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
@@ -163,10 +164,16 @@ public class ModelService {
         int approvalCount = mapper.countApprovedReleases(modelId);
         if (approvalCount == 0) throw ApiRequestException.conflict("缺少已批准的发布审查记录");
 
-        OnnxModelRuntime prepared;
-        try { prepared = onnx.prepare(modelView(model.id(), model.modelKey(), model.version(), model.taskType(),
+        ModelView view = modelView(model.id(), model.modelKey(), model.version(), model.taskType(),
                 model.manifestVersion(), model.manifestJson(), model.artifactRef(), model.artifactSha256(),
-                model.featureContractVersion(), model.approvalStatus(), model.createdAt())); }
+                model.featureContractVersion(), model.approvalStatus(), model.createdAt());
+        OnnxModelRuntime prepared;
+        OnnxModelManager.ActiveModel descriptor;
+        try {
+            prepared = onnx.prepare(view);
+            // 描述在数据库写入前生成（prepare 已校验过阈值策略），提交后的内存切换不会再因校验失败而中断。
+            descriptor = OnnxModelManager.describe(view, prepared);
+        }
         catch (RuntimeException exception) { throw ApiRequestException.conflict("激活前模型制品复核失败"); }
         try {
             mapper.lockLocalDeployments();
@@ -175,13 +182,13 @@ public class ModelService {
             mapper.insertDeployment(modelId, actor.id());
             mapper.activateRelease(modelId, actor.id());
             audit(actor.id(), "model.deployment.activated", "model_version", modelId, model.modelKey(), request, summary);
-            onnx.activateAfterCommit(modelId, prepared);
+            onnx.activateAfterCommit(descriptor, prepared);
         } catch (RuntimeException exception) {
             try { prepared.close(); } catch (Exception ignored) { }
             throw exception;
         }
         return new DeploymentView(modelId, model.modelKey(), model.version(), "local", "active",
-                "onnxruntime-java-1.23.2", LocalDateTime.now());
+                "onnxruntime-java-1.23.2", LocalDateTime.now(ZoneOffset.UTC));
     }
 
     private ModelMapper.ModelRow findVisibleModel(long userId, long modelId, String permission) {
@@ -264,7 +271,7 @@ public class ModelService {
     private void audit(long actorId, String action, String resourceType, long resourceId, String modelKey,
                        HttpServletRequest request, String reason) {
         Object requestId = request.getAttribute(REQUEST_ID_ATTRIBUTE);
-        AuditMapper.AuditInsert audit = new AuditMapper.AuditInsert(LocalDateTime.now(), "human",
+        AuditMapper.AuditInsert audit = new AuditMapper.AuditInsert(LocalDateTime.now(ZoneOffset.UTC), "human",
                 Long.toString(actorId), action, resourceType, Long.toString(resourceId),
                 requestId instanceof String value ? value : null, "success", reason);
         auditMapper.insertAudit(audit);

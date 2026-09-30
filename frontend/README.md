@@ -21,63 +21,46 @@
 
 ## 2. 功能模块全景
 
-| 模块路由 | 页面名称 | 核心功能与安全边界 |
-| --- | --- | --- |
-| `/dashboard` | **安全态势感知大屏** | 传感器在线率、检测流吞吐、未处置事件、防火墙生效阻断、波形曲线与威胁环形图 |
-| `/incidents` | **安全事件看板** | 多状态事件卡片、严重级别过滤、风险指数排序、跳转研判工作台 |
-| `/incidents/:id` | **事件深度研判工作台** | 核心资产上下文、流量特征明细、证据研判时间线、追加研判笔记、发起受控阻断申请 |
-| `/incidents/alerts` | **原始流量告警池** | 流级告警、五元组、模型置信度与分类类别查看 |
-| `/response` | **受控防御审批中心** | 待审批工单、申请人与审批人**职责分离核验**、阻断策略快照核对、批准/驳回 |
-| `/response/ledger` | **防御执行台账** | 主机防火墙生效阻断规则、TTL 倒计时、回滚句柄、适配器执行回执、一键安全回滚 |
-| `/assets` | **资产台账与授权管理** | Mac/Windows 授权主机与隔离靶场主机台账、关键度评级、授权有效期与审批 |
-| `/assets/sensors` | **软件传感器监控** | 传感器心跳、流时间窗设置、吞吐流记录、丢包帧数与队列深度监控 |
-| `/datasources` | **数据源接入管理** | UNSW-NB15 基准流数据源、主机传感器遥测通道、模式规范版本 |
-| `/datasources/mappings` | **字段映射与质量门禁** | 版本化映射规则 (unsw-flow-v1)、必填字段与数据类型校验、门禁拒绝率统计 |
-| `/models` | **模型版本与不可变Manifest** | 模型版本库、不可变 Manifest JSON、SHA-256 哈希、F1/AUC 评估指标、部署模式 |
-| `/models/release-reviews`| **独立模型发布审查台账** | 离线候选模型发布申请、独立审查审批决策（职责分离） |
-| `/models/drift` | **特征漂移与人工反馈** | 滑动时间窗特征漂移监控 (KS检验)、分析师人工真值标注样本库 |
-| `/models/training-jobs` | **离线训练任务** | Windows CUDA 离线训练台账、样本指纹追溯、RTX 4090 算力主机记录 |
-| `/replay` | **隔离靶场流量回放** | 典型 DoS 场景回放、1x/2x/5x/10x 倍速调节、演练流量与实网隔离展示 |
-| `/audit` | **安全审计与合规报告** | 全范围追加式只读审计日志、脱敏合规审计报告导出 |
-| `/iam` | **访问控制与系统运维** | 用户主体列表、7 大内置角色权限矩阵速查、系统就绪探针 (MySQL/API) |
-| `/login` | **安全登录控制台** | 对接后端会话登录，失败显示脱敏消息与 request-id |
+路由定义见 `src/router/index.ts`。控制台页面挂在 `/console` 下，未登录访问会跳转登录页。
+
+| 路由 | 页面 | 主要功能 | 调用的后端接口（`/api/v1` 下） |
+| --- | --- | --- | --- |
+| `/` | 首页 | 项目介绍与入口 | 无 |
+| `/login` | 登录 | 服务端会话登录，失败显示脱敏消息与 request ID | `/auth/csrf`、`/auth/login`、`/auth/me` |
+| `/console/overview` | 态势 | 事件、传感器、审批、模型部署与漂移概览，运行状态 | `/overview`、`/events`、`/sensors`、`/approvals/ledger`、`/model-deployments`、`/model-drift-windows`、`/ops/status` |
+| `/console/events` | 告警与事件 | 告警与事件列表 | `/alerts`、`/events` |
+| `/console/events/:id` | 事件详情 | 关联告警与时间线（服务端分页）、状态迁移、研判笔记、告警误报/真报标注（`AlertFeedbackDrawer`）、发起处置申请 | `/alerts/{id}`、`/alerts/{id}/feedback`、`/events/{id}`、`/events/{id}/alerts`、`/events/{id}/timeline`、`/events/{id}/transitions`、`/events/{id}/notes`、`/events/{id}/actions`、`/response-policies` |
+| `/console/response` | 受控响应 | 审批台账、我的申请、响应策略起草/提交/撤回/批准/驳回/退役 | `/approvals/ledger`、`/approvals/{id}/decision`、`/actions/mine`、`/response-policies` |
+| `/console/models` | 模型治理 | 模型候选、校验、发布申请与审批、本机激活、漂移窗口、反馈样本、训练台账 | `/models`、`/models/{id}/validate`、`/models/{id}/release-requests`、`/model-release-requests/{id}/decision`、`/model-deployments`、`/model-deployments/active`、`/model-drift-windows`、`/feedback-samples`、`/training-jobs` |
+| `/console/assets` | 资产与传感器 | 资产台账、授权申请与审批、传感器列表 | `/assets`、`/assets/{id}/authorizations`、`/assets/{id}/authorizations/{authorizationId}/approve`、`/sensors` |
+| `/console/sources` | 数据源与回放 | 数据源、接入汇总、回放场景（只读）、影子报告与反馈第二人复核（`SourcesShadowPanel`） | `/data-sources`、`/data-sources/ingest-summary`、`/replay-scenarios`、`/data-sources/{id}/shadow-report`、`/feedback-reviews`、`/feedback-samples/{id}/review` |
+| `/console/audit` | 审计 | 追加式只读审计查询 | `/audit` |
+| `/console/iam` | 身份与角色 | 用户列表、内置角色与权限 | `/users`、`/roles`、`/users/{id}/roles` |
 
 ---
 
 ## 3. 数据来源与会话
 
-控制台不再内置演示数据，所有页面数据均通过 `/api/v1` 从后端读取（后端以 MySQL 为事实源）。开发服务器将 `/api/v1` 代理到 `127.0.0.1:18080`。
+控制台不内置演示数据，所有页面数据均通过 `/api/v1` 从后端读取（后端以 MySQL 为事实源）。开发服务器将 `/api/v1` 代理到 `127.0.0.1:18080`。
 
 - 登录走 `POST /api/v1/auth/login` 建立服务端会话（HttpOnly Cookie）；写请求自动携带 `/auth/csrf` 下发的 CSRF 头。未登录访问 `/console/*` 跳转登录页，会话失效（401）时自动返回登录页。
 - 页面按 `/auth/me` 返回的权限决定请求哪些接口、显示哪些操作；最终授权始终由后端判定，无权限区块显示为空或提示，不补示例值。
 - 数据库中没有记录时页面如实显示“暂无记录”。
-- 已接入的写操作：事件状态迁移、研判笔记、处置申请（带 `Idempotency-Key`）、审批决定、资产授权批准、模型校验/发布申请/发布审批/本机激活。回放启停、执行器仍未开放。
+- 已接入的写操作：事件状态迁移、研判笔记、处置申请（带 `Idempotency-Key`）、审批决定、资产授权批准、模型校验/发布申请/发布审批/本机激活、响应策略生命周期、告警标注与第二人复核。回放启停与处置执行器未开放（后端执行端点固定返回 `503 ACTION_EXECUTION_UNAVAILABLE`）。
 
 ---
 
-## 4. 本地启动与构建命令
+## 4. 本地命令
 
 ```bash
-# 进入前端目录
 cd frontend
-
-# 启动开发服务器 (支持热重载)
-npm run dev
-
-# 生产环境打包构建 (包含 TypeScript 严格类型检查)
-npm run build
-
-# 预览生产构建结果
-npm run preview
+npm ci              # 按锁文件安装依赖
+npm run dev         # 开发服务器
+npm run lint        # ESLint，警告即失败
+npm run typecheck   # vue-tsc 类型检查
+npm test            # Vitest
+npm run build       # 类型检查 + 生产构建
+npm run preview     # 预览生产构建
 ```
 
----
-
-## 5. 后续无缝对接后端方式
-
-系统内置了契约完全对齐的 API 客户端（`src/api/client.ts`），严格遵循后端 `ApiEnvelope`（`{ success, data, error, requestId }`）结构。
-当 Spring Boot 后端服务启动于 `127.0.0.1:18080` 时，只需在 `src/api/client.ts` 中设置：
-```typescript
-export const IS_MOCK_MODE = false;
-```
-前端所有请求将通过 Vite Proxy 自动转发到 `http://127.0.0.1:18080/api/v1`，携带 CSRF Token、Session Cookie 与 `X-Request-Id`，实现零成本无缝平滑对接。
+API 客户端 `src/api/client.ts` 遵循后端 `ApiEnvelope`（`{ success, data, error, requestId }`），自动携带 CSRF 头、会话 Cookie 与 `X-Request-Id`。

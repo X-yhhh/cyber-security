@@ -1,19 +1,24 @@
 <script setup lang="ts">
 /**
  * 事件详情：左侧证据时间线与研判，右侧风险与处置申请。
- * 数据来自 GET /events/{id}；状态迁移、研判笔记和处置申请分别调用后端命令接口，
- * 成功后重新读取详情，不在本地伪造时间线。状态按钮只列出状态机允许的下一步，
+ * 数据来自 GET /events/{id}；时间线与关联告警只内嵌第一页（按时间倒序），翻页读
+ * GET /events/{id}/timeline、/events/{id}/alerts，不一次载入全部证据。
+ * 状态迁移、研判笔记和处置申请分别调用后端命令接口，成功后重新读取详情（回到第一页，
+ * 新写入的条目在最前），不在本地伪造时间线。状态按钮只列出状态机允许的下一步，
  * 最终合法性、资产授权与策略匹配均由后端校验（失败时展示后端脱敏原因）。
+ * 关联告警每行可打开人工标注抽屉（阶段 7），标注成功后重新读取告警当前页。
  */
-import { computed, reactive, ref } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
 import { ArrowLeft } from 'lucide-vue-next'
 import Tag from '@/components/Tag.vue'
 import Drawer from '@/components/Drawer.vue'
 import LoadState from '@/components/LoadState.vue'
-import { api, ApiError } from '@/api/client'
+import Pager from '@/components/Pager.vue'
+import AlertFeedbackDrawer from '@/components/AlertFeedbackDrawer.vue'
+import { api, ApiError, type Page } from '@/api/client'
 import { can } from '@/api/session'
-import { eventStatusLabel, eventTransitions, fmtTime, severityLabel, type EventDetail, type EventStatus, type PolicyView } from '@/api/types'
+import { alertSource, alertTypeLabel, basisEntries, eventStatusLabel, eventTransitions, fmtTime, severityLabel, type AlertView, type EventDetail, type EventStatus, type PolicyView } from '@/api/types'
 import { eventTone, severityTone, statusTone } from '@/data/tones'
 import { toast } from '@/composables/toast'
 import { errText, optional, useLoad } from '@/composables/load'
@@ -25,6 +30,41 @@ const { data, loading, error, reload } = useLoad(() => api.get<EventDetail>(`/ev
 const ev = computed(() => data.value?.event)
 const notFound = computed(() => !loading.value && !data.value)
 const busy = ref(false)
+
+/**
+ * 服务端分页状态：以详情内嵌的第一页为初值，翻页时请求子资源。
+ * 以请求序号丢弃过期响应，避免快速翻页时旧页覆盖新页；失败只提示，保留当前页。
+ */
+function usePaged<T>(kind: 'timeline' | 'alerts', first: () => Page<T> | undefined) {
+  const state = ref<Page<T> | null>(null)
+  const turning = ref(false)
+  let seq = 0
+  watch(first, (p) => { seq++; turning.value = false; state.value = p ?? null }, { immediate: true })
+  async function go(page: number) {
+    const size = state.value?.size ?? 20
+    const mine = ++seq
+    turning.value = true
+    try {
+      const next = await api.get<Page<T>>(`/events/${encodeURIComponent(id)}/${kind}?page=${page}&size=${size}`)
+      if (mine === seq) state.value = next
+    } catch (e) {
+      if (mine === seq) toast(errText(e), 'threat')
+    } finally {
+      if (mine === seq) turning.value = false
+    }
+  }
+  return { state, turning, go }
+}
+const timeline = usePaged('timeline', () => data.value?.timeline)
+const alerts = usePaged('alerts', () => data.value?.alerts)
+
+// 告警人工标注：抽屉内读取标注历史并提交；标注会改变告警状态，成功后重新读取当前页
+const labeling = ref<AlertView | null>(null)
+/** 抽屉中的告警状态以刷新后的当前页为准，找不到时沿用打开时的快照。 */
+const labelingStatus = computed(() => alerts.state.value?.items.find((a) => a.id === labeling.value?.id)?.status ?? labeling.value?.status ?? null)
+const onFeedbackChanged = () => alerts.go(alerts.state.value?.page ?? 0)
+/** 按钮文案只是入口提示：可标注状态显示「标注」，否则只读查看；是否已有有效标注在抽屉内按历史判断。 */
+const feedbackAction = (a: AlertView) => (can('alert.feedback.label') && ['new', 'acknowledged'].includes(a.status) ? '标注' : '查看标注')
 
 // 状态迁移与笔记都要求理由，写入后端追加式时间线
 const pendingTo = ref<EventStatus | null>(null)
@@ -94,6 +134,7 @@ async function submitAction() {
 
 const mark = (t: string) => (t.includes('alert') ? 'bg-threat' : t.includes('transition') || t.includes('status') ? 'bg-ink' : t.includes('action') ? 'bg-signal' : 'bg-ink-4')
 const risk = computed(() => (ev.value?.riskScore == null ? null : Math.round(Number(ev.value.riskScore) * 100)))
+const riskBasis = computed(() => basisEntries(ev.value?.riskBasisJson ?? null))
 </script>
 
 <template>
@@ -123,40 +164,63 @@ const risk = computed(() => (ev.value?.riskScore == null ? null : Math.round(Num
 
     <div class="grid gap-20 lg:grid-cols-[1.35fr_1fr]">
       <section v-reveal>
-        <h2 class="mb-8 text-[15px]">证据时间线</h2>
-        <ol class="relative ml-1 border-l border-ink-hair">
-          <li v-for="t in data.timeline" :key="t.id" class="relative pb-9 pl-8">
+        <h2 class="mb-8 flex items-baseline justify-between text-[15px]">
+          <span>证据时间线<span class="num ml-2 text-[11px] text-ink-4">{{ timeline.state.value?.totalElements ?? 0 }}</span></span>
+          <span class="label">最新在前</span>
+        </h2>
+        <ol class="relative ml-1 border-l border-ink-hair transition-opacity duration-300" :class="timeline.turning.value ? 'opacity-50' : ''" :aria-busy="timeline.turning.value">
+          <li v-for="t in timeline.state.value?.items ?? []" :key="t.id" class="relative pb-9 pl-8">
             <span class="absolute -left-[3.5px] top-[7px] h-[6px] w-[6px]" :class="mark(t.entryType)" />
             <p class="num flex gap-4 text-[11.5px] text-ink-3"><span>{{ fmtTime(t.occurredAt) }}</span><span class="label !text-[10px]">{{ t.entryType }}</span><span>{{ t.actorType }}{{ t.actorId ? ' · ' + t.actorId : '' }}</span></p>
             <p class="mt-2 text-[14px] leading-relaxed">{{ t.summary }}</p>
           </li>
-          <li v-if="!data.timeline.length" class="pb-9 pl-8 text-[13px] text-ink-3">暂无时间线记录。</li>
+          <li v-if="!timeline.state.value?.items.length" class="pb-9 pl-8 text-[13px] text-ink-3">暂无时间线记录。</li>
         </ol>
+        <Pager v-if="timeline.state.value" class="!mt-0 mb-8 pl-8" label="证据时间线" :total="timeline.state.value.totalElements" :page="timeline.state.value.page" :size="timeline.state.value.size" :busy="timeline.turning.value" @change="timeline.go" />
         <form v-if="can('event.investigate')" class="mt-2 flex items-end gap-6 pl-8" @submit.prevent="addNote">
           <label class="flex-1"><span class="label">追加研判</span><input v-model="note" class="field mt-2" maxlength="1000" placeholder="写下依据，而不是结论" /></label>
           <button type="submit" class="link text-[13px]" :disabled="busy || !note.trim()">添加</button>
         </form>
 
-        <h2 class="mb-6 mt-20 text-[15px]">关联告警</h2>
-        <table class="table">
-          <thead><tr><th>时间</th><th>告警</th><th>类型</th><th>分数</th><th>状态</th></tr></thead>
+        <h2 class="mb-6 mt-20 flex items-baseline justify-between text-[15px]">
+          <span>关联告警<span class="num ml-2 text-[11px] text-ink-4">{{ alerts.state.value?.totalElements ?? 0 }}</span></span>
+          <span class="label">最新在前</span>
+        </h2>
+        <table class="table transition-opacity duration-300" :class="alerts.turning.value ? 'opacity-50' : ''" :aria-busy="alerts.turning.value">
+          <thead><tr><th>时间</th><th>告警</th><th>来源</th><th>分数</th><th>状态</th><th>标注</th></tr></thead>
           <tbody>
-            <tr v-for="a in data.alerts" :key="a.id">
+            <tr v-for="a in alerts.state.value?.items ?? []" :key="a.id">
               <td class="num text-ink-3">{{ fmtTime(a.detectedAt) }}</td>
               <td class="num">{{ a.alertKey }}</td>
-              <td class="text-ink-2">{{ a.alertType }}</td>
+              <td>
+                <span class="block text-ink-2">{{ alertTypeLabel[a.alertType] ?? a.alertType }} · {{ alertSource(a) }}</span>
+                <span class="num text-[12px] text-ink-3">契约 {{ a.contractVersion ?? '—' }}{{ a.severityPolicyVersion ? ' · 分级 ' + a.severityPolicyVersion : '' }}</span>
+              </td>
               <td class="num">{{ a.score == null ? '—' : Number(a.score).toFixed(3) }}</td>
               <td><Tag :tone="statusTone[a.status]" :label="a.status" /></td>
+              <td>
+                <button v-if="can('alert.read')" type="button" class="link text-[13px]" :aria-label="`${feedbackAction(a)} ${a.alertKey}`" @click="labeling = a">{{ feedbackAction(a) }}</button>
+                <span v-else class="text-ink-3">—</span>
+              </td>
             </tr>
-            <tr v-if="!data.alerts.length"><td colspan="5" class="py-8 text-center text-ink-3">无可见关联告警。</td></tr>
+            <tr v-if="!alerts.state.value?.items.length"><td colspan="6" class="py-8 text-center text-ink-3">无可见关联告警。</td></tr>
           </tbody>
         </table>
+        <Pager v-if="alerts.state.value" label="关联告警" :total="alerts.state.value.totalElements" :page="alerts.state.value.page" :size="alerts.state.value.size" :busy="alerts.turning.value" @change="alerts.go" />
       </section>
 
       <aside v-reveal="120">
         <h2 class="mb-8 text-[15px]">风险评分</h2>
         <p class="num text-[4.5rem] font-extralight leading-none tracking-[-0.04em]" :class="(risk ?? 0) > 70 ? 'text-threat' : ''">{{ risk ?? '—' }}<span class="ml-2 text-[14px] text-ink-3">/ 100</span></p>
         <div class="mt-8 h-1.5 w-full bg-paper-deep"><span class="block h-full bg-ink" :style="{ width: (risk ?? 0) + '%' }" /></div>
+        <h3 class="label mb-4 mt-12">评分依据</h3>
+        <dl class="border-t border-ink">
+          <div v-for="[k, v] in riskBasis" :key="k" class="grid grid-cols-[9rem_1fr] border-b border-ink-hair py-2.5 text-[12.5px]">
+            <dt class="text-ink-3">{{ k }}</dt><dd class="num break-all">{{ v }}</dd>
+          </div>
+          <p v-if="!riskBasis.length" class="py-3 text-[12.5px] text-ink-3">该事件未保存评分依据。</p>
+        </dl>
+        <p v-if="ev.correlationKey" class="num mt-4 text-[12px] text-ink-3">关联 {{ ev.correlationKey }} · {{ ev.correlationPolicyVersion ?? '—' }}</p>
         <h3 class="label mb-4 mt-12">关联资产</h3>
         <ul class="border-t border-ink">
           <li v-for="a in data.assets" :key="a.assetId" class="flex justify-between border-b border-ink-hair py-3.5 text-[13px]">
@@ -200,6 +264,12 @@ const risk = computed(() => (ev.value?.riskScore == null ? null : Math.round(Num
         <button class="act" :disabled="!allOk || busy" @click="submitAction">提交审批</button>
       </template>
     </Drawer>
+
+    <AlertFeedbackDrawer
+      :open="!!labeling" :alert-id="labeling?.id ?? null" :alert-key="labeling?.alertKey ?? ''"
+      :status="labelingStatus" :alert-type="labeling?.alertType ?? null"
+      @close="labeling = null" @changed="onFeedbackChanged"
+    />
     </div>
     <div v-else-if="notFound" class="py-32 text-center">
       <p class="label">404</p>

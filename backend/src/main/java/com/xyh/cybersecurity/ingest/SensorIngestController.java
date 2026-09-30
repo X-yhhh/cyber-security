@@ -71,7 +71,9 @@ public class SensorIngestController {
         SensorIngestService.Submission result = service.submit(sensorId, principal, idempotencyKey,
                 new SensorIngestService.SensorBatchRequest(body.dataSourceId(), body.configVersion(), body.sequence(), body.observedAt(),
                         body.sourceMappingVersion(), body.featureContractVersion(), body.records().stream().map(r ->
-                                new SensorIngestService.FlowRecordRequest(r.recordKey(), r.flowStartAt(), r.flowEndAt(), r.observedAt(), r.directionBasis(), r.features())).toList()), requestId(request));
+                                new SensorIngestService.FlowRecordRequest(r.recordKey(), r.flowStartAt(), r.flowEndAt(), r.observedAt(),
+                                        r.directionBasis(), r.features(), r.viewpoint(), r.addressFamily(), r.handshakeSeen())).toList()),
+                requestId(request));
         HttpStatus status = result.receipt().acceptedCount() == 0 ? HttpStatus.UNPROCESSABLE_ENTITY
                 : (result.created() ? HttpStatus.CREATED : HttpStatus.OK);
         return org.springframework.http.ResponseEntity.status(status)
@@ -97,8 +99,16 @@ public class SensorIngestController {
                                 @NotBlank @Size(max = 64) String sourceMappingVersion,
                                 @NotBlank @Size(max = 64) String featureContractVersion,
                                 @NotEmpty @Size(max = 500) List<@Valid FlowRecordBody> records) { }
+    /**
+     * 单条流记录。{@code viewpoint}、{@code addressFamily}、{@code handshakeSeen} 是 v4 起必填的非特征元数据
+     * （规格 §1.1、§1.2），协议层保持可选以兼容 v3.1 客户端；是否必填由服务端按批次契约判定
+     * （缺失时记录 {@code RECORD_METADATA_INVALID}），取值合法性同样由契约校验器判定。
+     */
     public record FlowRecordBody(@NotBlank @Size(max = 160) String recordKey, @NotNull Instant flowStartAt,
                                  @NotNull Instant flowEndAt, @NotNull Instant observedAt,
                                  @NotBlank @Size(max = 32) String directionBasis,
-                                 @NotNull JsonNode features) { }
+                                 @NotNull JsonNode features,
+                                 @Size(max = 16) String viewpoint,
+                                 @Size(max = 8) String addressFamily,
+                                 Boolean handshakeSeen) { }
 }

@@ -10,7 +10,10 @@ import com.xyh.cybersecurity.ingest.contract.FeatureContract;
 import com.xyh.cybersecurity.ingest.contract.FeatureContractRegistry;
 import com.xyh.cybersecurity.ingest.contract.FeatureContractValidator;
 import com.xyh.cybersecurity.ingest.contract.FeatureValidationResult;
+import com.xyh.cybersecurity.ingest.contract.RecordMetadata;
 import com.xyh.cybersecurity.identity.MachinePrincipal;
+import com.xyh.cybersecurity.ingest.outbox.OutboxAppended;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -19,6 +22,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.List;
@@ -34,9 +38,11 @@ public class SensorIngestService {
     private final ObjectMapper objectMapper;
     private final FeatureContractRegistry contracts;
     private final FeatureContractValidator validator;
+    private final ApplicationEventPublisher events;
 
     public SensorIngestService(IngestMapper mapper, AuditMapper auditMapper, ObjectMapper objectMapper, FeatureContractRegistry contracts,
-                               FeatureContractValidator validator) {
+                               FeatureContractValidator validator, ApplicationEventPublisher events) {
+        this.events = events;
         this.mapper = mapper;
         this.auditMapper = auditMapper;
         this.objectMapper = objectMapper;
@@ -59,7 +65,7 @@ public class SensorIngestService {
         requireSourceScope(principal.id(), request.dataSourceId(), sensor.assetId());
         requireAssetAuthorization(sensor.assetId());
         requireActiveConfig(pathSensorId, request.configVersion(), request.featureContractVersion());
-        requireApprovedMapping(request.dataSourceId(), request.sourceMappingVersion());
+        requireApprovedMapping(request.dataSourceId(), request.sourceMappingVersion(), request.featureContractVersion());
 
         String canonical = canonicalRequest(request);
         if (canonical.getBytes(StandardCharsets.UTF_8).length > 1_048_576) {
@@ -151,12 +157,17 @@ public class SensorIngestService {
             throw ApiRequestException.badRequest("健康窗口或资源摘要无效");
         }
         JsonNode sanitizedErrors = sanitizeHealthErrors(window.errors());
+        // 列为 DATETIME(3) 且 MySQL 默认对亚毫秒四舍五入：若按原精度比较，上一窗口结束进位后会大于本窗口开始，
+        // 相邻窗口被误判为重叠。先按毫秒截断，再判重叠与写入。
+        Instant start = window.windowStart().truncatedTo(java.time.temporal.ChronoUnit.MILLIS);
+        Instant end = window.windowEnd().truncatedTo(java.time.temporal.ChronoUnit.MILLIS);
+        if (!end.isAfter(start)) throw ApiRequestException.badRequest("健康窗口或资源摘要无效");
         lockActiveSensor(sensorId);
-        if (mapper.overlapsHealthWindow(sensorId, window.windowStart(), window.windowEnd())) {
+        if (mapper.overlapsHealthWindow(sensorId, start, end)) {
             throw new ApiRequestException(HttpStatus.CONFLICT, "HEALTH_WINDOW_OVERLAP", "健康窗口与已提交窗口重叠");
         }
         try {
-            mapper.insertHealthWindow(new IngestMapper.HealthWindowInsert(sensorId, window.windowStart(), window.windowEnd(),
+            mapper.insertHealthWindow(new IngestMapper.HealthWindowInsert(sensorId, start, end,
                     window.flowsSeen(), window.flowsEmitted(), window.flowsDropped(), window.queueDepthMax(), window.cpuPercent(),
                     window.memoryBytes(), writeJson(sanitizedErrors)));
         } catch (org.springframework.dao.DuplicateKeyException e) {
@@ -179,15 +190,15 @@ public class SensorIngestService {
                     "FLOW_RECORD_INVALID", "observedAt", "within future skew", "future"));
             if (!"initiator_to_responder".equals(record.directionBasis())) issues.add(new FeatureValidationResult.Issue(
                     "FLOW_RECORD_INVALID", "directionBasis", "initiator_to_responder", record.directionBasis()));
-            FeatureValidationResult result = validator.validate(version, record.features());
+            FeatureValidationResult result = validator.validate(version, record.features(), record.metadata());
             issues.addAll(result.issues());
             int blockingIssueCount = issues.size();
             if (sequenceGap) {
                 issues.add(new FeatureValidationResult.Issue("EXPORT_SEQUENCE_GAP", "sequence", "contiguous batch sequence", "gap"));
                 blockingIssueCount++;
             }
-            result.categoryDrift().forEach(value -> issues.add(new FeatureValidationResult.Issue(
-                    "CATEGORY_OUT_OF_VOCABULARY", value.substring(0, value.indexOf('=')), "manifest vocabulary", value)));
+            // 非阻断遥测（词表外类别、词表不可用、不在模型评估范围）随记录落库，不计入阻断数。
+            issues.addAll(result.advisories());
             FeatureContract contract = contracts.find(version);
             if (contract == null || !contract.onlineEnabled()) {
                 issues.add(new FeatureValidationResult.Issue("FEATURE_CONTRACT_MISMATCH", "featureContractVersion",
@@ -199,12 +210,33 @@ public class SensorIngestService {
         return new RecordCheck(false, issuesJson(issues));
     }
 
+    /**
+     * 配置必须 active 且绑定批次声明的契约版本；在线契约还要求批准时登记的契约文件哈希（V11）等于当前注册表哈希，
+     * 否则说明契约文件在配置批准后发生了变化，按 {@code CONFIG_VERSION_STALE} 要求重新批准配置。
+     */
     private void requireActiveConfig(long sensorId, String version, String contractVersion) {
-        if (!mapper.hasActiveConfig(sensorId, version, contractVersion)) throw new ApiRequestException(HttpStatus.CONFLICT, "CONFIG_VERSION_STALE", "传感器配置版本无效或已失效");
+        IngestMapper.ConfigContractBinding binding = mapper.findActiveConfigBinding(sensorId, version);
+        FeatureContract contract = contracts.find(contractVersion);
+        boolean stale = binding == null || !binding.contractVersion().equals(contractVersion)
+                || (contract != null && contract.onlineEnabled() && !contract.fileSha256().equals(binding.contractSha256()));
+        if (stale) throw new ApiRequestException(HttpStatus.CONFLICT, "CONFIG_VERSION_STALE", "传感器配置版本无效或已失效");
     }
 
-    private void requireApprovedMapping(long sourceId, String mappingVersion) {
-        if (!mapper.hasApprovedSourceMapping(sourceId, mappingVersion)) throw new ApiRequestException(HttpStatus.CONFLICT, "MAPPING_NOT_APPROVED", "来源映射未批准或已失效");
+    /**
+     * 映射必须已批准且所属数据源 active。映射绑定了契约时必须与批次契约的版本和文件哈希一致；
+     * 批次使用在线契约时，未绑定契约的历史映射同样拒绝（不能证明映射按该契约评审过）。
+     */
+    private void requireApprovedMapping(long sourceId, String mappingVersion, String contractVersion) {
+        IngestMapper.MappingContractBinding binding = mapper.findApprovedSourceMapping(sourceId, mappingVersion);
+        FeatureContract contract = contracts.find(contractVersion);
+        boolean rejected = binding == null;
+        if (!rejected && binding.contractVersion() != null) {
+            rejected = !binding.contractVersion().equals(contractVersion) || contract == null
+                    || !contract.fileSha256().equals(binding.contractSha256());
+        } else if (!rejected && contract != null && contract.onlineEnabled()) {
+            rejected = true;
+        }
+        if (rejected) throw new ApiRequestException(HttpStatus.CONFLICT, "MAPPING_NOT_APPROVED", "来源映射未批准、已失效或未绑定该特征契约");
     }
 
     private void requireSourceScope(long clientId, long sourceId, long assetId) {
@@ -248,10 +280,13 @@ public class SensorIngestService {
     private void insertOutbox(long batchId, long sourceId, int count) {
         mapper.insertOutbox("sensor.ingest.batch:" + batchId, "ingest_batch", Long.toString(batchId), "ingest.batch.received",
                 "{\"batchId\":" + batchId + ",\"dataSourceId\":" + sourceId + ",\"recordCount\":" + count + "}");
+        // 提交后唤醒 relay；有记录通过门禁即记为数据源最近成功时间。
+        mapper.touchSourceSuccess(sourceId);
+        events.publishEvent(new OutboxAppended(batchId));
     }
 
     private void audit(long batchId, long sourceId, long assetId, String actor, String requestId, String outcome, String reason) {
-        AuditMapper.AuditInsert audit = new AuditMapper.AuditInsert(LocalDateTime.now(), "machine", actor,
+        AuditMapper.AuditInsert audit = new AuditMapper.AuditInsert(LocalDateTime.now(ZoneOffset.UTC), "machine", actor,
                 "sensor.ingest", "ingest_batch", batchId == 0 ? null : Long.toString(batchId), requestId, outcome, reason);
         auditMapper.insertAudit(audit);
         if (sourceId > 0) auditMapper.insertResourceScope(audit.getId(), "data_source", Long.toString(sourceId));
@@ -277,7 +312,7 @@ public class SensorIngestService {
 
     private void validateRequest(String key, SensorBatchRequest request) {
         if (key == null || !key.matches("[A-Za-z0-9._:-]{1,160}")) throw ApiRequestException.badRequest("Idempotency-Key 格式无效");
-        if (request == null || request.dataSourceId() < 1 || request.sequence() < 0 || request.configVersion() == null
+        if (request == null || request.dataSourceId() < 1 || request.sequence() < 1 || request.configVersion() == null
                 || request.sourceMappingVersion() == null || request.featureContractVersion() == null
                 || request.observedAt() == null || request.observedAt().isAfter(Instant.now().plusSeconds(300))
                 || request.records() == null || request.records().isEmpty() || request.records().size() > 500) {
@@ -317,11 +352,29 @@ public class SensorIngestService {
         ObjectNode node = objectMapper.createObjectNode();
         node.put("recordKey", record.recordKey()); node.put("flowStartAt", record.flowStartAt().toString());
         node.put("flowEndAt", record.flowEndAt().toString()); node.put("observedAt", record.observedAt().toString());
-        node.put("directionBasis", record.directionBasis()); node.set("features", record.features()); return node;
+        node.put("directionBasis", record.directionBasis());
+        if (record.viewpoint() != null || record.addressFamily() != null || record.handshakeSeen() != null) {
+            ObjectNode metadata = node.putObject("metadata");
+            metadata.put("viewpoint", record.viewpoint());
+            metadata.put("addressFamily", record.addressFamily());
+            if (record.handshakeSeen() == null) metadata.putNull("handshakeSeen"); else metadata.put("handshakeSeen", record.handshakeSeen());
+        }
+        node.set("features", record.features()); return node;
     }
 
     private String canonicalRequest(SensorBatchRequest request) {
-        try { return objectMapper.writeValueAsString(canonicalize(objectMapper.valueToTree(request))); }
+        try {
+            JsonNode tree = objectMapper.valueToTree(request);
+            // 新增的记录元数据为空时不进入摘要，保证旧客户端（v3.1）重试同一批次时幂等摘要不变。
+            tree.path("records").forEach(record -> {
+                if (record instanceof ObjectNode object) {
+                    for (String key : List.of("viewpoint", "addressFamily", "handshakeSeen")) {
+                        if (object.has(key) && object.get(key).isNull()) object.remove(key);
+                    }
+                }
+            });
+            return objectMapper.writeValueAsString(canonicalize(tree));
+        }
         catch (Exception e) { throw new IllegalStateException("无法规范化传感器批次", e); }
     }
     private JsonNode canonicalize(JsonNode node) {
@@ -336,8 +389,25 @@ public class SensorIngestService {
 
     public record SensorBatchRequest(long dataSourceId, String configVersion, long sequence, Instant observedAt,
                                      String sourceMappingVersion, String featureContractVersion, List<FlowRecordRequest> records) { }
+    /**
+     * @param viewpoint     v4 必填：本机在该流中的角色（{@code responder}/{@code initiator}），不进入 features
+     * @param addressFamily v4 必填：{@code ipv4}/{@code ipv6}
+     * @param handshakeSeen v4 必填：TCP 首包是否为纯 SYN（规格 §1.1）
+     */
     public record FlowRecordRequest(String recordKey, Instant flowStartAt, Instant flowEndAt, Instant observedAt,
-                                    String directionBasis, JsonNode features) { }
+                                    String directionBasis, JsonNode features, String viewpoint, String addressFamily,
+                                    Boolean handshakeSeen) {
+        public FlowRecordRequest(String recordKey, Instant flowStartAt, Instant flowEndAt, Instant observedAt,
+                                 String directionBasis, JsonNode features) {
+            this(recordKey, flowStartAt, flowEndAt, observedAt, directionBasis, features, null, null, null);
+        }
+
+        /** 三项元数据全缺时返回 {@code null}，由校验器按契约是否要求元数据判定。 */
+        public RecordMetadata metadata() {
+            return viewpoint == null && addressFamily == null && handshakeSeen == null ? null
+                    : new RecordMetadata(viewpoint, addressFamily, handshakeSeen);
+        }
+    }
     public record HeartbeatRequest(Instant observedAt, String agentVersion, JsonNode capabilities) { }
     public record HealthWindowRequest(Instant windowStart, Instant windowEnd, long flowsSeen, long flowsEmitted,
                                       long flowsDropped, long queueDepthMax, Double cpuPercent, Long memoryBytes,

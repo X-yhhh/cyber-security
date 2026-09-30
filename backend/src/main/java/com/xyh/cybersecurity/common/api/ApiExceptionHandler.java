@@ -1,6 +1,8 @@
 package com.xyh.cybersecurity.common.api;
 
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.ConstraintViolationException;
+import org.springframework.web.method.annotation.HandlerMethodValidationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -54,7 +56,13 @@ public class ApiExceptionHandler {
                 exception.code(), "模型制品或输入契约校验失败", requestId(request)));
     }
 
-    @ExceptionHandler({MethodArgumentNotValidException.class, HttpMessageNotReadableException.class})
+    /**
+     * 请求体、请求头与路径参数的校验失败。控制器参数上直接声明约束（如 {@code @RequestHeader @NotBlank}）时，
+     * Spring 6.1 起改走方法级校验，抛 {@link HandlerMethodValidationException} 而非
+     * {@link MethodArgumentNotValidException}；两者都必须是 400，不能落到 500（机器客户端会把 5xx 当作可重试）。
+     */
+    @ExceptionHandler({MethodArgumentNotValidException.class, HttpMessageNotReadableException.class,
+            HandlerMethodValidationException.class, ConstraintViolationException.class})
     public ResponseEntity<ApiEnvelope<Void>> badRequest(Exception exception, HttpServletRequest request) {
         return ResponseEntity.badRequest().body(ApiEnvelope.failure(
                 "INVALID_REQUEST", "请求参数无效", requestId(request)));

@@ -121,6 +121,62 @@ class DataSourceAuthorizationIntegrationTest {
                 visibleSourceId)).isEqualTo(1);
     }
 
+    @Test
+    void mappingApprovalRequiresIndependentApproverAndKnownRequester() throws Exception {
+        Cookie manager = login("source-authz-manager");
+        Csrf managerCsrf = csrf(manager);
+        String mapping = "{\"mappingVersion\":\"1.0\",\"sourceSchema\":{\"flow_id\":\"string\"},"
+                + "\"mapping\":{\"recordKey\":\"flow_id\"}}";
+        MvcResult created = mockMvc.perform(post("/api/v1/data-sources/{id}/mappings", visibleSourceId)
+                        .cookie(manager).header(CSRF_HEADER, managerCsrf.token()).contentType(APPLICATION_JSON)
+                        .content(mapping))
+                .andExpect(status().isCreated()).andExpect(jsonPath("$.data.requestedBy").value(sourceManagerId))
+                .andReturn();
+        long mappingId = objectMapper.readTree(created.getResponse().getContentAsString()).path("data").path("id").asLong();
+
+        // 登记人（无批准权限）不能批准。
+        mockMvc.perform(post("/api/v1/data-sources/{id}/mappings/{mappingId}/approve", visibleSourceId, mappingId)
+                        .cookie(manager).header(CSRF_HEADER, managerCsrf.token()))
+                .andExpect(status().isForbidden());
+
+        // 他人（全局平台管理员）批准；重复批准 409。
+        Cookie admin = login("source-authz-admin");
+        Csrf adminCsrf = csrf(admin);
+        mockMvc.perform(post("/api/v1/data-sources/{id}/mappings/{mappingId}/approve", visibleSourceId, mappingId)
+                        .cookie(admin).header(CSRF_HEADER, adminCsrf.token()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("approved"))
+                .andExpect(jsonPath("$.data.approvedBy").value(adminId))
+                .andExpect(jsonPath("$.data.requestedBy").value(sourceManagerId));
+        mockMvc.perform(post("/api/v1/data-sources/{id}/mappings/{mappingId}/approve", visibleSourceId, mappingId)
+                        .cookie(admin).header(CSRF_HEADER, adminCsrf.token()))
+                .andExpect(status().isConflict());
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM audit_log WHERE action='source.mapping.approved' "
+                + "AND resource_id=?", Integer.class, Long.toString(mappingId))).isEqualTo(1);
+
+        // 管理员自己登记的映射不能自批。
+        MvcResult own = mockMvc.perform(post("/api/v1/data-sources/{id}/mappings", visibleSourceId)
+                        .cookie(admin).header(CSRF_HEADER, adminCsrf.token()).contentType(APPLICATION_JSON)
+                        .content(mapping.replace("1.0", "2.0")))
+                .andExpect(status().isCreated()).andReturn();
+        long ownId = objectMapper.readTree(own.getResponse().getContentAsString()).path("data").path("id").asLong();
+        mockMvc.perform(post("/api/v1/data-sources/{id}/mappings/{mappingId}/approve", visibleSourceId, ownId)
+                        .cookie(admin).header(CSRF_HEADER, adminCsrf.token()))
+                .andExpect(status().isForbidden());
+
+        // V14 之前的映射没有登记人：无法证明职责分离，拒绝经接口批准。
+        jdbc.update("INSERT INTO source_mapping (data_source_id,mapping_version,source_schema_json,mapping_json,status) "
+                + "VALUES (?,'legacy','{}','{}','draft')", visibleSourceId);
+        long legacyId = jdbc.queryForObject("SELECT id FROM source_mapping WHERE data_source_id=? AND mapping_version='legacy'",
+                Long.class, visibleSourceId);
+        mockMvc.perform(post("/api/v1/data-sources/{id}/mappings/{mappingId}/approve", visibleSourceId, legacyId)
+                        .cookie(admin).header(CSRF_HEADER, adminCsrf.token()))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("MAPPING_REQUESTER_UNKNOWN"));
+        assertThat(jdbc.queryForObject("SELECT status FROM source_mapping WHERE id=?", String.class, legacyId))
+                .isEqualTo("draft");
+    }
+
     private long createUser(String username) {
         jdbc.update("INSERT INTO sys_user (user_key,username,display_name,status,password_hash) VALUES (?,?,?,'active',?)",
                 username, username, username, PASSWORD_HASH);

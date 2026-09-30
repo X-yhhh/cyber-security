@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.xyh.cybersecurity.drift.DriftMapper">
+    <resultMap id="dueWindow" type="com.xyh.cybersecurity.drift.DriftMapper$DueWindow">
+        <constructor>
+            <arg column="data_source_id" javaType="_long"/>
+            <arg column="model_version_id" javaType="_long"/>
+            <arg column="window_start" javaType="java.time.LocalDateTime"/>
+        </constructor>
+    </resultMap>
+    <resultMap id="statusCount" type="com.xyh.cybersecurity.drift.DriftMapper$StatusCount">
+        <constructor>
+            <arg column="status" javaType="string"/>
+            <arg column="n" javaType="_long"/>
+        </constructor>
+    </resultMap>
+    <resultMap id="scoredSample" type="com.xyh.cybersecurity.drift.DriftMapper$ScoredSample">
+        <constructor>
+            <idArg column="id" javaType="_long"/>
+            <arg column="features" javaType="string"/>
+            <arg column="attack_probability" javaType="_double"/>
+            <arg column="binary_label" javaType="string"/>
+        </constructor>
+    </resultMap>
+    <resultMap id="feedbackCount" type="com.xyh.cybersecurity.drift.DriftMapper$FeedbackCount">
+        <constructor>
+            <arg column="alerts" javaType="_long"/>
+            <arg column="labeled" javaType="_long"/>
+            <arg column="false_positive" javaType="_long"/>
+            <arg column="true_positive" javaType="_long"/>
+        </constructor>
+    </resultMap>
+
+    <!-- 小时窗口 = completed_at 截到整点（UTC 会话时区）。已存在的窗口由 LEFT JOIN 排除。 -->
+    <select id="findDueWindows" resultMap="dueWindow">
+        SELECT w.data_source_id, w.model_version_id, w.window_start
+        FROM (
+            SELECT ib.data_source_id, ir.model_version_id,
+                   STR_TO_DATE(DATE_FORMAT(ir.completed_at, '%Y-%m-%d %H:00:00'), '%Y-%m-%d %H:%i:%s') AS window_start
+            FROM inference_request ir
+            JOIN ingest_record r ON r.id=ir.ingest_record_id
+            JOIN ingest_batch ib ON ib.id=r.batch_id
+            WHERE ir.completed_at &gt;= #{since} AND ir.completed_at &lt; #{before} AND ir.model_version_id IS NOT NULL
+            GROUP BY ib.data_source_id, ir.model_version_id, window_start
+        ) w
+        LEFT JOIN drift_metric_window dw ON dw.data_source_id=w.data_source_id
+            AND dw.model_version_id=w.model_version_id AND dw.window_start=w.window_start
+        WHERE dw.id IS NULL
+        ORDER BY w.window_start, w.data_source_id, w.model_version_id
+        LIMIT #{limit}
+    </select>
+
+    <select id="countStatuses" resultMap="statusCount">
+        SELECT ir.status, COUNT(*) n
+        FROM inference_request ir
+        JOIN ingest_record r ON r.id=ir.ingest_record_id
+        JOIN ingest_batch ib ON ib.id=r.batch_id
+        WHERE ib.data_source_id=#{sourceId} AND ir.model_version_id=#{modelId}
+          AND ir.completed_at &gt;= #{from} AND ir.completed_at &lt; #{to}
+        GROUP BY ir.status
+    </select>
+
+    <select id="listScored" resultMap="scoredSample">
+        SELECT ir.id, CAST(JSON_EXTRACT(r.normalized_payload, '$.features') AS CHAR) features,
+               ir.attack_probability, ir.binary_label
+        FROM inference_request ir
+        JOIN ingest_record r ON r.id=ir.ingest_record_id
+        JOIN ingest_batch ib ON ib.id=r.batch_id
+        WHERE ib.data_source_id=#{sourceId} AND ir.model_version_id=#{modelId} AND ir.status='succeeded'
+          AND ir.completed_at &gt;= #{from} AND ir.completed_at &lt; #{to} AND ir.id &gt; #{afterId}
+        ORDER BY ir.id
+        LIMIT #{limit}
+    </select>
+
+    <!-- 有效标注：pending 或 training_approved；被复核驳回的不计。 -->
+    <select id="countFeedback" resultMap="feedbackCount">
+        SELECT COUNT(*) alerts,
+               COALESCE(SUM(fs.id IS NOT NULL), 0) labeled,
+               COALESCE(SUM(fs.label='false_positive'), 0) false_positive,
+               COALESCE(SUM(fs.label='true_positive'), 0) true_positive
+        FROM detection_alert da
+        JOIN inference_request ir ON ir.id=da.inference_request_id
+        JOIN ingest_record r ON r.id=da.ingest_record_id
+        JOIN ingest_batch ib ON ib.id=r.batch_id
+        LEFT JOIN feedback_sample fs ON fs.active_alert_id=da.id
+        WHERE da.alert_type='model' AND ib.data_source_id=#{sourceId} AND da.model_version_id=#{modelId}
+          AND ir.completed_at &gt;= #{from} AND ir.completed_at &lt; #{to}
+    </select>
+
+    <select id="findManifest" resultType="string">
+        SELECT CAST(manifest_json AS CHAR) FROM model_version WHERE id=#{modelId}
+    </select>
+
+    <insert id="insertWindow">
+        INSERT INTO drift_metric_window (data_source_id, model_version_id, window_start, window_end, sample_count,
+            request_count, baseline_ref, feature_stats_json, score_stats_json, label_feedback_stats_json,
+            quality_reject_rate, drift_status, computed_by)
+        VALUES (#{dataSourceId}, #{modelVersionId}, #{windowStart}, #{windowEnd}, #{sampleCount}, #{requestCount},
+            #{baselineRef,jdbcType=VARCHAR}, #{featureStatsJson}, #{scoreStatsJson,jdbcType=VARCHAR},
+            #{labelFeedbackStatsJson,jdbcType=VARCHAR}, #{qualityRejectRate,jdbcType=DECIMAL}, #{driftStatus},
+            #{computedBy})
+    </insert>
+</mapper>

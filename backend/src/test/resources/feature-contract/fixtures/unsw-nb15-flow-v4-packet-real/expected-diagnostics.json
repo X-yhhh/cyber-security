@@ -1,0 +1,30 @@
+{
+  "frames": 40475,
+  "parse_status": {
+    "ok": 40475
+  },
+  "close_reasons": {
+    "idle_timeout": 59,
+    "max_lifetime": 146,
+    "shutdown": 18,
+    "tcp_fin": 123,
+    "tcp_rst": 35
+  },
+  "flow": {
+    "post_close_packets": 240,
+    "orphan_fragments": 0,
+    "oversize_tcp_packets": 0,
+    "flow_capacity_drops": 0,
+    "max_active_flows": 40
+  },
+  "feature": {
+    "flows_excluded": {
+      "multicast_destination": 12,
+      "no_local_endpoint": 38
+    },
+    "records_by_status": {
+      "ready": 212,
+      "window_not_ready": 119
+    }
+  }
+}

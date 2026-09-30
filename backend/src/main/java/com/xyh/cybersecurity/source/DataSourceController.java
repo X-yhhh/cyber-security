@@ -86,7 +86,17 @@ public class DataSourceController {
                                                                     @AuthenticationPrincipal IdentityPrincipal principal,
                                                                     HttpServletRequest request) {
         return ApiEnvelope.success(service.createMapping(id, new DataSourceService.MappingRequest(body.mappingVersion(),
-                body.sourceSchema().toString(), body.mapping().toString()), principal, request), requestId(request));
+                body.sourceSchema().toString(), body.mapping().toString(), body.featureContractVersion()), principal, request),
+                requestId(request));
+    }
+
+    /** 独立批准他人登记的映射版本；登记人自批 403，历史映射缺登记人 409。 */
+    @PostMapping("/{id}/mappings/{mappingId}/approve")
+    @PreAuthorize("hasAuthority('source.mapping.approve')")
+    public ApiEnvelope<DataSourceMapper.MappingView> approveMapping(@PathVariable long id, @PathVariable long mappingId,
+                                                                     @AuthenticationPrincipal IdentityPrincipal principal,
+                                                                     HttpServletRequest request) {
+        return ApiEnvelope.success(service.approveMapping(id, mappingId, principal, request), requestId(request));
     }
 
     private String requestId(HttpServletRequest request) {
@@ -101,6 +111,8 @@ public class DataSourceController {
     public record UpdateBody(@NotBlank @Size(max = 32) String environment,
                              @NotBlank @Size(max = 64) String schemaVersion,
                              @NotBlank String status) { }
+    /** @param featureContractVersion 可选：映射绑定的特征契约版本（V11） */
     public record MappingBody(@NotBlank @Size(max = 64) String mappingVersion,
-                              @NotNull JsonNode sourceSchema, @NotNull JsonNode mapping) { }
+                              @NotNull JsonNode sourceSchema, @NotNull JsonNode mapping,
+                              @Size(max = 64) String featureContractVersion) { }
 }

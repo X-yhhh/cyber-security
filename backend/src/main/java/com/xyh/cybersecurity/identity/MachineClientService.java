@@ -15,6 +15,7 @@ import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.HexFormat;
@@ -139,7 +140,7 @@ public class MachineClientService {
 
     private void writeAudit(long actorId, long clientId, List<IssuedScope> scopes,
                             List<SourceAssetBinding> bindings, String requestId) {
-        AuditMapper.AuditInsert audit = new AuditMapper.AuditInsert(LocalDateTime.now(), "human",
+        AuditMapper.AuditInsert audit = new AuditMapper.AuditInsert(LocalDateTime.now(ZoneOffset.UTC), "human",
                 Long.toString(actorId), "machine_client.created", "api_client", Long.toString(clientId),
                 requestId, "success", "connector credential issued once");
         auditMapper.insertAudit(audit);

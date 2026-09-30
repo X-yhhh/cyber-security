@@ -8,6 +8,11 @@ spring:
     hikari:
       maximum-pool-size: ${DB_POOL_SIZE:10}
       connection-timeout: 3000
+      # 应用统一以 UTC 读写时间：驱动按 UTC 转换 Instant，并把会话 time_zone 设为 UTC，
+      # 使列默认值 CURRENT_TIMESTAMP 与 SQL 中的 UTC_TIMESTAMP 比较口径一致；不依赖 DB_URL 写法。
+      data-source-properties:
+        connectionTimeZone: UTC
+        forceConnectionTimeZoneToSession: true
   flyway:
     enabled: true
     baseline-on-migrate: false
@@ -57,6 +62,11 @@ logging:
     format:
       console: ecs
 cyber:
+  drift:
+    # M8 漂移窗口计算（路线 B §13.2）；默认关闭，影子运行时设 CYBER_DRIFT_ENABLED=true。
+    enabled: ${CYBER_DRIFT_ENABLED:false}
+    initial-delay-ms: ${CYBER_DRIFT_INITIAL_DELAY_MS:60000}
+    poll-ms: ${CYBER_DRIFT_POLL_MS:600000}
   security:
     login-throttle:
       hmac-key: ${LOGIN_THROTTLE_HMAC_KEY}
@@ -64,6 +74,12 @@ cyber:
     outbox-relay:
       enabled: ${OUTBOX_RELAY_ENABLED:false}
       poll-ms: ${OUTBOX_RELAY_POLL_MS:1000}
+    consumer:
+      enabled: ${INGEST_CONSUMER_ENABLED:${OUTBOX_RELAY_ENABLED:false}}
+      queue: ${INGEST_CONSUMER_QUEUE:q.ingest.batch.received}
+      dead-letter-queue: ${INGEST_CONSUMER_DEAD_LETTER_QUEUE:q.ingest.dead}
+      retry-queue-prefix: ${INGEST_CONSUMER_RETRY_QUEUE_PREFIX:q.ingest.batch.received.retry.}
+      prefetch: ${INGEST_CONSUMER_PREFETCH:10}
     rabbitmq:
       host: ${RABBITMQ_HOST:127.0.0.1}
       port: ${RABBITMQ_PORT:5672}
@@ -71,4 +87,5 @@ cyber:
       username: ${RABBITMQ_USERNAME:}
       password: ${RABBITMQ_PASSWORD:}
       exchange: ${RABBITMQ_INGEST_EXCHANGE:cyber-security.ingest.events}
+      dead-letter-exchange: ${RABBITMQ_DEAD_LETTER_EXCHANGE:cyber-security.dlx}
       confirm-timeout-ms: ${RABBITMQ_CONFIRM_TIMEOUT_MS:5000}

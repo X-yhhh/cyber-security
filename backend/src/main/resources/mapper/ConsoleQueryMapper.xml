@@ -67,14 +67,6 @@
             <arg column="last_batch_at" javaType="java.time.LocalDateTime"/><arg column="mapping_version" javaType="string"/>
             <arg column="mapping_status" javaType="string"/></constructor>
     </resultMap>
-    <resultMap id="policyRow" type="com.xyh.cybersecurity.query.ConsoleQueryMapper$PolicyRow">
-        <constructor><idArg column="id" javaType="_long"/><arg column="policy_key" javaType="string"/>
-            <arg column="version" javaType="string"/><arg column="environment" javaType="string"/>
-            <arg column="action_type" javaType="string"/><arg column="params" javaType="string"/>
-            <arg column="auto_execute" javaType="_boolean"/><arg column="approval_required" javaType="_boolean"/>
-            <arg column="max_duration_seconds" javaType="_int"/><arg column="status" javaType="string"/>
-            <arg column="approved" javaType="_boolean"/></constructor>
-    </resultMap>
     <resultMap id="ledgerRow" type="com.xyh.cybersecurity.query.ConsoleQueryMapper$LedgerRow">
         <constructor><idArg column="id" javaType="_long"/><arg column="event_id" javaType="_long"/>
             <arg column="event_key" javaType="string"/><arg column="asset_id" javaType="_long"/>
@@ -174,12 +166,6 @@
         GROUP BY ds.id ORDER BY ds.id LIMIT 200
     </select>
 
-    <select id="policies" resultMap="policyRow">
-        SELECT id,policy_key,version,environment,action_type,CAST(action_params_json AS CHAR) params,
-               auto_execute,approval_required,max_duration_seconds,status,approved_by IS NOT NULL approved
-        FROM response_policy ORDER BY policy_key,id DESC LIMIT 200
-    </select>
-
     <select id="ledger" resultMap="ledgerRow">
         SELECT at.id,at.event_id,e.event_key,req.asset_id,a.asset_key,
                CAST(at.action_request_json AS CHAR) snapshot,at.status,rq.username requester,rv.username reviewer,
@@ -224,8 +210,12 @@
     <select id="feedback" resultMap="feedbackRow">
         SELECT fs.id,fs.alert_id,da.alert_key,fs.label,fs.label_source,rv.username reviewer,
                fs.reviewed_at,fs.dataset_version,fs.training_eligible
-        FROM feedback_sample fs LEFT JOIN detection_alert da ON da.id=fs.alert_id
-        LEFT JOIN sys_user rv ON rv.id=fs.reviewed_by ORDER BY fs.id DESC LIMIT 200
+        FROM feedback_sample fs JOIN detection_alert da ON da.id=fs.alert_id
+        JOIN model_version mv ON mv.id=da.model_version_id
+        LEFT JOIN sys_user rv ON rv.id=fs.reviewed_by
+        <!-- 只返回调用者模型登记范围内、模型告警的标注；此前未按范围过滤。规则告警的标注不在模型视图中出现。 -->
+        WHERE <include refid="modelScope"><property name="permission" value="model.validation.read"/><property name="modelExpr" value="mv.model_key"/></include>
+        ORDER BY fs.id DESC LIMIT 200
     </select>
 
     <select id="trainingJobs" resultMap="trainingJobRow">

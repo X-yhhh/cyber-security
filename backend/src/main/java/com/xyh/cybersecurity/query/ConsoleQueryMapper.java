@@ -20,7 +20,6 @@ public interface ConsoleQueryMapper {
 
     List<IngestSummaryRow> ingestSummary(@Param("userId") long userId);
 
-    List<PolicyRow> policies();
 
     List<LedgerRow> ledger(@Param("userId") long userId, @Param("permission") String permission,
                           @Param("mine") boolean mine);
@@ -56,10 +55,6 @@ public interface ConsoleQueryMapper {
 
     record IngestSummaryRow(long dataSourceId, long batches, long accepted, long rejected,
                             LocalDateTime lastBatchAt, String mappingVersion, String mappingStatus) { }
-
-    record PolicyRow(long id, String policyKey, String version, String environment, String actionType,
-                     String params, boolean autoExecute, boolean approvalRequired,
-                     int maxDurationSeconds, String status, boolean approved) { }
 
     record LedgerRow(long id, long eventId, String eventKey, long assetId, String assetKey,
                      String snapshot, String status, String requester, String reviewer,

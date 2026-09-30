@@ -17,7 +17,12 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * 读取 UNSW raw CSV 的确定性回放适配器。它只输出契约 raw fields，不把 label 或地址写入规范特征。
+ * 读取「已是契约 raw fields」的带表头 CSV（如交付包 {@code replay-sample.csv}）的确定性回放适配器。
+ * 只输出契约字段，不把 label 或地址写入规范特征。
+ *
+ * <p>此适配器按契约字段名逐列读取，适用于 v3.1 与 v4 的交付包样例；它不重算窗口或 {@code service}。
+ * 从 UNSW-NB15 原始 CSV 回放 v4 时，必须使用 {@link UnswRawFlowReplayAdapter}，让 {@code ct_*} 与
+ * {@code service} 走和在线相同的 Feature Builder 路径（路线 B §9.1 第 5 项）。</p>
  */
 public final class UnswCsvReplayAdapter {
     private final ObjectMapper mapper;
@@ -43,27 +48,27 @@ public final class UnswCsvReplayAdapter {
 
     private void requireHeaders(Set<String> headers) {
         Set<String> required = new HashSet<>();
-        required.addAll(contract.numericFields()); required.addAll(contract.categoricalFields());
+        required.addAll(contract.numericFieldNames()); required.addAll(contract.categoricalFieldNames());
         required.removeIf(headers::contains);
         if (!required.isEmpty()) throw new IllegalArgumentException("回放缺少契约字段: " + required);
     }
 
     private ObjectNode toFeatures(CSVRecord row) {
         ObjectNode features = mapper.createObjectNode();
-        for (String field : contract.numericFields()) {
-            String value = row.get(field);
+        for (FeatureContract.NumericField field : contract.numericFields()) {
+            String value = row.get(field.name());
             if (value == null || value.isBlank()) {
-                if (contract.nullableNumericFields().contains(field)) features.putNull(field);
-                else throw invalid(row, field, "missing");
+                if (field.nullable()) features.putNull(field.name());
+                else throw invalid(row, field.name(), "missing");
                 continue;
             }
             final double parsed;
             try { parsed = Double.parseDouble(value.trim()); }
-            catch (NumberFormatException e) { throw invalid(row, field, "number"); }
-            if (!Double.isFinite(parsed) || parsed < 0) throw invalid(row, field, "finite non-negative number");
-            features.put(field, parsed);
+            catch (NumberFormatException e) { throw invalid(row, field.name(), "number"); }
+            if (!Double.isFinite(parsed) || parsed < 0) throw invalid(row, field.name(), "finite non-negative number");
+            features.put(field.name(), parsed);
         }
-        for (String field : contract.categoricalFields()) {
+        for (String field : contract.categoricalFieldNames()) {
             String value = row.get(field);
             if (value == null || value.isBlank() || !value.equals(value.toLowerCase(java.util.Locale.ROOT))) throw invalid(row, field, "lower-case string");
             features.put(field, value);

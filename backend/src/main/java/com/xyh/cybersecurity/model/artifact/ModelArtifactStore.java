@@ -2,8 +2,10 @@ package com.xyh.cybersecurity.model.artifact;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.xyh.cybersecurity.drift.FeatureBaseline;
+import com.xyh.cybersecurity.ingest.contract.FeatureContractRegistry;
 import com.xyh.cybersecurity.model.release.ModelService;
-import com.xyh.cybersecurity.model.runtime.OnnxModelRuntime;
+import com.xyh.cybersecurity.model.runtime.ModelInputContract;
 import com.xyh.cybersecurity.model.validation.ModelContractException;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -21,10 +23,13 @@ public class ModelArtifactStore {
 
     private final Path configuredRoot;
     private final ObjectMapper objectMapper;
+    private final FeatureContractRegistry contracts;
 
-    public ModelArtifactStore(@Value("${cyber.model-artifact.root:}") String root, ObjectMapper objectMapper) {
+    public ModelArtifactStore(@Value("${cyber.model-artifact.root:}") String root, ObjectMapper objectMapper,
+                              FeatureContractRegistry contracts) {
         this.configuredRoot = root.isBlank() ? null : Path.of(root).toAbsolutePath().normalize();
         this.objectMapper = objectMapper;
+        this.contracts = contracts;
     }
 
     public VerifiedArtifact verify(ModelService.ModelView model) {
@@ -55,8 +60,10 @@ public class ModelArtifactStore {
             JsonNode checksums = objectMapper.readTree(realChecksums.toFile());
             // checksums.json 的路径相对于本次交付目录；交付目录本身仍必须位于受控根目录内。
             verifyChecksums(checksums, artifact.getParent(), root, artifact);
-            verifyPreprocessingContract(artifact, manifest);
-            return new VerifiedArtifact(artifact, manifest, sha256);
+            ModelInputContract inputs = verifyPreprocessingContract(artifact, root, manifest);
+            // 可选的训练基线统计（M8/阶段 7 PSI）：存在时必须结构合规且字段与输入契约一致，否则拒绝激活。
+            FeatureBaseline.fromManifest(manifest, inputs.numericFields(), inputs.categoricalFields());
+            return new VerifiedArtifact(artifact, manifest, sha256, inputs);
         } catch (IOException | SecurityException exception) {
             throw new ModelContractException("MODEL_ARTIFACT_UNAVAILABLE");
         }
@@ -103,13 +110,7 @@ public class ModelArtifactStore {
         if (!threshold.isNumber() || threshold.asDouble() < 0 || threshold.asDouble() > 1) {
             throw new ModelContractException("MODEL_THRESHOLD_CONTRACT_MISMATCH");
         }
-        JsonNode inputs = manifest.at("/feature_contract/inputs");
-        if (!inputs.path("flow_numeric").isArray() || inputs.path("flow_numeric").size() != OnnxModelRuntime.NUMERIC_FEATURE_COUNT
-                || !inputs.path("flow_categorical").isArray() || inputs.path("flow_categorical").size() != OnnxModelRuntime.CATEGORICAL_FEATURE_COUNT
-                || !"proto".equals(inputs.at("/flow_categorical/0").asText())
-                || !"service".equals(inputs.at("/flow_categorical/1").asText())) {
-            throw new ModelContractException("MODEL_INPUT_CONTRACT_MISMATCH");
-        }
+        // 输入维度、字段顺序与单位由 ModelInputContract 与已注册契约交叉核对，不再使用固定常量。
     }
 
     private void verifyChecksums(JsonNode checksums, Path delivery, Path root, Path model) throws IOException {
@@ -133,26 +134,20 @@ public class ModelArtifactStore {
         if (!modelFound) throw new ModelContractException("MODEL_CHECKSUMS_MISMATCH");
     }
 
-    private void verifyPreprocessingContract(Path model, JsonNode manifest) throws IOException {
+    /**
+     * 核对 preprocessing.json：文件须位于受控根目录、哈希与 manifest {@code files} 声明一致（若声明），
+     * 再与 manifest、已注册特征契约交叉核对，产出模型输入契约（路线 B §9.1 第 2、4 项）。
+     */
+    private ModelInputContract verifyPreprocessingContract(Path model, Path root, JsonNode manifest) throws IOException {
         Path file = model.resolveSibling("preprocessing.json").toRealPath();
+        if (!file.startsWith(root) || !Files.isRegularFile(file)) throw new ModelContractException("MODEL_PREPROCESSING_CONTRACT_MISMATCH");
+        JsonNode declared = manifest.at("/files/preprocessing.json");
+        if (!declared.isMissingNode() && (!declared.isTextual() || !declared.asText().equalsIgnoreCase(sha256(file)))) {
+            throw new ModelContractException("MODEL_PREPROCESSING_HASH_MISMATCH");
+        }
         JsonNode preprocessing = objectMapper.readTree(file.toFile());
-        if (!manifest.at("/feature_contract/version").asText().equals(preprocessing.path("contract_version").asText())) {
-            throw new ModelContractException("MODEL_PREPROCESSING_CONTRACT_MISMATCH");
-        }
-        JsonNode declaredInputs = manifest.at("/feature_contract/inputs");
-        for (String name : java.util.List.of("flow_numeric", "flow_categorical")) {
-            JsonNode manifestFields = declaredInputs.path(name);
-            JsonNode prepFields = preprocessing.at("/inputs/" + name + "/fields");
-            if (!prepFields.isArray() || prepFields.size() != manifestFields.size()) {
-                throw new ModelContractException("MODEL_PREPROCESSING_CONTRACT_MISMATCH");
-            }
-            for (int i = 0; i < manifestFields.size(); i++) {
-                if (!manifestFields.get(i).asText().equals(prepFields.get(i).path("name").asText())
-                        || prepFields.get(i).path("index").asInt(-1) != i) {
-                    throw new ModelContractException("MODEL_PREPROCESSING_CONTRACT_MISMATCH");
-                }
-            }
-        }
+        String version = manifest.at("/feature_contract/version").asText("");
+        return ModelInputContract.from(manifest, preprocessing, contracts.find(version));
     }
 
     private static boolean hasOpset17(JsonNode opset) {
@@ -208,5 +203,6 @@ public class ModelArtifactStore {
         }
     }
 
-    public record VerifiedArtifact(Path modelPath, JsonNode manifest, String sha256) { }
+    /** @param inputs 已与 preprocessing.json、注册契约交叉核对的模型输入契约 */
+    public record VerifiedArtifact(Path modelPath, JsonNode manifest, String sha256, ModelInputContract inputs) { }
 }

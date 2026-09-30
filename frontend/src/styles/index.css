@@ -4,7 +4,7 @@
 
 @layer base {
   html {
-    background: #F5F4F0;
+    background: #FFFFFF;
     color: #14161A;
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
@@ -13,7 +13,7 @@
     @apply font-sans text-[14px] leading-relaxed;
     font-feature-settings: 'ss01', 'cv11', 'tnum';
   }
-  ::selection { background: #2438E8; color: #F5F4F0; }
+  ::selection { background: #2438E8; color: #FFFFFF; }
   :focus-visible { outline: 1.5px solid #2438E8; outline-offset: 2px; }
   button { cursor: pointer; }
   button:disabled { cursor: not-allowed; }

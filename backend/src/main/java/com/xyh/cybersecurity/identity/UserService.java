@@ -9,6 +9,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -143,7 +144,7 @@ public class UserService {
     private void writeAudit(HttpServletRequest request, long actorId, String action, String resourceType,
                             String resourceId, String outcome, String reason) {
         Object requestId = request.getAttribute(REQUEST_ID_ATTRIBUTE);
-        auditMapper.insertAudit(new AuditMapper.AuditInsert(LocalDateTime.now(), "human", Long.toString(actorId),
+        auditMapper.insertAudit(new AuditMapper.AuditInsert(LocalDateTime.now(ZoneOffset.UTC), "human", Long.toString(actorId),
                 action, resourceType, resourceId, requestId instanceof String value ? value : null, outcome, reason));
     }
 

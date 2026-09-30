@@ -21,12 +21,6 @@ public class ModelQueryController {
     private final ConsoleQueryService service;
     public ModelQueryController(ConsoleQueryService service) { this.service = service; }
 
-    @GetMapping("/response-policies")
-    @PreAuthorize("hasAuthority('response.policy.read')")
-    public ApiEnvelope<List<ConsoleQueryService.PolicyView>> policies(HttpServletRequest request) {
-        return ApiEnvelope.success(service.policies(), requestId(request));
-    }
-
     @GetMapping("/models/{id}/release-requests")
     @PreAuthorize("hasAuthority('model.validation.read')")
     public ApiEnvelope<List<ConsoleQueryService.ReleaseView>> releases(

@@ -12,6 +12,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 
 /** 仅本机 local profile 确保联调管理员存在；不得重置既有密码、状态或用户标识。 */
 @Component
@@ -48,7 +49,7 @@ public class LocalAdminBootstrap implements ApplicationRunner {
         Long roleId = identityMapper.findPlatformAdminRoleId();
         int added = identityMapper.ensureGlobalPlatformAdminBinding(adminId, roleId);
         if (added > 0) {
-            auditMapper.insertAudit(new AuditMapper.AuditInsert(LocalDateTime.now(), "system", "local-bootstrap",
+            auditMapper.insertAudit(new AuditMapper.AuditInsert(LocalDateTime.now(ZoneOffset.UTC), "system", "local-bootstrap",
                     "iam.admin.bootstrap", "user", Long.toString(adminId), null, "success",
                     "local profile added platform_admin role binding"));
         }

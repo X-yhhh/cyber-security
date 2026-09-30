@@ -28,6 +28,7 @@ import ModelsView from './ModelsView.vue'
 import OverviewView from './OverviewView.vue'
 import ResponseView from './ResponseView.vue'
 import SourcesView from './SourcesView.vue'
+import { can } from '@/api/session'
 
 const components = [AssetsView, AuditView, EventDetailView, EventsView, IamView, ModelsView, OverviewView, ResponseView, SourcesView]
 
@@ -71,6 +72,20 @@ describe('console view smoke coverage', () => {
     expect(wrapper.find('input[aria-label="搜索"]').exists()).toBe(true)
     expect(wrapper.get('tr[tabindex="0"]').attributes('tabindex')).toBe('0')
     wrapper.unmount()
+  })
+
+  it('offers the shadow validation tab on the sources page only with shadow.report.read', () => {
+    useLoadMock.mockImplementation((_loader: unknown, initial: unknown) => ({ data: ref(initial), loading: ref(false), error: ref(''), reload: vi.fn() }))
+    const options = () => {
+      const wrapper = mount(SourcesView, { global: { stubs: ['PageHead', 'Segmented', 'Tag', 'LoadState'] } })
+      const values = (wrapper.findComponent({ name: 'Segmented' }).props('options') as { value: string }[]).map((o) => o.value)
+      wrapper.unmount()
+      return values
+    }
+    expect(options()).toEqual(['sources', 'replay'])
+    vi.mocked(can).mockImplementation((p: string) => p === 'shadow.report.read')
+    expect(options()).toEqual(['sources', 'replay', 'shadow'])
+    vi.mocked(can).mockImplementation(() => false)
   })
 
   it('surfaces a backend error through the shared alert state', () => {

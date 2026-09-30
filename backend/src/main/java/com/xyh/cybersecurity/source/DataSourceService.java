@@ -5,6 +5,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.xyh.cybersecurity.audit.AuditMapper;
 import com.xyh.cybersecurity.common.api.ApiRequestException;
 import com.xyh.cybersecurity.identity.IdentityPrincipal;
+import com.xyh.cybersecurity.ingest.contract.FeatureContract;
+import com.xyh.cybersecurity.ingest.contract.FeatureContractRegistry;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
@@ -12,6 +14,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 
 import static com.xyh.cybersecurity.common.web.RequestIdFilter.REQUEST_ID_ATTRIBUTE;
@@ -23,11 +26,14 @@ public class DataSourceService {
     private final DataSourceMapper mapper;
     private final AuditMapper auditMapper;
     private final ObjectMapper objectMapper;
+    private final FeatureContractRegistry contracts;
 
-    public DataSourceService(DataSourceMapper mapper, AuditMapper auditMapper, ObjectMapper objectMapper) {
+    public DataSourceService(DataSourceMapper mapper, AuditMapper auditMapper, ObjectMapper objectMapper,
+                             FeatureContractRegistry contracts) {
         this.mapper = mapper;
         this.auditMapper = auditMapper;
         this.objectMapper = objectMapper;
+        this.contracts = contracts;
     }
 
     public Page list(long userId, int page, int size) {
@@ -79,8 +85,18 @@ public class DataSourceService {
         validateName(input.mappingVersion(), "mappingVersion");
         String sourceSchema = canonicalObject(input.sourceSchema());
         String mapping = canonicalObject(input.mapping());
+        // 可选绑定特征契约：版本必须已注册，哈希由服务端按注册表写入（V11），绑定后映射只服务该契约的批次。
+        String contractVersion = null;
+        String contractSha256 = null;
+        if (input.featureContractVersion() != null) {
+            FeatureContract contract = contracts.find(input.featureContractVersion());
+            if (contract == null) throw ApiRequestException.badRequest("特征契约版本未登记");
+            contractVersion = contract.version();
+            contractSha256 = contract.fileSha256();
+        }
         try {
-            mapper.insertMapping(new DataSourceMapper.MappingInsert(sourceId, input.mappingVersion(), sourceSchema, mapping));
+            mapper.insertMapping(new DataSourceMapper.MappingInsert(sourceId, input.mappingVersion(), sourceSchema, mapping,
+                    contractVersion, contractSha256, actor.id()));
         } catch (org.springframework.dao.DuplicateKeyException exception) {
             throw ApiRequestException.conflict("该映射版本已存在");
         }
@@ -88,6 +104,35 @@ public class DataSourceService {
         audit(request, actor.id(), "source.mapping.created", "source_mapping", mappingId, sourceId,
                 "success", "draft mapping version created");
         return mapper.listMappingsVisible(actor.id(), sourceId).stream().filter(row -> row.id() == mappingId)
+                .findFirst().orElseThrow();
+    }
+
+    /**
+     * 独立批准映射（V14）：批准人须有 {@code source.mapping.approve} 且在该数据源范围内，不能是登记人。
+     * V14 之前登记的映射没有登记人记录，无法证明职责分离，拒绝经接口批准。
+     */
+    @Transactional
+    public DataSourceMapper.MappingView approveMapping(long sourceId, long mappingId, IdentityPrincipal actor,
+                                                        HttpServletRequest request) {
+        if (mapper.findVisible(actor.id(), sourceId) == null || !mapper.hasMappingApproveScope(actor.id(), sourceId)) {
+            throw ApiRequestException.notFound();
+        }
+        DataSourceMapper.MappingRow row = mapper.findMappingForUpdate(sourceId, mappingId);
+        if (row == null) throw ApiRequestException.notFound();
+        if (row.requestedBy() == null) {
+            throw new ApiRequestException(org.springframework.http.HttpStatus.CONFLICT, "MAPPING_REQUESTER_UNKNOWN",
+                    "映射缺少登记人记录，不能经接口批准");
+        }
+        if (row.requestedBy() == actor.id()) throw new AccessDeniedException("Self approval denied");
+        if (!"draft".equals(row.status()) && !"pending".equals(row.status())) {
+            throw ApiRequestException.conflict("映射状态不可审批");
+        }
+        if (mapper.approveMapping(mappingId, actor.id()) != 1) {
+            throw ApiRequestException.conflict("映射状态已被其他请求更新");
+        }
+        audit(request, actor.id(), "source.mapping.approved", "source_mapping", mappingId, sourceId,
+                "success", "mapping version approved");
+        return mapper.listMappingsVisible(actor.id(), sourceId).stream().filter(item -> item.id() == mappingId)
                 .findFirst().orElseThrow();
     }
 
@@ -108,7 +153,7 @@ public class DataSourceService {
     private void audit(HttpServletRequest request, long actorId, String action, String resourceType, long resourceId,
                        long sourceId, String outcome, String reason) {
         Object requestId = request.getAttribute(REQUEST_ID_ATTRIBUTE);
-        AuditMapper.AuditInsert audit = new AuditMapper.AuditInsert(LocalDateTime.now(), "human",
+        AuditMapper.AuditInsert audit = new AuditMapper.AuditInsert(LocalDateTime.now(ZoneOffset.UTC), "human",
                 Long.toString(actorId), action, resourceType, Long.toString(resourceId),
                 requestId instanceof String value ? value : null, outcome, reason);
         auditMapper.insertAudit(audit);
@@ -136,6 +181,11 @@ public class DataSourceService {
 
     public record CreateRequest(String sourceKey, String sourceType, String environment, String schemaVersion) { }
     public record UpdateRequest(String environment, String schemaVersion, String status) { }
-    public record MappingRequest(String mappingVersion, String sourceSchema, String mapping) { }
+    /** @param featureContractVersion 可选；为空表示不绑定契约（在线契约的批次不能使用此类映射） */
+    public record MappingRequest(String mappingVersion, String sourceSchema, String mapping, String featureContractVersion) {
+        public MappingRequest(String mappingVersion, String sourceSchema, String mapping) {
+            this(mappingVersion, sourceSchema, mapping, null);
+        }
+    }
     public record Page(long totalElements, int page, int size, List<DataSourceMapper.DataSourceView> items) { }
 }

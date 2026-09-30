@@ -1,0 +1,179 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.xyh.cybersecurity.detection.DetectionMapper">
+    <resultMap id="policyRow" type="com.xyh.cybersecurity.detection.DetectionMapper$PolicyRow"><constructor>
+        <arg column="version" javaType="string"/><arg column="config_json" javaType="string"/>
+    </constructor></resultMap>
+
+    <resultMap id="modelCandidate" type="com.xyh.cybersecurity.detection.DetectionMapper$ModelCandidate"><constructor>
+        <idArg column="inference_request_id" javaType="_long"/><arg column="record_id" javaType="_long"/>
+        <arg column="asset_id" javaType="java.lang.Long"/><arg column="event_time" javaType="java.time.Instant"/>
+        <arg column="model_version_id" javaType="_long"/><arg column="model_key" javaType="string"/>
+        <arg column="model_version" javaType="string"/><arg column="artifact_sha256" javaType="string"/>
+        <arg column="contract_version" javaType="string"/><arg column="contract_sha256" javaType="string"/>
+        <arg column="attack_probability" javaType="_double"/><arg column="decision_threshold" javaType="_double"/>
+        <arg column="threshold_policy_version" javaType="string"/>
+    </constructor></resultMap>
+
+    <resultMap id="ruleRow" type="com.xyh.cybersecurity.detection.DetectionMapper$RuleRow"><constructor>
+        <idArg column="id" javaType="_long"/><arg column="rule_key" javaType="string"/>
+        <arg column="version" javaType="string"/><arg column="scope_json" javaType="string"/>
+        <arg column="condition_json" javaType="string"/><arg column="severity" javaType="string"/>
+    </constructor></resultMap>
+
+    <resultMap id="assetRow" type="com.xyh.cybersecurity.detection.DetectionMapper$AssetRow"><constructor>
+        <idArg column="id" javaType="_long"/><arg column="asset_key" javaType="string"/>
+        <arg column="criticality" javaType="string"/>
+    </constructor></resultMap>
+
+    <select id="findActivePolicy" resultMap="policyRow">
+        SELECT version, CAST(config_json AS CHAR) config_json FROM detection_policy
+        WHERE policy_type=#{type} AND status='active'
+    </select>
+
+    <select id="findModelAlertCandidates" resultMap="modelCandidate">
+        SELECT ir.id inference_request_id, r.id record_id, r.asset_id, r.event_time, ir.model_version_id,
+               mv.model_key, mv.version model_version, LOWER(mv.artifact_sha256) artifact_sha256,
+               ir.contract_version, ir.contract_sha256, ir.attack_probability, ir.decision_threshold,
+               ir.threshold_policy_version
+        FROM inference_request ir
+        JOIN ingest_record r ON r.id=ir.ingest_record_id
+        JOIN model_version mv ON mv.id=ir.model_version_id
+        WHERE r.batch_id=#{batchId} AND ir.status='succeeded' AND ir.binary_label='Attack'
+        ORDER BY r.id
+    </select>
+
+    <select id="findExistingAlertKeys" resultType="string">
+        SELECT alert_key FROM detection_alert WHERE alert_key IN
+        <foreach collection="keys" item="key" open="(" separator="," close=")">#{key}</foreach>
+    </select>
+
+    <insert id="insertAlert">
+        INSERT INTO detection_alert (alert_key, ingest_record_id, inference_request_id, model_version_id,
+            contract_version, contract_sha256, detection_rule_id, alert_type, severity, severity_policy_version,
+            score, threshold_version, basis_json, status, detected_at)
+        VALUES (#{alertKey}, #{ingestRecordId}, #{inferenceRequestId,jdbcType=BIGINT}, #{modelVersionId,jdbcType=BIGINT},
+            #{contractVersion,jdbcType=VARCHAR}, #{contractSha256,jdbcType=CHAR}, #{detectionRuleId,jdbcType=BIGINT},
+            #{alertType}, #{severity}, #{severityPolicyVersion,jdbcType=VARCHAR}, #{score,jdbcType=DECIMAL},
+            #{thresholdVersion,jdbcType=VARCHAR}, CAST(#{basisJson} AS JSON), 'new', #{detectedAt})
+    </insert>
+
+    <select id="findAlertId" resultType="java.lang.Long">
+        SELECT id FROM detection_alert WHERE alert_key=#{alertKey}
+    </select>
+
+    <select id="findActiveRules" resultMap="ruleRow">
+        SELECT id, rule_key, version, CAST(scope_json AS CHAR) scope_json, CAST(condition_json AS CHAR) condition_json,
+               severity
+        FROM detection_rule WHERE status='active' AND approved_by IS NOT NULL ORDER BY id
+    </select>
+
+    <select id="findBatchContract" resultType="string">
+        SELECT feature_contract_version FROM ingest_batch WHERE id=#{batchId}
+    </select>
+
+    <select id="lockAsset" resultMap="assetRow">
+        SELECT id, asset_key, criticality FROM asset WHERE id=#{assetId} FOR UPDATE
+    </select>
+
+    <!-- 滑动窗口：记录事件时间落在事件 [first_seen_at - w, last_seen_at + w] 内即并入。 -->
+    <select id="findOpenCorrelatedEvent" resultType="java.lang.Long">
+        SELECT id FROM security_event
+        WHERE correlation_key=#{correlationKey} AND status IN ('open', 'investigating', 'contained')
+          AND last_seen_at &gt;= #{from} AND first_seen_at &lt;= #{to}
+        ORDER BY last_seen_at DESC, id DESC LIMIT 1 FOR UPDATE
+    </select>
+
+    <insert id="insertEvent">
+        INSERT INTO security_event (event_key, title, category, severity, status, first_seen_at, last_seen_at,
+            correlation_key, correlation_policy_version)
+        VALUES (#{eventKey}, #{title}, 'network', #{severity}, 'open', #{firstSeenAt}, #{lastSeenAt},
+            #{correlationKey}, #{correlationPolicyVersion})
+    </insert>
+
+    <select id="findEventId" resultType="java.lang.Long">
+        SELECT id FROM security_event WHERE event_key=#{eventKey}
+    </select>
+
+    <update id="updateEventWindow">
+        UPDATE security_event
+        SET first_seen_at=LEAST(first_seen_at, #{seenAt}), last_seen_at=GREATEST(last_seen_at, #{seenAt}),
+            updated_at=UTC_TIMESTAMP(3)
+        WHERE id=#{eventId}
+    </update>
+
+    <insert id="insertAlertLink">
+        INSERT INTO event_alert_link (event_id, alert_id, link_type) VALUES (#{eventId}, #{alertId}, 'correlated')
+    </insert>
+
+    <insert id="upsertAssetLink">
+        INSERT INTO event_asset_link (event_id, asset_id, relation_type, evidence_count)
+        VALUES (#{eventId}, #{assetId}, 'affected', 1)
+        ON DUPLICATE KEY UPDATE evidence_count=evidence_count+1
+    </insert>
+
+    <insert id="insertTimeline">
+        INSERT INTO event_timeline (event_id, occurred_at, entry_type, actor_type, actor_id, summary, evidence_ref,
+            details_json)
+        VALUES (#{eventId}, #{occurredAt}, 'alert_correlated', 'system', 'detection', #{summary}, #{evidenceRef},
+            CAST(#{detailsJson} AS JSON))
+    </insert>
+
+    <select id="listEventAlertSeverities" resultType="string">
+        SELECT da.severity FROM event_alert_link eal JOIN detection_alert da ON da.id=eal.alert_id
+        WHERE eal.event_id=#{eventId}
+    </select>
+
+    <resultMap id="ruleView" type="com.xyh.cybersecurity.detection.DetectionMapper$RuleView"><constructor>
+        <idArg column="id" javaType="_long"/><arg column="rule_key" javaType="string"/>
+        <arg column="version" javaType="string"/><arg column="scope_json" javaType="string"/>
+        <arg column="condition_json" javaType="string"/><arg column="severity" javaType="string"/>
+        <arg column="status" javaType="string"/><arg column="requested_by" javaType="java.lang.Long"/>
+        <arg column="approved_by" javaType="java.lang.Long"/><arg column="created_at" javaType="java.time.Instant"/>
+        <arg column="updated_at" javaType="java.time.Instant"/>
+    </constructor></resultMap>
+
+    <sql id="ruleColumns">
+        id, rule_key, version, CAST(scope_json AS CHAR) scope_json, CAST(condition_json AS CHAR) condition_json,
+        severity, status, requested_by, approved_by, created_at, updated_at
+    </sql>
+
+    <select id="listRules" resultMap="ruleView">
+        SELECT <include refid="ruleColumns"/> FROM detection_rule ORDER BY rule_key, id DESC LIMIT 500
+    </select>
+
+    <select id="findRuleForUpdate" resultMap="ruleView">
+        SELECT <include refid="ruleColumns"/> FROM detection_rule WHERE id=#{id} FOR UPDATE
+    </select>
+
+    <insert id="insertRule">
+        INSERT INTO detection_rule (rule_key, version, scope_json, condition_json, severity, status, requested_by)
+        VALUES (#{ruleKey}, #{version}, CAST(#{scopeJson} AS JSON), CAST(#{conditionJson} AS JSON), #{severity},
+            'pending', #{requestedBy})
+    </insert>
+
+    <select id="findRuleId" resultType="java.lang.Long">
+        SELECT id FROM detection_rule WHERE rule_key=#{ruleKey} AND version=#{version}
+    </select>
+
+    <update id="activateRule">
+        UPDATE detection_rule SET status='active', approved_by=#{approvedBy}, updated_at=UTC_TIMESTAMP(3)
+        WHERE id=#{id} AND status='pending' AND (requested_by IS NULL OR requested_by &lt;&gt; #{approvedBy})
+    </update>
+
+    <update id="retireOtherActiveVersions">
+        UPDATE detection_rule SET status='retired', updated_at=UTC_TIMESTAMP(3)
+        WHERE rule_key=#{ruleKey} AND status='active' AND id &lt;&gt; #{exceptId}
+    </update>
+
+    <update id="rejectRule">
+        UPDATE detection_rule SET status='retired', updated_at=UTC_TIMESTAMP(3) WHERE id=#{id} AND status='pending'
+    </update>
+
+    <update id="updateEventRisk">
+        UPDATE security_event
+        SET severity=#{severity}, risk_score=#{riskScore}, risk_rule_version=#{riskVersion},
+            risk_basis_json=CAST(#{basisJson} AS JSON), updated_at=UTC_TIMESTAMP(3)
+        WHERE id=#{eventId}
+    </update>
+</mapper>

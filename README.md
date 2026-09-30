@@ -23,7 +23,7 @@
 - Mac/Windows 软件传感器：采集本机授权范围内的流量元数据，形成有界流记录/时间窗特征；不要求新增专用硬件。
 - Spring Boot 模块化单体：传感器注册与心跳、数据接入、在线特征契约校验、模型路由、检测研判、响应策略、审批和审计。
 - MySQL 8：业务对象、事件证据、模型登记、响应和审计的持久化存储。
-- Redis：缓存、短期任务状态与幂等辅助；不作为审计或业务事实的唯一存储。
+- Redis（规划，M13 可选，当前未引入依赖）：缓存、短期任务状态与幂等辅助；不作为审计或业务事实的唯一存储。当前幂等与短期状态由 MySQL 承担。
 - RabbitMQ：承载异步接入、事件关联和处置任务；任务执行状态仍以数据库为准。
 - 模型推理适配器：管理员可在经验证的本机权重推理与远端推理服务间选择；模型制品独立于 Git 分发。
 - Windows 离线训练环境：人工/计划触发的候选模型再训练和评估；不由生产告警直接在线更新权重。
@@ -36,13 +36,15 @@
 | `main` | 本地业务系统、架构/接口/数据设计、模型契约和集成 |
 | `training/windows-cuda` | Windows CUDA 数据准备、训练、实验、评估和模型导出 |
 
+分支约定：`main` 是唯一的业务主干。`training/windows-cuda` 是长期存在的训练分支，不并入 `main`。需要长期开发的模块可另开分支；临时分支开发完、验证通过后及时经 PR 合并并删除。
+
 训练集、权重、缓存、日志和大型生成结果不提交到 Git。训练端交付的模型必须包含 `model_manifest.json`、特征顺序、预处理定义、标签映射、阈值策略、评估与运行时信息、数据/切分指纹及 SHA-256。仅审查通过的制品可登记为可用版本。
 
 ## 技术基线
 
 - 后端：Java 25、Spring Boot 模块化单体、MyBatis。
 - 前端：Vue 3 稳定版。当前核验 npm 官方 registry 的 `latest` 为 3.5.43，Vue 4.x 尚无可用发行；待正式发布且生态兼容后再评估升级。
-- 数据：MySQL 8、Redis、RabbitMQ。
+- 数据：MySQL 8、RabbitMQ；Redis 为规划中的可选组件（M13），当前未使用。
 - 初期不引入 Spring Cloud；当服务需要独立扩缩容或独立部署时再评估拆分。
 
 ## 数据库构建
@@ -55,7 +57,7 @@ MySQL 8 初始化脚本位于 [`database/init.sql`](database/init.sql)，默认�
 mysql --protocol=TCP -h127.0.0.1 -P3306 -uroot -p < database/init.sql
 ```
 
-所有时间列按 UTC 语义保存；应用连接应设置 UTC 时区。后端上线后以 Flyway 版本化迁移管理 schema。现存库须先完整对照基线、备份并登记版本，不得把 `IF NOT EXISTS` 当成 schema 一致性的证明；脚本不会删除或清空已有对象，也不会重置已存在的 `admin` 密码。
+所有时间列按 UTC 语义保存。后端在 `application.yml` 的 Hikari 数据源属性中固定 `connectionTimeZone=UTC` 与 `forceConnectionTimeZoneToSession=true`，连接会话时区由应用保证为 UTC，不依赖 `DB_URL` 是否带时区参数，也不修改 MySQL 服务端全局时区（`DataSourceTimeZoneIntegrationTest` 以不带时区参数的地址验证）。后端上线后以 Flyway 版本化迁移管理 schema。现存库须先完整对照基线、备份并登记版本，不得把 `IF NOT EXISTS` 当成 schema 一致性的证明；脚本不会删除或清空已有对象，也不会重置已存在的 `admin` 密码。
 
 本机已安装 Temurin JDK 25.0.2，位于 `/Users/xyh/Workspace/development/runtimes/java/temurin-25.0.2`；当前 shell 的 `JAVA_HOME` 仍指向 JDK 17，实施时需使用项目级 Java 25 配置并验证实际构建运行时。
 
@@ -70,15 +72,15 @@ WHERE username = 'admin';
 
 不要把明文口令、哈希或数据库密码写入迁移、日志、提交信息或非本机环境。
 
-后端工程位于 [`backend/`](backend/)，使用 Spring Boot、Spring Security 服务端会话、MyBatis 和 Flyway。数据库连接通过 `DB_URL`、`DB_USERNAME`、`DB_PASSWORD` 配置；应用默认绑定 `127.0.0.1:18080`。当前迁移资源为 V1-V9：V1 保留初始化业务表，V2-V5 增加 IAM/会话、登录限速和 connector 接入结构，V6 增加模型发布审查与响应审批台账字段，V7 增加候选制品校验和本机部署激活权限，V8 增加 sensor 主体绑定、批次配置/序号/契约追溯和 sensor 机器权限，V9 增加审计、接入记录和发件箱查询索引。迁移不自动 baseline 既有非空 schema；本机现存库只有在完成结构核对与备份并获准后才可迁移。
+后端工程位于 [`backend/`](backend/)，使用 Spring Boot、Spring Security 服务端会话、MyBatis 和 Flyway。数据库连接通过 `DB_URL`、`DB_USERNAME`、`DB_PASSWORD` 配置；应用默认绑定 `127.0.0.1:18080`。当前迁移资源为 V1-V16：V1 保留初始化业务表，V2-V5 增加 IAM/会话、登录限速和 connector 接入结构，V6 增加模型发布审查与响应审批台账字段，V7 增加候选制品校验和本机部署激活权限，V8 增加 sensor 主体绑定、批次配置/序号/契约追溯和 sensor 机器权限，V9 增加审计、接入记录和发件箱查询索引，V10 增加异步消费者幂等/失败台账，V11 增加映射/配置的契约文件哈希绑定，V12 增加推理结果快照列、状态不变量与推理台账/dry-run 权限，V13 增加检测策略表、告警/事件追溯列与检测规则权限，V14 增加数据源映射登记人、申请人≠批准人约束与 `source.mapping.approve` 权限，V15 增加响应策略版本生命周期、起草人≠审批人约束与策略起草/审批权限，V16 增加漂移窗口唯一键、告警标注与第二人复核字段及影子报告权限。`database/init.sql` 只对应 V1 的初始表，完整 schema 以 Flyway 迁移为准。迁移不自动 baseline 既有非空 schema；本机现存库只有在完成结构核对与备份并获准后才可迁移。
 
 业务持久化已统一收口到 MyBatis Mapper/XML；生产源码不直接使用 `JdbcTemplate`、`JdbcClient` 或 `java.sql`，Spring Session 的 JDBC 表仍由框架按标准方式管理。`MyBatisMigrationGuardTest` 会阻止业务代码回退到直接 JDBC。
 
-当前已实现认证/CSRF、用户创建与列表、内置角色/权限模板只读、角色范围分配、资产登记/范围内更新/授权申请与独立审批、数据源范围查询/更新及映射版本登记、全关联范围审计，以及 connector 和 sensor 的无状态机器凭据、幂等批次接入。机器凭据只返回一次且数据库仅保存 SHA-256 验证值；接入需显式绑定数据源—资产配对，浏览器 session 不可冒充机器身份。connector 提交的是已规范化 JSON；sensor 批次还会复核配置、序号、批准映射和 26 个数值/2 个类别 raw feature 字段，并将不合格记录留痕为 rejected。
+当前已实现认证/CSRF、用户创建与列表、内置角色/权限模板只读、角色范围分配、资产登记/范围内更新/授权申请与独立审批、数据源范围查询/更新、映射版本登记与独立批准、全关联范围审计，以及 connector 和 sensor 的无状态机器凭据、幂等批次接入。机器凭据只返回一次且数据库仅保存 SHA-256 验证值；接入需显式绑定数据源—资产配对，浏览器 session 不可冒充机器身份。connector 提交的是已规范化 JSON；sensor 批次还会复核配置、序号、批准映射和在线契约声明的 raw feature 字段（v4 为 17 个数值/2 个类别），并将不合格记录留痕为 rejected。
 
-传感器登记、一次性设备凭据、心跳、批准配置读取、健康窗口和流批次路由已实现；Java 侧已有有界双向流状态核心、事件时间 100 流窗口、raw Feature Builder、只读 UNSW CSV 回放适配器和按模板切分的 NetFlow v9/IPFIX 解码器。当前 v3.1 契约因 `ct_state_ttl` codebook 未冻结保持在线门禁关闭；Feature Builder 在缺少 codebook、窗口未预热、迟到/重复或单位未核实的情况下 fail-closed，合格字段校验可留痕但不会发布 outbox。outbox relay 默认关闭；显式启用并配置 RabbitMQ 后，会将 outbox 事件以持久化 JSON 消息发布到 durable topic exchange，等待 broker confirm 并拒绝不可路由消息，失败按指数退避、达到上限后进入 dead letter，并记录 publisher Timer histogram。独立 MySQL 测试 schema 的迁移、认证、授权、资产、接入、事件、查询、模型和响应台账集成测试已通过；RabbitMQ 发布器的两项集成测试也已连接专用测试 vhost 并通过。本机应用 relay 仍未启用，且尚无下游消费者，因此不代表业务异步处理已贯通。实际抓包、macOS libpcap/Windows Npcap 传感器进程、collector 注册/UDP 服务和影子运行仍未验证。告警与事件范围查询/研判、模型候选登记、ONNX 制品校验、Java 离线回放、独立发布审批和显式本机激活台账已实现；真实流量推理 API、训练任务执行和远端推理仍未开放。响应策略没有管理 API；没有匹配且已批准的策略或有效资产授权时申请被拒绝。审批不触发执行，执行端点固定返回 `503 ACTION_EXECUTION_UNAVAILABLE`，不调用适配器且不写 `action_execution`。`database/init.sql` 中初始化的本机测试账号 `admin/admin` 已由测试验证；既存 `admin` 密码哈希必须保留且不由启动过程重置，非 `local` profile 只会在识别出初始化口令时写入不含哈希的警告。控制台日志使用 ECS JSON，request ID 通过 MDC 关联且异常日志不写入堆栈或连接详情。
+传感器登记、一次性设备凭据、心跳、批准配置读取、健康窗口和流批次路由已实现；Java 侧已有有界双向流状态核心、事件时间 100 流窗口、raw Feature Builder、只读 UNSW CSV 回放适配器和按模板切分的 NetFlow v9/IPFIX 解码器。特征契约由 `classpath:feature-contract/*.json` 启动加载：在线契约为 `unsw-nb15-flow-v4`（17 数值 + 2 类别，golden fixtures 与 UNSW 1 万条回放已逐字段对拍），v3.1 仅用于离线回放、在线批次一律 fail-closed；v4 Feature Builder 在窗口未满、迟到/重复、排除流或逐流值非法时 fail-closed，传感器配置与来源映射按 V11 登记契约文件哈希。M3 本机推理已接入 M2 消费链路（路线 B 阶段 4）：消费事务内经契约一致性门禁、按 manifest 字段顺序构造输入、在激活 ONNX 会话读锁内推理，逐条写 `inference_request`（模型版本、契约哈希、分数、标签、阈值与阈值策略版本快照），与消费台账同一事务提交；无激活模型、契约不一致、字段不合规、单批超时（默认 2000 ms）和会话错误都写显式状态与稳定错误码，不回退、不给默认分数；同一记录只推理一次。`GET /api/v1/inference-requests` 按数据源范围只读查询；`POST /api/v1/inference/dry-run` 仅对回放数据源执行、不落库。`cyber.inference.local.enabled=false` 可关闭本机推理提交端口。M4 告警生成与事件关联（路线 B 阶段 5）在同一消费事务内、推理之后执行：`succeeded` 且判为 `Attack` 的推理结论生成模型告警，已批准的确定性规则（受限结构化条件，不允许脚本）生成规则告警，按“同资产 + 关联时间窗”并入事件并计算可解释风险评分；分级、关联和评分参数按版本存于 `detection_policy`，告警与事件记录所用版本和计算依据；重复投递不产生重复告警。规则经 `/api/v1/detection-rules` 登记，须由不同用户批准后生效。outbox relay 默认关闭；显式启用并配置 RabbitMQ 后，会将 outbox 事件以持久化 JSON 消息发布到 durable topic exchange，等待 broker confirm 并拒绝不可路由消息，失败按指数退避、达到上限后进入 dead letter，并记录 publisher Timer histogram。M2 已增加 `q.ingest.batch.received` 手动 ack 消费者、`consumed_message` 幂等台账、5 次 TTL 重试和 `q.ingest.dead` 死信拓扑；推理提交端口不可用时，消费者显式 fail-closed，不产生伪造推理结果。独立 MySQL 测试 schema 的迁移、认证、授权、资产、接入、事件、查询、模型和响应台账集成测试已通过；RabbitMQ 发布器和 M2 消费者集成测试（重复投递去重、重试上限转死信、未 ack 消息重投）已连接专用测试 vhost 并通过。应用 relay/consumer 默认关闭，阶段 6、7 在本机开发库经 `backend-local-relay` 启动项显式启用；outbox 在接入事务提交后立即唤醒 relay，轮询只作兜底。macOS libpcap Go 传感器（M5）已完成 G2 真实流量对拍与本机登记上报；Windows Npcap 传感器进程、collector 注册/UDP 服务仍未验证。告警与事件范围查询/研判、模型候选登记、ONNX 制品校验、Java 离线回放（门限 1e-5）、独立发布审批和显式本机激活台账已实现；端到端集成测试以真实交付包 `unsw-binary-2026.10.0` 跑通登记→校验→他人批准→激活→推理，概率与训练端误差 ≤ 1e-5。在线模型为 `unsw-binary-2026.10.1`（权重同 `2026.10.0`，附训练基线统计；v3.1 部署已停用）；端到端集成测试已跑通“接入 → 推理 → 告警 → 事件”，并验证重复投递不重复告警、范围外用户看不到事件；任意记录的同步推理 API、训练任务执行和远端推理仍未开放。响应策略经 `/api/v1/response-policies` 起草、提交、由不同用户批准后生效（M6），拒绝自动执行；没有匹配且已批准的策略或有效资产授权时申请被拒绝。审批不触发执行，执行端点固定返回 `503 ACTION_EXECUTION_UNAVAILABLE`，不调用适配器且不写 `action_execution`。阶段 7 已实现漂移窗口计算（默认关闭）、告警误报/真报标注与第二人复核、按 G3 阈值逐项判定的数据源影子报告；本机第一轮影子验证 G3 不通过（误报流比例与 PSI 超标），按路线 B §13.8 只保留告警、不启用处置，后续将模型评估范围收窄为握手完整的入站 IPv4 TCP；受控实验中该范围的良性误报率仍约 5%，因此第二轮影子验证以 M9 再训练后的新模型为准。`database/init.sql` 中初始化的本机测试账号 `admin/admin` 已由测试验证；既存 `admin` 密码哈希必须保留且不由启动过程重置，非 `local` profile 只会在识别出初始化口令时写入不含哈希的警告。控制台日志使用 ECS JSON，request ID 通过 MDC 关联且异常日志不写入堆栈或连接详情。
 
-启用 RabbitMQ outbox relay 需在应用运行环境提供 `OUTBOX_RELAY_ENABLED=true`、`RABBITMQ_HOST`、`RABBITMQ_PORT`、`RABBITMQ_VHOST`、`RABBITMQ_USERNAME` 和 `RABBITMQ_PASSWORD`；exchange 默认为 `cyber-security.ingest.events`，可通过 `RABBITMQ_INGEST_EXCHANGE` 覆盖。下游必须先创建持久队列并绑定实际 routing key（当前批次事件为 `ingest.batch.received`），否则 publisher 会将 unroutable 消息留在 outbox 重试，不会错误标记为已发布。密码应由运行环境的受控密钥存储注入，不写入仓库。当前尚无下游消费者，故 relay 保持默认关闭。
+启用 RabbitMQ outbox relay 与 M2 消费者需在应用运行环境提供 `OUTBOX_RELAY_ENABLED=true`、`RABBITMQ_HOST`、`RABBITMQ_PORT`、`RABBITMQ_VHOST`、`RABBITMQ_USERNAME` 和 `RABBITMQ_PASSWORD`；消费者默认跟随 relay，可用 `INGEST_CONSUMER_ENABLED=false` 单独关闭。应用会声明 durable topic exchange `cyber-security.ingest.events`、队列 `q.ingest.batch.received`、DLX `cyber-security.dlx`、死信队列 `q.ingest.dead` 和 1..5 次 TTL 重试队列。exchange 默认为 `cyber-security.ingest.events`，可通过 `RABBITMQ_INGEST_EXCHANGE` 覆盖。密码应由运行环境的受控密钥存储注入，不写入仓库。本机推理提交端口关闭或推理暂不可用（容量耗尽、激活版本切换）时，消息会按上限重试后进入死信；队列消费完成只表示推理结论已落库，不表示已生成告警。
 
 本机验收使用 Temurin JDK 25.0.2、Maven 3.9.13 和指定 Maven 本地仓库。本机 macOS 登录 shell 从 macOS 钥匙串加载 `DB_URL`、`DB_USERNAME`、`DB_PASSWORD`、`DB_TEST_BASE_URL`、`DB_TEST_USERNAME`、`DB_TEST_PASSWORD`、`LOGIN_THROTTLE_HMAC_KEY`、`RABBITMQ_IT_ENABLED`、`RABBITMQ_IT_HOST`、`RABBITMQ_IT_PORT`、`RABBITMQ_IT_VHOST`、`RABBITMQ_IT_USERNAME`、`RABBITMQ_IT_PASSWORD`、`RABBITMQ_HOST`、`RABBITMQ_PORT`、`RABBITMQ_VHOST`、`RABBITMQ_USERNAME`、`RABBITMQ_PASSWORD` 和 `RABBITMQ_INGEST_EXCHANGE`；只保存变量名和加载方式，不把秘密写入仓库。其他环境应从各自受控密钥存储注入运行/测试所需变量。Java 测试应使用项目指定 JDK 与 Maven，集成测试只连接独立测试 schema。
 
@@ -87,13 +89,18 @@ WHERE username = 'admin';
 - [项目详细设计](docs/项目详细设计.md)
 - [功能模块设计](docs/功能模块设计.md)
 - [数据库设计](docs/数据库设计.md)
-- [接口设计](docs/接口设计.md)
-- [接口实现核对矩阵](docs/接口实现核对矩阵.md)
-- [模型训练与交付计划](docs/training-plan.md)
+- [接口设计](docs/接口设计.md)：目标契约
+- [接口实现核对矩阵](docs/接口实现核对矩阵.md)：各接口的实际实现状态，以此为准
+- [数据接入与特征提取模块开发设计](docs/数据接入与特征提取模块开发设计.md)
+- [特征规格 unsw-nb15-flow-v4](docs/特征规格-unsw-nb15-flow-v4.md)：已冻结，SHA-256 绑定在契约文件中，不得修改
+- [模型训练计划](docs/模型训练计划.md)
+- [项目待开发模块文档](docs/项目待开发模块文档.md)：M1～M13 状态与后续执行计划
+- [路线 B 实施路线](docs/路线B-可移植特征契约v4实施路线.md)：阶段记录、授权记录与决策记录
+- [项目优化执行文档](docs/项目优化执行文档.md)：已完成的质量优化项及遗留项
 
 首期覆盖边界是部署软件传感器的主机。主机级自动阻断不等同于网络边界防火墙或全网 DDoS 清洗；上游大流量攻击需要网络运营商/云清洗等外部基础设施协同，本项目仅预留受控联动边界，不承诺独立抵御任意规模攻击。主机限速不是所有操作系统防火墙都具备的通用能力，只有适配器实测支持后才能启用；否则提供告警及受控阻断。
 
-前端 UI/视觉规范暂不纳入本轮设计。后端身份授权与数据库实施约束以本 README、《项目详细设计》和《数据库设计》为准；过程性设计记录保存在 `.superpowers/sdd/`，不作为外部引用入口。以上文档是设计基线；真实传感器、在线推理 API、训练任务和处置执行器仍未实现，受控模型制品校验与离线回放不等同于生产上线。
+前端 UI/视觉规范暂不纳入本轮设计。后端身份授权与数据库实施约束以本 README、《项目详细设计》和《数据库设计》为准；过程性设计记录保存在 `.superpowers/sdd/`，不作为外部引用入口。以上文档是设计基线。macOS 软件传感器已在本机授权接口上完成对拍与影子运行；Windows 传感器、NetFlow/IPFIX collector 服务、任意记录的同步推理 API、训练任务编排、远端推理和处置执行器仍未实现。本机开发库中的推理与影子验证不等同于生产上线。
 
 ## 安全边界
 

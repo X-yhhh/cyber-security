@@ -1,0 +1,23 @@
+{
+  "contract": "unsw-nb15-flow-v4",
+  "purpose": "本机 en0 真实流量（假名化）的 Go/Java 对拍（G2，路线 B §12.3）；不代表其他主机的流量分布",
+  "localAddrs": [
+    "192.0.2.40",
+    "2001:db8::2",
+    "2001:db8::3",
+    "2001:db8::4",
+    "2001:db8::5",
+    "2001:db8::6"
+  ],
+  "subnets": [
+    "192.0.2.0/24"
+  ],
+  "mtu": 1500,
+  "snapLen": 128,
+  "keyBase": "g2real",
+  "frames": 40475,
+  "addressing": "按 sensor/internal/anon 假名化：文档保留地址、只保留到传输层头部、时间平移；映射表未保存",
+  "coverage": [
+    "real_en0_capture"
+  ]
+}

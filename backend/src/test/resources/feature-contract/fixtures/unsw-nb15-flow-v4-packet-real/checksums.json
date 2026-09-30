@@ -1,0 +1,6 @@
+{
+  "capture.pcap": "fded37eae3c54e1593ba5f452212ce5970135b27f0d9b98c863e8ffcf1894e86",
+  "expected-diagnostics.json": "65dc0bb0659969fe50dab0ab4bea3656d439f8e124f970d89469e684085aa8c9",
+  "expected-records.jsonl": "4924a85035b4c585ad34d17456a6f767b28fb709a0f8540a92d5f20e13b0802a",
+  "fixture.json": "ae5a5798aa8485f5c3dfba391b5bdf9c75a5cfcf6c27ccf6254a15f9e041459e"
+}

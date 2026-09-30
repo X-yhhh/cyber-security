@@ -35,9 +35,12 @@ public interface IngestMapper {
     boolean overlapsHealthWindow(@Param("sensorId") long sensorId, @Param("windowStart") Instant windowStart,
                                  @Param("windowEnd") Instant windowEnd);
     int insertHealthWindow(HealthWindowInsert input);
-    boolean hasActiveConfig(@Param("sensorId") long sensorId, @Param("configVersion") String configVersion,
-                            @Param("contractVersion") String contractVersion);
-    boolean hasApprovedSourceMapping(@Param("sourceId") long sourceId, @Param("mappingVersion") String mappingVersion);
+    /** 返回传感器指定版本的 active 配置及其契约绑定；不存在或非 active 时为 {@code null}。 */
+    ConfigContractBinding findActiveConfigBinding(@Param("sensorId") long sensorId,
+                                                  @Param("configVersion") String configVersion);
+    /** 返回活动数据源下已批准映射的契约绑定；映射不存在、未批准或数据源停用时为 {@code null}。 */
+    MappingContractBinding findApprovedSourceMapping(@Param("sourceId") long sourceId,
+                                                     @Param("mappingVersion") String mappingVersion);
     boolean hasSensorSourcePair(@Param("clientId") long clientId, @Param("sourceId") long sourceId,
                                 @Param("assetId") long assetId);
     boolean hasAssetAuthorization(@Param("assetId") long assetId);
@@ -69,6 +72,37 @@ public interface IngestMapper {
     int markOutboxFailed(@Param("id") long id, @Param("status") String status,
                          @Param("attempts") int attempts, @Param("nextAttemptAt") Instant nextAttemptAt);
 
+    /**
+     * 查询某个批次中已通过接入门禁的记录；消费者只把 accepted 记录交给后续推理任务边界。
+     */
+    List<AcceptedRecord> findAcceptedRecords(@Param("batchId") long batchId);
+
+    ConsumedMessageRow findConsumedMessageForUpdate(@Param("consumer") String consumer,
+                                                    @Param("messageKey") String messageKey);
+
+    int insertConsumedMessage(@Param("consumer") String consumer, @Param("messageKey") String messageKey);
+
+    int markConsumedProcessing(@Param("consumer") String consumer, @Param("messageKey") String messageKey);
+
+    int markConsumed(@Param("consumer") String consumer, @Param("messageKey") String messageKey);
+
+    /** 有记录通过门禁的批次落库时刷新数据源最近成功接入时间（UTC）。 */
+    int touchSourceSuccess(@Param("sourceId") long sourceId);
+
+    /**
+     * 消费事务内把批次标记为处理完成：{@code received → completed}；接收时已判为 {@code completed_with_errors}
+     * 的批次保持状态，只补 {@code finished_at}。重复投递时条件不再成立，返回 0。
+     */
+    int markBatchProcessed(@Param("batchId") long batchId);
+
+    int recordConsumedFailure(@Param("consumer") String consumer, @Param("messageKey") String messageKey,
+                              @Param("status") String status, @Param("errorCode") String errorCode,
+                              @Param("errorMessage") String errorMessage);
+
+    int insertConsumedFailureRow(@Param("consumer") String consumer, @Param("messageKey") String messageKey,
+                                 @Param("status") String status, @Param("errorCode") String errorCode,
+                                 @Param("errorMessage") String errorMessage);
+
     record BatchRow(long id, String batchKey, long sourceId, String status, long totalCount,
                     long acceptedCount, long rejectedCount, String requestSha256, boolean sequenceGap) { }
     record SensorIdentityRow(long id, long assetId, String status) { }
@@ -76,6 +110,10 @@ public interface IngestMapper {
                            int flowWindowSeconds, String featureContractVersion, String samplingPolicyJson,
                            Instant activatedAt) { }
     record OutboxRow(long id, String eventKey, String topic, String payload, int attempts) { }
+    record AcceptedRecord(long id, long batchId, long dataSourceId, String recordKey, Instant eventTime,
+                          long assetId, String normalizedPayload) { }
+    record ConsumedMessageRow(long id, String consumer, String messageKey, String status, int attempts,
+                              String errorCode, String errorMessage, Instant consumedAt) { }
     record MachineBatchInsert(String batchKey, long dataSourceId, String idempotencyKey, String requestSha256,
                               int totalCount, Instant startedAt) { }
     record SensorBatchInsert(String batchKey, long dataSourceId, long sensorId, String configVersion, long sequence,
@@ -86,6 +124,12 @@ public interface IngestMapper {
     record SensorInsert(String agentKey, long assetId, String platform, String agentVersion,
                         String capabilities, Instant registeredAt) { }
     record SensorClientInsert(String clientKey, long sensorId, String credentialSha256, String scopeJson) { }
+    /** @param contractSha256 服务端按注册表写入的契约文件哈希（V11），不接受客户端传入 */
     record SensorConfigInsert(long sensorId, String configVersion, String interfaceScope, String filterPolicy,
-                              int flowWindowSeconds, String contractVersion, String samplingPolicy, long approvedBy) { }
+                              int flowWindowSeconds, String contractVersion, String contractSha256,
+                              String samplingPolicy, long approvedBy) { }
+    /** 传感器配置绑定的契约版本与批准时契约文件哈希；历史行哈希为 {@code null}。 */
+    record ConfigContractBinding(String configVersion, String contractVersion, String contractSha256) { }
+    /** 来源映射绑定的契约；未绑定契约的历史映射两项均为 {@code null}（V11 约束保证成对出现）。 */
+    record MappingContractBinding(long id, String contractVersion, String contractSha256) { }
 }

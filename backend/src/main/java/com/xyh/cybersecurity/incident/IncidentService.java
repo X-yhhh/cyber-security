@@ -9,6 +9,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -26,6 +27,9 @@ public class IncidentService {
             "resolved", Set.of("closed"),
             "false_positive", Set.of("closed"),
             "closed", Set.of());
+
+    /** 事件详情内嵌的关联告警/时间线第一页条数。 */
+    static final int DETAIL_PAGE_SIZE = 20;
 
     private final IncidentMapper mapper;
     private final AuditMapper auditMapper;
@@ -55,11 +59,41 @@ public class IncidentService {
                 mapper.listVisibleEvents(userId, offset, size));
     }
 
+    /**
+     * 事件详情：关联告警与时间线只内嵌第一页（{@value #DETAIL_PAGE_SIZE} 条，按时间倒序），
+     * 其余经 {@link #eventAlerts}/{@link #eventTimeline} 分页读取，避免大事件一次返回全部证据。
+     * 关联资产数量受关联策略约束（同资产归并），仍整列返回。
+     */
     public EventDetail event(long userId, long eventId) {
-        IncidentMapper.EventView event = mapper.findVisibleEvent(userId, eventId);
-        if (event == null) throw ApiRequestException.notFound();
-        return new EventDetail(event, mapper.listEventAlertsVisible(userId, eventId),
-                mapper.listEventAssetsVisible(userId, eventId), mapper.listEventTimelineVisible(userId, eventId));
+        IncidentMapper.EventView event = visibleEvent(userId, eventId);
+        return new EventDetail(event, alertPage(userId, eventId, 0, DETAIL_PAGE_SIZE),
+                mapper.listEventAssetsVisible(userId, eventId), timelinePage(userId, eventId, 0, DETAIL_PAGE_SIZE));
+    }
+
+    /** 事件关联告警分页；事件不存在或不在范围内返回 404，不返回空页以免暴露存在性差异。 */
+    public Page<IncidentMapper.AlertView> eventAlerts(long userId, long eventId, int page, int size) {
+        checkedOffset(page, size);
+        visibleEvent(userId, eventId);
+        return alertPage(userId, eventId, page, size);
+    }
+
+    /** 事件时间线分页；可见性规则同 {@link #eventAlerts}。 */
+    public Page<IncidentMapper.TimelineView> eventTimeline(long userId, long eventId, int page, int size) {
+        checkedOffset(page, size);
+        visibleEvent(userId, eventId);
+        return timelinePage(userId, eventId, page, size);
+    }
+
+    private Page<IncidentMapper.AlertView> alertPage(long userId, long eventId, int page, int size) {
+        int offset = checkedOffset(page, size);
+        return new Page<>(mapper.countEventAlertsVisible(userId, eventId), page, size,
+                mapper.listEventAlertsVisible(userId, eventId, offset, size));
+    }
+
+    private Page<IncidentMapper.TimelineView> timelinePage(long userId, long eventId, int page, int size) {
+        int offset = checkedOffset(page, size);
+        return new Page<>(mapper.countEventTimelineVisible(userId, eventId), page, size,
+                mapper.listEventTimelineVisible(userId, eventId, offset, size));
     }
 
     @Transactional
@@ -103,7 +137,7 @@ public class IncidentService {
 
     private void audit(long userId, long eventId, String action, HttpServletRequest request) {
         Object requestId = request.getAttribute(REQUEST_ID_ATTRIBUTE);
-        AuditMapper.AuditInsert audit = new AuditMapper.AuditInsert(LocalDateTime.now(), "human",
+        AuditMapper.AuditInsert audit = new AuditMapper.AuditInsert(LocalDateTime.now(ZoneOffset.UTC), "human",
                 Long.toString(userId), action, "security_event", Long.toString(eventId),
                 requestId instanceof String value ? value : null, "success", "scoped analyst workflow");
         auditMapper.insertAudit(audit);
@@ -137,7 +171,9 @@ public class IncidentService {
     }
 
     public record Page<T>(long totalElements, int page, int size, List<T> items) { }
-    public record EventDetail(IncidentMapper.EventView event, List<IncidentMapper.AlertView> alerts,
+
+    /** 事件详情；{@code alerts}、{@code timeline} 为第一页（带总数），{@code assets} 为全部关联资产。 */
+    public record EventDetail(IncidentMapper.EventView event, Page<IncidentMapper.AlertView> alerts,
                               List<IncidentMapper.EventAssetView> assets,
-                              List<IncidentMapper.TimelineView> timeline) { }
+                              Page<IncidentMapper.TimelineView> timeline) { }
 }

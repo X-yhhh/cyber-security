@@ -5,6 +5,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.xyh.cybersecurity.common.api.ApiRequestException;
 import com.xyh.cybersecurity.audit.AuditMapper;
 import com.xyh.cybersecurity.identity.IdentityPrincipal;
+import com.xyh.cybersecurity.ingest.contract.FeatureContract;
+import com.xyh.cybersecurity.ingest.contract.FeatureContractRegistry;
+import org.springframework.http.HttpStatus;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
@@ -15,6 +18,7 @@ import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.Base64;
 import java.util.HexFormat;
 import java.util.List;
@@ -27,11 +31,14 @@ public class SensorManagementService {
     private final IngestMapper mapper;
     private final AuditMapper auditMapper;
     private final ObjectMapper objectMapper;
+    private final FeatureContractRegistry contracts;
 
-    public SensorManagementService(IngestMapper mapper, AuditMapper auditMapper, ObjectMapper objectMapper) {
+    public SensorManagementService(IngestMapper mapper, AuditMapper auditMapper, ObjectMapper objectMapper,
+                                   FeatureContractRegistry contracts) {
         this.mapper = mapper;
         this.auditMapper = auditMapper;
         this.objectMapper = objectMapper;
+        this.contracts = contracts;
     }
 
     @Transactional
@@ -43,6 +50,11 @@ public class SensorManagementService {
                 || request.config().configVersion() == null || request.config().featureContractVersion() == null
                 || request.config().flowWindowSeconds() < 1 || request.dataSourceId() < 1) {
             throw ApiRequestException.badRequest("传感器登记参数无效");
+        }
+        // 配置只能绑定已注册契约；契约文件哈希由服务端按注册表写入（V11），不接受客户端传入。
+        FeatureContract contract = contracts.find(request.config().featureContractVersion());
+        if (contract == null) {
+            throw new ApiRequestException(HttpStatus.valueOf(422), "FEATURE_CONTRACT_MISMATCH", "特征契约版本未登记");
         }
         requireAuthorizedAsset(request.assetId());
         if (!mapper.activeSource(request.dataSourceId())) throw ApiRequestException.badRequest("数据源不存在或不可用");
@@ -70,8 +82,8 @@ public class SensorManagementService {
         mapper.insertClientPair(machineId, request.dataSourceId(), request.assetId());
         mapper.grantSensorPermissions(machineId);
         mapper.insertSensorConfig(new IngestMapper.SensorConfigInsert(sensorId, request.config().configVersion(),
-                interfaceScope, filterPolicy, request.config().flowWindowSeconds(), request.config().featureContractVersion(),
-                samplingPolicy, actor.id()));
+                interfaceScope, filterPolicy, request.config().flowWindowSeconds(), contract.version(),
+                contract.fileSha256(), samplingPolicy, actor.id()));
         writeAudit(actor.id(), sensorId, request.assetId(), request.dataSourceId(), requestId(httpRequest));
         Instant issuedAt = Instant.now();
         return new IssuedSensor(sensorId, machineId, request.agentKey(), "mch_" + machineId + "." + secret, request.config().configVersion(), issuedAt, issuedAt.plusSeconds(30L * 24 * 3600));
@@ -90,7 +102,7 @@ public class SensorManagementService {
     }
 
     private void writeAudit(long actorId, long sensorId, long assetId, long sourceId, String requestId) {
-        AuditMapper.AuditInsert audit = new AuditMapper.AuditInsert(LocalDateTime.now(), "human", Long.toString(actorId),
+        AuditMapper.AuditInsert audit = new AuditMapper.AuditInsert(LocalDateTime.now(ZoneOffset.UTC), "human", Long.toString(actorId),
                 "sensor.registered", "sensor_agent", Long.toString(sensorId), requestId, "success",
                 "sensor credential issued once");
         auditMapper.insertAudit(audit);

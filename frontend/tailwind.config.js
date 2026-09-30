@@ -1,5 +1,5 @@
 /** @type {import('tailwindcss').Config} */
-// 视觉基线：暖白纸面 + 墨色文字，单一钴蓝强调色，朱红仅用于威胁语义。
+// 视觉基线：纯白底 + 墨色文字，单一钴蓝强调色，朱红仅用于威胁语义。
 // 刻意去掉大圆角与阴影层级，以细线和留白组织信息。
 export default {
   content: ['./index.html', './src/**/*.{vue,ts}'],
@@ -12,7 +12,7 @@ export default {
     },
     extend: {
       colors: {
-        paper: { DEFAULT: '#F5F4F0', soft: '#EFEEE9', deep: '#E6E4DD' },
+        paper: { DEFAULT: '#FFFFFF', soft: '#EFEEE9', deep: '#E6E4DD' },
         ink: {
           DEFAULT: '#14161A',
           2: '#3A3D44',

@@ -138,8 +138,6 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="relative bg-paper text-ink">
-    <!-- 背景：极淡的坐标网格，为 3D 主体提供空间参照 -->
-    <div class="pointer-events-none fixed inset-0 bg-grid" aria-hidden="true" />
     <canvas ref="canvas" class="pointer-events-none fixed inset-0 h-screen w-full" aria-hidden="true" />
     <div v-if="!webgl" class="fixed inset-0 flex items-center justify-end pr-[12vw]" aria-hidden="true">
       <div class="h-[46vmin] w-[46vmin] rounded-full border border-ink-line" />
@@ -247,13 +245,6 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.bg-grid {
-  background-image:
-    linear-gradient(to right, rgba(20, 22, 26, 0.035) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(20, 22, 26, 0.035) 1px, transparent 1px);
-  background-size: 96px 96px;
-  mask-image: radial-gradient(ellipse at 60% 50%, #000 30%, transparent 75%);
-}
 .scroll-cue { position: relative; overflow: hidden; }
 .scroll-cue::after {
   content: '';

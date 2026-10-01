@@ -21,7 +21,8 @@ record DetectionPolicies(Severity severity, Correlation correlation, Risk risk) 
     static final List<String> SEVERITY_ORDER = List.of("low", "medium", "high", "critical");
 
     /** @param bands 按 {@code minScore} 严格递减；最后一档须为 0，保证任何合法分数都有落点 */
-    record Severity(String version, List<Band> bands) {
+    record Severity(String version, List<Band> bands, Signal signal) {
+        Severity(String version, List<Band> bands) { this(version, bands, null); }
         String map(double score) {
             for (Band band : bands) if (score >= band.minScore()) return band.severity();
             return bands.getLast().severity();
@@ -31,6 +32,31 @@ record DetectionPolicies(Severity severity, Correlation correlation, Risk risk) 
         double bandFloor(double score) {
             for (Band band : bands) if (score >= band.minScore()) return band.minScore();
             return bands.getLast().minScore();
+        }
+    }
+
+    /** 分层只改变人工队列入口，模型原始判定及阈值不变。 */
+    record Signal(boolean enabled, int countThreshold, double highScore) { }
+
+    /** 登记与消费共用参数校验；新版本不得遗漏显式的分层开关。 */
+    static void validate(String type, JsonNode config) {
+        if (config == null || !config.isObject()) throw invalid();
+        Set<String> allowed = switch (type) {
+            case "severity_mapping" -> Set.of("model", "modelSignal");
+            case "correlation" -> Set.of("windowSeconds", "dimensions");
+            case "risk_score" -> Set.of("severityWeight", "criticalityWeight", "repeatStep", "repeatCap");
+            default -> throw invalid();
+        };
+        config.fieldNames().forEachRemaining(k -> { if (!allowed.contains(k)) throw invalid(); });
+        Loaded loaded = new Loaded("validation", config);
+        switch (type) {
+            case "severity_mapping" -> {
+                if (!config.has("modelSignal")) throw invalid();
+                severity(loaded);
+            }
+            case "correlation" -> correlation(loaded);
+            case "risk_score" -> risk(loaded);
+            default -> throw invalid();
         }
     }
 
@@ -75,14 +101,24 @@ record DetectionPolicies(Severity severity, Correlation correlation, Risk risk) 
             previous = min;
         }
         if (parsed.getLast().minScore() != 0.0) throw invalid();
-        return new Severity(loaded.version(), List.copyOf(parsed));
+        Signal signal = null;
+        if (loaded.config().has("modelSignal")) {
+            JsonNode node = loaded.config().get("modelSignal");
+            if (!node.isObject() || node.size() != 3 || !node.path("enabled").isBoolean()
+                    || !node.path("countThreshold").isIntegralNumber() || !node.path("countThreshold").canConvertToInt()
+                    || node.path("countThreshold").asInt() < 2 || node.path("countThreshold").asInt() > 10000) throw invalid();
+            double high = unit(node.path("highScore"));
+            if (high <= 0) throw invalid();
+            signal = new Signal(node.path("enabled").asBoolean(), node.path("countThreshold").asInt(), high);
+        }
+        return new Severity(loaded.version(), List.copyOf(parsed), signal);
     }
 
     private static Correlation correlation(Loaded loaded) {
         JsonNode window = loaded.config().path("windowSeconds");
         JsonNode dimensions = loaded.config().path("dimensions");
         // 本期只支持资产维度（v4 不入库对端地址，路线 B §21）；声明其他维度说明策略与实现不一致。
-        if (!window.canConvertToLong() || window.asLong() < 60 || window.asLong() > 86_400
+        if (!window.isIntegralNumber() || !window.canConvertToLong() || window.asLong() < 60 || window.asLong() > 86_400
                 || !dimensions.isArray() || dimensions.size() != 1 || !"asset".equals(dimensions.get(0).asText())) {
             throw invalid();
         }

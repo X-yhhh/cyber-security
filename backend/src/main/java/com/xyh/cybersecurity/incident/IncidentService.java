@@ -42,9 +42,15 @@ public class IncidentService {
     }
 
     public Page<IncidentMapper.AlertView> alerts(long userId, int page, int size) {
+        return alerts(userId, page, size, "alert");
+    }
+
+    /** 人工告警默认排除信号；显式 layer=signal 可查看低等级模型命中，权限范围不变。 */
+    public Page<IncidentMapper.AlertView> alerts(long userId, int page, int size, String layer) {
+        if (layer == null || !Set.of("alert", "signal").contains(layer)) throw ApiRequestException.badRequest("告警层级无效");
         int offset = checkedOffset(page, size);
-        return new Page<>(mapper.countVisibleAlerts(userId), page, size,
-                mapper.listVisibleAlerts(userId, offset, size));
+        return new Page<>(mapper.countVisibleAlerts(userId, layer), page, size,
+                mapper.listVisibleAlerts(userId, layer, offset, size));
     }
 
     public IncidentMapper.AlertView alert(long userId, long alertId) {
@@ -126,6 +132,29 @@ public class IncidentService {
             throw ApiRequestException.notFound();
         }
         audit(userId, eventId, "event.note.created", request);
+        return event(userId, eventId);
+    }
+
+    /** 指派或取消指派；两方均须能研判全部关联证据，关闭事件不可再指派，不改变处理人权限。 */
+    @Transactional
+    public EventDetail assign(long userId, long eventId, Long assigneeId, String reason, HttpServletRequest request) {
+        String summary = validatedText(reason);
+        if (assigneeId != null && assigneeId <= 0) throw ApiRequestException.badRequest("处理人 ID 无效");
+        // 用户锁先于事件锁；冻结账号与指派竞争时，不能把任务交给已冻结用户。
+        for (long id : java.util.stream.LongStream.of(userId, assigneeId == null ? userId : assigneeId).distinct().sorted().toArray()) {
+            if (mapper.lockActiveAssignee(id) == null) throw ApiRequestException.badRequest("处理人不可用或无此事件研判权限");
+            mapper.lockInvestigatorRoles(id);
+        }
+        var event = mapper.lockInvestigableEvent(userId, eventId);
+        if (event == null) throw ApiRequestException.notFound();
+        if (assigneeId != null && !mapper.canInvestigate(assigneeId, eventId)) throw ApiRequestException.badRequest("处理人不可用或无此事件研判权限");
+        if (mapper.assign(userId, eventId, assigneeId) != 1) throw ApiRequestException.conflict("当前事件不可指派");
+        String details = json(Map.of("from", event.assigneeId() == null ? "unassigned" : event.assigneeId().toString(),
+                "to", assigneeId == null ? "unassigned" : assigneeId.toString()));
+        if (mapper.appendTimelineForInvestigator(userId, eventId, "assignee_changed", Long.toString(userId), summary, details) != 1) {
+            throw ApiRequestException.conflict("事件授权已变化");
+        }
+        audit(userId, eventId, "event.assignee.changed", request);
         return event(userId, eventId);
     }
 

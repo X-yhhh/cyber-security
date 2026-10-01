@@ -10,10 +10,16 @@ import java.util.List;
 /** 告警与事件读写映射；所有列表、详情和状态写入都在 SQL 内复核功能权限及资源范围。 */
 @Mapper
 public interface IncidentMapper {
+    Long lockActiveAssignee(@Param("id") long id);
+    EventView lockInvestigableEvent(@Param("userId") long userId, @Param("eventId") long eventId);
+    List<Long> lockInvestigatorRoles(@Param("userId") long userId);
+    boolean canInvestigate(@Param("userId") long userId, @Param("eventId") long eventId);
+    int assign(@Param("userId") long userId, @Param("eventId") long eventId, @Param("assignee") Long assignee);
 
-    long countVisibleAlerts(@Param("userId") long userId);
 
-    List<AlertView> listVisibleAlerts(@Param("userId") long userId,
+    long countVisibleAlerts(@Param("userId") long userId, @Param("layer") String layer);
+
+    List<AlertView> listVisibleAlerts(@Param("userId") long userId, @Param("layer") String layer,
                                       @Param("offset") int offset,
                                       @Param("limit") int limit);
 
@@ -136,7 +142,8 @@ public interface IncidentMapper {
                      BigDecimal score, LocalDateTime detectedAt, long dataSourceId, Long assetId,
                      Long modelVersionId, String modelKey, String modelVersion, String contractVersion,
                      String contractSha256, Long detectionRuleId, String ruleKey, String ruleVersion,
-                     String severityPolicyVersion, String thresholdVersion, String basisJson) { }
+                     String severityPolicyVersion, String thresholdVersion, String basisJson, String alertLayer,
+                     String correlationPolicyVersion, LocalDateTime promotedAt) { }
 
     record EventView(long id, String eventKey, String title, String category, String severity,
                      String status, BigDecimal riskScore, LocalDateTime firstSeenAt, LocalDateTime lastSeenAt,

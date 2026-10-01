@@ -304,6 +304,33 @@ class LocalInferenceIntegrationTest {
                 + "ON r.id=ir.ingest_record_id WHERE r.source_record_key='late-1'"))
                 .containsEntry("status", "rejected").containsEntry("reject_reason", "config_not_active");
 
+        // 阶段 2：只在独立库用真实历史制品验证回退，原部署与发布审批事实全部保留。
+        String previousPath=System.getenv("MODEL_PREVIOUS_DELIVERY_V4_DIR");
+        if (previousPath != null && !previousPath.isBlank()) {
+            Cookie operatorCookie=login("m3-operator");
+            long previous=activate(operatorCookie,login("m3-releaser"),Path.of(previousPath));
+            assertThat(send(put("/api/v1/model-deployments/active"),operatorCookie,
+                    "{\"modelVersionId\":"+modelId+",\"reason\":\"恢复待测新版本\"}").getResponse().getStatus()).isEqualTo(200);
+            assertThat(send(post("/api/v1/models/{id}/retire",modelId),operatorCookie,
+                    "{\"reason\":\"拒绝退役 active\"}").getResponse().getStatus()).isEqualTo(409);
+            String rollback="{\"expectedCurrentModelId\":"+modelId+",\"reason\":\"回退已审批历史制品\"}";
+            String previousHash=jdbc.queryForObject("SELECT artifact_sha256 FROM model_version WHERE id=?",String.class,previous);
+            jdbc.update("UPDATE model_version SET artifact_sha256=? WHERE id=?","f".repeat(64),previous);
+            assertThat(send(post("/api/v1/model-deployments/rollback"),operatorCookie,rollback).getResponse().getStatus()).isEqualTo(409);
+            assertThat(jdbc.queryForObject("SELECT model_version_id FROM model_deployment WHERE status='active'",Long.class)).isEqualTo(modelId);
+            jdbc.update("UPDATE model_version SET artifact_sha256=? WHERE id=?",previousHash,previous);
+            var result=send(post("/api/v1/model-deployments/rollback"),operatorCookie,rollback);
+            assertThat(result.getResponse().getStatus()).as(result.getResponse().getContentAsString()).isEqualTo(200);
+            assertThat(data(result).path("modelVersionId").asLong()).isEqualTo(previous);
+            assertThat(jdbc.queryForObject("SELECT model_version_id FROM model_deployment WHERE status='active'",Long.class)).isEqualTo(previous);
+            assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM model_release_record WHERE model_version_id=? AND review_status='approved' AND release_status='active'",Integer.class,previous)).isEqualTo(1);
+            assertThat(send(post("/api/v1/model-deployments/rollback"),operatorCookie,rollback).getResponse().getStatus()).isEqualTo(409);
+            assertThat(send(post("/api/v1/models/{id}/retire",modelId),operatorCookie,
+                    "{\"reason\":\"退役 inactive 新版本\"}").getResponse().getStatus()).isEqualTo(200);
+            assertThat(send(put("/api/v1/model-deployments/active"),operatorCookie,
+                    "{\"modelVersionId\":"+modelId+",\"reason\":\"退役制品不得激活\"}").getResponse().getStatus()).isEqualTo(409);
+            assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM audit_log WHERE action='model.deployment.rolled_back' AND actor_id=?",Integer.class,Long.toString(operator))).isEqualTo(1);
+        }
     }
 
     private long seedAssetAndSource() {
@@ -325,7 +352,10 @@ class LocalInferenceIntegrationTest {
     }
 
     private long activate(Cookie operator, Cookie releaser) throws Exception {
-        Path delivery = delivery();
+        return activate(operator, releaser, delivery());
+    }
+
+    private long activate(Cookie operator, Cookie releaser, Path delivery) throws Exception {
         JsonNode manifest = objectMapper.readTree(delivery.resolve("model_manifest.json").toFile());
         ObjectNode candidate = objectMapper.createObjectNode().put("modelKey", MODEL_KEY)
                 .put("version", manifest.path("version").asText()).put("taskType", "binary_flow_classification")

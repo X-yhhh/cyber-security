@@ -80,6 +80,7 @@ public class ModelService {
 
     @Transactional
     public ReleaseView requestRelease(long modelId, String reason, IdentityPrincipal actor, HttpServletRequest request) {
+        mapper.lockLifecycle();
         String summary = validatedReason(reason);
         ModelMapper.ModelRow model = findVisibleModel(actor.id(), modelId, "model.release.request");
         if (model == null) throw ApiRequestException.notFound();
@@ -99,6 +100,7 @@ public class ModelService {
     @Transactional
     public ReleaseView decideRelease(long requestId, String decision, String reason, IdentityPrincipal actor,
                                      HttpServletRequest request) {
+        mapper.lockLifecycle();
         String summary = validatedReason(reason);
         if (!Set.of("approve", "reject").contains(decision)) {
             throw ApiRequestException.badRequest("发布审查决定无效");
@@ -137,6 +139,7 @@ public class ModelService {
     @Transactional
     public OnnxModelManager.ValidationResult validate(long modelId, IdentityPrincipal actor,
                                                        HttpServletRequest request) {
+        mapper.lockLifecycle();
         ModelMapper.ModelRow model = findVisibleModel(actor.id(), modelId, "model.candidate.validate");
         if (model == null) throw ApiRequestException.notFound();
         if (!"candidate".equals(model.approvalStatus())) throw ApiRequestException.conflict("只有候选状态可执行模型验证");
@@ -157,9 +160,11 @@ public class ModelService {
     /** 仅独立批准的模型可切换为本机活动部署；数据库提交后才切换内存运行时。 */
     @Transactional
     public DeploymentView activate(long modelId, String reason, IdentityPrincipal actor, HttpServletRequest request) {
+        mapper.lockLifecycle();
         String summary = validatedReason(reason);
         ModelMapper.ModelRow model = findVisibleModel(actor.id(), modelId, "model.deployment.activate");
         if (model == null) throw ApiRequestException.notFound();
+        model = mapper.lockModel(modelId);
         if (!"approved".equals(model.approvalStatus())) throw ApiRequestException.conflict("模型尚未通过独立发布审批");
         int approvalCount = mapper.countApprovedReleases(modelId);
         if (approvalCount == 0) throw ApiRequestException.conflict("缺少已批准的发布审查记录");
@@ -189,6 +194,36 @@ public class ModelService {
         }
         return new DeploymentView(modelId, model.modelKey(), model.version(), "local", "active",
                 "onnxruntime-java-1.23.2", LocalDateTime.now(ZoneOffset.UTC));
+    }
+
+    /** 非 active 且无待审发布申请的模型才能退役；保留全部制品引用与审计事实。 */
+    @Transactional
+    public ModelView retire(long modelId, String reason, IdentityPrincipal actor, HttpServletRequest request) {
+        mapper.lockLifecycle();
+        String summary = validatedReason(reason);
+        var visible = findVisibleModel(actor.id(), modelId, "model.candidate.manage");
+        if (visible == null) throw ApiRequestException.notFound();
+        mapper.lockModel(modelId);
+        if (mapper.retireModel(modelId, actor.id(), summary) != 1) throw ApiRequestException.conflict("模型已退役、仍在激活或存在待审批申请");
+        audit(actor.id(), "model.version.retired", "model_version", modelId, visible.modelKey(), request, summary);
+        return get(actor.id(), modelId);
+    }
+
+    /** 显式回退；expectedCurrentModelId 防止重复点击在两个版本间来回切换，制品复核失败不改变运行模型。 */
+    @Transactional
+    public DeploymentView rollback(long expectedCurrentModelId, String reason, IdentityPrincipal actor, HttpServletRequest request) {
+        mapper.lockLifecycle();
+        String summary = validatedReason(reason);
+        var visible = findVisibleModel(actor.id(), expectedCurrentModelId, "model.deployment.activate");
+        if (visible == null) throw ApiRequestException.notFound();
+        Long current = mapper.activeLocalModel();
+        if (current == null || current != expectedCurrentModelId) throw ApiRequestException.conflict("当前部署已变化，请重新确认回退目标");
+        Long target = mapper.previousApprovedModel(current, visible.modelKey());
+        if (target == null) throw ApiRequestException.conflict("没有可回退的历史已批准部署");
+        var result = activate(target, summary, actor, request);
+        audit(actor.id(), "model.deployment.rolled_back", "model_version", target, visible.modelKey(), request,
+                "从模型 " + current + " 回退；" + summary);
+        return result;
     }
 
     private ModelMapper.ModelRow findVisibleModel(long userId, long modelId, String permission) {

@@ -45,17 +45,17 @@
 
     <select id="findExistingAlertKeys" resultType="string">
         SELECT alert_key FROM detection_alert WHERE alert_key IN
-        <foreach collection="keys" item="key" open="(" separator="," close=")">#{key}</foreach>
+        <foreach collection="keys" item="key" open="(" separator="," close=")">#{key}</foreach> FOR SHARE
     </select>
 
     <insert id="insertAlert">
         INSERT INTO detection_alert (alert_key, ingest_record_id, inference_request_id, model_version_id,
             contract_version, contract_sha256, detection_rule_id, alert_type, severity, severity_policy_version,
-            score, threshold_version, basis_json, status, detected_at)
+            score, threshold_version, basis_json, status, detected_at, alert_layer, correlation_policy_version)
         VALUES (#{alertKey}, #{ingestRecordId}, #{inferenceRequestId,jdbcType=BIGINT}, #{modelVersionId,jdbcType=BIGINT},
             #{contractVersion,jdbcType=VARCHAR}, #{contractSha256,jdbcType=CHAR}, #{detectionRuleId,jdbcType=BIGINT},
             #{alertType}, #{severity}, #{severityPolicyVersion,jdbcType=VARCHAR}, #{score,jdbcType=DECIMAL},
-            #{thresholdVersion,jdbcType=VARCHAR}, CAST(#{basisJson} AS JSON), 'new', #{detectedAt})
+            #{thresholdVersion,jdbcType=VARCHAR}, CAST(#{basisJson} AS JSON), 'new', #{detectedAt}, #{alertLayer}, #{correlationPolicyVersion,jdbcType=VARCHAR})
     </insert>
 
     <select id="findAlertId" resultType="java.lang.Long">
@@ -171,6 +171,14 @@
         SELECT <include refid="ruleColumns"/> FROM detection_rule WHERE id=#{id} FOR UPDATE
     </select>
 
+    <select id="findRule" resultMap="ruleView">
+        SELECT <include refid="ruleColumns"/> FROM detection_rule WHERE id=#{id}
+    </select>
+    <select id="lockRuleVersions" resultMap="ruleView">
+        SELECT <include refid="ruleColumns"/> FROM detection_rule WHERE rule_key=#{ruleKey} ORDER BY id FOR UPDATE
+    </select>
+    <update id="retireRule">UPDATE detection_rule SET status='retired',updated_at=UTC_TIMESTAMP(3)
+        WHERE id=#{id} AND status='active'</update>
     <insert id="insertRule">
         INSERT INTO detection_rule (rule_key, version, scope_json, condition_json, severity, status, requested_by)
         VALUES (#{ruleKey}, #{version}, CAST(#{scopeJson} AS JSON), CAST(#{conditionJson} AS JSON), #{severity},

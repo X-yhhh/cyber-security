@@ -75,7 +75,8 @@
             <arg column="status" javaType="string"/><arg column="requester" javaType="string"/>
             <arg column="reviewer" javaType="string"/><arg column="decision_reason" javaType="string"/>
             <arg column="expires_at" javaType="java.time.LocalDateTime"/><arg column="created_at" javaType="java.time.LocalDateTime"/>
-            <arg column="reviewed_at" javaType="java.time.LocalDateTime"/><arg column="exec_status" javaType="string"/></constructor>
+            <arg column="reviewed_at" javaType="java.time.LocalDateTime"/><arg column="exec_status" javaType="string"/>
+            <arg column="withdraw_reason" javaType="string"/><arg column="withdrawn_at" javaType="java.time.LocalDateTime"/></constructor>
     </resultMap>
     <resultMap id="releaseRow" type="com.xyh.cybersecurity.query.ConsoleQueryMapper$ReleaseRow">
         <constructor><idArg column="id" javaType="_long"/><arg column="release_status" javaType="string"/>
@@ -172,7 +173,8 @@
         SELECT at.id,at.event_id,e.event_key,req.asset_id,a.asset_key,
                CAST(at.action_request_json AS CHAR) snapshot,at.status,rq.username requester,rv.username reviewer,
                at.decision_reason,at.expires_at,at.created_at,at.reviewed_at,
-               (SELECT x.status FROM action_execution x WHERE x.approval_task_id=at.id ORDER BY x.id DESC LIMIT 1) exec_status
+               (SELECT x.status FROM action_execution x WHERE x.approval_task_id=at.id ORDER BY x.id DESC LIMIT 1) exec_status,
+               at.withdraw_reason,at.withdrawn_at
         FROM approval_task at
         JOIN JSON_TABLE(at.action_request_json, '$' COLUMNS(asset_id BIGINT PATH '$.assetId')) req ON TRUE
         JOIN asset a ON a.id=req.asset_id JOIN security_event e ON e.id=at.event_id
@@ -247,7 +249,7 @@
         SELECT DATE_FORMAT(da.detected_at,'%Y-%m-%dT%H:00:00') h,COUNT(*) c
         FROM detection_alert da JOIN ingest_record ir ON ir.id=da.ingest_record_id
         JOIN ingest_batch ib ON ib.id=ir.batch_id
-        WHERE da.detected_at&gt;=UTC_TIMESTAMP(3)-INTERVAL 24 HOUR AND ir.asset_id IS NOT NULL
+        WHERE da.alert_layer='alert' AND da.detected_at&gt;=UTC_TIMESTAMP(3)-INTERVAL 24 HOUR AND ir.asset_id IS NOT NULL
           AND <include refid="alertReadPermission"/>
           AND <include refid="assetScope"><property name="permission" value="asset.read"/><property name="assetExpr" value="ir.asset_id"/></include>
           AND <include refid="sourceScope"><property name="permission" value="source.read"/><property name="sourceExpr" value="ib.data_source_id"/></include>

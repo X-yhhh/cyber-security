@@ -24,20 +24,22 @@ public class DetectionService {
     private final EventCorrelator correlator;
     private final ObjectMapper json;
     private final Clock clock;
+    private final ModelSignalPromoter promoter;
 
     @Autowired
     public DetectionService(DetectionMapper mapper, AlertGenerator generator, EventCorrelator correlator,
-                            ObjectMapper json) {
-        this(mapper, generator, correlator, json, Clock.systemUTC());
+                            ObjectMapper json, ModelSignalPromoter promoter) {
+        this(mapper, generator, correlator, json, Clock.systemUTC(), promoter);
     }
 
     DetectionService(DetectionMapper mapper, AlertGenerator generator, EventCorrelator correlator, ObjectMapper json,
-                     Clock clock) {
+                     Clock clock, ModelSignalPromoter promoter) {
         this.mapper = mapper;
         this.generator = generator;
         this.correlator = correlator;
         this.json = json;
         this.clock = clock;
+        this.promoter = promoter;
     }
 
     public record Summary(int alertsCreated, int eventsTouched) { }
@@ -45,7 +47,8 @@ public class DetectionService {
     @Transactional(propagation = Propagation.MANDATORY)
     public Summary processBatch(long batchId, List<IngestMapper.AcceptedRecord> records) {
         DetectionPolicies policies = DetectionPolicies.load(mapper, json);
-        List<AlertGenerator.NewAlert> alerts = generator.generate(batchId, records, policies, clock.instant());
+        List<AlertGenerator.NewAlert> alerts = new java.util.ArrayList<>(generator.generate(batchId, records, policies, clock.instant()));
+        alerts.addAll(promoter.promote(records, policies, clock.instant()));
         if (alerts.isEmpty()) return new Summary(0, 0);
         Set<Long> events = correlator.correlate(alerts, policies);
         return new Summary(alerts.size(), events.size());

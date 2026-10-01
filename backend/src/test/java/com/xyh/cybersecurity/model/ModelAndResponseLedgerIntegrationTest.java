@@ -126,6 +126,57 @@ class ModelAndResponseLedgerIntegrationTest {
     }
 
     @Test
+    void requesterWithdrawalIsTerminalAndAuditedWithoutApprovalImpersonation() throws Exception {
+        Cookie analyst=login("ledger-test-analyst"), approver=login("ledger-test-response-approver");
+        var created=postAction(analyst,csrf(analyst),"phase2-withdraw",actionBody(assetId,"待审申请"));
+        assertThat(created.getResponse().getStatus()).isEqualTo(201);
+        long id=data(created).path("id").asLong();
+        String body="{\"reason\":\"申请人取消\"}";
+        bindRole(responseApproverId,"security_analyst","asset",Long.toString(assetId));
+        Cookie other=login("ledger-test-response-approver");
+        assertThat(postJson("/api/v1/actions/"+id+"/withdraw",other,csrf(other),body).getResponse().getStatus()).isEqualTo(403);
+        assertThat(postJson("/api/v1/actions/"+id+"/withdraw",analyst,csrf(analyst),body).getResponse().getStatus()).isEqualTo(200);
+        assertThat(jdbc.queryForMap("SELECT status,reviewed_by,withdraw_reason FROM approval_task WHERE id=?",id))
+                .containsEntry("status","cancelled").containsEntry("reviewed_by",null).containsEntry("withdraw_reason","申请人取消");
+        // 本人申请台账返回撤回原因与时间，供前端展示
+        var mine=objectMapper.readTree(mockMvc.perform(get("/api/v1/actions/mine").cookie(analyst)).andReturn()
+                .getResponse().getContentAsString()).path("data");
+        var withdrawn=java.util.stream.StreamSupport.stream(mine.spliterator(),false)
+                .filter(n->n.path("id").asLong()==id).findFirst().orElseThrow();
+        assertThat(withdrawn.path("withdrawReason").asText()).isEqualTo("申请人取消");
+        assertThat(withdrawn.path("withdrawnAt").isNull()).isFalse();
+        assertThat(postJson("/api/v1/actions/"+id+"/withdraw",analyst,csrf(analyst),body).getResponse().getStatus()).isEqualTo(409);
+        assertThat(postJson("/api/v1/approvals/"+id+"/decision",other,csrf(other),"{\"decision\":\"approve\",\"reason\":\"已撤回\"}").getResponse().getStatus()).isEqualTo(409);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM audit_log WHERE action='action.request.withdrawn'",Integer.class)).isEqualTo(1);
+    }
+
+    @Test
+    void withdrawalAndApprovalRaceHasOneTerminalWinner() throws Exception {
+        Cookie analyst=login("ledger-test-analyst"), approver=login("ledger-test-response-approver");
+        var created=postAction(analyst,csrf(analyst),"phase2-withdraw-race",actionBody(assetId,"竞争测试"));
+        long id=data(created).path("id").asLong();
+        String analystCsrfValue=csrf(analyst),approverCsrfValue=csrf(approver);
+        try(var pool=Executors.newFixedThreadPool(2)) {
+            var start=new java.util.concurrent.CountDownLatch(1);
+            var a=pool.submit(()->{start.await();return postJson("/api/v1/actions/"+id+"/withdraw",analyst,analystCsrfValue,"{\"reason\":\"撤回\"}").getResponse().getStatus();});
+            var b=pool.submit(()->{start.await();return postJson("/api/v1/approvals/"+id+"/decision",approver,approverCsrfValue,"{\"decision\":\"approve\",\"reason\":\"审批\"}").getResponse().getStatus();});
+            start.countDown();
+            assertThat(java.util.List.of(a.get(10,TimeUnit.SECONDS),b.get(10,TimeUnit.SECONDS))).containsExactlyInAnyOrder(200,409);
+        }
+        assertThat(jdbc.queryForObject("SELECT status FROM approval_task WHERE id=?",String.class,id)).isIn("cancelled","approved");
+    }
+
+    @Test
+    void modelRetirementKeepsFactsAndBlocksNewRelease() throws Exception {
+        Cookie operator=login("ledger-test-model-operator");
+        long id=data(postJson("/api/v1/models",operator,csrf(operator),modelCandidate(MODEL_SHA))).path("id").asLong();
+        assertThat(postJson("/api/v1/models/"+id+"/retire",operator,csrf(operator),"{\"reason\":\"废弃候选\"}").getResponse().getStatus()).isEqualTo(200);
+        assertThat(jdbc.queryForObject("SELECT approval_status FROM model_version WHERE id=?",String.class,id)).isEqualTo("retired");
+        assertThat(postJson("/api/v1/models/"+id+"/release-requests",operator,csrf(operator),"{\"reason\":\"不得发布\"}").getResponse().getStatus()).isEqualTo(409);
+        assertThat(postJson("/api/v1/models/"+id+"/retire",operator,csrf(operator),"{\"reason\":\"重复\"}").getResponse().getStatus()).isEqualTo(409);
+    }
+
+    @Test
     void modelCandidateIsImmutableAndReleaseDecisionRequiresAnotherScopedUser() throws Exception {
         Cookie operator = login("ledger-test-model-operator");
         String candidate = modelCandidate(MODEL_SHA);

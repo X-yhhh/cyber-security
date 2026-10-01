@@ -37,8 +37,9 @@ public class IncidentController {
     @PreAuthorize("hasAuthority('alert.read')")
     public ApiEnvelope<IncidentService.Page<IncidentMapper.AlertView>> alerts(
             @RequestParam(defaultValue = "0") int page, @RequestParam(defaultValue = "20") int size,
+            @RequestParam(defaultValue = "alert") String layer,
             @AuthenticationPrincipal IdentityPrincipal principal, HttpServletRequest request) {
-        return ApiEnvelope.success(service.alerts(principal.id(), page, size), requestId(request));
+        return ApiEnvelope.success(service.alerts(principal.id(), page, size, layer), requestId(request));
     }
 
     @GetMapping("/alerts/{id}")
@@ -92,6 +93,15 @@ public class IncidentController {
         return ApiEnvelope.success(service.transition(principal.id(), id, body.status(), body.reason(), request),
                 requestId(request));
     }
+
+    /** null 取消指派；目标用户必须 active 且能研判该事件的全部证据。 */
+    @org.springframework.web.bind.annotation.PutMapping("/events/{id}/assignee")
+    @PreAuthorize("hasAuthority('event.read') and hasAuthority('event.investigate')")
+    public ApiEnvelope<IncidentService.EventDetail> assign(@PathVariable long id, @Valid @RequestBody AssigneeBody body,
+            @AuthenticationPrincipal IdentityPrincipal principal, HttpServletRequest request) {
+        return ApiEnvelope.success(service.assign(principal.id(), id, body.assigneeId(), body.reason(), request), requestId(request));
+    }
+    public record AssigneeBody(Long assigneeId, @NotBlank @Size(max=1000) String reason) { }
 
     @PostMapping("/events/{id}/notes")
     @PreAuthorize("hasAuthority('event.read') and hasAuthority('event.investigate')")

@@ -5,7 +5,11 @@
  * - 登记：POST /detection-rules，新版本为 pending；条件结构与特征契约由后端校验（400 显示原因码）。
  * - 审批：POST /detection-rules/{id}/decision，登记人本人不显示按钮（后端同样拒绝 403）。
  *   批准后同一规则键的原 active 版本同事务退役；驳回在库中记为 retired 且无批准人。
- * 规则只产生告警，不触发处置。详情、基于旧版本起草与退役属于阶段 2，本页不提供。
+ * - 详情：打开抽屉时读 GET /detection-rules/{id}，以单条详情为准（列表行只作初值）。
+ * - 基于此版本起草：POST /detection-rules/{id}/versions，只填版本与理由；severity / condition / scope 勾选覆盖才提交，
+ *   省略则由后端复制来源版本。新版本为 pending，仍须他人批准。
+ * - 退役：POST /detection-rules/{id}/retire，仅 active 版本，需 detection.rule.approve。
+ * 规则只产生告警，不触发处置。
  */
 import { computed, ref, watch } from 'vue'
 import Tag from '@/components/Tag.vue'
@@ -56,6 +60,20 @@ const busy = ref(false)
 const picked = ref<DetectionRuleView | null>(null)
 const reason = ref('')
 watch(picked, () => { reason.value = '' }, { flush: 'sync' })
+/** 打开详情：先用列表行展示，再以单条详情接口覆盖；读取失败保留列表数据并提示。 */
+let detailSeq = 0
+async function open(r: DetectionRuleView) {
+  picked.value = r
+  const mine = ++detailSeq
+  try {
+    const fresh = await api.get<DetectionRuleView>(`/detection-rules/${r.id}`)
+    if (mine === detailSeq && picked.value?.id === r.id) picked.value = fresh
+  } catch (e) {
+    if (mine === detailSeq) toast(errText(e), 'threat')
+  }
+}
+const canRetire = computed(() => !!picked.value && picked.value.status === 'active' && can('detection.rule.approve'))
+const canVersion = computed(() => !!picked.value && can('detection.rule.manage'))
 const canDecide = computed(() => !!picked.value && picked.value.status === 'pending' && can('detection.rule.approve')
   && picked.value.requestedBy !== session.user?.id)
 const pickedScope = computed(() => picked.value ? parse(picked.value.scopeJson) : {})
@@ -67,6 +85,54 @@ async function decide(decision: 'approve' | 'reject') {
     await api.post(`/detection-rules/${picked.value.id}/decision`, { decision, reason: reason.value.trim() })
     toast(decision === 'approve' ? '规则已启用，同键原生效版本已退役。' : '规则已驳回。')
     picked.value = null
+    await reload()
+  } catch (e) { toast(errText(e), 'threat') } finally { busy.value = false }
+}
+
+async function retire() {
+  if (!picked.value || !reason.value.trim()) return toast('请填写退役理由。', 'warn')
+  busy.value = true
+  try {
+    await api.post(`/detection-rules/${picked.value.id}/retire`, { reason: reason.value.trim() })
+    toast('规则已退役，不再产生告警。')
+    picked.value = null
+    await reload()
+  } catch (e) { toast(errText(e), 'threat') } finally { busy.value = false }
+}
+
+// ---- 基于已有版本起草 ----
+const versioning = ref<DetectionRuleView | null>(null)
+const vform = ref({ version: '', reason: '', overSeverity: false, severity: 'medium' as Severity, overCondition: false, condition: '', overScope: false, contract: '' })
+function openVersion() {
+  const b = picked.value
+  if (!b) return
+  vform.value = {
+    version: '', reason: '', overSeverity: false, severity: b.severity, overCondition: false,
+    condition: JSON.stringify(parse(b.conditionJson), null, 2), overScope: false, contract: String(parse(b.scopeJson).featureContractVersion ?? ''),
+  }
+  versioning.value = b
+  picked.value = null
+}
+async function createVersion() {
+  const b = versioning.value
+  const f = vform.value
+  if (!b) return
+  if (!f.version.trim()) return toast('请填写新版本号。', 'warn')
+  if (!f.reason.trim()) return toast('请填写起草理由。', 'warn')
+  const body: Record<string, unknown> = { version: f.version.trim(), reason: f.reason.trim() }
+  if (f.overSeverity) body.severity = f.severity
+  if (f.overCondition) {
+    let condition: unknown
+    try { condition = JSON.parse(f.condition) } catch { condition = null }
+    if (!condition || typeof condition !== 'object' || Array.isArray(condition)) return toast('条件须为 JSON 对象。', 'warn')
+    body.condition = condition
+  }
+  if (f.overScope) body.scope = f.contract.trim() ? { featureContractVersion: f.contract.trim() } : {}
+  busy.value = true
+  try {
+    await api.post(`/detection-rules/${b.id}/versions`, body)
+    toast('新版本已登记为待审批，须由其他审批人启用。')
+    versioning.value = null
     await reload()
   } catch (e) { toast(errText(e), 'threat') } finally { busy.value = false }
 }
@@ -102,7 +168,7 @@ async function create() {
       <table class="table">
         <thead><tr><th>规则</th><th>条件</th><th>严重度</th><th>状态</th><th>登记 / 批准</th><th class="text-right">更新</th></tr></thead>
         <tbody v-for="[key, versions] in groups" :key="key">
-          <tr v-for="(r, i) in versions" :key="r.id" class="row-link" tabindex="0" @click="picked = r" @keydown.enter="picked = r">
+          <tr v-for="(r, i) in versions" :key="r.id" class="row-link" tabindex="0" @click="open(r)" @keydown.enter="open(r)">
             <td><span class="num block" :class="i ? 'text-ink-3' : ''">{{ i ? '' : key }}</span><span class="num text-[12px] text-ink-3">v{{ r.version }} · #{{ r.id }}</span></td>
             <td class="num text-[12.5px] text-ink-2">{{ summary(r) }}</td>
             <td><Tag :tone="severityTone[r.severity]" :label="severityLabel[r.severity] ?? r.severity" /></td>
@@ -113,7 +179,7 @@ async function create() {
         </tbody>
         <tbody v-if="!rules.length"><tr><td colspan="6" class="py-16 text-center text-ink-3">数据库中暂无检测规则。</td></tr></tbody>
       </table>
-      <p class="mt-6 text-[12.5px] leading-relaxed text-ink-3">每个规则键同时只有一个生效版本；批准新版本时原生效版本自动退役，驳回的版本同样记为已退役且无批准人。规则只产生告警，不触发处置。</p>
+      <p class="mt-6 text-[12.5px] leading-relaxed text-ink-3">每个规则键同时只有一个生效版本；批准新版本时原生效版本自动退役，驳回的版本同样记为已退役且无批准人。退役生效版本后该规则键不再产生告警，不会自动回退旧版本。规则只产生告警，不触发处置。</p>
     </LoadState>
 
     <Drawer :open="!!picked" :title="picked ? `${picked.ruleKey} v${picked.version}` : ''" :kicker="picked ? `RULE #${picked.id}` : ''" @close="picked = null">
@@ -146,14 +212,42 @@ async function create() {
             </div>
           </dl>
         </template>
-        <template v-if="canDecide">
-          <label class="mt-10 block"><span class="label">审批理由</span><textarea v-model="reason" rows="3" maxlength="1000" class="field mt-2 h-auto resize-none py-2" placeholder="写入审计" /></label>
+        <template v-if="canDecide || canRetire">
+          <label class="mt-10 block"><span class="label">{{ canRetire ? '退役理由' : '审批理由' }}</span><textarea v-model="reason" rows="3" maxlength="1000" class="field mt-2 h-auto resize-none py-2" placeholder="写入审计" /></label>
         </template>
         <p v-else-if="picked.status === 'pending' && picked.requestedBy === session.user?.id" class="mt-10 text-[12.5px] text-ink-3">本人登记的规则须由其他审批人决定。</p>
       </template>
-      <template v-if="canDecide" #foot>
-        <button class="link text-[13px]" :disabled="busy" @click="decide('reject')">驳回</button>
-        <button class="act" :disabled="busy" @click="decide('approve')">批准启用</button>
+      <template v-if="canDecide || canRetire || canVersion" #foot>
+        <button v-if="canVersion" class="link text-[13px]" :disabled="busy" @click="openVersion">基于此版本起草</button>
+        <template v-if="canDecide">
+          <button class="link text-[13px]" :disabled="busy" @click="decide('reject')">驳回</button>
+          <button class="act" :disabled="busy" @click="decide('approve')">批准启用</button>
+        </template>
+        <button v-if="canRetire" class="act-ghost" :disabled="busy" @click="retire">退役</button>
+      </template>
+    </Drawer>
+
+    <Drawer :open="!!versioning" :title="versioning ? `${versioning.ruleKey} 新版本` : ''" :kicker="versioning ? `基于 v${versioning.version} · #${versioning.id}` : ''" @close="versioning = null">
+      <div class="space-y-6">
+        <label class="block"><span class="label">新版本号</span><input v-model="vform.version" class="field num mt-2" maxlength="32" /></label>
+        <div>
+          <label class="flex items-center gap-2 text-[13px]"><input v-model="vform.overSeverity" type="checkbox" class="h-3.5 w-3.5 accent-ink" /> 覆盖严重度</label>
+          <select v-if="vform.overSeverity" v-model="vform.severity" class="field mt-2" aria-label="严重度"><option v-for="s in SEVERITIES" :key="s" :value="s">{{ severityLabel[s] }}</option></select>
+        </div>
+        <div>
+          <label class="flex items-center gap-2 text-[13px]"><input v-model="vform.overScope" type="checkbox" class="h-3.5 w-3.5 accent-ink" /> 覆盖特征契约范围</label>
+          <input v-if="vform.overScope" v-model="vform.contract" class="field num mt-2" maxlength="64" aria-label="特征契约（可空）" />
+        </div>
+        <div>
+          <label class="flex items-center gap-2 text-[13px]"><input v-model="vform.overCondition" type="checkbox" class="h-3.5 w-3.5 accent-ink" /> 覆盖条件</label>
+          <textarea v-if="vform.overCondition" v-model="vform.condition" rows="12" spellcheck="false" aria-label="条件 JSON" class="field num mt-2 h-auto resize-y py-2 text-[12px]" />
+        </div>
+        <label class="block"><span class="label">起草理由</span><textarea v-model="vform.reason" rows="3" maxlength="1000" class="field mt-2 h-auto resize-none py-2" placeholder="变更依据与离线检出" /></label>
+        <p class="text-[12px] leading-relaxed text-ink-3">未勾选的字段由后端从来源版本复制；规则键不可更改。新版本为待审批，须由其他审批人启用，原版本内容不变。</p>
+      </div>
+      <template #foot>
+        <button class="link text-[13px]" @click="versioning = null">取消</button>
+        <button class="act" :disabled="busy" @click="createVersion">登记新版本</button>
       </template>
     </Drawer>
 

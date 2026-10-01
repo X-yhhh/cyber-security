@@ -4,6 +4,8 @@
  * 版本与 manifest 来自 /models（按 model_registry 范围过滤），发布记录与部署来自各自台账。
  * 页面提供制品校验、发布申请、发布审批与本机激活四个命令，全部由后端校验门禁与职责分离；
  * 漂移只展示观察结果，不自动改阈值或权重。
+ * 阶段 2：非活动版本可退役（POST /models/{id}/retire，事实与制品保留）；活动部署可回退到同模型键最近的已批准历史部署
+ * （POST /model-deployments/rollback，带 expectedCurrentModelId 并二次确认）。活动部署、待审申请、已退役与无可回退版本均为 409。
  */
 import { computed, ref, watch } from 'vue'
 import PageHead from '@/components/PageHead.vue'
@@ -72,6 +74,18 @@ const validate = () => run('制品校验', () => api.post(`/models/${m.value!.id
 const requestRelease = () => run('发布申请', () => api.post(`/models/${m.value!.id}/release-requests`, { reason: reason.value.trim() }))
 const decideRelease = (ok: boolean) => run(ok ? '发布批准' : '发布驳回', () => api.post(`/model-release-requests/${pendingRelease.value!.id}/decision`, { decision: ok ? 'approve' : 'reject', reason: reason.value.trim() }))
 const activate = () => run('本机激活', () => api.put('/model-deployments/active', { modelVersionId: m.value!.id, reason: reason.value.trim() }))
+const retire = () => run('版本退役', () => api.post(`/models/${m.value!.id}/retire`, { reason: reason.value.trim() }))
+// 回退需二次确认：第一次点击只展开确认区，确认时以当前活动版本作为 expectedCurrentModelId
+const confirmingRollback = ref(false)
+watch(m, () => { confirmingRollback.value = false })
+function askRollback() {
+  if (!reason.value.trim()) return toast('请先填写操作理由。', 'warn')
+  confirmingRollback.value = true
+}
+const rollback = () => run('部署回退', async () => {
+  confirmingRollback.value = false
+  await api.post('/model-deployments/rollback', { expectedCurrentModelId: m.value!.id, reason: reason.value.trim() })
+})
 const stages = ['candidate', 'validated', 'approved']
 const stageIdx = computed(() => (deployment.value ? 3 : stages.indexOf(m.value?.approvalStatus ?? '')))
 const allowed = computed(() => ({
@@ -79,6 +93,8 @@ const allowed = computed(() => ({
   request: can('model.release.request') && m.value?.approvalStatus === 'validated' && !pendingRelease.value,
   decide: can('model.release.approve') && !!pendingRelease.value && pendingRelease.value.requester !== session.user?.username,
   activate: can('model.deployment.activate') && m.value?.approvalStatus === 'approved' && !deployment.value,
+  retire: can('model.candidate.manage') && !!m.value && m.value.approvalStatus !== 'retired' && !deployment.value && !pendingRelease.value,
+  rollback: can('model.deployment.activate') && !!deployment.value && deployment.value.environment === 'local',
 }))
 </script>
 
@@ -149,14 +165,24 @@ const allowed = computed(() => ({
                 </div>
               </div>
 
-              <div v-if="allowed.validate || allowed.request || allowed.decide || allowed.activate" class="mt-14 border-t border-ink pt-6">
+              <div v-if="allowed.validate || allowed.request || allowed.decide || allowed.activate || allowed.retire || allowed.rollback" class="mt-14 border-t border-ink pt-6">
                 <label class="block"><span class="label">操作理由</span><textarea v-model="reason" rows="2" maxlength="1000" class="field mt-2 h-auto resize-none py-2" /></label>
                 <div class="mt-6 flex flex-wrap gap-6">
                   <button v-if="allowed.validate" class="act" :disabled="busy" @click="validate">提交制品校验</button>
                   <button v-if="allowed.request" class="act" :disabled="busy" @click="requestRelease">申请发布审批</button>
                   <template v-if="allowed.decide"><button class="link text-[13px]" :disabled="busy" @click="decideRelease(false)">驳回发布</button><button class="act" :disabled="busy" @click="decideRelease(true)">批准发布</button></template>
                   <button v-if="allowed.activate" class="act" :disabled="busy" @click="activate">激活为本机部署</button>
+                  <button v-if="allowed.rollback && !confirmingRollback" class="act-ghost" :disabled="busy" @click="askRollback">回退到上一已批准版本</button>
+                  <button v-if="allowed.retire" class="act-ghost" :disabled="busy" @click="retire">退役此版本</button>
                 </div>
+                <div v-if="allowed.rollback && confirmingRollback" class="mt-6 border-l-2 border-threat py-1 pl-4" role="alertdialog" aria-label="确认回退">
+                  <p class="text-[12.5px] leading-relaxed text-ink-2">将停用当前本机部署 <span class="num">{{ m.modelKey }} · {{ m.version }}</span>，改为激活同模型键最近的已批准历史部署；目标制品会重新校验，失败时不改变运行模型。</p>
+                  <div class="mt-4 flex gap-6">
+                    <button class="link text-[13px]" :disabled="busy" @click="confirmingRollback = false">取消</button>
+                    <button class="act" :disabled="busy" @click="rollback">确认回退</button>
+                  </div>
+                </div>
+                <p v-if="allowed.retire" class="mt-4 text-[12px] text-ink-3">退役只改变版本状态，制品引用与审批事实保留；退役版本不可再发布或激活。</p>
               </div>
             </section>
           </div>

@@ -7,6 +7,8 @@
  * 新写入的条目在最前），不在本地伪造时间线。状态按钮只列出状态机允许的下一步，
  * 最终合法性、资产授权与策略匹配均由后端校验（失败时展示后端脱敏原因）。
  * 关联告警每行可打开人工标注抽屉（阶段 7），标注成功后重新读取告警当前页。
+ * 处理人：PUT /events/{id}/assignee（填理由，assigneeId 为 null 即取消指派）；目标用户须 active 且能研判全部证据，
+ * 否则后端 400；关闭事件 409。时间线的 assignee_changed 条目展示前后处理人。
  */
 import { computed, reactive, ref, watch } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
@@ -17,8 +19,8 @@ import LoadState from '@/components/LoadState.vue'
 import Pager from '@/components/Pager.vue'
 import AlertFeedbackDrawer from '@/components/AlertFeedbackDrawer.vue'
 import { api, ApiError, type Page } from '@/api/client'
-import { can } from '@/api/session'
-import { alertSource, alertTypeLabel, basisEntries, eventStatusLabel, eventTransitions, fmtTime, severityLabel, type AlertView, type EventDetail, type EventStatus, type PolicyView } from '@/api/types'
+import { can, session } from '@/api/session'
+import { alertSource, alertTypeLabel, basisEntries, eventStatusLabel, eventTransitions, fmtTime, severityLabel, type AlertView, type EventDetail, type EventStatus, type PolicyView, type TimelineView } from '@/api/types'
 import { eventTone, severityTone, statusTone } from '@/data/tones'
 import { toast } from '@/composables/toast'
 import { errText, optional, useLoad } from '@/composables/load'
@@ -91,6 +93,37 @@ async function addNote() {
   } catch (e) { toast(errText(e), 'threat') } finally { busy.value = false }
 }
 
+// 处理人指派：用户 ID 输入（研判员通常没有用户目录权限），可一键指派给自己
+const assigning = ref(false)
+const assignForm = reactive({ assigneeId: '', reason: '' })
+const who = (id: number | string | null | undefined) => (id == null || id === 'unassigned' ? '未指派' : String(id) === String(session.user?.id) ? `#${id}（我）` : `#${id}`)
+function openAssign() {
+  assignForm.assigneeId = ev.value?.assigneeId == null ? '' : String(ev.value.assigneeId)
+  assignForm.reason = ''
+  assigning.value = true
+}
+async function assign(unassign = false) {
+  const raw = assignForm.assigneeId.trim()
+  const assigneeId = unassign ? null : Number(raw)
+  if (!unassign && !(Number.isInteger(assigneeId) && (assigneeId as number) > 0)) return toast('请填写有效的用户 ID。', 'warn')
+  if (!assignForm.reason.trim()) return toast('请填写指派理由。', 'warn')
+  busy.value = true
+  try {
+    await api.put(`/events/${id}/assignee`, { assigneeId, reason: assignForm.reason.trim() })
+    toast(unassign ? '已取消指派。' : `已指派给 ${who(assigneeId)}。`)
+    assigning.value = false
+    await reload()
+  } catch (e) { toast(errText(e), 'threat') } finally { busy.value = false }
+}
+/** assignee_changed 条目的前后处理人；detailsJson 缺失或无法解析时返回 null。 */
+function assigneeChange(t: TimelineView): { from: string; to: string } | null {
+  if (t.entryType !== 'assignee_changed' || !t.detailsJson) return null
+  try {
+    const d = JSON.parse(t.detailsJson) as { from?: unknown; to?: unknown }
+    return { from: who(d.from == null ? null : String(d.from)), to: who(d.to == null ? null : String(d.to)) }
+  } catch { return null }
+}
+
 // 处置申请：目标资产限定为事件已关联资产，策略来自 /response-policies
 const asking = ref(false)
 const policies = ref<PolicyView[]>([])
@@ -147,11 +180,12 @@ const riskBasis = computed(() => basisEntries(ev.value?.riskBasisJson ?? null))
         <p class="label mb-5 flex items-center gap-4"><span class="num">{{ ev.eventKey }}</span><Tag :tone="severityTone[ev.severity]" :label="severityLabel[ev.severity] ?? ev.severity" /><Tag :tone="eventTone[ev.status]" :label="eventStatusLabel[ev.status] ?? ev.status" /></p>
         <h1 class="max-w-3xl text-[2rem] font-light leading-snug tracking-[-0.02em]">{{ ev.title }}</h1>
         <p class="num mt-5 flex flex-wrap gap-x-8 gap-y-1 text-[12.5px] text-ink-3">
-          <span>资产 {{ data.assets.map((a) => a.assetKey).join('、') || '—' }}</span><span>类别 {{ ev.category }}</span><span>首次 {{ fmtTime(ev.firstSeenAt) }}</span><span>最近 {{ fmtTime(ev.lastSeenAt) }}</span>
+          <span>资产 {{ data.assets.map((a) => a.assetKey).join('、') || '—' }}</span><span>类别 {{ ev.category }}</span><span>处理人 {{ who(ev.assigneeId) }}</span><span>首次 {{ fmtTime(ev.firstSeenAt) }}</span><span>最近 {{ fmtTime(ev.lastSeenAt) }}</span>
         </p>
       </div>
       <div v-if="can('event.investigate')" class="flex flex-wrap items-center gap-6">
         <button v-for="to in eventTransitions[ev.status]" :key="to" class="link text-[13px]" @click="pendingTo = to">标记为{{ eventStatusLabel[to] }}</button>
+        <button v-if="ev.status !== 'closed'" class="link text-[13px]" @click="openAssign">{{ ev.assigneeId == null ? '指派' : '更换处理人' }}</button>
         <button v-if="can('action.request')" class="act" :disabled="!['open', 'investigating', 'contained'].includes(ev.status)" @click="openAsk">申请处置</button>
       </div>
     </header>
@@ -173,6 +207,7 @@ const riskBasis = computed(() => basisEntries(ev.value?.riskBasisJson ?? null))
             <span class="absolute -left-[3.5px] top-[7px] h-[6px] w-[6px]" :class="mark(t.entryType)" />
             <p class="num flex gap-4 text-[11.5px] text-ink-3"><span>{{ fmtTime(t.occurredAt) }}</span><span class="label !text-[10px]">{{ t.entryType }}</span><span>{{ t.actorType }}{{ t.actorId ? ' · ' + t.actorId : '' }}</span></p>
             <p class="mt-2 text-[14px] leading-relaxed">{{ t.summary }}</p>
+            <p v-if="assigneeChange(t)" class="num mt-1 text-[12.5px] text-ink-3">处理人 {{ assigneeChange(t)!.from }} → {{ assigneeChange(t)!.to }}</p>
           </li>
           <li v-if="!timeline.state.value?.items.length" class="pb-9 pl-8 text-[13px] text-ink-3">暂无时间线记录。</li>
         </ol>
@@ -262,6 +297,25 @@ const riskBasis = computed(() => basisEntries(ev.value?.riskBasisJson ?? null))
       <template #foot>
         <button class="link text-[13px]" @click="asking = false">取消</button>
         <button class="act" :disabled="!allOk || busy" @click="submitAction">提交审批</button>
+      </template>
+    </Drawer>
+
+    <Drawer :open="assigning" title="指派处理人" :kicker="ev.eventKey" @close="assigning = false">
+      <div class="space-y-6">
+        <p class="text-[13px] text-ink-2">当前处理人：{{ who(ev.assigneeId) }}</p>
+        <label class="block"><span class="label">处理人用户 ID</span>
+          <span class="mt-2 flex items-center gap-4">
+            <input v-model="assignForm.assigneeId" inputmode="numeric" class="field num flex-1" placeholder="例如 8" />
+            <button v-if="session.user" type="button" class="link whitespace-nowrap text-[13px]" @click="assignForm.assigneeId = String(session.user.id)">指派给我</button>
+          </span>
+        </label>
+        <label class="block"><span class="label">理由</span><textarea v-model="assignForm.reason" rows="3" maxlength="1000" class="field mt-2 h-auto resize-none py-2" placeholder="写入时间线与审计" /></label>
+        <p class="text-[12px] leading-relaxed text-ink-3">目标用户须为正常状态，且对该事件全部关联资产与数据源有研判权限，否则后端拒绝。关闭的事件不可指派。</p>
+      </div>
+      <template #foot>
+        <button v-if="ev.assigneeId != null" class="link text-[13px]" :disabled="busy" @click="assign(true)">取消指派</button>
+        <button class="link text-[13px]" @click="assigning = false">取消</button>
+        <button class="act" :disabled="busy" @click="assign()">确认指派</button>
       </template>
     </Drawer>
 

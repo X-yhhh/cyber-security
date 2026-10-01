@@ -2,10 +2,10 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { ref } from 'vue'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { getMock, toastMock, canMock, fixture } = vi.hoisted(() => ({ getMock: vi.fn(), toastMock: vi.fn(), canMock: vi.fn(), fixture: { alerts: null as unknown } }))
+const { getMock, putMock, toastMock, canMock, fixture } = vi.hoisted(() => ({ getMock: vi.fn(), putMock: vi.fn(), toastMock: vi.fn(), canMock: vi.fn(), fixture: { alerts: null as unknown, timeline: null as unknown } }))
 
-vi.mock('@/api/client', () => ({ api: { get: getMock, post: vi.fn() }, ApiError: class extends Error {} }))
-vi.mock('@/api/session', () => ({ can: canMock }))
+vi.mock('@/api/client', () => ({ api: { get: getMock, post: vi.fn(), put: putMock }, ApiError: class extends Error {} }))
+vi.mock('@/api/session', () => ({ can: canMock, session: { user: { id: 8 } } }))
 vi.mock('@/composables/reveal', () => ({ vReveal: { mounted: vi.fn() } }))
 vi.mock('@/composables/toast', () => ({ toast: toastMock }))
 vi.mock('@/composables/load', () => ({
@@ -25,7 +25,7 @@ function detail() {
     event: { id: 7, eventKey: 'evt-7', title: '批量告警', category: 'network', severity: 'critical', status: 'open', riskScore: 1, firstSeenAt: '2026-09-29T15:00:00', lastSeenAt: '2026-09-29T15:20:00', assigneeId: null, alertCount: 45, assetCount: 1, riskRuleVersion: 'risk-v1', riskBasisJson: null, correlationKey: null, correlationPolicyVersion: null },
     alerts: fixture.alerts ?? page([], 0),
     assets: [{ assetId: 1, assetKey: 'host-1', relationType: 'affected', evidenceCount: 45 }],
-    timeline: page(Array.from({ length: 20 }, (_, i) => entry(45 - i)), 45),
+    timeline: fixture.timeline ?? page(Array.from({ length: 20 }, (_, i) => entry(45 - i)), 45),
   }
 }
 
@@ -35,7 +35,7 @@ function mountView() {
 }
 
 describe('EventDetailView paging', () => {
-  beforeEach(() => { getMock.mockReset(); toastMock.mockReset(); canMock.mockReset().mockReturnValue(false); fixture.alerts = null })
+  beforeEach(() => { getMock.mockReset(); toastMock.mockReset(); canMock.mockReset().mockReturnValue(false); fixture.alerts = null; fixture.timeline = null })
 
   it('renders only the embedded first page and requests the next page from the sub-resource', async () => {
     getMock.mockResolvedValue(page(Array.from({ length: 20 }, (_, i) => entry(25 - i)), 45, 1))
@@ -100,6 +100,32 @@ describe('EventDetailView paging', () => {
     expect(getMock).toHaveBeenCalledWith('/events/7/alerts?page=0&size=20')
     expect(wrapper.findComponent({ name: 'AlertFeedbackDrawer' }).props('status')).toBe('false_positive')
     expect(wrapper.find('button[aria-label="查看标注 alt-31"]').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('assigns a handler with a reason and shows assignee_changed before/after in the timeline', async () => {
+    canMock.mockImplementation((p: string) => p === 'event.investigate')
+    putMock.mockResolvedValue({})
+    const drawerStub = { props: ['open', 'title'], template: '<section v-if="open" class="drawer"><slot /><slot name="foot" /></section>' }
+    const wrapper = mount(EventDetailView, { global: { stubs: { Tag: true, Drawer: drawerStub }, directives: { reveal: () => undefined } } })
+    await wrapper.findAll('button').find((b) => b.text() === '指派')!.trigger('click')
+    await wrapper.get('.drawer input').setValue('12')
+    const confirm = wrapper.findAll('.drawer button').find((b) => b.text() === '确认指派')!
+    await confirm.trigger('click')
+    expect(putMock).not.toHaveBeenCalled()
+    expect(toastMock).toHaveBeenCalledWith('请填写指派理由。', 'warn')
+    await wrapper.get('.drawer textarea').setValue('值班交接')
+    await confirm.trigger('click')
+    await flushPromises()
+    expect(putMock).toHaveBeenCalledWith('/events/7/assignee', { assigneeId: 12, reason: '值班交接' })
+    wrapper.unmount()
+  })
+
+  it('renders assignee_changed before/after from detailsJson', () => {
+    // 本人 id 来自 session mock（8）
+    fixture.timeline = page([{ ...entry(1), entryType: 'assignee_changed', detailsJson: '{"from":"unassigned","to":"8"}' }], 1)
+    const wrapper = mountView()
+    expect(wrapper.text()).toContain('处理人 未指派 → #8（我）')
     wrapper.unmount()
   })
 

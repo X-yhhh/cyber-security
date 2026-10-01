@@ -72,7 +72,7 @@ WHERE username = 'admin';
 
 不要把明文口令、哈希或数据库密码写入迁移、日志、提交信息或非本机环境。
 
-后端工程位于 [`backend/`](backend/)，使用 Spring Boot、Spring Security 服务端会话、MyBatis 和 Flyway。数据库连接通过 `DB_URL`、`DB_USERNAME`、`DB_PASSWORD` 配置；应用默认绑定 `127.0.0.1:18080`。当前迁移资源为 V1-V16：V1 保留初始化业务表，V2-V5 增加 IAM/会话、登录限速和 connector 接入结构，V6 增加模型发布审查与响应审批台账字段，V7 增加候选制品校验和本机部署激活权限，V8 增加 sensor 主体绑定、批次配置/序号/契约追溯和 sensor 机器权限，V9 增加审计、接入记录和发件箱查询索引，V10 增加异步消费者幂等/失败台账，V11 增加映射/配置的契约文件哈希绑定，V12 增加推理结果快照列、状态不变量与推理台账/dry-run 权限，V13 增加检测策略表、告警/事件追溯列与检测规则权限，V14 增加数据源映射登记人、申请人≠批准人约束与 `source.mapping.approve` 权限，V15 增加响应策略版本生命周期、起草人≠审批人约束与策略起草/审批权限，V16 增加漂移窗口唯一键、告警标注与第二人复核字段及影子报告权限。`database/init.sql` 只对应 V1 的初始表，完整 schema 以 Flyway 迁移为准。迁移不自动 baseline 既有非空 schema；本机现存库只有在完成结构核对与备份并获准后才可迁移。
+后端工程位于 [`backend/`](backend/)，使用 Spring Boot、Spring Security 服务端会话、MyBatis 和 Flyway。数据库连接通过 `DB_URL`、`DB_USERNAME`、`DB_PASSWORD` 配置；应用默认绑定 `127.0.0.1:18080`。当前迁移资源为 V1-V17：V1 保留初始化业务表，V2-V5 增加 IAM/会话、登录限速和 connector 接入结构，V6 增加模型发布审查与响应审批台账字段，V7 增加候选制品校验和本机部署激活权限，V8 增加 sensor 主体绑定、批次配置/序号/契约追溯和 sensor 机器权限，V9 增加审计、接入记录和发件箱查询索引，V10 增加异步消费者幂等/失败台账，V11 增加映射/配置的契约文件哈希绑定，V12 增加推理结果快照列、状态不变量与推理台账/dry-run 权限，V13 增加检测策略表、告警/事件追溯列与检测规则权限，V14 增加数据源映射登记人、申请人≠批准人约束与 `source.mapping.approve` 权限，V15 增加响应策略版本生命周期、起草人≠审批人约束与策略起草/审批权限，V16 增加漂移窗口唯一键、告警标注与第二人复核字段及影子报告权限，V17 增加用户改密时间、授权撤销、映射/传感器配置生命周期、机器凭据轮换吊销记录和配置审批权限。`database/init.sql` 只对应 V1 的初始表，完整 schema 以 Flyway 迁移为准。迁移不自动 baseline 既有非空 schema；本机现存库只有在完成结构核对与备份并获准后才可迁移。
 
 业务持久化已统一收口到 MyBatis Mapper/XML；生产源码不直接使用 `JdbcTemplate`、`JdbcClient` 或 `java.sql`，Spring Session 的 JDBC 表仍由框架按标准方式管理。`MyBatisMigrationGuardTest` 会阻止业务代码回退到直接 JDBC。
 
@@ -83,6 +83,8 @@ WHERE username = 'admin';
 启用 RabbitMQ outbox relay 与 M2 消费者需在应用运行环境提供 `OUTBOX_RELAY_ENABLED=true`、`RABBITMQ_HOST`、`RABBITMQ_PORT`、`RABBITMQ_VHOST`、`RABBITMQ_USERNAME` 和 `RABBITMQ_PASSWORD`；消费者默认跟随 relay，可用 `INGEST_CONSUMER_ENABLED=false` 单独关闭。应用会声明 durable topic exchange `cyber-security.ingest.events`、队列 `q.ingest.batch.received`、DLX `cyber-security.dlx`、死信队列 `q.ingest.dead` 和 1..5 次 TTL 重试队列。exchange 默认为 `cyber-security.ingest.events`，可通过 `RABBITMQ_INGEST_EXCHANGE` 覆盖。密码应由运行环境的受控密钥存储注入，不写入仓库。本机推理提交端口关闭或推理暂不可用（容量耗尽、激活版本切换）时，消息会按上限重试后进入死信；队列消费完成只表示推理结论已落库，不表示已生成告警。
 
 本机验收使用 Temurin JDK 25.0.2、Maven 3.9.13 和指定 Maven 本地仓库。本机 macOS 登录 shell 从 macOS 钥匙串加载 `DB_URL`、`DB_USERNAME`、`DB_PASSWORD`、`DB_TEST_BASE_URL`、`DB_TEST_USERNAME`、`DB_TEST_PASSWORD`、`LOGIN_THROTTLE_HMAC_KEY`、`RABBITMQ_IT_ENABLED`、`RABBITMQ_IT_HOST`、`RABBITMQ_IT_PORT`、`RABBITMQ_IT_VHOST`、`RABBITMQ_IT_USERNAME`、`RABBITMQ_IT_PASSWORD`、`RABBITMQ_HOST`、`RABBITMQ_PORT`、`RABBITMQ_VHOST`、`RABBITMQ_USERNAME`、`RABBITMQ_PASSWORD` 和 `RABBITMQ_INGEST_EXCHANGE`；只保存变量名和加载方式，不把秘密写入仓库。其他环境应从各自受控密钥存储注入运行/测试所需变量。Java 测试应使用项目指定 JDK 与 Maven，集成测试只连接独立测试 schema。
+
+阶段 1 的实体生命周期、时间窗规则、TCP/握手模型范围门禁已实现并经独立测试库验证；已有前端仅修复功能问题，新增页面与视觉设计另行实施。2026-10-01 已备份并迁移本机开发库至 V17、部署 JDK 25 新构建；`2026.10.2` 及 4 条仅告警窗口规则，经项目负责人分别独立审阅批准后，通过正式接口审批并激活。Intel Mac 实验已停止，实验数据源停用、机器凭据吊销，历史事实保留。规则离线出口及实验观察期缺口见[阶段1审查与验证记录](docs/阶段1审查与验证记录.md)，运行核验见[阶段1运行收尾记录](docs/阶段1运行收尾记录.md)。
 
 ## 文档
 

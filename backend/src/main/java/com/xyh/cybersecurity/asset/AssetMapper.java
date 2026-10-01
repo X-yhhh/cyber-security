@@ -24,6 +24,12 @@ public interface AssetMapper {
 
     int approveAuthorization(@Param("id") long id, @Param("approvedBy") long approvedBy);
 
+    /** {@code pending/active → revoked}，返回影响行数。 */
+    int revokeAuthorization(@Param("id") long id, @Param("revokedBy") long revokedBy, @Param("reason") String reason);
+
+    /** 锁定资产行并返回当前状态；不存在时为 {@code null}。 */
+    String lockStatus(@Param("assetId") long assetId);
+
     boolean hasScope(@Param("userId") long userId, @Param("permission") String permission,
                      @Param("scopeType") String scopeType, @Param("scopeId") String scopeId);
 

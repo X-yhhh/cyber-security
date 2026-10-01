@@ -3,14 +3,18 @@
  * 控制台外壳：左侧文字导航（按功能模块），顶部仅保留面包屑与会话信息。
  * 不使用卡片化侧栏；当前模块由一条细线和墨色文字标识。
  * 会话信息来自 /auth/me，顶栏状态来自 /health/ready 与传感器列表（无权限时不显示）。
+ * 左下角「修改口令」调用 POST /auth/password：成功后后端撤销本人全部会话，前端清空会话并回到登录页。
  */
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
-import { api } from '@/api/client'
+import { api, resetCsrf } from '@/api/client'
 import { can, logout, session } from '@/api/session'
 import type { SensorView } from '@/api/types'
-import { LogOut } from 'lucide-vue-next'
+import { KeyRound, LogOut } from 'lucide-vue-next'
 import { modules } from '@/router'
+import Drawer from '@/components/Drawer.vue'
+import { toast } from '@/composables/toast'
+import { errText } from '@/composables/load'
 
 const route = useRoute()
 const active = computed(() => (route.meta.parent as string | undefined) ?? (route.name as string))
@@ -29,6 +33,28 @@ async function signOut() {
   router.push({ name: 'login' })
 }
 const index = computed(() => modules.findIndex((m) => m.name === active.value))
+
+/** 自助改密：请求体字段名集中定义，口令只在本抽屉的本地状态中短暂存在。 */
+const SELF_FIELDS = { current: 'currentPassword', next: 'newPassword' } as const
+const changing = ref(false)
+const secrets = ref({ current: '', next: '', confirm: '' })
+const busy = ref(false)
+watch(changing, (open) => { if (!open) secrets.value = { current: '', next: '', confirm: '' } }, { flush: 'sync' })
+async function changeSecret() {
+  const f = secrets.value
+  if (f.next.length < 12) return toast('新口令至少 12 个字符。', 'warn')
+  if (f.next !== f.confirm) return toast('两次输入的新口令不一致。', 'warn')
+  busy.value = true
+  try {
+    await api.post('/auth/password', { [SELF_FIELDS.current]: f.current, [SELF_FIELDS.next]: f.next })
+    secrets.value = { current: '', next: '', confirm: '' }
+    changing.value = false
+    session.user = null
+    resetCsrf()
+    toast('口令已修改，全部会话已失效，请重新登录。')
+    router.push({ name: 'login' })
+  } catch (e) { toast(errText(e), 'threat') } finally { busy.value = false }
+}
 </script>
 
 <template>
@@ -59,7 +85,10 @@ const index = computed(() => modules.findIndex((m) => m.name === active.value))
       <div class="border-t border-ink-hair pt-5 text-[12px]">
         <p class="text-ink">{{ session.user?.displayName }} · {{ session.user?.username }}</p>
         <p class="mt-1 text-ink-3">{{ session.user?.roles.join(' · ') || '无角色' }}</p>
-        <button class="link mt-4 text-ink-3" @click="signOut"><LogOut :size="13" :stroke-width="1.5" /> 退出</button>
+        <div class="mt-4 flex gap-5">
+          <button class="link text-ink-3" @click="changing = true"><KeyRound :size="13" :stroke-width="1.5" /> 修改口令</button>
+          <button class="link text-ink-3" @click="signOut"><LogOut :size="13" :stroke-width="1.5" /> 退出</button>
+        </div>
       </div>
     </aside>
 
@@ -87,5 +116,18 @@ const index = computed(() => modules.findIndex((m) => m.name === active.value))
         </RouterView>
       </main>
     </div>
+
+    <Drawer :open="changing" title="修改口令" :kicker="session.user?.username" @close="changing = false">
+      <div class="space-y-6">
+        <label class="block"><span class="label">当前口令</span><input v-model="secrets.current" type="password" autocomplete="current-password" class="field mt-2" maxlength="128" /></label>
+        <label class="block"><span class="label">新口令（≥ 12 个字符）</span><input v-model="secrets.next" type="password" autocomplete="new-password" class="field mt-2" maxlength="128" /></label>
+        <label class="block"><span class="label">再次输入新口令</span><input v-model="secrets.confirm" type="password" autocomplete="new-password" class="field mt-2" maxlength="128" /></label>
+        <p class="text-[12.5px] leading-relaxed text-ink-3">修改成功后本人全部会话立即失效，需要用新口令重新登录。当前口令连续输错会按登录限速暂时锁定。</p>
+      </div>
+      <template #foot>
+        <button class="link text-[13px]" @click="changing = false">取消</button>
+        <button class="act" :disabled="busy || !secrets.current || !secrets.next" @click="changeSecret">修改</button>
+      </template>
+    </Drawer>
   </div>
 </template>

@@ -37,7 +37,8 @@ public class ConsoleQueryService {
         return mapper.authorizations(userId, assetId).stream()
                 .map(row -> new AuthorizationView(row.id(), row.assetId(), row.authorizationRef(),
                         effectiveStatus(row.status(), row.validUntil()), row.validFrom(), row.validUntil(),
-                        row.requestedBy(), row.approvedBy(), row.createdAt()))
+                        row.requestedBy(), row.approvedBy(), row.createdAt(), row.revokedBy(), row.revokedAt(),
+                        row.revokeReason()))
                 .toList();
     }
 
@@ -140,7 +141,8 @@ public class ConsoleQueryService {
                              Long flowsEmitted, Long flowsDropped, Long queueDepthMax) { }
     public record AuthorizationView(long id, long assetId, String authorizationRef, String status,
                                     LocalDateTime validFrom, LocalDateTime validUntil, String requestedBy,
-                                    String approvedBy, LocalDateTime createdAt) { }
+                                    String approvedBy, LocalDateTime createdAt, String revokedBy,
+                                    LocalDateTime revokedAt, String revokeReason) { }
     public record IngestSummary(long dataSourceId, long batches, long accepted, long rejected,
                                 LocalDateTime lastBatchAt, String mappingVersion, String mappingStatus) { }
     public record LedgerView(long id, long eventId, String eventKey, long assetId, String assetKey,

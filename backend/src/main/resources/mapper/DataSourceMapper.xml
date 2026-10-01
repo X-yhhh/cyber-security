@@ -54,6 +54,11 @@
             <arg column="feature_contract_version" javaType="string"/>
             <arg column="feature_contract_sha256" javaType="string"/>
             <arg column="requested_by" javaType="java.lang.Long"/>
+            <arg column="reviewed_by" javaType="java.lang.Long"/>
+            <arg column="decision_reason" javaType="string"/>
+            <arg column="retired_by" javaType="java.lang.Long"/>
+            <arg column="retired_at" javaType="java.time.Instant"/>
+            <arg column="created_at" javaType="java.time.Instant"/>
         </constructor>
     </resultMap>
 
@@ -121,7 +126,8 @@
 
     <select id="listMappingsVisible" resultMap="mappingView">
         SELECT sm.id, sm.mapping_version, sm.source_schema_json, sm.mapping_json, sm.status, sm.approved_by,
-               sm.feature_contract_version, sm.feature_contract_sha256, sm.requested_by
+               sm.feature_contract_version, sm.feature_contract_sha256, sm.requested_by,
+               sm.reviewed_by, sm.decision_reason, sm.retired_by, sm.retired_at, sm.created_at
         FROM source_mapping sm JOIN data_source ds ON ds.id=sm.data_source_id
         WHERE ds.id=#{sourceId} AND <include refid="visibleSourcePredicate"/>
         ORDER BY sm.id
@@ -151,8 +157,25 @@
 
     <!-- 只批准 draft/pending，且批准人不能是登记人；V14 CHECK 在库层再兜底。 -->
     <update id="approveMapping">
-        UPDATE source_mapping SET status='approved', approved_by=#{approvedBy}, updated_at=CURRENT_TIMESTAMP(3)
+        UPDATE source_mapping SET status='approved', approved_by=#{approvedBy}, reviewed_by=#{approvedBy}, reviewed_at=UTC_TIMESTAMP(3), updated_at=CURRENT_TIMESTAMP(3)
         WHERE id=#{mappingId} AND status IN ('draft', 'pending')
           AND requested_by IS NOT NULL AND requested_by &lt;&gt; #{approvedBy}
     </update>
+
+    <update id="rejectMapping">
+        UPDATE source_mapping SET status='rejected', reviewed_by=#{reviewedBy}, reviewed_at=UTC_TIMESTAMP(3),
+          decision_reason=#{reason}, updated_at=CURRENT_TIMESTAMP(3)
+        WHERE id=#{mappingId} AND status IN ('draft', 'pending')
+          AND (requested_by IS NULL OR requested_by &lt;&gt; #{reviewedBy})
+    </update>
+
+    <update id="retireMapping">
+        UPDATE source_mapping SET status='retired', retired_by=#{retiredBy}, retired_at=UTC_TIMESTAMP(3),
+          decision_reason=#{reason}, updated_at=CURRENT_TIMESTAMP(3)
+        WHERE id=#{mappingId} AND status='approved'
+    </update>
+
+    <select id="lockStatus" resultType="string">
+        SELECT status FROM data_source WHERE id=#{sourceId} FOR UPDATE
+    </select>
 </mapper>

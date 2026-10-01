@@ -24,7 +24,10 @@ export interface TimelineView { id: number; occurredAt: string; entryType: strin
 /** 事件详情：alerts / timeline 只内嵌第一页（按时间倒序，带总数），后续页读 /events/{id}/alerts、/events/{id}/timeline。 */
 export interface EventDetail { event: EventView; alerts: Page<AlertView>; assets: EventAssetView[]; timeline: Page<TimelineView> }
 export interface AssetView { id: number; assetKey: string; assetType: string; environment: string; criticality: string; owner: string; status: string }
-export interface AuthorizationView { id: number; assetId: number; authorizationRef: string; status: string; validFrom: string; validUntil: string; requestedBy: string | null; approvedBy: string | null; createdAt: string }
+export interface AuthorizationView {
+  id: number; assetId: number; authorizationRef: string; status: string; validFrom: string; validUntil: string; requestedBy: string | null; approvedBy: string | null; createdAt: string
+  revokedBy: string | null; revokedAt: string | null; revokeReason: string | null
+}
 export interface SensorView { id: number; agentKey: string; assetId: number; assetKey: string; platform: string; agentVersion: string; status: string; lastHeartbeatAt: string | null; configVersion: string | null; flowWindowSeconds: number | null; healthWindowEnd: string | null; flowsSeen: number | null; flowsEmitted: number | null; flowsDropped: number | null; queueDepthMax: number | null }
 export interface DataSourceView { id: number; sourceKey: string; sourceType: string; environment: string; schemaVersion: string; status: string; lastSuccessAt: string | null }
 export interface IngestSummary { dataSourceId: number; batches: number; accepted: number; rejected: number; lastBatchAt: string | null; mappingVersion: string | null; mappingStatus: string | null }
@@ -48,6 +51,50 @@ export interface TrainingJobView { id: number; jobKey: string; datasetVersion: s
 export interface ReplayScenarioView { id: number; scenarioKey: string; name: string; datasetRef: string; environment: string; safetyProfile: string; status: string; lastRunKey: string | null; lastRunStatus: string | null; lastRunSpeed: number | null; lastRunProgress: number | null; lastRunStartedAt: string | null; lastRunFinishedAt: string | null; lastRunSummary: Record<string, unknown> | null }
 export interface AuditView { id: number; occurredAt: string; actorType: string; action: string; resourceType: string; resourceId: string | null; requestId: string | null; outcome: string }
 export interface UserSummary { id: number; userKey: string; username: string; displayName: string; status: string }
+/** 用户详情（GET /users/{id}）；时间为带 Z 的 Instant，不含口令哈希。 */
+export interface UserDetail extends UserSummary { lastLoginAt: string | null; passwordChangedAt: string | null; createdAt: string; updatedAt: string }
+/** 机器客户端台账（GET /machine-clients）；不含任何凭据值、摘要或密钥引用。 */
+export interface MachineClientView {
+  id: number; clientKey: string; clientType: string; sensorId: number | null; status: string
+  expiresAt: string | null; rotatedAt: string | null; revokedAt: string | null; revokeReason: string | null; createdAt: string
+}
+/** POST /machine-clients 响应：凭据只在本次返回，页面不持久化。 */
+export interface IssuedMachineClient {
+  id: number; clientKey: string; clientType: string; scopes: { scopeType: string; scopeId: string }[]
+  sourceAssetBindings: { dataSourceId: number; assetId: number }[]; credential: string; issuedAt: string
+}
+/** 确定性检测规则版本（GET /detection-rules）。驳回在库中记为 retired 且无批准人。 */
+export interface DetectionRuleView {
+  id: number; ruleKey: string; version: string; scopeJson: string; conditionJson: string; severity: Severity
+  status: string; requestedBy: number | null; approvedBy: number | null; createdAt: string; updatedAt: string
+}
+/** 来源映射版本（GET /data-sources/{id}/mappings）；JSON 字段为后端规范化后的字符串。 */
+export interface MappingView {
+  id: number; mappingVersion: string; sourceSchemaJson: string; mappingJson: string; status: string; approvedBy: number | null
+  featureContractVersion: string | null; featureContractSha256: string | null; requestedBy: number | null
+  reviewedBy: number | null; decisionReason: string | null; retiredBy: number | null; retiredAt: string | null; createdAt: string
+}
+/** 传感器配置版本（开发路线 §4.1）：pending → approved | rejected，approved → active，active → retired。 */
+export interface SensorConfigView {
+  id: number; sensorId: number; configVersion: string; interfaceScopeJson: string; filterPolicyJson: string; flowWindowSeconds: number
+  featureContractVersion: string; featureContractSha256: string | null; samplingPolicyJson: string; status: string
+  requestedBy: number | null; requestedByName: string | null; changeReason: string | null; approvedBy: number | null; approvedByName: string | null
+  reviewedBy: number | null; reviewedAt: string | null; decisionReason: string | null; activatedAt: string | null; activatedBy: number | null
+  retiredAt: string | null; createdAt: string
+}
+export interface SensorCredentialStatus { clientId: number; clientKey: string; status: string; expiresAt: string | null; rotatedAt: string | null; revokedAt: string | null; revokeReason: string | null; createdAt: string }
+/** 传感器详情（GET /sensors/{id}）：身份、配置版本历史与凭据状态，不含凭据值。 */
+export interface SensorDetail {
+  sensor: { id: number; agentKey: string; assetId: number; assetKey: string; platform: string; agentVersion: string; capabilitiesJson: string; status: string; registeredAt: string; lastHeartbeatAt: string | null; createdAt: string; updatedAt: string }
+  configs: SensorConfigView[]; credential: SensorCredentialStatus | null
+}
+/** 只返回一次的机器凭据（登记传感器、轮换凭据、签发连接器）。 */
+export interface IssuedCredentialView { credential: string; expiresAt?: string | null }
+export const userStatusLabel: Record<string, string> = { active: '正常', disabled: '已冻结', locked: '已锁定' }
+export const lifecycleStatusLabel: Record<string, string> = {
+  active: '生效', disabled: '停用', retired: '已退役', pending: '待审批', approved: '已批准', rejected: '已驳回', draft: '草稿',
+  revoked: '已吊销', expired: '已过期', offline: '离线',
+}
 export interface RoleSummary { roleKey: string; name: string; description: string; permissions: string[] }
 export interface RoleBindingView { roleKey: string; roleName: string; scopeType: string; scopeId: string }
 export interface OverviewView { hourlyAlerts: { hour: string; count: number }[]; quality24h: { accepted: number; manualReview: number; rejected: number } }

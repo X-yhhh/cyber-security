@@ -1,0 +1,324 @@
+{
+  "summary": {
+    "records": 14477,
+    "alerts": 11,
+    "scenarioMarginPreSeconds": 60,
+    "scenarioMarginPostSeconds": 180
+  },
+  "rules": [
+    {
+      "ruleKey": "tcp-port-scan",
+      "version": "1",
+      "severity": "high",
+      "alerts": 2,
+      "window": {
+        "seconds": 60,
+        "aggregate": "count",
+        "threshold": 30.0,
+        "groupBy": "asset"
+      },
+      "attackScenarios": [
+        {
+          "scenario": "ssh_fail",
+          "start": "2026-09-30T10:29:23.001Z",
+          "end": "2026-09-30T10:30:25.719Z",
+          "alerts": 0
+        },
+        {
+          "scenario": "udp_burst",
+          "start": "2026-09-30T10:44:20.246Z",
+          "end": "2026-09-30T10:44:43.971Z",
+          "alerts": 0
+        },
+        {
+          "scenario": "port_scan",
+          "start": "2026-09-30T11:13:56.225Z",
+          "end": "2026-09-30T11:14:21.939Z",
+          "alerts": 1
+        },
+        {
+          "scenario": "http_flood",
+          "start": "2026-09-30T11:28:47.092Z",
+          "end": "2026-09-30T11:29:11.368Z",
+          "alerts": 0
+        },
+        {
+          "scenario": "web_probe",
+          "start": "2026-09-30T11:58:16.965Z",
+          "end": "2026-09-30T11:58:53.484Z",
+          "alerts": 0
+        },
+        {
+          "scenario": "http_flood",
+          "start": "2026-09-30T12:59:11.359Z",
+          "end": "2026-09-30T12:59:35.770Z",
+          "alerts": 0
+        },
+        {
+          "scenario": "ssh_fail",
+          "start": "2026-09-30T13:12:18.461Z",
+          "end": "2026-09-30T13:13:21.613Z",
+          "alerts": 0
+        },
+        {
+          "scenario": "port_scan",
+          "start": "2026-09-30T13:28:47.603Z",
+          "end": "2026-09-30T13:29:18.160Z",
+          "alerts": 1
+        },
+        {
+          "scenario": "udp_burst",
+          "start": "2026-09-30T13:59:38.343Z",
+          "end": "2026-09-30T14:00:01.999Z",
+          "alerts": 0
+        }
+      ],
+      "alertsOutsideAttackScenarios": [],
+      "detectedRunsByScenario": {
+        "ssh_fail": 0,
+        "udp_burst": 0,
+        "port_scan": 2,
+        "http_flood": 0,
+        "web_probe": 0
+      }
+    },
+    {
+      "ruleKey": "ssh-login-failure-burst",
+      "version": "1",
+      "severity": "high",
+      "alerts": 2,
+      "window": {
+        "seconds": 60,
+        "aggregate": "count",
+        "threshold": 10.0,
+        "groupBy": "asset"
+      },
+      "attackScenarios": [
+        {
+          "scenario": "ssh_fail",
+          "start": "2026-09-30T10:29:23.001Z",
+          "end": "2026-09-30T10:30:25.719Z",
+          "alerts": 1
+        },
+        {
+          "scenario": "udp_burst",
+          "start": "2026-09-30T10:44:20.246Z",
+          "end": "2026-09-30T10:44:43.971Z",
+          "alerts": 0
+        },
+        {
+          "scenario": "port_scan",
+          "start": "2026-09-30T11:13:56.225Z",
+          "end": "2026-09-30T11:14:21.939Z",
+          "alerts": 0
+        },
+        {
+          "scenario": "http_flood",
+          "start": "2026-09-30T11:28:47.092Z",
+          "end": "2026-09-30T11:29:11.368Z",
+          "alerts": 0
+        },
+        {
+          "scenario": "web_probe",
+          "start": "2026-09-30T11:58:16.965Z",
+          "end": "2026-09-30T11:58:53.484Z",
+          "alerts": 0
+        },
+        {
+          "scenario": "http_flood",
+          "start": "2026-09-30T12:59:11.359Z",
+          "end": "2026-09-30T12:59:35.770Z",
+          "alerts": 0
+        },
+        {
+          "scenario": "ssh_fail",
+          "start": "2026-09-30T13:12:18.461Z",
+          "end": "2026-09-30T13:13:21.613Z",
+          "alerts": 1
+        },
+        {
+          "scenario": "port_scan",
+          "start": "2026-09-30T13:28:47.603Z",
+          "end": "2026-09-30T13:29:18.160Z",
+          "alerts": 0
+        },
+        {
+          "scenario": "udp_burst",
+          "start": "2026-09-30T13:59:38.343Z",
+          "end": "2026-09-30T14:00:01.999Z",
+          "alerts": 0
+        }
+      ],
+      "alertsOutsideAttackScenarios": [],
+      "detectedRunsByScenario": {
+        "ssh_fail": 2,
+        "udp_burst": 0,
+        "port_scan": 0,
+        "http_flood": 0,
+        "web_probe": 0
+      }
+    },
+    {
+      "ruleKey": "web-short-request-burst",
+      "version": "1",
+      "severity": "medium",
+      "alerts": 4,
+      "window": {
+        "seconds": 60,
+        "aggregate": "count",
+        "threshold": 50.0,
+        "groupBy": "asset"
+      },
+      "attackScenarios": [
+        {
+          "scenario": "ssh_fail",
+          "start": "2026-09-30T10:29:23.001Z",
+          "end": "2026-09-30T10:30:25.719Z",
+          "alerts": 0
+        },
+        {
+          "scenario": "udp_burst",
+          "start": "2026-09-30T10:44:20.246Z",
+          "end": "2026-09-30T10:44:43.971Z",
+          "alerts": 0
+        },
+        {
+          "scenario": "port_scan",
+          "start": "2026-09-30T11:13:56.225Z",
+          "end": "2026-09-30T11:14:21.939Z",
+          "alerts": 0
+        },
+        {
+          "scenario": "http_flood",
+          "start": "2026-09-30T11:28:47.092Z",
+          "end": "2026-09-30T11:29:11.368Z",
+          "alerts": 1
+        },
+        {
+          "scenario": "web_probe",
+          "start": "2026-09-30T11:58:16.965Z",
+          "end": "2026-09-30T11:58:53.484Z",
+          "alerts": 1
+        },
+        {
+          "scenario": "http_flood",
+          "start": "2026-09-30T12:59:11.359Z",
+          "end": "2026-09-30T12:59:35.770Z",
+          "alerts": 2
+        },
+        {
+          "scenario": "ssh_fail",
+          "start": "2026-09-30T13:12:18.461Z",
+          "end": "2026-09-30T13:13:21.613Z",
+          "alerts": 0
+        },
+        {
+          "scenario": "port_scan",
+          "start": "2026-09-30T13:28:47.603Z",
+          "end": "2026-09-30T13:29:18.160Z",
+          "alerts": 0
+        },
+        {
+          "scenario": "udp_burst",
+          "start": "2026-09-30T13:59:38.343Z",
+          "end": "2026-09-30T14:00:01.999Z",
+          "alerts": 0
+        }
+      ],
+      "alertsOutsideAttackScenarios": [],
+      "detectedRunsByScenario": {
+        "ssh_fail": 0,
+        "udp_burst": 0,
+        "port_scan": 0,
+        "http_flood": 2,
+        "web_probe": 1
+      }
+    },
+    {
+      "ruleKey": "udp-inbound-burst",
+      "version": "1",
+      "severity": "medium",
+      "alerts": 3,
+      "window": {
+        "seconds": 30,
+        "aggregate": "sum",
+        "threshold": 300.0,
+        "groupBy": "asset",
+        "field": "features.spkts"
+      },
+      "attackScenarios": [
+        {
+          "scenario": "ssh_fail",
+          "start": "2026-09-30T10:29:23.001Z",
+          "end": "2026-09-30T10:30:25.719Z",
+          "alerts": 0
+        },
+        {
+          "scenario": "udp_burst",
+          "start": "2026-09-30T10:44:20.246Z",
+          "end": "2026-09-30T10:44:43.971Z",
+          "alerts": 2
+        },
+        {
+          "scenario": "port_scan",
+          "start": "2026-09-30T11:13:56.225Z",
+          "end": "2026-09-30T11:14:21.939Z",
+          "alerts": 0
+        },
+        {
+          "scenario": "http_flood",
+          "start": "2026-09-30T11:28:47.092Z",
+          "end": "2026-09-30T11:29:11.368Z",
+          "alerts": 0
+        },
+        {
+          "scenario": "web_probe",
+          "start": "2026-09-30T11:58:16.965Z",
+          "end": "2026-09-30T11:58:53.484Z",
+          "alerts": 0
+        },
+        {
+          "scenario": "http_flood",
+          "start": "2026-09-30T12:59:11.359Z",
+          "end": "2026-09-30T12:59:35.770Z",
+          "alerts": 0
+        },
+        {
+          "scenario": "ssh_fail",
+          "start": "2026-09-30T13:12:18.461Z",
+          "end": "2026-09-30T13:13:21.613Z",
+          "alerts": 0
+        },
+        {
+          "scenario": "port_scan",
+          "start": "2026-09-30T13:28:47.603Z",
+          "end": "2026-09-30T13:29:18.160Z",
+          "alerts": 0
+        },
+        {
+          "scenario": "udp_burst",
+          "start": "2026-09-30T13:59:38.343Z",
+          "end": "2026-09-30T14:00:01.999Z",
+          "alerts": 1
+        }
+      ],
+      "alertsOutsideAttackScenarios": [],
+      "detectedRunsByScenario": {
+        "ssh_fail": 0,
+        "udp_burst": 2,
+        "port_scan": 0,
+        "http_flood": 0,
+        "web_probe": 0
+      }
+    }
+  ],
+  "provenance": {
+    "status": "partial_experiment_snapshot",
+    "recordsSha256": "6185e7f62c00c72f3de99ae42ea3fcb6e2848fdb2ebcfe15a67e37f320c4a38c",
+    "scenariosSha256": "ea5bd62c5f2dc6eb96ba6250abea8b47e0d9994ab8d51eb5f5ad82acf3dfdeb1",
+    "rulesSha256": "0541ccd9cb94c97e12496ac08d8905952e148ebb70702e7abf3a1047bb16a22b",
+    "firstEvent": "2026-09-30T09:33:42.319000Z",
+    "lastEvent": "2026-09-30T15:29:23.646000Z",
+    "scope": "sensor 3 only; event times UTC; offline sorted replay; no online activation"
+  }
+}

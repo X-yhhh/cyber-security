@@ -196,8 +196,10 @@ public final class FeatureContractValidator {
                 out.add(issue("CATEGORY_OUT_OF_VOCABULARY", field, "model vocabulary", "out_of_vocabulary"));
             }
         }
-        if (contract.requiresRecordMetadata() && metadata != null && !scope.get().covers(metadata)) {
-            out.add(issue("NOT_IN_MODEL_SCOPE", "viewpoint", "model supported viewpoints/address families", "outside"));
+        JsonNode proto = features == null ? null : features.get("proto");
+        if (contract.requiresRecordMetadata() && metadata != null
+                && !scope.get().covers(metadata, proto != null && proto.isTextual() ? proto.asText() : null)) {
+            out.add(issue("NOT_IN_MODEL_SCOPE", "metadata", "model evaluation scope", "outside"));
         }
         return out;
     }

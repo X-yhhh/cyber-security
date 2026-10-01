@@ -1,0 +1,152 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.xyh.cybersecurity.ingest.SensorAdminMapper">
+    <resultMap id="sensorRow" type="com.xyh.cybersecurity.ingest.SensorAdminMapper$SensorRow"><constructor>
+        <idArg column="id" javaType="_long"/><arg column="agent_key" javaType="string"/>
+        <arg column="asset_id" javaType="_long"/><arg column="asset_key" javaType="string"/>
+        <arg column="platform" javaType="string"/><arg column="agent_version" javaType="string"/>
+        <arg column="capabilities_json" javaType="string"/><arg column="status" javaType="string"/>
+        <arg column="registered_at" javaType="java.time.Instant"/><arg column="last_heartbeat_at" javaType="java.time.Instant"/>
+        <arg column="created_at" javaType="java.time.Instant"/><arg column="updated_at" javaType="java.time.Instant"/>
+    </constructor></resultMap>
+
+    <resultMap id="configRow" type="com.xyh.cybersecurity.ingest.SensorAdminMapper$ConfigRow"><constructor>
+        <idArg column="id" javaType="_long"/><arg column="sensor_id" javaType="_long"/>
+        <arg column="config_version" javaType="string"/><arg column="interface_scope_json" javaType="string"/>
+        <arg column="filter_policy_json" javaType="string"/><arg column="flow_window_seconds" javaType="_int"/>
+        <arg column="feature_contract_version" javaType="string"/><arg column="feature_contract_sha256" javaType="string"/>
+        <arg column="sampling_policy_json" javaType="string"/><arg column="status" javaType="string"/>
+        <arg column="requested_by" javaType="java.lang.Long"/><arg column="requested_by_name" javaType="string"/>
+        <arg column="change_reason" javaType="string"/>
+        <arg column="approved_by" javaType="java.lang.Long"/><arg column="approved_by_name" javaType="string"/>
+        <arg column="reviewed_by" javaType="java.lang.Long"/><arg column="reviewed_at" javaType="java.time.Instant"/>
+        <arg column="decision_reason" javaType="string"/><arg column="activated_at" javaType="java.time.Instant"/>
+        <arg column="activated_by" javaType="java.lang.Long"/><arg column="retired_at" javaType="java.time.Instant"/>
+        <arg column="created_at" javaType="java.time.Instant"/>
+    </constructor></resultMap>
+
+    <resultMap id="clientRow" type="com.xyh.cybersecurity.ingest.SensorAdminMapper$ClientRow"><constructor>
+        <idArg column="id" javaType="_long"/><arg column="client_key" javaType="string"/>
+        <arg column="status" javaType="string"/><arg column="expires_at" javaType="java.time.Instant"/>
+        <arg column="rotated_at" javaType="java.time.Instant"/><arg column="revoked_at" javaType="java.time.Instant"/>
+        <arg column="revoke_reason" javaType="string"/><arg column="created_at" javaType="java.time.Instant"/>
+    </constructor></resultMap>
+
+    <sql id="sensorColumns">
+        sa.id, sa.agent_key, sa.asset_id, a.asset_key, sa.platform, sa.agent_version,
+        CAST(sa.capabilities_json AS CHAR) capabilities_json, sa.status, sa.registered_at, sa.last_heartbeat_at,
+        sa.created_at, sa.updated_at
+    </sql>
+
+    <select id="lockSensor" resultMap="sensorRow">
+        SELECT <include refid="sensorColumns"/> FROM sensor_agent sa JOIN asset a ON a.id=sa.asset_id
+        WHERE sa.id=#{sensorId} FOR UPDATE
+    </select>
+
+    <select id="findSensor" resultMap="sensorRow">
+        SELECT <include refid="sensorColumns"/> FROM sensor_agent sa JOIN asset a ON a.id=sa.asset_id
+        WHERE sa.id=#{sensorId}
+    </select>
+
+    <select id="hasAssetPermission" resultType="boolean">
+        SELECT EXISTS (SELECT 1 FROM sys_user su
+            JOIN sys_user_role ur ON ur.user_id=su.id
+            JOIN sys_role r ON r.id=ur.role_id AND r.status='active'
+            JOIN sys_role_permission rp ON rp.role_id=r.id
+            JOIN sys_permission p ON p.id=rp.permission_id AND p.status='active'
+            WHERE su.id=#{userId} AND su.status='active' AND p.permission_key=#{permission}
+              AND ((ur.scope_type='asset' AND ur.scope_id=CAST(#{assetId} AS CHAR))
+                OR (r.role_key='platform_admin' AND ur.scope_type='global' AND ur.scope_id='*')))
+    </select>
+
+    <update id="updatePlatform">
+        UPDATE sensor_agent SET platform=#{platform}, updated_at=UTC_TIMESTAMP(3)
+        WHERE id=#{sensorId} AND status IN ('pending', 'active', 'offline')
+    </update>
+
+    <update id="decommission">
+        UPDATE sensor_agent SET status='revoked', updated_at=UTC_TIMESTAMP(3)
+        WHERE id=#{sensorId} AND status IN ('pending', 'active', 'offline')
+    </update>
+
+    <sql id="configColumns">
+        sc.id, sc.sensor_id, sc.config_version, CAST(sc.interface_scope_json AS CHAR) interface_scope_json,
+        CAST(sc.filter_policy_json AS CHAR) filter_policy_json, sc.flow_window_seconds, sc.feature_contract_version,
+        sc.feature_contract_sha256, CAST(sc.sampling_policy_json AS CHAR) sampling_policy_json, sc.status,
+        sc.requested_by, rq.username requested_by_name, sc.change_reason, sc.approved_by, ap.username approved_by_name,
+        sc.reviewed_by, sc.reviewed_at, sc.decision_reason, sc.activated_at, sc.activated_by, sc.retired_at, sc.created_at
+    </sql>
+
+    <select id="listConfigs" resultMap="configRow">
+        SELECT <include refid="configColumns"/>
+        FROM sensor_config sc LEFT JOIN sys_user rq ON rq.id=sc.requested_by LEFT JOIN sys_user ap ON ap.id=sc.approved_by
+        WHERE sc.sensor_id=#{sensorId} ORDER BY sc.id DESC LIMIT 200
+    </select>
+
+    <select id="lockConfig" resultMap="configRow">
+        SELECT <include refid="configColumns"/>
+        FROM sensor_config sc LEFT JOIN sys_user rq ON rq.id=sc.requested_by LEFT JOIN sys_user ap ON ap.id=sc.approved_by
+        WHERE sc.id=#{configId} AND sc.sensor_id=#{sensorId} FOR UPDATE
+    </select>
+
+    <insert id="insertConfig">
+        INSERT INTO sensor_config (sensor_id, config_version, interface_scope_json, filter_policy_json,
+            flow_window_seconds, feature_contract_version, feature_contract_sha256, sampling_policy_json, status,
+            requested_by, change_reason)
+        VALUES (#{sensorId}, #{configVersion}, #{interfaceScope}, #{filterPolicy}, #{flowWindowSeconds},
+            #{contractVersion}, #{contractSha256}, #{samplingPolicy}, 'pending', #{requestedBy}, #{changeReason})
+    </insert>
+
+    <select id="findConfigId" resultType="java.lang.Long">
+        SELECT id FROM sensor_config WHERE sensor_id=#{sensorId} AND config_version=#{configVersion}
+    </select>
+
+    <update id="approveConfig">
+        UPDATE sensor_config SET status='approved', approved_by=#{approvedBy}, reviewed_by=#{approvedBy},
+            reviewed_at=UTC_TIMESTAMP(3), decision_reason=#{reason}, updated_at=UTC_TIMESTAMP(3)
+        WHERE id=#{configId} AND status='pending' AND requested_by IS NOT NULL AND requested_by &lt;&gt; #{approvedBy}
+    </update>
+
+    <update id="rejectConfig">
+        UPDATE sensor_config SET status='rejected', reviewed_by=#{reviewedBy}, reviewed_at=UTC_TIMESTAMP(3),
+            decision_reason=#{reason}, updated_at=UTC_TIMESTAMP(3)
+        WHERE id=#{configId} AND status='pending' AND requested_by IS NOT NULL AND requested_by &lt;&gt; #{reviewedBy}
+    </update>
+
+    <update id="retireActiveConfigs">
+        UPDATE sensor_config SET status='retired', retired_at=UTC_TIMESTAMP(3), updated_at=UTC_TIMESTAMP(3)
+        WHERE sensor_id=#{sensorId} AND status='active' AND id &lt;&gt; #{exceptId}
+    </update>
+
+    <update id="activateConfig">
+        UPDATE sensor_config SET status='active', activated_at=UTC_TIMESTAMP(3), activated_by=#{activatedBy},
+            updated_at=UTC_TIMESTAMP(3)
+        WHERE id=#{configId} AND status='approved'
+    </update>
+
+    <sql id="clientColumns">
+        id, client_key, status, expires_at, rotated_at, revoked_at, revoke_reason, created_at
+    </sql>
+
+    <select id="lockClient" resultMap="clientRow">
+        SELECT <include refid="clientColumns"/> FROM api_client
+        WHERE sensor_id=#{sensorId} AND client_type='sensor' ORDER BY id DESC LIMIT 1 FOR UPDATE
+    </select>
+
+    <select id="findClient" resultMap="clientRow">
+        SELECT <include refid="clientColumns"/> FROM api_client
+        WHERE sensor_id=#{sensorId} AND client_type='sensor' ORDER BY id DESC LIMIT 1
+    </select>
+
+    <update id="rotateCredential">
+        UPDATE api_client SET credential_sha256=#{credentialSha256}, rotated_at=UTC_TIMESTAMP(3),
+            expires_at=DATE_ADD(UTC_TIMESTAMP(3), INTERVAL 30 DAY), updated_at=UTC_TIMESTAMP(3)
+        WHERE id=#{clientId} AND status='active'
+    </update>
+
+    <update id="revokeClient">
+        UPDATE api_client SET status='revoked', revoked_by=#{revokedBy}, revoked_at=UTC_TIMESTAMP(3),
+            revoke_reason=#{reason}, updated_at=UTC_TIMESTAMP(3)
+        WHERE id=#{clientId} AND status IN ('active', 'disabled')
+    </update>
+</mapper>

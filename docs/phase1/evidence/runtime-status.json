@@ -1,0 +1,197 @@
+{
+  "capturedAt": "2026-09-30T20:43:28.732914+00:00",
+  "database": "cyber_security",
+  "backendJava": "25.0.2",
+  "tests": {
+    "total": 233,
+    "passed": 231,
+    "skipped": 2,
+    "failed": 0
+  },
+  "migration": [
+    {
+      "version": "17",
+      "success": "1"
+    }
+  ],
+  "deployments": [
+    {
+      "id": "1",
+      "model_version_id": "1",
+      "status": "inactive"
+    },
+    {
+      "id": "2",
+      "model_version_id": "2",
+      "status": "inactive"
+    },
+    {
+      "id": "3",
+      "model_version_id": "3",
+      "status": "inactive"
+    },
+    {
+      "id": "4",
+      "model_version_id": "4",
+      "status": "active"
+    }
+  ],
+  "modelRelease": [
+    {
+      "id": "4",
+      "requested_by": "10",
+      "approved_by": "11",
+      "review_status": "approved"
+    }
+  ],
+  "rules": [
+    {
+      "id": "1",
+      "rule_key": "tcp-port-scan",
+      "version": "1",
+      "status": "active",
+      "requested_by": "8",
+      "approved_by": "13"
+    },
+    {
+      "id": "2",
+      "rule_key": "ssh-login-failure-burst",
+      "version": "1",
+      "status": "active",
+      "requested_by": "8",
+      "approved_by": "13"
+    },
+    {
+      "id": "3",
+      "rule_key": "web-short-request-burst",
+      "version": "1",
+      "status": "active",
+      "requested_by": "8",
+      "approved_by": "13"
+    },
+    {
+      "id": "4",
+      "rule_key": "udp-inbound-burst",
+      "version": "1",
+      "status": "active",
+      "requested_by": "8",
+      "approved_by": "13"
+    }
+  ],
+  "ruleReviewer": [
+    {
+      "id": "13",
+      "username": "phase1_rule_reviewer",
+      "status": "disabled"
+    }
+  ],
+  "ruleReviewerSessions": [
+    {
+      "sessions": "0"
+    }
+  ],
+  "experimentSource": [
+    {
+      "id": "3",
+      "source_key": "lab-intel-mac-en0-sensor",
+      "status": "disabled"
+    }
+  ],
+  "experimentCredential": [
+    {
+      "id": "3",
+      "sensor_id": "3",
+      "status": "revoked"
+    }
+  ],
+  "experimentRecords": [
+    {
+      "records": "14477",
+      "first_event": "2026-09-30 09:33:42.319",
+      "last_event": "2026-09-30 15:29:23.646"
+    }
+  ],
+  "audit": [
+    {
+      "action": "model.candidate.registered",
+      "actor_id": "10",
+      "resource_type": "model_version",
+      "resource_id": "4",
+      "outcome": "success"
+    },
+    {
+      "action": "model.release.requested",
+      "actor_id": "10",
+      "resource_type": "model_release_record",
+      "resource_id": "4",
+      "outcome": "success"
+    },
+    {
+      "action": "sensor.credential.revoked",
+      "actor_id": "12",
+      "resource_type": "api_client",
+      "resource_id": "3",
+      "outcome": "success"
+    },
+    {
+      "action": "source.status.changed",
+      "actor_id": "12",
+      "resource_type": "data_source",
+      "resource_id": "3",
+      "outcome": "success"
+    },
+    {
+      "action": "model.release.approved",
+      "actor_id": "11",
+      "resource_type": "model_release_record",
+      "resource_id": "4",
+      "outcome": "success"
+    },
+    {
+      "action": "model.deployment.activated",
+      "actor_id": "10",
+      "resource_type": "model_version",
+      "resource_id": "4",
+      "outcome": "success"
+    },
+    {
+      "action": "detection.rule.approved",
+      "actor_id": "13",
+      "resource_type": "detection_rule",
+      "resource_id": "1",
+      "outcome": "success"
+    },
+    {
+      "action": "detection.rule.approved",
+      "actor_id": "13",
+      "resource_type": "detection_rule",
+      "resource_id": "2",
+      "outcome": "success"
+    },
+    {
+      "action": "detection.rule.approved",
+      "actor_id": "13",
+      "resource_type": "detection_rule",
+      "resource_id": "3",
+      "outcome": "success"
+    },
+    {
+      "action": "detection.rule.approved",
+      "actor_id": "13",
+      "resource_type": "detection_rule",
+      "resource_id": "4",
+      "outcome": "success"
+    }
+  ],
+  "health": {
+    "status": "UP",
+    "groups": [
+      "liveness",
+      "readiness"
+    ]
+  },
+  "health/readiness": {
+    "status": "UP"
+  },
+  "adminUnchanged": true
+}

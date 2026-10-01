@@ -53,6 +53,42 @@ public class UserController {
         return ApiEnvelope.success(result, requestId(request));
     }
 
+    @GetMapping("/users/{id}")
+    @PreAuthorize("hasAuthority('iam.user.read')")
+    public ApiEnvelope<IdentityMapper.UserDetail> user(@PathVariable long id, HttpServletRequest request) {
+        return ApiEnvelope.success(userService.getUser(id), requestId(request));
+    }
+
+    /** 修改显示名称；用户名不可改。 */
+    @PutMapping("/users/{id}")
+    @PreAuthorize("hasAuthority('iam.user.manage')")
+    public ApiEnvelope<IdentityMapper.UserDetail> update(@PathVariable long id, @Valid @RequestBody UpdateUserBody body,
+                                                         @AuthenticationPrincipal IdentityPrincipal actor,
+                                                         HttpServletRequest request) {
+        return ApiEnvelope.success(userService.updateProfile(id, body.displayName(), actor, request), requestId(request));
+    }
+
+    /** 冻结（disabled）或解冻（active）；冻结撤销该用户全部会话。 */
+    @PostMapping("/users/{id}/status")
+    @PreAuthorize("hasAuthority('iam.user.manage')")
+    public ApiEnvelope<IdentityMapper.UserDetail> status(@PathVariable long id, @Valid @RequestBody StatusBody body,
+                                                         @AuthenticationPrincipal IdentityPrincipal actor,
+                                                         HttpServletRequest request) {
+        return ApiEnvelope.success(userService.changeStatus(id, body.status(), body.reason(), actor, request),
+                requestId(request));
+    }
+
+    /** 管理员重置他人口令；撤销该用户全部会话。本人改密使用 {@code POST /auth/password}。 */
+    @PostMapping("/users/{id}/password-reset")
+    @PreAuthorize("hasAuthority('iam.user.manage')")
+    public ApiEnvelope<IdentityMapper.UserDetail> resetPassword(@PathVariable long id,
+                                                                @Valid @RequestBody PasswordResetBody body,
+                                                                @AuthenticationPrincipal IdentityPrincipal actor,
+                                                                HttpServletRequest request) {
+        return ApiEnvelope.success(userService.resetPassword(id, body.newPassword(), body.reason(), actor, request),
+                requestId(request));
+    }
+
     @GetMapping("/roles")
     @PreAuthorize("hasAuthority('iam.role.read')")
     public ApiEnvelope<?> roles(HttpServletRequest request) {
@@ -78,6 +114,10 @@ public class UserController {
     public record CreateUserBody(@NotBlank @Size(min = 3, max = 64) String username,
                                  @NotBlank @Size(max = 128) String displayName,
                                  @NotBlank @Size(min = 12, max = 128) String password) { }
+    public record UpdateUserBody(@NotBlank @Size(max = 128) String displayName) { }
+    public record StatusBody(@NotBlank String status, @NotBlank @Size(max = 1000) String reason) { }
+    public record PasswordResetBody(@NotBlank @Size(min = 12, max = 128) String newPassword,
+                                    @NotBlank @Size(max = 1000) String reason) { }
     public record RoleAssignmentsBody(@NotNull @Size(min = 1, max = 64) List<@NotNull @Valid RoleBindingBody> assignments) { }
     public record RoleBindingBody(@NotBlank String roleKey, @NotBlank String scopeType, @NotBlank String scopeId) { }
 }

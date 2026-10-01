@@ -123,6 +123,16 @@ public class AssetController {
                 requestId(request));
     }
 
+    /** 撤销待审批或有效的授权；申请或批准权限任一即可（范围内）。 */
+    @PostMapping("/{assetId}/authorizations/{authorizationId}/revoke")
+    @PreAuthorize("hasAnyAuthority('asset.authorization.manage','asset.authorization.approve')")
+    public ApiEnvelope<AssetService.AuthorizationView> revokeAuthorization(
+            @PathVariable long assetId, @PathVariable long authorizationId, @Valid @RequestBody ReasonBody body,
+            @AuthenticationPrincipal IdentityPrincipal principal, HttpServletRequest request) {
+        return ApiEnvelope.success(assetService.revokeAuthorization(assetId, authorizationId, body.reason(), principal,
+                request), requestId(request));
+    }
+
     private JsonNode parseObject(JsonNode node, String message) {
         try {
             if (node == null || !node.isObject()) throw new IllegalArgumentException();
@@ -151,6 +161,7 @@ public class AssetController {
                                   @Size(max = 128) String owner, JsonNode labels) { }
     public record UpdateAssetBody(@NotBlank String criticality, @Size(max = 128) String owner,
                                   @NotBlank String status) { }
+    public record ReasonBody(@NotBlank @Size(max = 1000) String reason) { }
     public record AuthorizationBody(@NotBlank @Size(max = 255) String authorizationRef,
                                     @NotNull JsonNode scope,
                                     @NotNull java.time.Instant validFrom,

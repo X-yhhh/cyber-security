@@ -2,6 +2,7 @@
 /**
  * 告警与事件：事件为主视图，告警为次视图；筛选只保留严重度与状态。
  * 数据来自 /events 与 /alerts（后端 SQL 已按资产与数据源范围过滤），前端只做本页筛选。
+ * 「规则」页签为确定性检测规则台账与登记/审批（DetectionRulesPanel），仅对有 detection.rule.read 的身份显示。
  */
 import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
@@ -10,6 +11,7 @@ import Segmented from '@/components/Segmented.vue'
 import Tag from '@/components/Tag.vue'
 import Drawer from '@/components/Drawer.vue'
 import LoadState from '@/components/LoadState.vue'
+import DetectionRulesPanel from './DetectionRulesPanel.vue'
 import { api, type Page } from '@/api/client'
 import { can } from '@/api/session'
 import { alertSource, alertTypeLabel, basisEntries, eventStatusLabel, fmtTime, severityLabel, type AlertView, type EventView, type Severity } from '@/api/types'
@@ -17,7 +19,7 @@ import { eventTone, severityTone, statusTone } from '@/data/tones'
 import { useLoad } from '@/composables/load'
 
 const router = useRouter()
-const view = ref<'events' | 'alerts'>('events')
+const view = ref<'events' | 'alerts' | 'rules'>('events')
 const sev = ref<Severity | 'all'>('all')
 const onlyOpen = ref(true)
 const q = ref('')
@@ -44,6 +46,11 @@ const shownAlerts = computed(() =>
 const picked = ref<AlertView | null>(null)
 const pickedBasis = computed(() => basisEntries(picked.value?.basisJson ?? null))
 const sevs: (Severity | 'all')[] = ['all', 'critical', 'high', 'medium', 'low']
+const views = computed(() => [
+  { value: 'events' as const, label: '事件', count: data.value.eventTotal },
+  { value: 'alerts' as const, label: '告警', count: data.value.alertTotal },
+  ...(can('detection.rule.read') ? [{ value: 'rules' as const, label: '规则' }] : []),
+])
 </script>
 
 <template>
@@ -52,8 +59,11 @@ const sevs: (Severity | 'all')[] = ['all', 'critical', 'high', 'medium', 'low']
       <template #kicker>Detection</template>
     </PageHead>
 
-    <Segmented v-model="view" :options="[{ value: 'events', label: '事件', count: data.eventTotal }, { value: 'alerts', label: '告警', count: data.alertTotal }]" />
+    <Segmented v-model="view" :options="views" />
 
+    <div v-if="view === 'rules'" class="mt-10"><DetectionRulesPanel /></div>
+
+    <template v-else>
     <div class="mt-8 flex flex-wrap items-center justify-between gap-6">
       <div class="flex items-center gap-5 text-[13px]">
         <button v-for="s in sevs" :key="s" class="transition-colors" :class="sev === s ? 'text-ink underline decoration-1 underline-offset-[6px]' : 'text-ink-3 hover:text-ink'" @click="sev = s">
@@ -104,6 +114,7 @@ const sevs: (Severity | 'all')[] = ['all', 'critical', 'high', 'medium', 'low']
       </table>
     </Transition>
     </LoadState></div>
+    </template>
 
     <Drawer :open="!!picked" :title="picked?.alertKey ?? ''" :kicker="picked ? `ALERT #${picked.id}` : ''" @close="picked = null">
       <template v-if="picked">

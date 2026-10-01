@@ -27,20 +27,34 @@ public interface ActiveModelInputs {
      * @param vocabularies             类别字段名 → 训练词表（来自已核对哈希的 preprocessing.json）
      * @param supportedViewpoints      manifest {@code supported_viewpoints}；空表示模型未声明、不限制
      * @param supportedAddressFamilies manifest {@code supported_address_families}；空表示不限制
+     * @param supportedProtocols       manifest {@code supported_protocols}；空表示不限制
+     * @param requiresHandshakeSeen    manifest {@code requires_handshake_seen}
      */
     record Scope(String modelVersion, Map<String, Set<String>> vocabularies, List<String> supportedViewpoints,
-                 List<String> supportedAddressFamilies) {
+                 List<String> supportedAddressFamilies, List<String> supportedProtocols, boolean requiresHandshakeSeen) {
         public Scope {
             vocabularies = Map.copyOf(vocabularies);
             supportedViewpoints = List.copyOf(supportedViewpoints);
             supportedAddressFamilies = List.copyOf(supportedAddressFamilies);
+            supportedProtocols = List.copyOf(supportedProtocols);
         }
 
-        /** 视角与地址族都在模型评估范围内时返回 true；元数据缺失按不在范围处理。 */
-        public boolean covers(RecordMetadata metadata) {
-            if (metadata == null) return supportedViewpoints.isEmpty() && supportedAddressFamilies.isEmpty();
+        public Scope(String modelVersion, Map<String, Set<String>> vocabularies, List<String> supportedViewpoints,
+                     List<String> supportedAddressFamilies) {
+            this(modelVersion, vocabularies, supportedViewpoints, supportedAddressFamilies, List.of(), false);
+        }
+
+        /**
+         * 视角、地址族、协议与握手都在模型评估范围内时返回 true；元数据缺失按不在范围处理。
+         * 判定口径与推理门禁 {@code FeatureContractModelGate} 一致。
+         */
+        public boolean covers(RecordMetadata metadata, String proto) {
+            if (metadata == null) return supportedViewpoints.isEmpty() && supportedAddressFamilies.isEmpty()
+                    && supportedProtocols.isEmpty() && !requiresHandshakeSeen;
             return (supportedViewpoints.isEmpty() || supportedViewpoints.contains(metadata.viewpoint()))
-                    && (supportedAddressFamilies.isEmpty() || supportedAddressFamilies.contains(metadata.addressFamily()));
+                    && (supportedAddressFamilies.isEmpty() || supportedAddressFamilies.contains(metadata.addressFamily()))
+                    && (supportedProtocols.isEmpty() || proto != null && supportedProtocols.contains(proto))
+                    && (!requiresHandshakeSeen || Boolean.TRUE.equals(metadata.handshakeSeen()));
         }
     }
 }

@@ -201,7 +201,7 @@ class AuthorizationIntegrationTest {
     }
 
     @Test
-    void cannotRemoveTheLastActiveGlobalPlatformAdministrator() throws Exception {
+    void revokedAdministratorSessionCannotRemoveLastAdministrator() throws Exception {
         Cookie administratorSession = loginAndGetSession("authz-admin", "admin");
         CsrfContext csrf = csrf(administratorSession);
         jdbcTemplate.update("DELETE ur FROM sys_user_role ur JOIN sys_role r ON r.id=ur.role_id "
@@ -213,8 +213,7 @@ class AuthorizationIntegrationTest {
                         .contentType(APPLICATION_JSON)
                         .content("{\"assignments\":[{\"roleKey\":\"security_analyst\","
                                 + "\"scopeType\":\"asset\",\"scopeId\":\"" + visibleAssetId + "\"}]}"))
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.error.code").value("CONFLICT"));
+                .andExpect(status().isForbidden());
 
         assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM sys_user_role ur "
                         + "JOIN sys_role r ON r.id=ur.role_id WHERE ur.user_id=? AND r.role_key='platform_admin' "

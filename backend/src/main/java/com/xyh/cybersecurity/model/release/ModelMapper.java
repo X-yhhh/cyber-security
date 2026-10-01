@@ -9,6 +9,12 @@ import java.util.List;
 /** 模型登记、审查与本机激活台账的 MyBatis 持久化边界。 */
 @Mapper
 public interface ModelMapper {
+    int lockLifecycle();
+    ModelRow lockModel(@Param("modelId") long modelId);
+    Long activeLocalModel();
+    Long previousApprovedModel(@Param("currentId") long currentId, @Param("modelKey") String modelKey);
+    int retireModel(@Param("modelId") long modelId, @Param("actor") long actor, @Param("reason") String reason);
+
     long countVisible(@Param("userId") long userId, @Param("permission") String permission);
     List<ModelRow> listVisible(@Param("userId") long userId, @Param("permission") String permission,
                                @Param("offset") int offset, @Param("limit") int limit);

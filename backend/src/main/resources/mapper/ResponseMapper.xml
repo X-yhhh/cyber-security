@@ -83,6 +83,9 @@
         WHERE at.id=#{id}
     </select>
 
+    <update id="withdraw">UPDATE approval_task SET status='cancelled',withdrawn_at=UTC_TIMESTAMP(3),withdraw_reason=#{reason}
+        WHERE id=#{id} AND requested_by=#{actor} AND status='pending'</update>
+
     <select id="countPendingApprovals" resultType="long">
         SELECT COUNT(*)
         FROM approval_task at

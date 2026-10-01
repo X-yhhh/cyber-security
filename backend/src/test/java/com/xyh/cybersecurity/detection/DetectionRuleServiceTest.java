@@ -42,6 +42,7 @@ class DetectionRuleServiceTest {
 
     @Test
     void requesterCannotApproveOwnRule() {
+        when(mapper.findRule(9)).thenReturn(pending(3));
         when(mapper.findRuleForUpdate(9)).thenReturn(pending(3));
         assertThatThrownBy(() -> service.decide(9, "approve", "ok", user(3), request))
                 .isInstanceOf(AccessDeniedException.class);
@@ -51,6 +52,7 @@ class DetectionRuleServiceTest {
 
     @Test
     void approvalRetiresOtherActiveVersionsThenActivatesAndAudits() {
+        when(mapper.findRule(9)).thenReturn(pending(3));
         when(mapper.findRuleForUpdate(9)).thenReturn(pending(3));
         when(mapper.activateRule(9, 4)).thenReturn(1);
         service.decide(9, "approve", "independent review", user(4), request);
@@ -64,6 +66,7 @@ class DetectionRuleServiceTest {
     void alreadyDecidedRuleIsConflict() {
         DetectionMapper.RuleView active = new DetectionMapper.RuleView(9, "scan-watch", "2", "{}", "{}", "medium",
                 "active", 3L, 5L, Instant.EPOCH, Instant.EPOCH);
+        when(mapper.findRule(9)).thenReturn(active);
         when(mapper.findRuleForUpdate(9)).thenReturn(active);
         assertThatThrownBy(() -> service.decide(9, "reject", "no", user(4), request))
                 .isInstanceOf(ApiRequestException.class);

@@ -18,6 +18,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
@@ -36,6 +37,8 @@ public class OnnxModelManager implements DisposableBean, ActiveModelInputs {
     private final ModelArtifactStore artifacts;
     private final ConcurrentMap<Long, Loaded> active = new ConcurrentHashMap<>();
     private final ReentrantReadWriteLock activeLock = new ReentrantReadWriteLock();
+    private final AtomicLong activationSequence = new AtomicLong();
+    private long appliedActivationSequence;
 
     public OnnxModelManager(ModelRuntimeMapper mapper, ObjectMapper objectMapper, ModelArtifactStore artifacts) {
         this.mapper = mapper;
@@ -105,6 +108,8 @@ public class OnnxModelManager implements DisposableBean, ActiveModelInputs {
      * @param descriptor 由 {@link #describe} 在数据库写入前生成，保证提交后的切换不会再因校验失败而中断
      */
     public void activateAfterCommit(ActiveModel descriptor, OnnxModelRuntime newRuntime) {
+        // 调用方持有数据库生命周期锁，登记顺序即提交顺序；提交后线程调度可能使回调乱序。
+        long sequence = activationSequence.incrementAndGet();
         long modelId = descriptor.modelId();
         Loaded loaded = new Loaded(descriptor, newRuntime);
         org.springframework.transaction.support.TransactionSynchronizationManager.registerSynchronization(
@@ -112,9 +117,14 @@ public class OnnxModelManager implements DisposableBean, ActiveModelInputs {
                     @Override public void afterCommit() {
                         activeLock.writeLock().lock();
                         try {
+                            if (sequence <= appliedActivationSequence) {
+                                closeQuietly(newRuntime);
+                                return;
+                            }
                             active.forEach((id, previous) -> { if (id != modelId && active.remove(id, previous)) closeQuietly(previous.runtime()); });
                             Loaded previous = active.put(modelId, loaded);
                             if (previous != null && previous.runtime() != newRuntime) closeQuietly(previous.runtime());
+                            appliedActivationSequence = sequence;
                         } finally { activeLock.writeLock().unlock(); }
                     }
                     @Override public void afterCompletion(int status) {

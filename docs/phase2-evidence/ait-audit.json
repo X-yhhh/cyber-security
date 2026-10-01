@@ -1,0 +1,64 @@
+{
+  "dataset": "AIT-LDS v2.0",
+  "scenario": "russellmitchell",
+  "file": "gather/intranet_server/logs/suricata/log.pcap.1642684613",
+  "size": 343232723,
+  "sha256": "12c798074e27969ea40719700ecc8cb07ecda76e4f0751d746e02e2398067790",
+  "zip_member_crc_verified": true,
+  "link_type": 1,
+  "utc_start": "2022-01-20T13:16:53.292889+00:00",
+  "utc_end": "2022-01-25T06:56:56.502153+00:00",
+  "counts": {
+    "packets": 688941,
+    "inbound_initial_syn": 3832
+  },
+  "initial_syn_during_publisher_phase_not_ground_truth": {
+    "host_discover_local": 2,
+    "service_scan": 1777,
+    "dirb_scan": 45,
+    "wpscan": 38,
+    "upload_rce_shell": 1,
+    "online_cracking": 4,
+    "run_cracking": 1
+  },
+  "inbound_initial_syn_source_classes": {
+    "other": 1167,
+    "vpn_shared_exit": 2665
+  },
+  "attacker_vpn_address_equals_vpn_server_address": true,
+  "go_extract_diagnostics": {
+    "frames": 688941,
+    "parse_status": {
+      "non_ip": 224339,
+      "ok": 464602
+    },
+    "close_reasons": {
+      "idle_timeout": 6682,
+      "max_lifetime": 7236,
+      "shutdown": 3,
+      "tcp_fin": 1169,
+      "tcp_rst": 3149
+    },
+    "flow": {
+      "post_close_packets": 1587,
+      "orphan_fragments": 0,
+      "oversize_tcp_packets": 55896,
+      "flow_capacity_drops": 0,
+      "max_active_flows": 21
+    },
+    "feature": {
+      "flows_excluded": {
+        "broadcast_destination": 222,
+        "multicast_destination": 2806,
+        "no_local_endpoint": 3169
+      },
+      "records_by_status": {
+        "ready": 11653,
+        "rejected": 291,
+        "window_not_ready": 98
+      }
+    }
+  },
+  "ready_in_model_scope": 3798,
+  "label_join_verified": false
+}

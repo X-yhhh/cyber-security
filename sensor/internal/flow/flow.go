@@ -61,8 +61,10 @@ type Flow struct {
 	Init, Resp   Endpoint
 	Start, Last  time.Time
 	SPkts, DPkts int64
-	SBytes       int64
-	DBytes       int64
+	// LabelAudit 只供显式开启的离线标签旁路，不参与特征计算或在线序列化。
+	LabelAudit *LabelAudit
+	SBytes     int64
+	DBytes     int64
 	// HandshakeSeen：TCP 首包为纯 SYN（§1.1 元数据）。
 	HandshakeSeen bool
 	Segment       int // 满最长存活时间切段后的段序号，0 为首段
@@ -122,15 +124,16 @@ type contState struct {
 
 // Table 是有界流表。不是线程安全的；由单个抓包循环串行调用。
 type Table struct {
-	mtu       int
-	maxFlows  int
-	flows     map[Key]*Flow
-	tombs     map[Key]time.Time
-	cont      map[Key]contState
-	frags     map[fragKey]fragRef
-	lastSweep time.Time
-	seq       int64
-	Diag      Diagnostics
+	mtu        int
+	maxFlows   int
+	labelAudit bool
+	flows      map[Key]*Flow
+	tombs      map[Key]time.Time
+	cont       map[Key]contState
+	frags      map[fragKey]fragRef
+	lastSweep  time.Time
+	seq        int64
+	Diag       Diagnostics
 }
 
 // NewTable 创建流表。mtu 用于 D11 超大包判定；maxFlows 为活动流上限，超出时新流被丢弃并计数。
@@ -140,6 +143,18 @@ func NewTable(mtu, maxFlows int) *Table {
 }
 
 // Active 返回活动流数。
+// EnableLabelAudit 仅由离线提取入口启用；在线采集默认不创建标签统计。
+func (t *Table) EnableLabelAudit() { t.labelAudit = true }
+
+// LabelAudit 从传输层头长推算载荷长度，不读取内容。分片无法精确重建时标为不可靠。
+type LabelAudit struct {
+	SPayload int64 `json:"initiatorPayloadBytes"`
+	DPayload int64 `json:"responderPayloadBytes"`
+	SPackets int64 `json:"initiatorRawPackets"`
+	DPackets int64 `json:"responderRawPackets"`
+	Reliable bool  `json:"payloadLengthReliable"`
+}
+
 func (t *Table) Active() int { return len(t.flows) }
 
 func (t *Table) complete(f *Flow, reason string, out []Completed) []Completed {
@@ -189,6 +204,9 @@ func (t *Table) Accept(p *packet.Packet) []Completed {
 		}
 		f = &Flow{Key: k, AF: p.AF, Init: Endpoint{p.Src, p.SPort}, Resp: Endpoint{p.Dst, p.DPort},
 			Start: p.TS, Last: p.TS, HandshakeSeen: pureSYN}
+		if t.labelAudit {
+			f.LabelAudit = &LabelAudit{Reliable: true}
+		}
 		if c, ok := t.cont[k]; ok && p.TS.Sub(c.at) < spec.Idle(k.Proto) {
 			// §1.1：后续段继承首段的 initiator。
 			// 续段首包若来自原 responder，则 responder 是本包发送方；否则保持本包目的端。
@@ -275,6 +293,20 @@ func (t *Table) tcpState(f *Flow, p *packet.Packet, fromInit bool) {
 
 // count 按 §1.3 累加包数与字节；IP 总长超过 MTU 的 TCP 包按对端通告的 MSS 折算为线路分段（D11）。
 func (t *Table) count(f *Flow, p *packet.Packet, fromInit bool) {
+	if a := f.LabelAudit; a != nil {
+		if fromInit {
+			a.SPackets++
+		} else {
+			a.DPackets++
+		}
+		if p.Proto != 6 || p.FirstFrag || p.LaterFrag || p.TCPHdr < 20 || p.IPTotal < p.IPHdr+p.TCPHdr || p.TotalFromCap {
+			a.Reliable = false
+		} else if fromInit {
+			a.SPayload += int64(p.IPTotal - p.IPHdr - p.TCPHdr)
+		} else {
+			a.DPayload += int64(p.IPTotal - p.IPHdr - p.TCPHdr)
+		}
+	}
 	segs, bytes := int64(1), int64(p.IPTotal)
 	if p.Proto == 6 && !p.LaterFrag && p.TCPHdr >= 20 && p.IPTotal > t.mtu {
 		mss := int(f.mssResp) // initiator 发出的分段受 responder 通告的 MSS 约束

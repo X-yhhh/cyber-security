@@ -13,6 +13,8 @@ import java.util.List;
  */
 @Mapper
 public interface ResponseMapper {
+    int withdraw(@Param("id") long id, @Param("actor") long actor, @Param("reason") String reason);
+
 
     ApprovalRow findByIdempotency(@Param("userId") long userId, @Param("key") String key);
 

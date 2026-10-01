@@ -79,7 +79,7 @@ sudo dseditgroup -o delete access_bpf
 ## 离线工具（不联网、不打开网卡）
 
 ```sh
-# pcap → 特征记录 JSONL（含非 ready 记录），用于对拍
+# pcap/pcapng → 特征记录 JSONL（含非 ready 记录），用于对拍
 bin/sensor extract -pcap in.pcap -out records.jsonl -diagnostics diag.json \
   -local-addr 192.0.2.2 -subnet 192.0.2.0/24
 
@@ -99,3 +99,21 @@ go run ./cmd/g2fixtures -dir <目录> -pcap anon.pcap -local-addr 192.0.2.40 -su
 - 只能看到部署了传感器的主机自己收发的流量，看不到其他设备之间的流量。
 - 首个模型只评估 `responder` 视角的 IPv4 流；其他记录照常上报，由后端标记为 `not_in_model_scope`。
 - `::ffff:a.b.c.d` 形式的 IPv4 映射地址：Java 参考实现会当作 IPv4，Go 保留为 IPv6。
+
+
+阶段 2 离线数据审核：`extract` 按文件魔数识别经典 pcap 或 pcapng，不依赖后缀。两种容器使用相同特征流水线；逐包要求 Ethernet，包含 pcapng 后续 section/接口，遇到不支持链路或容器截断显式失败（已写出的前缀不得作为完整提取结果使用）。`go test ./...` 覆盖两容器完整记录/时间戳/诊断一致性及上述失败场景。该能力不修改冻结 v4、MTU 或在线上传字段。
+
+### 公开数据集标签旁路与排序审核
+
+`extract -label-audit audit.label-audit.jsonl` 显式启用离线旁路（默认关闭，0600、新文件独占创建）。记录公开端点、流区间、原始方向包数以及 `IPTotal - IPHdr - TCPHdr` 的载荷长度；**不读取或保存载荷内容**。分片、缺失 TCP 头长或长度回退等条件标记长度不可靠，不用于 Attempted 判定。旁路只供离线标签关联，不能进入特征、上传或模型。正常的 `records.jsonl` 格式和 v4 特征计算不变；`sbytes/dbytes` 仍含 IP 头，不能当成 CICFlowMeter 载荷长度。
+
+```sh
+go build -o bin/pcapaudit ./cmd/pcapaudit
+bin/pcapaudit -pcap public-source.pcap -report audit.json -sorted-headers headers-sorted.pcap
+bin/sensor extract -pcap headers-sorted.pcap -local-addr 192.0.2.2 \
+  -out records.jsonl -diagnostics diagnostics.json -label-audit audit.label-audit.jsonl
+```
+
+`pcapaudit` 只读遍历全部 Ethernet 接口，统计物理包顺序/SYN 顺序回退、UTC 边界及已公开攻击端点每分钟计数。顺序回退不等于 SYN/SYNACK 因果倒置。可选派生 PCAP 按时间戳稳定排序，只保存协议头、原始时间戳和 wire length，不保存传输层载荷；派生文件与原件分别登记哈希。它不是网络重放工具。非 IP 或解析失败帧只保留链路头，malformed 可能变为 truncated，须以原件审查报告解释，不能据诊断名变化宣称原件无异常。
+
+排序暂存在内存，百万级帧需要数 GB 内存；当前完整日抓包只在已核对资源的离线审核主机运行，不把此内存开销当作 Windows 8 GB 训练预算内能力。失败时已写出的前缀不是完整产物，须有成功的审查报告/诊断、源与输出哈希才能复用。原件、派生 PCAP、旁路及索引均留在 Git 外。

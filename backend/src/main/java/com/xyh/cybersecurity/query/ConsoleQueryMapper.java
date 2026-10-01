@@ -60,7 +60,8 @@ public interface ConsoleQueryMapper {
     record LedgerRow(long id, long eventId, String eventKey, long assetId, String assetKey,
                      String snapshot, String status, String requester, String reviewer,
                      String decisionReason, LocalDateTime expiresAt, LocalDateTime createdAt,
-                     LocalDateTime reviewedAt, String executionStatus) { }
+                     LocalDateTime reviewedAt, String executionStatus, String withdrawReason,
+                     LocalDateTime withdrawnAt) { }
 
     record ReleaseRow(long id, String releaseStatus, String reviewStatus, String requester,
                       String approver, String requestReason, String decisionReason,

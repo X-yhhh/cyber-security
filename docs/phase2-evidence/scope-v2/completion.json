@@ -1,0 +1,50 @@
+{
+  "status": "phase2_model_evidence_ready",
+  "runtime": {
+    "onnxruntime": "1.23.2",
+    "provider": "CPUExecutionProvider",
+    "python": "3.12.10",
+    "matchesValidatedRuntime": true
+  },
+  "metrics": {
+    "samples": 41820,
+    "tn": 1552,
+    "fp": 20,
+    "fn": 24939,
+    "tp": 15309,
+    "fpr": 0.01272264631043257,
+    "recall": 0.38036672629695883,
+    "macroF1": 0.33075981122984494,
+    "prAuc": 0.9965577828681424,
+    "rocAuc": 0.9314734808310612,
+    "fprWilson95": [
+      0.008250930578698962,
+      0.01957005266507454
+    ],
+    "recallWilson95": [
+      0.3756354496494058,
+      0.3851208374920932
+    ]
+  },
+  "comparison": "passed",
+  "l2": {
+    "fprMax": 0.03,
+    "recallMin": 0.8,
+    "normalSamplesMin": 1000,
+    "attackSamplesMin": 100
+  },
+  "l3": {
+    "fprMax": 0.02,
+    "normalSamplesMin": 1000,
+    "independentNewWindow": true
+  },
+  "holdoutEvaluations": 0,
+  "cse2018Read": false,
+  "fitPerformed": false,
+  "validationExposedBeforeScopeAmendment": true,
+  "files": {
+    "validation-baseline-windows.json": "a87aa77610af8999af741e5c860b491323de98e20df472bc9f748d0cdab82016",
+    "runtime-comparison.json": "89fb61003eee5d3c9771eb3b18882953bfedb15142418284ca34e5001c4195ea",
+    "restoration-gates.json": "1b9ec78a3ef15b136757988f09f3b31dbe4d785fb6e1b0fa18ab76d6ffd54745"
+  }
+}

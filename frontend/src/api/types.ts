@@ -14,6 +14,8 @@ export interface AlertView {
   id: number; alertKey: string; alertType: string; severity: Severity; status: string; score: number | null; detectedAt: string; dataSourceId: number; assetId: number | null
   modelVersionId: number | null; modelKey: string | null; modelVersion: string | null; contractVersion: string | null; contractSha256: string | null
   detectionRuleId: number | null; ruleKey: string | null; ruleVersion: string | null; severityPolicyVersion: string | null; thresholdVersion: string | null; basisJson: string | null
+  /** V18：alert 进入人工队列；signal 为低等级模型命中，默认不进列表/事件计数，可被关联策略提升。 */
+  alertLayer?: 'alert' | 'signal' | string; correlationPolicyVersion?: string | null; promotedAt?: string | null
 }
 export interface EventView {
   id: number; eventKey: string; title: string; category: string; severity: Severity; status: EventStatus; riskScore: number | null; firstSeenAt: string; lastSeenAt: string; assigneeId: number | null; alertCount: number; assetCount: number
@@ -41,7 +43,7 @@ export interface PolicyView {
   decisionReason: string | null; retiredAt: string | null; retiredBy: number | null; createdAt: string
 }
 export const policyStatusLabel: Record<string, string> = { draft: '草稿', pending: '待审批', approved: '已批准', active: '生效', rejected: '已驳回', retired: '已退役' }
-export interface LedgerView { id: number; eventId: number; eventKey: string; assetId: number; assetKey: string; actionRequest: { actionType?: string; parameters?: { targetAddress?: string; ttlSeconds?: number }; policyKey?: string; policyVersion?: string; reason?: string }; status: string; requester: string; reviewer: string | null; decisionReason: string | null; expiresAt: string; createdAt: string; reviewedAt: string | null; executionStatus: string | null }
+export interface LedgerView { id: number; eventId: number; eventKey: string; assetId: number; assetKey: string; actionRequest: { actionType?: string; parameters?: { targetAddress?: string; ttlSeconds?: number }; policyKey?: string; policyVersion?: string; reason?: string }; status: string; requester: string; reviewer: string | null; decisionReason: string | null; expiresAt: string; createdAt: string; reviewedAt: string | null; executionStatus: string | null; withdrawReason?: string | null; withdrawnAt?: string | null }
 export interface ModelView { id: number; modelKey: string; version: string; taskType: string; manifestVersion: string; manifest: Record<string, unknown>; artifactRef: string; artifactSha256: string; featureContractVersion: string; approvalStatus: string; createdAt: string }
 export interface ReleaseView { id: number; releaseStatus: string; reviewStatus: string; requester: string | null; approver: string | null; requestReason: string | null; decisionReason: string | null; reviewedAt: string | null; createdAt: string }
 export interface DeploymentView { id: number; environment: string; mode: string; modelVersionId: number; modelKey: string; version: string; runtimeType: string; status: string; activatedAt: string | null }
@@ -68,6 +70,18 @@ export interface DetectionRuleView {
   id: number; ruleKey: string; version: string; scopeJson: string; conditionJson: string; severity: Severity
   status: string; requestedBy: number | null; approvedBy: number | null; createdAt: string; updatedAt: string
 }
+/**
+ * 检测策略版本（GET /detection-policies，V18）。configJson 为规范化 JSON 字符串；时间为带 Z 的 Instant。
+ * draft → pending → active | rejected；draft/pending 可由起草人撤回为 retired，active 由审批人退役。
+ */
+export type DetectionPolicyType = 'severity_mapping' | 'correlation' | 'risk_score'
+export interface DetectionPolicyView {
+  id: number; policyType: DetectionPolicyType | string; version: string; configJson: string; status: string; createdBy: number | null
+  basedOnPolicyId: number | null; changeReason: string | null; contentSha256: string | null; submittedAt: string | null
+  reviewedBy: number | null; reviewedAt: string | null; decisionReason: string | null; retiredBy: number | null; retiredAt: string | null; createdAt: string
+}
+export const detectionPolicyTypeLabel: Record<string, string> = { severity_mapping: '分级映射', correlation: '事件关联', risk_score: '风险评分' }
+export const alertLayerLabel: Record<string, string> = { alert: '告警', signal: '模型信号' }
 /** 来源映射版本（GET /data-sources/{id}/mappings）；JSON 字段为后端规范化后的字符串。 */
 export interface MappingView {
   id: number; mappingVersion: string; sourceSchemaJson: string; mappingJson: string; status: string; approvedBy: number | null

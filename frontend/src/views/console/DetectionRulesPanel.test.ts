@@ -26,12 +26,16 @@ const rule = (id: number, over: Record<string, unknown> = {}) => ({
   severity: 'high', status: 'pending', requestedBy: 12, approvedBy: null, createdAt: '2026-10-01T00:00:00', updatedAt: '2026-10-01T00:00:00', ...over,
 })
 const reload = vi.fn()
+let seeded: unknown = []
 function seed(data: unknown) {
+  seeded = data
   load.mockReturnValue({ data: ref(data), loading: ref(false), error: ref(''), reload })
+  // 抽屉打开时读单条详情（GET /detection-rules/{id}），按 id 返回同一行。
+  vi.mocked(api.get).mockImplementation(async (path: string) => Array.isArray(seeded) ? seeded.find((r) => path.endsWith(`/${r.id}`)) : undefined)
 }
 const button = (w: ReturnType<typeof mount>, text: string) => w.findAll('button').find((b) => b.text() === text)
 
-beforeEach(() => { vi.clearAllMocks(); perms.value = new Set() })
+beforeEach(() => { vi.clearAllMocks(); perms.value = new Set(); seeded = [] })
 
 describe('检测规则页签', () => {
   it('按规则键分组并展示窗口条件摘要与详情', async () => {
@@ -112,6 +116,53 @@ describe('检测规则页签', () => {
     await button(w, '登记')!.trigger('click')
     expect(api.post).not.toHaveBeenCalled()
     expect(toast).toHaveBeenCalledWith('条件须为 JSON 对象。', 'warn')
+    w.unmount()
+  })
+})
+
+describe('检测规则阶段 2 生命周期', () => {
+  it('打开抽屉读单条详情，以详情为准', async () => {
+    seed([rule(5)])
+    vi.mocked(api.get).mockResolvedValueOnce(rule(5, { severity: 'critical' }))
+    const w = mount(DetectionRulesPanel, { global })
+    await w.get('tr.row-link').trigger('click')
+    await flushPromises()
+    expect(api.get).toHaveBeenCalledWith('/detection-rules/5')
+    expect(w.get('.drawer').text()).toContain('严重')
+    w.unmount()
+  })
+
+  it('基于旧版本起草：未勾选覆盖时只提交版本与理由', async () => {
+    perms.value = new Set(['detection.rule.read', 'detection.rule.manage'])
+    seed([rule(5, { status: 'active', approvedBy: 13 })])
+    vi.mocked(api.post).mockResolvedValue({})
+    const w = mount(DetectionRulesPanel, { global })
+    await w.get('tr.row-link').trigger('click')
+    await flushPromises()
+    await button(w, '基于此版本起草')!.trigger('click')
+    const inputs = w.findAll('.drawer input:not([type=checkbox])')
+    await inputs[inputs.length - 1]!.setValue('6')
+    const areas = w.findAll('.drawer textarea')
+    await areas[areas.length - 1]!.setValue('收紧阈值')
+    await button(w, '登记新版本')!.trigger('click')
+    await flushPromises()
+    expect(api.post).toHaveBeenCalledWith('/detection-rules/5/versions', { version: '6', reason: '收紧阈值' })
+    w.unmount()
+  })
+
+  it('审批人可退役 active 规则，理由必填', async () => {
+    perms.value = new Set(['detection.rule.read', 'detection.rule.approve'])
+    seed([rule(5, { status: 'active', approvedBy: 13 })])
+    vi.mocked(api.post).mockResolvedValue({})
+    const w = mount(DetectionRulesPanel, { global })
+    await w.get('tr.row-link').trigger('click')
+    await flushPromises()
+    await button(w, '退役')!.trigger('click')
+    expect(api.post).not.toHaveBeenCalled()
+    await w.get('.drawer textarea').setValue('误报过高')
+    await button(w, '退役')!.trigger('click')
+    await flushPromises()
+    expect(api.post).toHaveBeenCalledWith('/detection-rules/5/retire', { reason: '误报过高' })
     w.unmount()
   })
 })

@@ -36,7 +36,21 @@
     <update id="deactivateLocalDeployments">UPDATE model_deployment SET status='inactive' WHERE environment='local' AND status='active'</update>
     <update id="retireOtherReleases">UPDATE model_release_record SET release_status='retired' WHERE release_status='active' AND model_version_id&lt;&gt;#{modelId}</update>
     <insert id="insertDeployment">INSERT INTO model_deployment (environment,mode,model_version_id,runtime_type,status,activated_at,activated_by) VALUES ('local','local',#{modelId},'onnxruntime-java-1.23.2','active',UTC_TIMESTAMP(3),#{actorId})</insert>
-    <update id="activateRelease">UPDATE model_release_record SET release_status='active',released_by=#{actorId},released_at=UTC_TIMESTAMP(3) WHERE model_version_id=#{modelId} AND review_status='approved' AND release_status='approved'</update>
+    <update id="activateRelease">UPDATE model_release_record SET release_status='active',released_by=#{actorId},released_at=UTC_TIMESTAMP(3) WHERE model_version_id=#{modelId} AND review_status='approved' AND release_status IN ('approved','retired')</update>
     <select id="hasPermission" resultType="boolean">SELECT EXISTS (SELECT 1 FROM sys_user u JOIN sys_user_role ur ON ur.user_id=u.id JOIN sys_role r ON r.id=ur.role_id AND r.status='active' JOIN sys_role_permission rp ON rp.role_id=r.id JOIN sys_permission p ON p.id=rp.permission_id AND p.status='active' WHERE u.id=#{userId} AND u.status='active' AND p.permission_key=#{permission} AND ur.scope_type='model_registry' AND ur.scope_id=#{modelKey})</select>
     <select id="lockScopedRoles" resultType="long">SELECT role_id FROM sys_user_role WHERE user_id=#{userId} AND scope_type='model_registry' AND scope_id=#{modelKey} FOR UPDATE</select>
+    <select id="lockLifecycle" resultType="int">SELECT id FROM model_lifecycle_lock WHERE id=1 FOR UPDATE</select>
+    <select id="lockModel" resultMap="modelRow"><include refid="modelSelect"/> WHERE mv.id=#{modelId} FOR UPDATE</select>
+    <select id="activeLocalModel" resultType="long">SELECT model_version_id FROM model_deployment
+        WHERE environment='local' AND status='active' ORDER BY id DESC LIMIT 1 FOR UPDATE</select>
+    <select id="previousApprovedModel" resultType="long">SELECT d.model_version_id FROM model_deployment d
+        JOIN model_version mv ON mv.id=d.model_version_id
+        WHERE d.environment='local' AND d.status='inactive' AND d.model_version_id&lt;&gt;#{currentId}
+          AND mv.model_key=#{modelKey} AND mv.approval_status='approved'
+          AND EXISTS(SELECT 1 FROM model_release_record rr WHERE rr.model_version_id=mv.id AND rr.review_status='approved')
+        ORDER BY d.id DESC LIMIT 1 FOR UPDATE</select>
+    <update id="retireModel">UPDATE model_version mv SET approval_status='retired',retired_at=UTC_TIMESTAMP(3),
+        retired_by=#{actor},retire_reason=#{reason} WHERE id=#{modelId} AND approval_status&lt;&gt;'retired'
+        AND NOT EXISTS(SELECT 1 FROM model_deployment d WHERE d.model_version_id=mv.id AND d.status='active')
+        AND NOT EXISTS(SELECT 1 FROM model_release_record rr WHERE rr.model_version_id=mv.id AND rr.review_status='pending')</update>
 </mapper>

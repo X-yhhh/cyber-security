@@ -90,6 +90,15 @@ public class ResponseController {
                 requestId(request));
     }
 
+    /** 本人撤回待审申请，返回 cancelled；审批已完成则冲突，不执行任何设备动作。 */
+    @PostMapping("/actions/{id}/withdraw")
+    @PreAuthorize("hasAuthority('action.request')")
+    public ApiEnvelope<ResponseService.ApprovalView> withdraw(@PathVariable long id,
+            @Valid @RequestBody WithdrawBody body, @AuthenticationPrincipal IdentityPrincipal actor, HttpServletRequest request) {
+        return ApiEnvelope.success(decisions.withdraw(id, body.reason(), actor, request), requestId(request));
+    }
+    public record WithdrawBody(@NotBlank @Size(max=1000) String reason) { }
+
     @PostMapping("/actions/{id}/execute")
     @PreAuthorize("hasAuthority('action.request')")
     public ApiEnvelope<Void> execute(@PathVariable long id, @AuthenticationPrincipal IdentityPrincipal actor,

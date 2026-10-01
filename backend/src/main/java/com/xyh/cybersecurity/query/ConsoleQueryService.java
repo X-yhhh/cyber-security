@@ -64,7 +64,8 @@ public class ConsoleQueryService {
         return mapper.ledger(userId, permission, mine).stream()
                 .map(row -> new LedgerView(row.id(), row.eventId(), row.eventKey(), row.assetId(), row.assetKey(),
                         json(row.snapshot()), row.status(), row.requester(), row.reviewer(), row.decisionReason(),
-                        row.expiresAt(), row.createdAt(), row.reviewedAt(), row.executionStatus())).toList();
+                        row.expiresAt(), row.createdAt(), row.reviewedAt(), row.executionStatus(),
+                        row.withdrawReason(), row.withdrawnAt())).toList();
     }
 
     public List<ReleaseView> releases(long userId, long modelId) {
@@ -148,7 +149,8 @@ public class ConsoleQueryService {
     public record LedgerView(long id, long eventId, String eventKey, long assetId, String assetKey,
                              JsonNode actionRequest, String status, String requester, String reviewer,
                              String decisionReason, LocalDateTime expiresAt, LocalDateTime createdAt,
-                             LocalDateTime reviewedAt, String executionStatus) { }
+                             LocalDateTime reviewedAt, String executionStatus, String withdrawReason,
+                             LocalDateTime withdrawnAt) { }
     public record ReleaseView(long id, String releaseStatus, String reviewStatus, String requester, String approver,
                               String requestReason, String decisionReason, LocalDateTime reviewedAt,
                               LocalDateTime createdAt) { }

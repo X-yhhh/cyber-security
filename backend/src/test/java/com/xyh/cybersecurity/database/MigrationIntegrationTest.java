@@ -55,11 +55,11 @@ class MigrationIntegrationTest {
         try (Connection connection = DriverManager.getConnection(schemaUrl(EMPTY_SCHEMA), username, password);
              Statement statement = connection.createStatement()) {
             assertThat(count(statement, "information_schema.tables", "table_schema='" + EMPTY_SCHEMA + "' AND table_type='BASE TABLE'"))
-                    .isEqualTo(46);
+                    .isEqualTo(48);
             assertThat(count(statement, EMPTY_SCHEMA + ".sys_role", "is_builtin=1 AND status='active'"))
                     .isEqualTo(7);
             assertThat(count(statement, EMPTY_SCHEMA + ".sys_permission", "status='active'"))
-                    .isEqualTo(49);
+                    .isEqualTo(52);
             // V12 新增 inference.request.read（四个角色）与 model.replay.run（仅 model_operator）；
             // V13 新增 detection.rule.read（平台管理员、分析员、审批人）、manage（分析员）、approve（审批人）；
             // V14 新增 source.mapping.approve（平台管理员）；
@@ -67,10 +67,10 @@ class MigrationIntegrationTest {
             // V16 新增 alert.feedback.label（分析员）、feedback.review（分析员、审批人）、
             //     shadow.report.read（平台管理员、分析员、模型运维）；
             // V17 新增 sensor.config.approve（平台管理员）。
-            assertThat(rolePermissionCount(statement, "platform_admin")).isEqualTo(26);
+            assertThat(rolePermissionCount(statement, "platform_admin")).isEqualTo(27);
             assertThat(rolePermissionCount(statement, "asset_source_admin")).isEqualTo(11);
-            assertThat(rolePermissionCount(statement, "security_analyst")).isEqualTo(16);
-            assertThat(rolePermissionCount(statement, "response_approver")).isEqualTo(9);
+            assertThat(rolePermissionCount(statement, "security_analyst")).isEqualTo(18);
+            assertThat(rolePermissionCount(statement, "response_approver")).isEqualTo(11);
             assertThat(rolePermissionCount(statement, "model_operator")).isEqualTo(8);
             assertThat(rolePermissionCount(statement, "model_releaser")).isEqualTo(2);
             assertThat(rolePermissionCount(statement, "auditor")).isEqualTo(3);
@@ -83,7 +83,7 @@ class MigrationIntegrationTest {
                     + ".sys_role r ON r.id=rp.role_id", "r.role_key='platform_admin' AND p.permission_key IN ('approval.decide','model.release.approve')"))
                     .isZero();
             assertThat(count(statement, EMPTY_SCHEMA + ".sys_user", "1=1")).isZero();
-            assertThat(count(statement, EMPTY_SCHEMA + ".flyway_schema_history", "success=1")).isEqualTo(17);
+            assertThat(count(statement, EMPTY_SCHEMA + ".flyway_schema_history", "success=1")).isEqualTo(18);
             assertThat(count(statement, "information_schema.tables", "table_schema='" + EMPTY_SCHEMA
                     + "' AND table_name='auth_login_throttle'"))
                     .isEqualTo(1);

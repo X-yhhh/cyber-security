@@ -45,7 +45,7 @@ class AlertGenerator {
         // 跨规则统一锁顺序，避免规则 A/B 涉及不同资产集合时形成反向锁序。
         records.stream().map(IngestMapper.AcceptedRecord::assetId).filter(java.util.Objects::nonNull)
                 .distinct().sorted().forEach(mapper::lockAsset);
-        List<Pending> pending = new ArrayList<>(modelAlerts(batchId, policies.severity(), now));
+        List<Pending> pending = new ArrayList<>(modelAlerts(batchId, policies, now));
         pending.addAll(ruleAlerts(batchId, records, now));
         if (pending.isEmpty()) return List.of();
         Set<String> existing = new HashSet<>(mapper.findExistingAlertKeys(
@@ -55,6 +55,7 @@ class AlertGenerator {
             if (!existing.add(item.insert().alertKey())) continue;
             mapper.insertAlert(item.insert());
             long id = mapper.findAlertId(item.insert().alertKey());
+            if (item.insert().alertLayer().equals("signal")) continue;
             created.add(new NewAlert(id, item.insert().ingestRecordId(), item.assetId(), item.eventTime(),
                     item.insert().alertType(), item.insert().severity(), item.summary()));
         }
@@ -63,11 +64,13 @@ class AlertGenerator {
 
     private record Pending(DetectionMapper.AlertInsert insert, Long assetId, Instant eventTime, String summary) { }
 
-    private List<Pending> modelAlerts(long batchId, DetectionPolicies.Severity severity, Instant now) {
+    private List<Pending> modelAlerts(long batchId, DetectionPolicies policies, Instant now) {
+        var severity = policies.severity();
+        boolean layered = severity.signal() != null && severity.signal().enabled();
         List<Pending> out = new ArrayList<>();
         for (DetectionMapper.ModelCandidate c : mapper.findModelAlertCandidates(batchId)) {
             double score = c.attackProbability();
-            String level = severity.map(score);
+            String level = layered ? "low" : severity.map(score);
             ObjectNode basis = json.createObjectNode().put("source", "model").put("modelKey", c.modelKey())
                     .put("modelVersion", c.modelVersion()).put("attackProbability", score)
                     .put("decisionThreshold", c.decisionThreshold())
@@ -76,7 +79,7 @@ class AlertGenerator {
             DetectionMapper.AlertInsert insert = new DetectionMapper.AlertInsert(
                     "model:" + c.recordId() + ":" + c.artifactSha256(), c.recordId(), c.inferenceRequestId(),
                     c.modelVersionId(), c.contractVersion(), c.contractSha256(), null, "model", level,
-                    severity.version(), decimal(score), c.thresholdPolicyVersion(), basis.toString(), now);
+                    severity.version(), decimal(score), c.thresholdPolicyVersion(), basis.toString(), now, layered ? "signal" : "alert", policies.correlation().version());
             out.add(new Pending(insert, c.assetId(), c.eventTime(),
                     "模型 " + c.modelKey() + "@" + c.modelVersion() + " 判定攻击，概率 " + round(score)));
         }
@@ -182,7 +185,7 @@ class AlertGenerator {
                                                    String contract, ObjectNode basis, Instant now) {
         return new DetectionMapper.AlertInsert("rule:" + rule.id() + ":" + record.id(), record.id(), null, null, contract,
                 null, rule.id(), "rule", rule.severity(), null, null, rule.ruleKey() + "@" + rule.version(),
-                basis.toString(), now);
+                basis.toString(), now, "alert", null);
     }
 
     private JsonNode payload(String text) {

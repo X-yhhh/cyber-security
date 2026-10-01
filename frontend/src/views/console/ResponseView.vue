@@ -3,6 +3,8 @@
  * 受控响应：审批队列、审批台账、本人申请、策略版本管理（M6：起草/提交/撤回、他人批准/驳回/退役）。
  * 审批决定调用 POST /approvals/{id}/decision；申请人不能审批本人申请由后端强制，
  * 前端仅提前禁用按钮。真实执行器未开放，执行状态如实显示为“未开放”。
+ * 「我的申请」中本人 pending 申请可撤回（POST /actions/{id}/withdraw，填理由）；与审批竞争时只有一方成功，
+ * 失败显示后端原因并重新读取。已撤回的申请显示撤回原因与时间。
  */
 import { computed, ref } from 'vue'
 import { RouterLink } from 'vue-router'
@@ -45,6 +47,24 @@ async function decide(ok: boolean) {
     reason.value = ''
     await reload()
   } catch (e) { toast(errText(e), 'threat') } finally { busy.value = false }
+}
+// 撤回本人待审申请
+const withdrawing = ref<LedgerView | null>(null)
+const withdrawReason = ref('')
+function openWithdraw(a: LedgerView) { withdrawing.value = a; withdrawReason.value = '' }
+async function withdraw() {
+  const a = withdrawing.value
+  if (!a || !withdrawReason.value.trim()) return toast('请填写撤回理由。', 'warn')
+  busy.value = true
+  try {
+    await api.post(`/actions/${a.id}/withdraw`, { reason: withdrawReason.value.trim() })
+    toast('申请已撤回，不会进入审批。')
+    withdrawing.value = null
+    await reload()
+  } catch (e) {
+    toast(errText(e), 'threat')
+    await reload()
+  } finally { busy.value = false }
 }
 const target = (a: LedgerView) => a.actionRequest.parameters?.targetAddress ?? '—'
 const ttl = (a: LedgerView) => Math.round((a.actionRequest.parameters?.ttlSeconds ?? 0) / 60)
@@ -141,17 +161,21 @@ async function saveDraft() {
 
       <section v-else-if="tab === 'ledger' || tab === 'mine'" :key="tab">
         <table class="table">
-          <thead><tr><th>申请</th><th>目标</th><th>策略</th><th>申请 / 审批人</th><th>审批</th><th>执行</th></tr></thead>
+          <thead><tr><th>申请</th><th>目标</th><th>策略</th><th>申请 / 审批人</th><th>审批</th><th>执行</th><th v-if="tab === 'mine'"></th></tr></thead>
           <tbody>
             <tr v-for="a in (tab === 'ledger' ? data.ledger : data.mine)" :key="a.id">
               <td><span class="num block">#{{ a.id }} · {{ a.eventKey }}</span><span class="text-[12px] text-ink-3">{{ fmtTime(a.createdAt) }}</span></td>
               <td><span class="num block">{{ target(a) }}</span><span class="text-[12px] text-ink-3">{{ a.assetKey }} · TTL {{ ttl(a) }}m</span></td>
               <td class="num text-ink-2">{{ a.actionRequest.policyKey }} {{ a.actionRequest.policyVersion }}</td>
               <td class="text-[12.5px] text-ink-2">{{ a.requester }}<br /><span class="text-ink-3">{{ a.reviewer ?? '—' }}</span></td>
-              <td><Tag :tone="approvalTone[a.status]" :label="approvalLabel[a.status] ?? a.status" /></td>
+              <td>
+                <Tag :tone="approvalTone[a.status]" :label="a.withdrawnAt ? '已撤回' : approvalLabel[a.status] ?? a.status" />
+                <span v-if="a.withdrawnAt" class="mt-1 block max-w-[16rem] text-[12px] text-ink-3">{{ fmtTime(a.withdrawnAt) }} · {{ a.withdrawReason ?? '—' }}</span>
+              </td>
               <td><Tag :tone="a.executionStatus ? execTone[a.executionStatus] : 'mute'" :label="a.executionStatus ? execLabel[a.executionStatus] ?? a.executionStatus : '未开放'" /></td>
+              <td v-if="tab === 'mine'" class="whitespace-nowrap text-right"><button v-if="a.status === 'pending' && isMine(a)" class="link text-[12.5px]" @click="openWithdraw(a)">撤回</button></td>
             </tr>
-            <tr v-if="!(tab === 'ledger' ? data.ledger : data.mine).length"><td colspan="6" class="py-16 text-center text-ink-3">数据库中暂无记录。</td></tr>
+            <tr v-if="!(tab === 'ledger' ? data.ledger : data.mine).length"><td :colspan="tab === 'mine' ? 7 : 6" class="py-16 text-center text-ink-3">数据库中暂无记录。</td></tr>
           </tbody>
         </table>
         <p class="mt-6 text-[12.5px] text-ink-3">执行端点当前固定返回 <span class="num">503 ACTION_EXECUTION_UNAVAILABLE</span>，不调用适配器、不写执行记录。</p>
@@ -240,6 +264,18 @@ async function saveDraft() {
           <button class="act" :disabled="busy" @click="policyAction('decision', { decision: 'approve' }, '已批准；该版本生效，旧版本已退役。', true)">批准生效</button>
         </template>
         <button v-if="canRetire(policy)" class="act-ghost" :disabled="busy" @click="policyAction('retire', {}, '已退役。', true)">退役</button>
+      </template>
+    </Drawer>
+
+    <Drawer :open="!!withdrawing" :title="withdrawing ? `撤回申请 #${withdrawing.id}` : ''" :kicker="withdrawing?.eventKey ?? ''" @close="withdrawing = null">
+      <template v-if="withdrawing">
+        <p class="text-[13px] leading-relaxed text-ink-2">阻断 <span class="num">{{ target(withdrawing) }}</span> · {{ withdrawing.assetKey }} · TTL {{ ttl(withdrawing) }} min</p>
+        <label class="mt-8 block"><span class="label">撤回理由</span><textarea v-model="withdrawReason" rows="3" maxlength="1000" class="field mt-2 h-auto resize-none py-2" placeholder="记录到审批台账" /></label>
+        <p class="mt-6 text-[12.5px] leading-relaxed text-ink-3">仅待审批的本人申请可撤回；若审批人已先作出决定，撤回会失败并显示原因。</p>
+      </template>
+      <template #foot>
+        <button class="link text-[13px]" @click="withdrawing = null">取消</button>
+        <button class="act" :disabled="busy" @click="withdraw">确认撤回</button>
       </template>
     </Drawer>
 

@@ -88,6 +88,20 @@ class OnnxModelManagerActivationTest {
         assertThatThrownBy(() -> manager.runOnActive(1, rt -> rt)).hasMessage("ACTIVE_MODEL_CHANGED");
     }
 
+    /** 数据库提交顺序与回调调度顺序不同，旧回调不得覆盖较新部署。 */
+    @Test
+    void delayedOlderCommitCannotOverwriteNewerDeployment() throws Exception {
+        OnnxModelRuntime first = runtime();
+        OnnxModelRuntime second = runtime();
+        var older = commit(1, first);
+        var newer = commit(2, second);
+        newer.forEach(TransactionSynchronization::afterCommit);
+        older.forEach(TransactionSynchronization::afterCommit);
+        assertThat(manager.activeLocal()).map(OnnxModelManager.ActiveModel::modelId).contains(2L);
+        verify(first).close();
+        verify(second, never()).close();
+    }
+
     /** 模拟一次已提交的激活事务，返回待在任意线程执行的提交回调。 */
     private List<TransactionSynchronization> commit(long modelId, OnnxModelRuntime runtime) {
         TransactionSynchronizationManager.initSynchronization();

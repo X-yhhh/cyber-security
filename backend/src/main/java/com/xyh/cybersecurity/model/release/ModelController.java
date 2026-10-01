@@ -99,6 +99,22 @@ public class ModelController {
                 requestId(request));
     }
 
+    @PostMapping("/models/{id}/retire")
+    @PreAuthorize("hasAuthority('model.candidate.manage')")
+    public ApiEnvelope<ModelService.ModelView> retire(@PathVariable long id, @Valid @RequestBody ReasonBody body,
+            @AuthenticationPrincipal IdentityPrincipal actor, HttpServletRequest request) {
+        return ApiEnvelope.success(service.retire(id, body.reason(), actor, request), requestId(request));
+    }
+
+    @PostMapping("/model-deployments/rollback")
+    @PreAuthorize("hasAuthority('model.deployment.activate')")
+    public ApiEnvelope<ModelService.DeploymentView> rollback(@Valid @RequestBody RollbackBody body,
+            @AuthenticationPrincipal IdentityPrincipal actor, HttpServletRequest request) {
+        return ApiEnvelope.success(service.rollback(body.expectedCurrentModelId(), body.reason(), actor, request), requestId(request));
+    }
+    public record RollbackBody(@jakarta.validation.constraints.Positive long expectedCurrentModelId,
+                               @NotBlank @Size(max=1000) String reason) { }
+
     private static String requestId(HttpServletRequest request) {
         Object value = request.getAttribute(REQUEST_ID_ATTRIBUTE);
         return value instanceof String id ? id : "unknown";

@@ -126,6 +126,29 @@ class IncidentAuthorizationIntegrationTest {
     }
 
     @Test
+    void assignmentRequiresActiveFullyScopedInvestigatorAndWritesTimeline() throws Exception {
+        Cookie session=login(); Csrf csrfValue=csrf(session);
+        long userId=jdbc.queryForObject("SELECT id FROM sys_user WHERE username='incident-test-analyst'",Long.class);
+        var operation=org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put("/api/v1/events/{id}/assignee",visibleEventId)
+                .cookie(session).header(CSRF_HEADER,csrfValue.token()).contentType(APPLICATION_JSON);
+        mockMvc.perform(operation.content("{\"assigneeId\":"+userId+",\"reason\":\"本人处理\"}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.event.assigneeId").value(userId));
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM event_timeline WHERE entry_type='assignee_changed'",Integer.class)).isEqualTo(1);
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put("/api/v1/events/{id}/assignee",mixedEventId)
+                .cookie(session).header(CSRF_HEADER,csrfValue.token()).contentType(APPLICATION_JSON)
+                .content("{\"assigneeId\":"+userId+",\"reason\":\"隐藏证据事件\"}"))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(operation.content("{\"assigneeId\":9999999,\"reason\":\"未知用户\"}"))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(operation.content("{\"assigneeId\":null,\"reason\":\"取消指派\"}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.event.assigneeId").isEmpty());
+        jdbc.update("UPDATE security_event SET status='closed' WHERE id=?",visibleEventId);
+        mockMvc.perform(operation.content("{\"assigneeId\":"+userId+",\"reason\":\"已关闭\"}"))
+                .andExpect(status().isConflict());
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM audit_log WHERE resource_id=? AND action='event.assignee.changed'",Integer.class,Long.toString(visibleEventId))).isEqualTo(2);
+    }
+
+    @Test
     void eventTransitionsAreValidatedAndTimelineIsAppendOnly() throws Exception {
         Cookie session = login();
         Csrf csrf = csrf(session);

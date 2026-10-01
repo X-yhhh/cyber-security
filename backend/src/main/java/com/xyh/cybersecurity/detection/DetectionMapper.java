@@ -75,6 +75,10 @@ public interface DetectionMapper {
 
     RuleView findRuleForUpdate(@Param("id") long id);
 
+    RuleView findRule(@Param("id") long id);
+    List<RuleView> lockRuleVersions(@Param("ruleKey") String ruleKey);
+    int retireRule(@Param("id") long id);
+
     int insertRule(@Param("ruleKey") String ruleKey, @Param("version") String version,
                    @Param("scopeJson") String scopeJson, @Param("conditionJson") String conditionJson,
                    @Param("severity") String severity, @Param("requestedBy") long requestedBy);
@@ -105,7 +109,7 @@ public interface DetectionMapper {
     record AlertInsert(String alertKey, long ingestRecordId, Long inferenceRequestId, Long modelVersionId,
                        String contractVersion, String contractSha256, Long detectionRuleId, String alertType,
                        String severity, String severityPolicyVersion, BigDecimal score, String thresholdVersion,
-                       String basisJson, Instant detectedAt) { }
+                       String basisJson, Instant detectedAt, String alertLayer, String correlationPolicyVersion) { }
 
     record AssetRow(long id, String assetKey, String criticality) { }
 

@@ -23,6 +23,9 @@
             <arg column="severity_policy_version" javaType="string"/>
             <arg column="threshold_version" javaType="string"/>
             <arg column="basis_json" javaType="string"/>
+            <arg column="alert_layer" javaType="string"/>
+            <arg column="correlation_policy_version" javaType="string"/>
+            <arg column="promoted_at" javaType="java.time.LocalDateTime"/>
         </constructor>
     </resultMap>
 
@@ -194,7 +197,8 @@
         SELECT da.id, da.alert_key, da.alert_type, da.severity, da.status, da.score, da.detected_at,
                ib.data_source_id, ir.asset_id, da.model_version_id, amv.model_key, amv.version model_version,
                da.contract_version, da.contract_sha256, da.detection_rule_id, adr.rule_key, adr.version rule_version,
-               da.severity_policy_version, da.threshold_version, CAST(da.basis_json AS CHAR) basis_json
+               da.severity_policy_version, da.threshold_version, CAST(da.basis_json AS CHAR) basis_json,
+               da.alert_layer, da.correlation_policy_version, da.promoted_at
         FROM detection_alert da
         JOIN ingest_record ir ON ir.id=da.ingest_record_id
         JOIN ingest_batch ib ON ib.id=ir.batch_id
@@ -207,7 +211,7 @@
         FROM detection_alert da
         JOIN ingest_record ir ON ir.id=da.ingest_record_id
         JOIN ingest_batch ib ON ib.id=ir.batch_id
-        WHERE <include refid="visibleAlertPredicate">
+        WHERE da.alert_layer=#{layer} AND <include refid="visibleAlertPredicate">
             <property name="assetId" value="ir.asset_id"/>
             <property name="sourceId" value="ib.data_source_id"/>
         </include>
@@ -215,7 +219,7 @@
 
     <select id="listVisibleAlerts" resultMap="alertView">
         <include refid="alertSelect"/>
-        WHERE <include refid="visibleAlertPredicate">
+        WHERE da.alert_layer=#{layer} AND <include refid="visibleAlertPredicate">
             <property name="assetId" value="ir.asset_id"/>
             <property name="sourceId" value="ib.data_source_id"/>
         </include>
@@ -297,6 +301,16 @@
         FROM event_timeline et JOIN <include refid="visibleEventOnly"/> ON ve.id=et.event_id
         ORDER BY et.occurred_at DESC, et.id DESC LIMIT #{limit} OFFSET #{offset}
     </select>
+
+    <select id="lockActiveAssignee" resultType="long">SELECT id FROM sys_user WHERE id=#{id} AND status='active' FOR SHARE</select>
+    <select id="lockInvestigableEvent" resultMap="eventView">
+        <include refid="eventSelect"/> WHERE e.id=#{eventId} AND <include refid="visibleEventInvestigatePredicate"/> FOR UPDATE OF e
+    </select>
+    <select id="lockInvestigatorRoles" resultType="long">SELECT role_id FROM sys_user_role WHERE user_id=#{userId} ORDER BY role_id,scope_type,scope_id FOR SHARE</select>
+    <select id="canInvestigate" resultType="boolean">SELECT EXISTS(SELECT 1 FROM security_event e
+        WHERE e.id=#{eventId} AND <include refid="visibleEventInvestigatePredicate"/>)</select>
+    <update id="assign">UPDATE security_event e SET assignee_id=#{assignee,jdbcType=BIGINT},updated_at=UTC_TIMESTAMP(3)
+        WHERE e.id=#{eventId} AND e.status IN ('open','investigating','contained') AND <include refid="visibleEventInvestigatePredicate"/></update>
 
     <update id="transitionVisibleEvent">
         UPDATE security_event e

@@ -1,0 +1,75 @@
+{
+  "dataset": "CIC-IDS2017",
+  "mirror": "https://www.kaggle.com/datasets/congyuanxu/cicids2017",
+  "version": 4,
+  "files": [
+    {
+      "name": "Friday-WorkingHours/Friday-WorkingHours.md5",
+      "totalBytes": 59
+    },
+    {
+      "name": "Friday-WorkingHours/Friday-WorkingHours.pcap",
+      "totalBytes": 8839309056
+    },
+    {
+      "name": "MachineLearningCVE/Friday-WorkingHours-Afternoon-DDos.pcap_ISCX.csv",
+      "totalBytes": 77123859
+    },
+    {
+      "name": "MachineLearningCVE/Friday-WorkingHours-Afternoon-PortScan.pcap_ISCX.csv",
+      "totalBytes": 76906168
+    },
+    {
+      "name": "MachineLearningCVE/Friday-WorkingHours-Morning.pcap_ISCX.csv",
+      "totalBytes": 58316725
+    },
+    {
+      "name": "MachineLearningCVE/Thursday-WorkingHours-Morning-WebAttacks.pcap_ISCX.csv",
+      "totalBytes": 52023263
+    },
+    {
+      "name": "Monday-WorkingHours/Monday-WorkingHours.md5",
+      "totalBytes": 59
+    },
+    {
+      "name": "Monday-WorkingHours/Monday-WorkingHours.pcap",
+      "totalBytes": 10822507416
+    },
+    {
+      "name": "Thursday-WorkingHours/Thursday-WorkingHours.md5",
+      "totalBytes": 61
+    },
+    {
+      "name": "Thursday-WorkingHours/Thursday-WorkingHours.pcap",
+      "totalBytes": 8302500180
+    },
+    {
+      "name": "Tuesday-WorkingHours/Tuesday-WorkingHours.md5",
+      "totalBytes": 60
+    },
+    {
+      "name": "Tuesday-WorkingHours/Tuesday-WorkingHours.pcap",
+      "totalBytes": 11048283608
+    },
+    {
+      "name": "Wednesday-WorkingHours/Wednesday-WorkingHours.md5",
+      "totalBytes": 62
+    },
+    {
+      "name": "Wednesday-WorkingHours/Wednesday-WorkingHours.pcap",
+      "totalBytes": 13420789612
+    }
+  ],
+  "license_metadata": "MIT (mirror claim only; not an authoritative replacement for UNB terms)",
+  "monday_sample": {
+    "bytes_read": 65536,
+    "container": "pcapng",
+    "interface_link_type": 1,
+    "complete_packets_in_prefix": 277,
+    "first_packet_utc": "2017-07-03T11:55:58.598308Z",
+    "advertised_md5": "8525733283c2c5f98891a0dca036e7c7",
+    "full_file_downloaded": false,
+    "full_hash_verified": false,
+    "official_authenticity_verified": false
+  }
+}

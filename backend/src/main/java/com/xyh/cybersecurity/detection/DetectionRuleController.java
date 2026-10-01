@@ -56,6 +56,32 @@ public class DetectionRuleController {
                 requestId(request));
     }
 
+    @GetMapping("/{id}")
+    @PreAuthorize("hasAuthority('detection.rule.read')")
+    public ApiEnvelope<DetectionMapper.RuleView> get(@PathVariable long id, HttpServletRequest request) {
+        return ApiEnvelope.success(service.get(id), requestId(request));
+    }
+
+    @PostMapping("/{id}/versions")
+    @ResponseStatus(HttpStatus.CREATED)
+    @PreAuthorize("hasAuthority('detection.rule.manage')")
+    public ApiEnvelope<DetectionMapper.RuleView> version(@PathVariable long id, @Valid @RequestBody VersionBody body,
+            @AuthenticationPrincipal IdentityPrincipal actor, HttpServletRequest request) {
+        return ApiEnvelope.success(service.createVersion(id, new DetectionRuleService.CreateRule(null, body.version(),
+                body.severity(), body.condition(), body.scope(), body.reason()), actor, request), requestId(request));
+    }
+
+    @PostMapping("/{id}/retire")
+    @PreAuthorize("hasAuthority('detection.rule.approve')")
+    public ApiEnvelope<DetectionMapper.RuleView> retire(@PathVariable long id, @Valid @RequestBody ReasonBody body,
+            @AuthenticationPrincipal IdentityPrincipal actor, HttpServletRequest request) {
+        return ApiEnvelope.success(service.retire(id, body.reason(), actor, request), requestId(request));
+    }
+
+    public record VersionBody(@NotBlank @Size(max=32) String version, String severity, JsonNode condition,
+                              JsonNode scope, @NotBlank @Size(max=1000) String reason) { }
+    public record ReasonBody(@NotBlank @Size(max=1000) String reason) { }
+
     private static String requestId(HttpServletRequest request) {
         Object value = request.getAttribute(REQUEST_ID_ATTRIBUTE);
         return value instanceof String id ? id : "unknown";

@@ -46,6 +46,21 @@ public class ApprovalDecisionService {
         }
     }
 
+    /** 本人撤回待审申请。原审批列不伪造，条件更新与审批竞争时仅一方成功，审计和时间线同事务。 */
+    @Transactional
+    public ResponseService.ApprovalView withdraw(long id, String reason, IdentityPrincipal actor, HttpServletRequest request) {
+        String summary = support.validatedReason(reason);
+        var row = mapper.findApproval(id);
+        if (row == null || !mapper.hasAssetPermission(actor.id(), "action.request", row.assetId())) throw ApiRequestException.notFound();
+        if (row.requestedBy() != actor.id()) throw new AccessDeniedException("只有申请人可撤回");
+        // 审批路径先锁事件再写审批行；撤回也遵守同一顺序，避免 timeline 的事件外键与审批行反向死锁。
+        mapper.eventStatusForUpdate(row.eventId());
+        if (mapper.withdraw(id, actor.id(), summary) != 1) throw ApiRequestException.conflict("仅待审批申请可以撤回");
+        audit(actor.id(), "action.request.withdrawn", id, row.assetId(), request, summary);
+        mapper.insertTimeline(row.eventId(), actor.id(), "action_request_withdrawn", id, "申请人撤回处置申请");
+        return support.view(mapper.findApproval(id));
+    }
+
     private ResponseService.ApprovalView decideInternal(long id, String decision, String reason,
                                                          IdentityPrincipal actor, HttpServletRequest request) {
         String summary = support.validatedReason(reason);

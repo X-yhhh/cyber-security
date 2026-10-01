@@ -43,3 +43,7 @@ frontend/*.tsbuildinfo
 
 # Frontend test coverage output
 frontend/coverage/
+
+# 离线工具二进制与标签旁路（原始端点不得进 Git）
+sensor/bin/
+*.label-audit.jsonl

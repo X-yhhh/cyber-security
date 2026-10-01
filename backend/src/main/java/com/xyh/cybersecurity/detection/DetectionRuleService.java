@@ -45,6 +45,41 @@ public class DetectionRuleService {
 
     public List<DetectionMapper.RuleView> list() { return mapper.listRules(); }
 
+    /** 只读详情不持有写锁；版本内容不会被覆盖。 */
+    public DetectionMapper.RuleView get(long id) {
+        var row = mapper.findRule(id);
+        if (row == null) throw ApiRequestException.notFound();
+        return row;
+    }
+
+    /** 从任意旧版本复制内容；新版本仍为 pending，必须由另一人批准。 */
+    @Transactional
+    public DetectionMapper.RuleView createVersion(long baseId, CreateRule input, IdentityPrincipal actor, HttpServletRequest request) {
+        var base = get(baseId);
+        if (input.ruleKey() != null && !input.ruleKey().equals(base.ruleKey())) throw ApiRequestException.badRequest("不可更改规则键");
+        mapper.lockRuleVersions(base.ruleKey());
+        var result = create(new CreateRule(base.ruleKey(), input.version(), input.severity() == null ? base.severity() : input.severity(),
+                input.condition() == null ? parse(base.conditionJson()) : input.condition(),
+                input.scope() == null ? parse(base.scopeJson()) : input.scope(), input.reason()), actor, request);
+        audit(actor.id(), "detection.rule.version.based_on", result.id(), request, "来源版本 " + baseId);
+        return result;
+    }
+
+    @Transactional
+    public DetectionMapper.RuleView retire(long id, String reasonText, IdentityPrincipal actor, HttpServletRequest request) {
+        String reason = reason(reasonText);
+        var found = get(id);
+        mapper.lockRuleVersions(found.ruleKey());
+        if (mapper.retireRule(id) != 1) throw ApiRequestException.conflict("只允许退役 active 规则");
+        audit(actor.id(), "detection.rule.retired", id, request, reason);
+        return get(id);
+    }
+
+    private JsonNode parse(String text) {
+        try { return json.readTree(text); }
+        catch (Exception e) { throw ApiRequestException.conflict("来源规则内容损坏"); }
+    }
+
     public record CreateRule(String ruleKey, String version, String severity, JsonNode condition, JsonNode scope,
                              String reason) { }
 
@@ -56,7 +91,7 @@ public class DetectionRuleService {
         if (input.version() == null || !VERSION.matcher(input.version()).matches()) {
             throw ApiRequestException.badRequest("规则版本格式无效");
         }
-        if (!DetectionPolicies.SEVERITIES.contains(input.severity())) throw ApiRequestException.badRequest("严重度无效");
+        if (input.severity() == null || !DetectionPolicies.SEVERITIES.contains(input.severity())) throw ApiRequestException.badRequest("严重度无效");
         String reason = reason(input.reason());
         try {
             RuleCondition.parse(input.condition());
@@ -80,6 +115,8 @@ public class DetectionRuleService {
                                            HttpServletRequest request) {
         if (!Set.of("approve", "reject").contains(decision)) throw ApiRequestException.badRequest("规则审批决定无效");
         String reason = reason(reasonText);
+        var found = get(id);
+        mapper.lockRuleVersions(found.ruleKey());
         DetectionMapper.RuleView rule = mapper.findRuleForUpdate(id);
         if (rule == null) throw ApiRequestException.notFound();
         if (rule.requestedBy() != null && rule.requestedBy() == actor.id()) {

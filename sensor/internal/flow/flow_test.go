@@ -162,3 +162,20 @@ func TestCapacityDrop(t *testing.T) {
 		t.Fatal("超出容量的新流应被丢弃并计数")
 	}
 }
+
+func TestOfflineLabelLengthsAndDefaultOff(t *testing.T) {
+	tab := NewTable(1500, 1000)
+	normal := feed(t, tab, c2s(0, synth.SYN, 0), s2c(1, synth.RST, 0))
+	if normal[0].LabelAudit != nil {
+		t.Fatal("在线默认不应生成标签旁路")
+	}
+	tab = NewTable(1500, 1000)
+	tab.EnableLabelAudit()
+	out := feed(t, tab, c2s(0, synth.SYN, 0), s2c(20, synth.SYN|synth.ACK, 0), c2s(30, synth.ACK, 4000), s2c(40, synth.RST, 1))
+	if a := out[0].LabelAudit; a.SPayload != 4000 || a.DPayload != 1 || a.SPackets != 2 || a.DPackets != 2 || !a.Reliable {
+		t.Fatalf("离线原始包计数不可被 MSS 分段折算: %+v", a)
+	}
+	if out[0].SPkts <= out[0].LabelAudit.SPackets {
+		t.Fatal("测试应覆盖 D11 分段折算差异")
+	}
+}

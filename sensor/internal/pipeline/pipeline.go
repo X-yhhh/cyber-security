@@ -41,6 +41,8 @@ type Pipeline struct {
 	now     time.Time
 	diag    Diagnostics
 	window  Counters
+	// CompletedObserver 仅供离线审计，按导出序号关联特征；不得修改传入流。
+	CompletedObserver func(flow.Completed)
 }
 
 // New 创建流水线。emit 收到每批释放的全部记录（含非 ready，调用方自行过滤）。
@@ -84,6 +86,9 @@ func (p *Pipeline) Close() {
 func (p *Pipeline) push(cs []flow.Completed) {
 	for _, c := range cs {
 		p.diag.CloseReason[c.Reason]++
+		if p.CompletedObserver != nil {
+			p.CompletedObserver(c)
+		}
 	}
 	p.builder.Push(cs)
 }

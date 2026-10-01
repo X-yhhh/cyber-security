@@ -128,6 +128,7 @@ func runExtract(args []string) error {
 	fs := flag.NewFlagSet("extract", flag.ExitOnError)
 	in := fs.String("pcap", "", "输入 pcap（以太网链路）")
 	out := fs.String("out", "", "输出 JSONL")
+	labelOut := fs.String("label-audit", "", "仅公开数据集离线标注：端点及头部推算长度 JSONL，不可作为模型输入")
 	diagOut := fs.String("diagnostics", "", "可选：诊断计数 JSON 输出")
 	keyBase := fs.String("key-base", "extract", "记录键前缀")
 	mtu := fs.Int("mtu", 1500, "D11 超大包判定 MTU")
@@ -154,11 +155,27 @@ func runExtract(args []string) error {
 		}
 		prefixes = append(prefixes, p)
 	}
+	if *labelOut != "" && (*labelOut == *out || *labelOut == *in || *labelOut == *diagOut) {
+		return errors.New("标签旁路必须使用独立输出路径")
+	}
+	var auditFile *os.File
+	if *labelOut != "" {
+		var err error
+		auditFile, err = os.OpenFile(*labelOut, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+		if err != nil {
+			return err
+		}
+		defer auditFile.Close()
+	}
 	f, err := os.Create(*out)
 	if err != nil {
 		return err
 	}
-	diag, runErr := extract.Run(*in, f, extract.Options{LocalAddrs: addrs, Subnets: prefixes, KeyBase: *keyBase, MTU: *mtu})
+	opt := extract.Options{LocalAddrs: addrs, Subnets: prefixes, KeyBase: *keyBase, MTU: *mtu}
+	if auditFile != nil {
+		opt.LabelAudit = auditFile
+	}
+	diag, runErr := extract.Run(*in, f, opt)
 	if closeErr := f.Close(); runErr == nil {
 		runErr = closeErr
 	}

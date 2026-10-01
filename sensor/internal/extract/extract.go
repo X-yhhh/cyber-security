@@ -23,6 +23,8 @@ type Options struct {
 	Subnets    []netip.Prefix
 	KeyBase    string
 	MTU        int
+	// LabelAudit 只用于公开数据集离线标注；nil 保持既有无地址输出。
+	LabelAudit io.Writer
 }
 
 // Line 是输出的一行：状态、元数据与（ready 时）按契约顺序的特征。地址不输出。
@@ -45,7 +47,11 @@ func Run(pcapPath string, out io.Writer, opt Options) (pipeline.Diagnostics, err
 	w := bufio.NewWriter(out)
 	enc := json.NewEncoder(w)
 	var werr error
-	p := pipeline.New(flow.NewTable(opt.MTU, 1_000_000),
+	tab := flow.NewTable(opt.MTU, 1_000_000)
+	if opt.LabelAudit != nil {
+		tab.EnableLabelAudit()
+	}
+	p := pipeline.New(tab,
 		feature.NewBuilder(feature.NewAddressPolicy(opt.LocalAddrs, opt.Subnets), opt.KeyBase),
 		func(rs []feature.Record) {
 			for _, r := range rs {
@@ -55,11 +61,26 @@ func Run(pcapPath string, out io.Writer, opt Options) (pipeline.Diagnostics, err
 				}
 			}
 		})
+	var auditWriter *bufio.Writer
+	if opt.LabelAudit != nil {
+		auditWriter = bufio.NewWriter(opt.LabelAudit)
+		auditEncoder := json.NewEncoder(auditWriter)
+		p.CompletedObserver = func(c flow.Completed) {
+			if werr == nil {
+				werr = auditEncoder.Encode(LabelLine{c.ExportSeq, c.Start.UTC(), c.Last.UTC(), c.Init.Addr.String(), c.Resp.Addr.String(), c.Init.Port, c.Resp.Port, c.Key.Proto, c.Segment, c.Reason, c.LabelAudit})
+			}
+		}
+	}
 	if err := capture.ReadFile(pcapPath, p); err != nil {
 		return pipeline.Diagnostics{}, err
 	}
 	if werr != nil {
 		return pipeline.Diagnostics{}, werr
+	}
+	if auditWriter != nil {
+		if err := auditWriter.Flush(); err != nil {
+			return p.Diagnostics(), err
+		}
 	}
 	return p.Diagnostics(), w.Flush()
 }
@@ -71,4 +92,19 @@ func DiagnosticsJSON(d pipeline.Diagnostics) ([]byte, error) {
 		return nil, err
 	}
 	return append(raw, '\n'), nil
+}
+
+// LabelLine 是只在离线标注文件中保存的头部元数据，不能作为模型输入或上报字段。
+type LabelLine struct {
+	ExportSeq     int64            `json:"exportSeq"`
+	Start         time.Time        `json:"flowStartAt"`
+	End           time.Time        `json:"flowEndAt"`
+	Initiator     string           `json:"initiator"`
+	Responder     string           `json:"responder"`
+	InitiatorPort uint16           `json:"initiatorPort"`
+	ResponderPort uint16           `json:"responderPort"`
+	Protocol      uint8            `json:"protocol"`
+	Segment       int              `json:"segment"`
+	CloseReason   string           `json:"closeReason"`
+	Lengths       *flow.LabelAudit `json:"lengths"`
 }

@@ -1,0 +1,93 @@
+{
+  "version": "phase2-validation-baseline-v1",
+  "modelVersion": "unsw-binary-2026.10.2",
+  "modelSha256": "c87b883d0ac32b0a827441eb5d97164acaa46e67653fb79cd369b9c794949358",
+  "manifestSha256": "f2f3464b7af3218b75246454483eb490757b85b306f7ab8fa3b31ba685b2d52d",
+  "splitFingerprint": "fc097aaa56e5d5a7e45cd0592c745b17dc06594d9b02b6779005e878817f5f41",
+  "thresholdMethodSha256": "5690bbf21642eb41b3d5fcab653e3f409cdf47f430669204fb5a05ad63a747c1",
+  "evaluationScopeSha256": "1f72008612c109c6a69448c787e83f6a1b861b7c9a1e65ee5f4a535f089d5748",
+  "evaluationExcludedCategories": [
+    "Heartbleed",
+    "Web Attack - XSS"
+  ],
+  "validationEvaluationsBeforeScopeFreeze": 1,
+  "validationSha256": "524fe6b568d900caac5db7ce135a0576900e6925b491ca9df77d30e5c56cd70b",
+  "partition": "validation",
+  "fitPerformed": false,
+  "thresholdChanged": false,
+  "holdoutEvaluations": 0,
+  "cse2018Read": false,
+  "metrics": {
+    "samples": 41820,
+    "tn": 1552,
+    "fp": 20,
+    "fn": 24939,
+    "tp": 15309,
+    "fpr": 0.01272264631043257,
+    "recall": 0.38036672629695883,
+    "macroF1": 0.33075981122984494,
+    "prAuc": 0.9965577847151511,
+    "rocAuc": 0.9314735124416912,
+    "fprWilson95": [
+      0.008250930578698962,
+      0.01957005266507454
+    ],
+    "recallWilson95": [
+      0.3756354496494058,
+      0.3851208374920932
+    ]
+  },
+  "categories": {
+    "DDoS": {
+      "samples": 13915,
+      "attackPredictionRate": 0.41099532878189005
+    },
+    "DoS GoldenEye": {
+      "samples": 255,
+      "attackPredictionRate": 0.0
+    },
+    "DoS Hulk": {
+      "samples": 23236,
+      "attackPredictionRate": 0.4125064555000861
+    },
+    "DoS Slowhttptest": {
+      "samples": 94,
+      "attackPredictionRate": 0.0
+    },
+    "DoS Slowloris": {
+      "samples": 18,
+      "attackPredictionRate": 0.0
+    },
+    "FTP-Patator": {
+      "samples": 593,
+      "attackPredictionRate": 0.0
+    },
+    "Normal": {
+      "samples": 1572,
+      "attackPredictionRate": 0.01272264631043257
+    },
+    "Portscan": {
+      "samples": 1684,
+      "attackPredictionRate": 0.0029691211401425177
+    },
+    "SSH-Patator": {
+      "samples": 441,
+      "attackPredictionRate": 0.0
+    },
+    "Web Attack - Brute Force": {
+      "samples": 10,
+      "attackPredictionRate": 0.0
+    },
+    "Web Attack - SQL Injection": {
+      "samples": 2,
+      "attackPredictionRate": 0.0
+    }
+  },
+  "splitGate": "ready",
+  "runtime": {
+    "onnxruntime": "1.27.0",
+    "provider": "CPUExecutionProvider",
+    "python": "3.14.2",
+    "matchesValidatedRuntime": false
+  }
+}

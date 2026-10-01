@@ -1,0 +1,85 @@
+{
+  "version": "phase2-category-exclusions-v1",
+  "labelRulesSha256": "cc2e451be8d95d11abece42d756d1a65ee302ba0168f05f969728eb1ebb0bd57",
+  "counts": {
+    "DDoS": {
+      "matched": 94350,
+      "attack_boundary": 175,
+      "split_connection": 4,
+      "not_in_model_scope": 43
+    },
+    "DoS GoldenEye": {
+      "split_connection": 5847,
+      "not_in_model_scope": 1317,
+      "matched": 1701
+    },
+    "DoS Hulk": {
+      "attack_boundary": 1395,
+      "matched": 155013,
+      "attempted_port": 2,
+      "attempted_payload": 19,
+      "overlapping_rules": 74,
+      "split_connection": 412,
+      "not_in_model_scope": 125,
+      "value_invalid": 28
+    },
+    "DoS Slowhttptest": {
+      "attack_boundary": 140,
+      "split_connection": 3446,
+      "matched": 627,
+      "not_in_model_scope": 4620,
+      "attempted_port": 1,
+      "attempted_payload": 2
+    },
+    "DoS Slowloris": {
+      "attack_boundary": 49,
+      "split_connection": 3559,
+      "matched": 119,
+      "attempted_port": 4,
+      "not_in_model_scope": 4833,
+      "attempted_payload": 5
+    },
+    "FTP-Patator": {
+      "split_connection": 11,
+      "matched": 3952,
+      "attack_boundary": 10
+    },
+    "Heartbleed": {
+      "split_connection": 1,
+      "not_in_model_scope": 20
+    },
+    "Portscan": {
+      "attack_boundary": 1353,
+      "matched": 159739,
+      "not_in_model_scope": 278,
+      "value_invalid": 1
+    },
+    "SSH-Patator": {
+      "attack_boundary": 10,
+      "matched": 2939,
+      "attempted_ssh": 19,
+      "split_connection": 11,
+      "not_in_model_scope": 11
+    },
+    "Web Attack - Brute Force": {
+      "attack_boundary": 9,
+      "attempted_payload": 1207,
+      "matched": 71,
+      "unclassified_web_artifact": 71
+    },
+    "Web Attack - SQL Injection": {
+      "overlapping_rules": 2,
+      "matched": 11,
+      "attack_boundary": 1
+    },
+    "Web Attack - XSS": {
+      "attack_boundary": 8,
+      "attempted_payload": 645,
+      "attempted_packet_count": 3,
+      "split_connection": 17,
+      "not_in_model_scope": 17
+    }
+  },
+  "interpretation": "公开攻击时间与端点交集的诊断计数，不是重新标注或作者流的逐条映射；不同切流口径不可直接相减。",
+  "holdoutEvaluations": 0
+}

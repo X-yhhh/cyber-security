@@ -1,3 +1,5 @@
 # golden fixtures 由训练端生成，文件哈希登记在契约 goldenFixtures 与 checksums.json 中：
 # 必须按字节原样保存（-text 禁止行尾转换），并跳过空白检查（部分文件为 CRLF）。
 backend/src/test/resources/feature-contract/fixtures/** -text -whitespace
+# Windows 生成的阶段 2 完成证据已绑定 SHA-256，保留 CRLF 原字节；仍检查其他尾部空白。
+docs/phase2-evidence/scope-v2/completion.json -text whitespace=trailing-space,space-before-tab,cr-at-eol

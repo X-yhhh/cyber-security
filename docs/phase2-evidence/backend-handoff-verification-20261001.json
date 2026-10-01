@@ -1,0 +1,465 @@
+{
+  "version": "phase2-backend-handoff-verification-v2",
+  "jdk": "Temurin 25.0.2",
+  "fullVerify": {
+    "tests": 246,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 1
+  },
+  "additionalCicMondayParity": {
+    "frames": 2223995,
+    "tests": 3,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "currentReportTotals": {
+    "tests": 246,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "suites": [
+    {
+      "suite": "com.xyh.cybersecurity.asset.AssetLifecycleIntegrationTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "com.xyh.cybersecurity.audit.AuditAppendOnlyContractTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "com.xyh.cybersecurity.audit.AuditControllerReadOnlyTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "com.xyh.cybersecurity.audit.AuditScopeMapperTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "com.xyh.cybersecurity.authorization.AuthorizationIntegrationTest",
+      "tests": 11,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "com.xyh.cybersecurity.common.api.ApiExceptionHandlerTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "com.xyh.cybersecurity.common.web.RequestIdFilterTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "com.xyh.cybersecurity.database.BootstrapAdminHashTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "com.xyh.cybersecurity.database.DataSourceTimeZoneIntegrationTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "com.xyh.cybersecurity.database.FlywayBaselineConfigurationTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "com.xyh.cybersecurity.database.MigrationIntegrationTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "com.xyh.cybersecurity.database.MyBatisMigrationGuardTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "com.xyh.cybersecurity.database.UtcClockGuardTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "com.xyh.cybersecurity.detection.DetectionRuleServiceTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "com.xyh.cybersecurity.detection.DetectionRulesAndPoliciesTest",
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "com.xyh.cybersecurity.detection.Phase2DetectionIntegrationTest",
+      "tests": 8,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "com.xyh.cybersecurity.detection.RuleReplayCliTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "com.xyh.cybersecurity.detection.WindowRuleIntegrationTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "com.xyh.cybersecurity.detection.WindowRuleTest",
+      "tests": 9,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "com.xyh.cybersecurity.drift.FeatureBaselineTest",
+      "tests": 7,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "com.xyh.cybersecurity.identity.AuthSecurityIntegrationTest",
+      "tests": 7,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "com.xyh.cybersecurity.identity.EntityLifecycleIntegrationTest",
+      "tests": 7,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "com.xyh.cybersecurity.identity.LocalAdminBootstrapIntegrationTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "com.xyh.cybersecurity.incident.IncidentAuthorizationIntegrationTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "com.xyh.cybersecurity.inference.InferenceServiceTest",
+      "tests": 7,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "com.xyh.cybersecurity.inference.LocalInferenceIntegrationTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "com.xyh.cybersecurity.inference.LocalInferenceRunnerTest",
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "com.xyh.cybersecurity.ingest.BidirectionalFlowEngineTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "com.xyh.cybersecurity.ingest.FeatureContractValidatorTest",
+      "tests": 13,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "com.xyh.cybersecurity.ingest.MachineIngestIntegrationTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "com.xyh.cybersecurity.ingest.NetflowDecoderTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "com.xyh.cybersecurity.ingest.NetflowTemplateRegistryTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "com.xyh.cybersecurity.ingest.SensorV4IngestIntegrationTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "com.xyh.cybersecurity.ingest.contract.FeatureContractLoaderTest",
+      "tests": 12,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "com.xyh.cybersecurity.ingest.feature.FeatureBuilderTest",
+      "tests": 9,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "com.xyh.cybersecurity.ingest.feature.GoldenFixturesTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "com.xyh.cybersecurity.ingest.feature.legacy.V31FeatureBuilderTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "com.xyh.cybersecurity.ingest.outbox.IngestBatchConsumerRabbitMqIntegrationTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "com.xyh.cybersecurity.ingest.outbox.IngestBatchConsumerTest",
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "com.xyh.cybersecurity.ingest.outbox.IngestBatchProcessingServiceTest",
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "com.xyh.cybersecurity.ingest.outbox.OutboxRelayMetricsTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "com.xyh.cybersecurity.ingest.outbox.OutboxRelayRabbitMqIntegrationTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "com.xyh.cybersecurity.ingest.outbox.OutboxRelaySchedulerTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "com.xyh.cybersecurity.ingest.outbox.RabbitOutboxPublisherIntegrationTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "com.xyh.cybersecurity.ingest.packet.PacketLevelParityTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "com.xyh.cybersecurity.ingest.replay.SensorReplayCliTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "com.xyh.cybersecurity.ingest.replay.UnswRawReplayEndToEndTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "com.xyh.cybersecurity.model.ModelAndResponseLedgerIntegrationTest",
+      "tests": 10,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "com.xyh.cybersecurity.model.runtime.FeatureContractModelGateTest",
+      "tests": 9,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "com.xyh.cybersecurity.model.runtime.ModelInputContractTest",
+      "tests": 12,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "com.xyh.cybersecurity.model.runtime.OnnxModelManagerActivationTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "com.xyh.cybersecurity.model.runtime.V4FixtureOnnxParityTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "com.xyh.cybersecurity.ops.HealthControllerTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "com.xyh.cybersecurity.ops.OpsMetricsTest",
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "com.xyh.cybersecurity.query.ConsoleQueryIntegrationTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "com.xyh.cybersecurity.response.PolicyDefinitionValidatorTest",
+      "tests": 10,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "com.xyh.cybersecurity.response.ResponseDomainTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "com.xyh.cybersecurity.response.ResponsePolicyIntegrationTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "com.xyh.cybersecurity.security.AbsoluteSessionFilterTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "com.xyh.cybersecurity.shadow.ShadowValidationIntegrationTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "suite": "com.xyh.cybersecurity.source.DataSourceAuthorizationIntegrationTest",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  ],
+  "note": "完整 verify 245 通过、1 未配置参考目录而跳过；随后定位既有可信 UNSW 参考、验证文件哈希并单独补跑通过。组合报告共 246 项全部通过，非单次 verify 的统计。",
+  "developmentDatabaseMigrated": false,
+  "frontendChanged": false,
+  "committedOrPushed": false,
+  "command": "JAVA_HOME=<Temurin JDK 25> MODEL_DELIVERY_V4_DIR=<2026.10.2> MODEL_PREVIOUS_DELIVERY_V4_DIR=<2026.10.1> mvn -B -q -f backend/pom.xml -Dg2.externalDir=<CIC Monday G2 fixtures> verify",
+  "additionalUnswReference": {
+    "tests": 1,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "comparedRows": 10000,
+    "inputChecksumsVerified": true
+  }
+}

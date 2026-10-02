@@ -1,0 +1,38 @@
+{
+  "authorImprovedRows": 11,
+  "distinctDirectionalFiveTuples": 1,
+  "timestamps": [
+    "2017-07-05 18:12:15.650811",
+    "2017-07-05 18:14:15.947652",
+    "2017-07-05 18:16:16.204065",
+    "2017-07-05 18:18:16.459234",
+    "2017-07-05 18:20:16.713848",
+    "2017-07-05 18:22:16.969602",
+    "2017-07-05 18:24:17.224706",
+    "2017-07-05 18:26:17.478448",
+    "2017-07-05 18:28:17.732009",
+    "2017-07-05 18:30:17.987548",
+    "2017-07-05 18:32:18.242051"
+  ],
+  "durationsMicroseconds": [
+    119302728,
+    119262215,
+    119261118,
+    119260295,
+    119297996,
+    119259886,
+    119259012,
+    119257653,
+    119299621,
+    119296592,
+    25052404
+  ],
+  "implication": "同一天同一五元组只有一个连接分组；不可拆进三个分区制造覆盖。",
+  "version": "heartbleed-coverage-review-v1",
+  "source": "https://intrusion-detection.distrinet-research.be/CNS2022/Datasets/CICIDS2017_improved.zip",
+  "sourceArchiveSha256": "97fdb91d339e2d8cf5627f981b831e5e7e400b981c58181c451a38fd03c48883",
+  "member": "wednesday.csv",
+  "reviewedAt": "2026-10-01T11:50:53.010977+00:00",
+  "modelScored": false,
+  "pcapCrossCheckPending": true
+}

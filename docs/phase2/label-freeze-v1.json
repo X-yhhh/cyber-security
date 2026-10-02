@@ -1,0 +1,9 @@
+{
+  "version": "phase2-label-freeze-v1",
+  "frozenAt": "2026-10-01T10:46:20.347611+00:00",
+  "rulesFile": "label-rules-cic2017-v1.json",
+  "sha256": "cc2e451be8d95d11abece42d756d1a65ee302ba0168f05f969728eb1ebb0bd57",
+  "authorization": "用户于 2026-10-01 明确同意本轮以不可变文件和 SHA-256 代替提取前提交；审计后再提交。",
+  "holdoutEvaluations": 0,
+  "cse2018ReadForModelEvaluation": false
+}

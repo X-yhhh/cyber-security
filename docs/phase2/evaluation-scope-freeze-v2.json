@@ -1,0 +1,8 @@
+{
+  "version": "evaluation-scope-freeze-v2",
+  "createdAt": "2026-10-01T15:14:35.539704+00:00",
+  "file": "evaluation-scope-v2.json",
+  "sha256": "1f72008612c109c6a69448c787e83f6a1b861b7c9a1e65ee5f4a535f089d5748",
+  "cicValidationEvaluationsBeforeScopeFreeze": 1,
+  "thresholdFormulaChanged": false
+}

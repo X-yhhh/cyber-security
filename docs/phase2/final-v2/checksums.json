@@ -1,0 +1,19 @@
+{
+  "version": "phase2-final-evidence-v2",
+  "files": {
+    "dataset-review.json": "3bb5fddff4b016a3b8f58d6edb39587b3e2221ab453b9a7d4d20960cd31c6afe",
+    "validation-baseline.json": "a2e6e0010b6077c93d489e6417956a41a12bc7a3d6ad9bade727aec97e0d579d",
+    "scope-amendment-check.json": "9b6c2856558aef8ec15b2beaff7f191f88b4af631cb8989a6a7049db23726c62",
+    "split.json": "700ac631314607e39e8c3cbcb45aaebbb2675cb83e6792d14a5b177b99a65720",
+    "validation-baseline-windows.json": "a87aa77610af8999af741e5c860b491323de98e20df472bc9f748d0cdab82016",
+    "runtime-comparison.json": "89fb61003eee5d3c9771eb3b18882953bfedb15142418284ca34e5001c4195ea",
+    "restoration-gates.json": "1b9ec78a3ef15b136757988f09f3b31dbe4d785fb6e1b0fa18ab76d6ffd54745",
+    "completion.json": "86253f414336ba670f389045c9908f06fff184ef7eb64375cd0548ce76466891",
+    "evaluation-scope-v2.json": "1f72008612c109c6a69448c787e83f6a1b861b7c9a1e65ee5f4a535f089d5748",
+    "evaluation-scope-freeze-v2.json": "139d25d5414d718f41f05fad5e3c46cc2c317960321d6fb0671043a6739a7539"
+  },
+  "dataFilesIncluded": false,
+  "holdoutEvaluations": 0,
+  "status": "phase2_nonfrontend_implementation_and_A2_A4_complete",
+  "deploymentPerformed": false
+}

@@ -1,0 +1,131 @@
+{
+  "version": "phase3-s3-preflight-v2",
+  "status": "BLOCKED",
+  "evidenceReady": false,
+  "trainingAuthorized": false,
+  "trainingStartAllowed": false,
+  "failureCode": "S2_NOT_ELIGIBLE",
+  "s2Evidence": {
+    "file": "phase3-dataset-readiness-v4.json",
+    "sha256": "4d60ba578a8886f8f8b06da38dec614a2015b5e722fec333b463ec51c7b09531",
+    "status": "BLOCKED",
+    "blockerCount": 10
+  },
+  "roles": {
+    "L1_P": {
+      "sourceCount": 1,
+      "trustedNormal": 0,
+      "trustedAttack": 0
+    },
+    "L2": {
+      "sourceCount": 1,
+      "trustedNormal": 0,
+      "trustedAttack": 0
+    },
+    "RULE_TEST": {
+      "independentScenarioCount": 0
+    },
+    "L3_PLAN": {
+      "authorizationPlanEstablished": false
+    }
+  },
+  "humanReview": {
+    "file": "cic-monday-human-review-acceptance-v1.json",
+    "sha256": "8a0532dbf8f0cc767a07034f9527e95429198f5705a578182e01f5523e43ed03",
+    "reviewedRows": 1674,
+    "acceptedAs": "Unknown",
+    "trustedNormalCreated": 0
+  },
+  "matrix": {
+    "version": "phase3-s3-experiment-matrix-v1",
+    "sha256": "14c71d367d3ae584ba235c74802c9500f584f93a6235e1e6b4ab368c1c3048e7"
+  },
+  "checks": [
+    {
+      "id": "s2_status_pass",
+      "passed": false,
+      "detail": "S2 status='BLOCKED'"
+    },
+    {
+      "id": "s3_eligible",
+      "passed": false,
+      "detail": "s3Eligible=False"
+    },
+    {
+      "id": "no_s2_blockers",
+      "passed": false,
+      "detail": "blockerCount=10"
+    },
+    {
+      "id": "monday_human_review_bound",
+      "passed": true,
+      "detail": "reviewedRows=1674, acceptedAs=Unknown"
+    },
+    {
+      "id": "independent_l1p_frozen",
+      "passed": false,
+      "detail": "sources=1, trustedNormal=0, trustedAttack=0"
+    },
+    {
+      "id": "new_l2_collection_frozen",
+      "passed": false,
+      "detail": "sources=1, trustedNormal=0, trustedAttack=0; requires Normal>=1000 and Attack>=100"
+    },
+    {
+      "id": "rule_scenarios_frozen",
+      "passed": false,
+      "detail": "independentScenarioCount=0; requires >=10"
+    },
+    {
+      "id": "l3_plan_registered",
+      "passed": false,
+      "detail": "requires authorized assets/interface, two periods, 8 asset-hours, Normal>=1000 and evidence handling"
+    },
+    {
+      "id": "no_prior_training",
+      "passed": true,
+      "detail": "trainingExecuted=False"
+    },
+    {
+      "id": "no_prior_predictions",
+      "passed": true,
+      "detail": "predictionsExecuted=0"
+    },
+    {
+      "id": "holdout_still_locked",
+      "passed": true,
+      "detail": "holdoutFeaturesReadThisRun=False"
+    },
+    {
+      "id": "training_authorized",
+      "passed": false,
+      "detail": "the registered matrix is intentionally not authorized"
+    }
+  ],
+  "reasons": [
+    "S2 status='BLOCKED'",
+    "s3Eligible=False",
+    "blockerCount=10",
+    "sources=1, trustedNormal=0, trustedAttack=0",
+    "sources=1, trustedNormal=0, trustedAttack=0; requires Normal>=1000 and Attack>=100",
+    "independentScenarioCount=0; requires >=10",
+    "requires authorized assets/interface, two periods, 8 asset-hours, Normal>=1000 and evidence handling",
+    "the registered matrix is intentionally not authorized",
+    "No new source has passed a licensed small-sample association among PCAP, per-flow labels, and business or attack event logs.",
+    "ToN-IoT official data link requires sign-in; sample-level association was not run.",
+    "IoT-23 catalog and scenario README use terms conflict; no sample member was downloaded or used.",
+    "AIT pilots have exact association candidates but no accepted trusted Normal or Attack labels and no frozen independent activity partitions.",
+    "CSE Thursday-15 EVTX screening found no member with both address and port field schemas; trusted labels remain 0/0.",
+    "No new L1-P train, validation, and independentHoldout partitions are frozen with zero cross-partition activity leaks.",
+    "New L2 collection remains below trusted Normal>=1000 and Attack>=100.",
+    "Independent rule test scenarios are not frozen.",
+    "L3 asset, interface, independent-period, and retention/redaction authorization plan is not established.",
+    "S3 matrix remains registered_not_authorized; training remains unauthorized."
+  ],
+  "trainingExecuted": false,
+  "predictionsExecuted": 0,
+  "holdoutRead": false,
+  "candidateOnly": true,
+  "historicalPipelineGuarded": false,
+  "runtimeAndDataGate": "S3 training entry is not wired to this preflight; it must verify Windows runtime and frozen data hashes before feature reads"
+}

@@ -1,0 +1,255 @@
+{
+  "version": "phase3-dataset-readiness-v4",
+  "date": "2026-10-03",
+  "decision": "BLOCKED: no new source has passed a licensed, exact flow-to-label-and-activity-evidence pilot; do not request S3 training access.",
+  "s2AdvancementStatus": "BLOCKED",
+  "s3Eligible": false,
+  "trainingExecuted": false,
+  "predictionsExecuted": 0,
+  "holdoutFeaturesReadThisRun": false,
+  "fullArchiveDownloadedThisRun": false,
+  "newCandidateSampleDownloadedThisRun": false,
+  "previousReadiness": {
+    "file": "dataset-readiness-v3.json",
+    "sha256": "6890b30b82f3a315bd13acf432af14f3d9969cd08a5f04f96009cfd279c872fc",
+    "status": "BLOCKED"
+  },
+  "humanReview": {
+    "file": "cic-monday-human-review-acceptance-v1.json",
+    "sha256": "8a0532dbf8f0cc767a07034f9527e95429198f5705a578182e01f5523e43ed03",
+    "reviewedRows": 1674,
+    "acceptedAs": "Unknown",
+    "reviewStatus": "human_reviewed_and_accepted",
+    "trustedNormalCreated": 0,
+    "trustedAttackCreated": 0,
+    "trainingEligibleRowsCreated": 0
+  },
+  "existingPilotEvidence": [
+    {
+      "sourceId": "AIT-LDS-russellmitchell-intranet",
+      "file": "phase3-ait-intranet-tstat-join-v2/summary.json",
+      "sha256": "9de96f78b437e805fcb47f4d10cfc1e4e0c959e9fc58a8ff840474362dc36964",
+      "allRecords": 12042,
+      "inScopeRecords": 3798,
+      "uniqueMatchedRows": 658,
+      "ambiguousRowsExcluded": 2249,
+      "trustedNormal": 0,
+      "trustedAttack": 0,
+      "labelJoinAccepted": false,
+      "decision": "Exact association candidates only; publisher benign role/port fallbacks are not positive business evidence and independent activities are not frozen."
+    },
+    {
+      "sourceId": "AIT-LDS-russellmitchell-webserver",
+      "file": "phase3-ait-webserver-tstat-join-v1/summary.json",
+      "sha256": "2d0627b26ed694d0d58e6e0951d3d637c461db7e47fc612e77e766072308dde7",
+      "allRecords": 9400,
+      "inScopeRecords": 3420,
+      "uniqueMatchedRows": 2289,
+      "ambiguousRowsExcluded": 848,
+      "trustedNormal": 0,
+      "trustedAttack": 0,
+      "labelJoinAccepted": false,
+      "decision": "Exact association candidates only; publisher benign role/port fallbacks are not positive business evidence and independent activities are not frozen."
+    },
+    {
+      "sourceId": "AIT-LDS-russellmitchell-webserver-pcap-member",
+      "file": "phase3-ait-webserver-resumable-v1/summary.json",
+      "sha256": "8ab27e2e3828a91e6a639ee22f7b5a8cf55cf298def903bbaec52c770fba7f64",
+      "archiveBytes": 7132670599,
+      "rangeBytesRequestedIncludingRetries": 170407651,
+      "archivePublisherMd5Verified": false,
+      "member": {
+        "path": "gather/webserver/logs/suricata/log.pcap.1643023053",
+        "bytes": 188613595,
+        "compressedBytes": 168108641,
+        "crcVerified": true,
+        "sha256": "d51191760ea22914d6441045284632e68f484496b419df85f20d6504104e256d"
+      },
+      "trustedNormal": 0,
+      "trustedAttack": 0,
+      "decision": "One pinned PCAP member passed CRC and SHA-256 verification; the full AIT archive was not downloaded or publisher-MD5 verified, and this member produced no accepted label source."
+    },
+    {
+      "sourceId": "AIT-LDS-russellmitchell-eve-apache",
+      "file": "phase3-ait-eve-log-pilot-v2/summary.json",
+      "sha256": "782c9502f0d2fcae518805d352aaa1545ab14a70174f40e59091944d87d99466",
+      "mutuallyUniqueRequestFlowJoins": 752,
+      "uniqueMatchedFlowIds": 565,
+      "matchedFlowIdsWithSuricataAlert": 0,
+      "trustedNormal": 0,
+      "trustedAttack": 0,
+      "labelJoinAccepted": false
+    },
+    {
+      "sourceId": "CSE2018-Thursday15-EVTX",
+      "file": "phase3-cse-evtx-review-v2/screen-v2.json",
+      "sha256": "0222acacf6e0d07387cfec9565b05e83ecf6769f7bdfb683f4e16e81cc4d5e4d",
+      "evtxEntries": 441,
+      "evtxCrcVerified": 441,
+      "membersWithAddressAndPortFieldSchemas": 0,
+      "trustedNormal": 0,
+      "trustedAttack": 0,
+      "labelJoinAccepted": false,
+      "publisherChecksumVerified": false
+    }
+  ],
+  "newSourceScreening": [
+    {
+      "sourceId": "ToN-IoT",
+      "publisherPage": "https://research.unsw.edu.au/projects/toniot-datasets",
+      "publicationClaims": {
+        "networkPcap": true,
+        "zeekNetworkLogs": true,
+        "labeledNetworkCsv": true,
+        "hostActivityLogs": ["Windows audit traces", "Linux audit traces", "IoT/IIoT telemetry"],
+        "securityEventGroundTruthWithTimestamps": true,
+        "publishedLabelBasis": "tagged attacker IP address ranges and event timestamps",
+        "independentActivityCandidates": ["multiple attack events", "four IoT/IIoT environments"],
+        "researchUse": "Publisher permits academic research with required citations; commercial use requires permission."
+      },
+      "accessCheck": {
+        "status": "BLOCKED_LOGIN_REQUIRED",
+        "observation": "Official download link redirected to a SharePoint folder and returned HTTP 403 requiring sign-in.",
+        "datasetBytesRead": 0,
+        "sampleCorrelation": "NOT_RUN"
+      },
+      "independentActivitySplitFrozen": false,
+      "sourceAdmitted": false,
+      "decision": "Best metadata fit among screened sources, but no sample-level tuple/time association or disjoint activity manifest is verified."
+    },
+    {
+      "sourceId": "IoT-23",
+      "publisherPage": "https://www.stratosphereips.org/datasets-iot23",
+      "individualScenarioIndex": "https://mcfp.felk.cvut.cz/publicDatasets/IoT-23-Dataset/IndividualScenarios/",
+      "publicationClaims": {
+        "scenarios": 23,
+        "maliciousScenarios": 20,
+        "dedicatedBenignDeviceScenarios": 3,
+        "networkPcap": true,
+        "perFlowZeekLabels": "conn.log.labeled",
+        "applicationOrSecurityLogs": ["published web logs for some captures", "Bro/Zeek and Suricata output directories on listed captures"],
+        "independentActivityCandidates": "separate malware/device captures; only three dedicated benign device scenarios"
+      },
+      "useTerms": {
+        "catalogNotice": "The public index labels the collection CC-BY.",
+        "scenarioReadmeNotice": "The inspected scenario README says authorization from Stratosphere Lab is required.",
+        "resolution": "CONFLICT_UNRESOLVED"
+      },
+      "sampleCorrelation": "NOT_RUN_PERMISSION_UNRESOLVED",
+      "independentActivitySplitFrozen": false,
+      "sourceAdmitted": false,
+      "decision": "Promising packet/flow/log structure, but do not download or use capture members until the conflicting authorization terms are resolved; benign activity and exact project-scope joins also need review."
+    },
+    {
+      "sourceId": "CICIoT2023",
+      "publisherPage": "https://www.unb.ca/cic/datasets/iotdataset-2023.html",
+      "publicationClaims": {
+        "documentedAttackActivities": 33,
+        "networkPcap": true,
+        "derivedFeatureCsv": true,
+        "supplementaryCollectionAndWranglingMaterial": true,
+        "separatelyAuditableHostBusinessOrSecurityEventLogs": "not documented on the publisher dataset page"
+      },
+      "sampleCorrelation": "NOT_RUN",
+      "sourceAdmitted": false,
+      "decision": "Not selected for this pilot because the publisher page does not document the required separately auditable event-log source."
+    }
+  ],
+  "roles": [
+    {
+      "roleId": "R1",
+      "sourceId": "UNSW-NB15 and CIC2017 historical development/regression",
+      "historicalUse": "Prior development and locked-test use are disclosed in prior readiness evidence.",
+      "independentTest": false
+    },
+    {
+      "roleId": "L1_P",
+      "collectionFrozen": false,
+      "labelJoinVerified": false,
+      "trustedLabelsHumanReviewed": false,
+      "independentActivitySplitFrozen": false,
+      "collectionManifestSha256": null,
+      "sources": [
+        {
+          "sourceId": "AIT-LDS-russellmitchell",
+          "sourceIdentityVerified": false,
+          "sourceManifestSha256": null,
+          "labelJoinVerified": false,
+          "trustedLabelsHumanReviewed": false,
+          "independentActivitySplitFrozen": false,
+          "crossPartitionActivityLeaks": null,
+          "partitionManifestSha256": null,
+          "trustedNormal": 0,
+          "trustedAttack": 0
+        }
+      ],
+      "candidateSourcesNotAdmitted": ["ToN-IoT", "IoT-23"]
+    },
+    {
+      "roleId": "L2",
+      "collectionFrozen": false,
+      "v4ScopeVerified": false,
+      "labelJoinVerified": false,
+      "trustedLabelsHumanReviewed": false,
+      "crossDateDuplicateAuditPassed": false,
+      "collectionManifestSha256": null,
+      "sources": [
+        {
+          "sourceId": "CSE2018-Thursday15",
+          "sourceIdentityVerified": false,
+          "sourceManifestSha256": null,
+          "trustedNormal": 0,
+          "trustedAttack": 0
+        }
+      ],
+      "candidateTargets": {
+        "minimumTrustedNormal": 1000,
+        "minimumTrustedAttack": 100
+      }
+    },
+    {
+      "roleId": "RULE_TEST",
+      "collectionFrozen": false,
+      "activityPartitionsDisjoint": false,
+      "trustedLabelsHumanReviewed": false,
+      "independentScenarioCount": 0,
+      "scenarioManifestSha256": null
+    },
+    {
+      "roleId": "L3_PLAN",
+      "authorizationPlanEstablished": false,
+      "assetAuthorizationVerified": false,
+      "interfaceScopeVerified": false,
+      "independentPeriods": 0,
+      "plannedEffectiveAssetHours": 0,
+      "plannedTrustedNormal": 0,
+      "businessEvidenceMethodReviewed": false,
+      "retentionAndRedactionDefined": false,
+      "authorizationPlanSha256": null
+    }
+  ],
+  "s3BudgetRegistration": {
+    "matrixFile": "s3-experiment-matrix-v1.json",
+    "matrixVersion": "phase3-s3-experiment-matrix-v1",
+    "models": ["XGBoost", "LightGBM"],
+    "seed": 20261003,
+    "maxRowsPerSource": 100000,
+    "maxRowsTotal": 200000,
+    "maxTrainingMinutes": 30,
+    "maxDevelopmentRevisions": 2,
+    "optunaAllowed": false,
+    "trainingAuthorized": false
+  },
+  "blockers": [
+    "No new source has passed a licensed small-sample association among PCAP, per-flow labels, and business or attack event logs.",
+    "ToN-IoT official data link requires sign-in; sample-level association was not run.",
+    "IoT-23 catalog and scenario README use terms conflict; no sample member was downloaded or used.",
+    "AIT pilots have exact association candidates but no accepted trusted Normal or Attack labels and no frozen independent activity partitions.",
+    "CSE Thursday-15 EVTX screening found no member with both address and port field schemas; trusted labels remain 0/0.",
+    "No new L1-P train, validation, and independentHoldout partitions are frozen with zero cross-partition activity leaks.",
+    "New L2 collection remains below trusted Normal>=1000 and Attack>=100.",
+    "Independent rule test scenarios are not frozen.",
+    "L3 asset, interface, independent-period, and retention/redaction authorization plan is not established.",
+    "S3 matrix remains registered_not_authorized; training remains unauthorized."
+  ]
+}

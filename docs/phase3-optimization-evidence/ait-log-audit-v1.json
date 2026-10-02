@@ -1,0 +1,91 @@
+{
+  "version": "ait-business-log-pilot-audit-v1",
+  "date": "2026-10-02",
+  "generators": [
+    {
+      "file": "gather_internal_employee_0_logs_sm.log",
+      "sha256": "957ca78f4a3c91c9746c88c95ab198d2c55b56a32aaeb83a9be508a26110ee44",
+      "events": 999,
+      "firstTimestamp": 1642686417.2476227,
+      "lastTimestamp": 1642716017.5016227,
+      "businessRunIds": 1,
+      "containsNetworkTupleFields": false,
+      "containsSensitiveContextOmittedFromReport": true
+    },
+    {
+      "file": "gather_remote_employee_1_logs_sm.log",
+      "sha256": "ad151fb6027d2b1209deab2006426c8a44f4cebd00f1dd0d5b37777fe54c3186",
+      "events": 9723,
+      "firstTimestamp": 1642686406.3652568,
+      "lastTimestamp": 1643046335.852435,
+      "businessRunIds": 1,
+      "containsNetworkTupleFields": false,
+      "containsSensitiveContextOmittedFromReport": true
+    }
+  ],
+  "apache": [
+    {
+      "file": "gather_intranet_server_logs_apache2_intranet.smith.russellmitchell.com-access.log.1",
+      "sha256": "d43f56bbe787107208221453a42b1c3eb0619795071d4ef76183da34d3275e99",
+      "requests": 601,
+      "sourceClasses": {
+        "other_or_shared_source": 375,
+        "vpn": 226
+      },
+      "sourceFieldShape": {
+        "address_without_port": 601
+      },
+      "explicitSourcePortField": false
+    },
+    {
+      "file": "gather_intranet_server_logs_apache2_intranet.smith.russellmitchell.com-access.log.2",
+      "sha256": "4d3d700f50c6dde5295ebc57a00701b7c3049812c6f6709b3f809e36be362153",
+      "requests": 8530,
+      "sourceClasses": {
+        "other_or_shared_source": 503,
+        "vpn": 8027
+      },
+      "sourceFieldShape": {
+        "address_without_port": 8530
+      },
+      "explicitSourcePortField": false
+    },
+    {
+      "file": "gather_intranet_server_logs_apache2_intranet.smith.russellmitchell.com-access.log.3",
+      "sha256": "7e3144f380a12db73cd4c9f53f3cbb48b33a8757485533508b955d1a6a2203b3",
+      "requests": 933,
+      "sourceClasses": {
+        "other_or_shared_source": 523,
+        "vpn": 410
+      },
+      "sourceFieldShape": {
+        "address_without_port": 933
+      },
+      "explicitSourcePortField": false
+    },
+    {
+      "file": "gather_intranet_server_logs_apache2_intranet.smith.russellmitchell.com-access.log.4",
+      "sha256": "9efe17b91cd03b1a5a0032611eeda6be8a4ea8ceb71b77a58abd61e209492352",
+      "requests": 1120,
+      "sourceClasses": {
+        "other_or_shared_source": 605,
+        "vpn": 515
+      },
+      "sourceFieldShape": {
+        "address_without_port": 1120
+      },
+      "explicitSourcePortField": false
+    }
+  ],
+  "trustedNormal": 0,
+  "trustedAttack": 0,
+  "independentReview": null,
+  "fullArchivePublisherChecksumVerified": false,
+  "labelJoinVerified": false,
+  "blockers": [
+    "generator actions and Apache requests lack a proven binding to each v4 flow",
+    "VPN source also carries attacker traffic; role/IP/time alone is insufficient",
+    "one scenario cannot provide separated runs of the same attack for development and independent L1-P",
+    "independent human review is pending"
+  ]
+}

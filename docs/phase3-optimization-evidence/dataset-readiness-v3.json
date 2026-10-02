@@ -1,0 +1,123 @@
+{
+  "version": "phase3-dataset-readiness-v3",
+  "date": "2026-10-02",
+  "s1ReviewComplete": true,
+  "s1Outcome": "REJECTED_GATE",
+  "s2ReviewAndPilotExecuted": true,
+  "s2AdvancementStatus": "BLOCKED",
+  "protocolPreparationPath": "historical R1 plus new independent PCAP L1-P; actual test collection not frozen",
+  "roles": [
+    {
+      "source": "UNSW historical full source",
+      "role": "R1 historical development/regression",
+      "historicalUse": "full source used in previous development; old holdout scored",
+      "independentTest": false,
+      "packetScopeVerified": false
+    },
+    {
+      "source": "CIC2017 historical five days",
+      "role": "R1 historical development/regression",
+      "historicalUse": "train/validation used; old holdout scored",
+      "developmentRowsJoined": 238481,
+      "v2Attack": 229581,
+      "v2Unknown": 8900,
+      "v2TrustedNormal": 0,
+      "blindReviewCandidates": 8900,
+      "mondayPublisherBenignDayCandidates": 1674,
+      "crossDevelopmentConnections": 0,
+      "crossDevelopmentExactAndSixDecimalFeatures": 0,
+      "independentAttackActivities": false,
+      "holdoutFeaturesReadThisRun": false
+    },
+    {
+      "source": "CSE2018 Wednesday-14",
+      "role": "exposed historical failure diagnosis only",
+      "fittingTuningOrCalibrationAllowed": false,
+      "testScoredHistorically": true
+    },
+    {
+      "source": "CSE2018 Thursday-15",
+      "role": "new L2 fixed candidate; no fitting/tuning/calibration",
+      "selectionBeforeScores": true,
+      "pilot": "server syslog and first indexed desktop EVTX plus PCAP directory",
+      "serverLogLines": 867,
+      "clientEvents": 2729,
+      "clientEventsWithNetworkTuple": 0,
+      "trustedNormal": 0,
+      "trustedAttackInNewV4Collection": 0,
+      "predictionsExecuted": 0,
+      "pcapDownloaded": false,
+      "independence": "different published attack activity; shared host/environment disclosed; cross-date duplicate checks pending",
+      "collectionFrozen": false,
+      "status": "INSUFFICIENT_LABEL_EVIDENCE"
+    },
+    {
+      "source": "AIT-LDS v2 russellmitchell",
+      "role": "fixed L1-P label-join pilot only",
+      "license": "CC-BY-NC-SA-4.0",
+      "generatorEvents": 10722,
+      "apacheRequests": 11184,
+      "apacheRequestsFromSharedVPN": 9178,
+      "trustedNormal": 0,
+      "trustedAttack": 0,
+      "labelJoinVerified": false,
+      "fullArchivePublisherChecksumVerified": false,
+      "independentActivitySplitFrozen": false,
+      "status": "NOT_ADOPTED"
+    },
+    {
+      "source": "new L3 benign business periods",
+      "role": "independent operational assessment at S7",
+      "collectionAuthorizedNow": false,
+      "collectionExecuted": false,
+      "minIndependentPeriods": 2,
+      "minEffectiveAssetHours": 8,
+      "minInScopeTrustedNormal": 1000,
+      "status": "ASSET_INTERFACE_PERIOD_AUTHORIZATION_REQUIRED"
+    },
+    {
+      "source": "rule development and independent scenario test",
+      "role": "S4 threshold development then independent acceptance",
+      "sameActivityAcrossPartitionsAllowed": false,
+      "syntheticFixturesCanProveEffectiveness": false,
+      "collectionFrozen": false,
+      "status": "NOT_READY"
+    }
+  ],
+  "thresholds": {
+    "L1P": {"perSource": true, "macroF1Min": 0.92, "fnrMax": 0.05, "fprMax": 0.015, "prAucMin": 0.93, "rocAucMin": 0.99},
+    "L2": {"fprMax": 0.03, "recallMin": 0.8, "inScopeNormalMin": 1000, "inScopeAttackMin": 100},
+    "L3": {"fprMax": 0.02, "inScopeNormalMin": 1000},
+    "combinedSystem": {"independentAttackScenarioRecallMin": 0.8, "falseAlertsPerAssetHourMax": 1, "peakAndOverallRequired": true}
+  },
+  "s3BudgetRegistration": {
+    "models": ["XGBoost", "LightGBM"],
+    "preprocessing": "P1",
+    "seed": 20261003,
+    "maxTrainingRowsPerSource": 100000,
+    "maxTrainingRowsTotal": 200000,
+    "fullValidationRequired": true,
+    "maxTotalTrainingMinutes": 30,
+    "maxDevelopmentRevisions": 2,
+    "optunaAllowed": false,
+    "commonThresholdPerSourceFNRMax": 0.04,
+    "commonThresholdPerSourceFPRMax": 0.015,
+    "experimentMatrixFrozen": false,
+    "authorizedToStartByThisRecord": false
+  },
+  "blockers": [
+    "CIC trusted benign labels and independent human review pending",
+    "new L1-P per-flow labels and independent activity partitions not established",
+    "new CSE L2 lacks frozen in-scope trusted Normal>=1000 and Attack>=100 collection",
+    "rejected minimal-flow gate has no independently verified scan-rule handoff",
+    "independent rule scenario collection not frozen",
+    "new L3 asset/interface/period authorization plan not established"
+  ],
+  "s3Eligible": false,
+  "s3Executed": false,
+  "newModelDelivered": false,
+  "historicalFailuresRewritten": false,
+  "productionChanged": false,
+  "trainingExecuted": false,
+  "predictionsExecuted": 0
+}

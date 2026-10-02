@@ -1,0 +1,62 @@
+{
+  "version": "phase3-s1-scope-decision-v1",
+  "date": "2026-10-02",
+  "reviewComplete": true,
+  "advancementGatePassed": false,
+  "outcome": "REJECTED_GATE",
+  "rejectedPolicy": "flow-eligibility-v1-draft",
+  "reasons": [
+    "CIC train/validation exclude 8751 verified Portscan flows; independent rule handoff is absent",
+    "trusted benign denominator and per-business coverage evidence are absent",
+    "old CSE background labels and retained 36 records cannot prove benign coverage"
+  ],
+  "packetSidecarAudit": {
+    "trainExcludedAttack": 7229,
+    "validationExcludedAttack": 1522,
+    "category": "Portscan",
+    "excludedAttackWithPayload": 0,
+    "excludedLegacyNormal": 18,
+    "excludedLegacyNormalWithPayload": 0
+  },
+  "coverageBudget": {
+    "frozenForDesign": true,
+    "trustedNormalRetentionMinPerSource": 0.9,
+    "trustedNonScanAttackRetentionMinPerSource": 0.95,
+    "minRowsPerFineCategory": 30,
+    "independentGroupsRequired": true,
+    "unsupportedOriginalScopeReportedSeparately": true,
+    "missingDenominatorMeans": "INSUFFICIENT_EVIDENCE",
+    "protectedBusinessShapes": [
+      "payload_bearing_benign_sessions",
+      "legitimate_failed_or_reset_connections",
+      "legitimate_zero_handshake_timing_sessions"
+    ],
+    "measuredBudgetPassed": false
+  },
+  "retainedBaselineScope": {
+    "status": "ready",
+    "viewpoint": "responder",
+    "addressFamily": "ipv4",
+    "proto": "tcp",
+    "handshakeSeen": "initial SYN visible; not complete three-way handshake",
+    "productionChanged": false,
+    "additionalFilterActivated": false
+  },
+  "capabilityAssignments": {
+    "Portscan": "retain historical flow labels; model capability and independent rule scenario not validated",
+    "nonScanAttack": "retain historical assessment responsibility; no new tested capability claim",
+    "HeartbleedAndXSS": "historical disclosed unevaluable categories; no additional exclusions approved",
+    "UNSW": "CSV numeric scope and historical R1; no packet-level scope evidence"
+  },
+  "interfaceGaps": [
+    "sensor bounded source identity and distinct destination-port windows",
+    "versioned statistics event independent of the 19 model fields",
+    "backend event ingestion persistence idempotency and audit",
+    "independent rule scenarios and benign workload evidence"
+  ],
+  "engineeringPhase": "S4 not executed",
+  "featureSpecificationSha256": "dbba110432c2c381ec291e2ec373601256c7ca990efa3e7bdad405c25120c6f1",
+  "v4FeatureOrWindowChanges": false,
+  "trainingExecuted": false,
+  "predictionsExecuted": 0
+}

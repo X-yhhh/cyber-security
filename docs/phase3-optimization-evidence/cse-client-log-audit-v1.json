@@ -1,0 +1,445 @@
+{
+  "version": "cse-client-log-evidence-audit-v1",
+  "date": "2026-10-02",
+  "sourceSha256": "8c6418b69a1b90e7542cf6d6fddb9331a214fb90018188d5e9820b492cfafce5",
+  "events": 2729,
+  "eventIds": {
+    "6011": 2,
+    "6009": 29,
+    "6005": 29,
+    "109": 28,
+    "13": 27,
+    "12": 35,
+    "20": 62,
+    "27": 29,
+    "25": 31,
+    "18": 29,
+    "32": 34,
+    "6": 203,
+    "98": 58,
+    "55": 35,
+    "16": 437,
+    "50036": 29,
+    "51046": 29,
+    "7026": 29,
+    "20003": 4,
+    "7023": 42,
+    "20001": 12,
+    "7045": 51,
+    "7040": 425,
+    "22": 1,
+    "2003": 1,
+    "2004": 1,
+    "1281": 2,
+    "1074": 32,
+    "6006": 27,
+    "7043": 2,
+    "51047": 27,
+    "6013": 58,
+    "50037": 27,
+    "37": 7,
+    "1": 11,
+    "35": 4,
+    "15": 8,
+    "7030": 3,
+    "44": 173,
+    "43": 165,
+    "19": 142,
+    "1282": 1,
+    "7001": 28,
+    "1501": 3,
+    "10016": 18,
+    "7002": 24,
+    "7031": 44,
+    "7034": 1,
+    "7032": 5,
+    "219": 6,
+    "10001": 1,
+    "10010": 23,
+    "10005": 1,
+    "6008": 2,
+    "41": 1,
+    "414": 105,
+    "7024": 6,
+    "3": 6,
+    "1056": 1,
+    "23": 6,
+    "4": 5,
+    "36888": 49,
+    "7009": 2,
+    "7000": 1,
+    "7022": 3,
+    "7011": 1,
+    "26": 3,
+    "1014": 2,
+    "1502": 1
+  },
+  "fieldNames": {
+    "6011": [
+      "None"
+    ],
+    "6009": [
+      "None"
+    ],
+    "6005": [],
+    "109": [
+      "ShutdownActionType",
+      "ShutdownEventCode",
+      "ShutdownReason"
+    ],
+    "13": [
+      "StopTime"
+    ],
+    "12": [
+      "BootMode",
+      "BuildVersion",
+      "MajorVersion",
+      "MinorVersion",
+      "NewSchemeGuid",
+      "OldSchemeGuid",
+      "ProcessPath",
+      "ProcessPid",
+      "QfeVersion",
+      "ServiceVersion",
+      "StartTime"
+    ],
+    "20": [
+      "LastBootGood",
+      "LastShutdownGood",
+      "errorCode",
+      "serviceGuid",
+      "updateGuid",
+      "updateRevisionNumber",
+      "updateTitle"
+    ],
+    "27": [
+      "BootType"
+    ],
+    "25": [
+      "BootMenuPolicy"
+    ],
+    "18": [
+      "EntryCount"
+    ],
+    "32": [
+      "BitlockerUserInputTime",
+      "None"
+    ],
+    "6": [
+      "DeviceName",
+      "DeviceNameLength",
+      "DeviceTime",
+      "DeviceVersionMajor",
+      "DeviceVersionMinor",
+      "ExtraInfoLength",
+      "ExtraInfoString",
+      "FilterID",
+      "FinalStatus"
+    ],
+    "98": [
+      "CorruptionActionState",
+      "DeviceName",
+      "DriveName"
+    ],
+    "55": [
+      "Group",
+      "IdleImplementation",
+      "IdleStateCount",
+      "MaximumPerformancePercent",
+      "MinimumPerformancePercent",
+      "MinimumThrottlePercent",
+      "NominalFrequency",
+      "Number",
+      "PerformanceImplementation"
+    ],
+    "16": [
+      "DirtyPages",
+      "HiveName",
+      "HiveNameLength",
+      "KeysUpdated"
+    ],
+    "50036": [],
+    "51046": [],
+    "7026": [
+      "param1"
+    ],
+    "20003": [],
+    "7023": [
+      "param1",
+      "param2"
+    ],
+    "20001": [],
+    "7045": [
+      "AccountName",
+      "ImagePath",
+      "ServiceName",
+      "ServiceType",
+      "StartType"
+    ],
+    "7040": [
+      "param1",
+      "param2",
+      "param3",
+      "param4"
+    ],
+    "22": [
+      "Turn"
+    ],
+    "2003": [
+      "HostOSName",
+      "HostOSbuildversion",
+      "HostOSmajorversion",
+      "HostOSminorversion",
+      "HostOSservicepackName",
+      "HostOSservicepackmajorversion",
+      "HostOSservicepackminorversion",
+      "HostOSwasWindowsPE",
+      "Installwasanupgrade"
+    ],
+    "2004": [
+      "OSEditionID",
+      "OSName",
+      "OSbuildversion",
+      "OSmajorversion",
+      "OSminorversion",
+      "OSservicepackName",
+      "OSservicepackmajorversion",
+      "OSservicepackminorversion"
+    ],
+    "1281": [],
+    "1074": [
+      "param1",
+      "param2",
+      "param3",
+      "param4",
+      "param5",
+      "param6",
+      "param7"
+    ],
+    "6006": [],
+    "7043": [
+      "param1"
+    ],
+    "51047": [
+      "DwordVal"
+    ],
+    "6013": [
+      "None"
+    ],
+    "50037": [
+      "DwordVal"
+    ],
+    "37": [
+      "TimeSource"
+    ],
+    "1": [
+      "NewTime",
+      "OldTime",
+      "Reason"
+    ],
+    "35": [
+      "TimeSource"
+    ],
+    "15": [
+      "HiveName",
+      "HiveNameLength",
+      "NewSize",
+      "OriginalSize"
+    ],
+    "7030": [
+      "param1"
+    ],
+    "44": [
+      "updateGuid",
+      "updateRevisionNumber",
+      "updateTitle"
+    ],
+    "43": [
+      "updateGuid",
+      "updateRevisionNumber",
+      "updateTitle"
+    ],
+    "19": [
+      "serviceGuid",
+      "updateGuid",
+      "updateRevisionNumber",
+      "updateTitle"
+    ],
+    "1282": [],
+    "7001": [
+      "TSId",
+      "UserSid",
+      "param1",
+      "param2",
+      "param3"
+    ],
+    "1501": [
+      "DCName",
+      "ProcessingMode",
+      "ProcessingTimeInMilliseconds",
+      "SupportInfo1",
+      "SupportInfo2"
+    ],
+    "10016": [
+      "param1",
+      "param10",
+      "param11",
+      "param2",
+      "param3",
+      "param4",
+      "param5",
+      "param6",
+      "param7",
+      "param8",
+      "param9"
+    ],
+    "7002": [
+      "TSId",
+      "UserSid"
+    ],
+    "7031": [
+      "param1",
+      "param2",
+      "param3",
+      "param4",
+      "param5"
+    ],
+    "7034": [
+      "param1",
+      "param2"
+    ],
+    "7032": [
+      "param1",
+      "param2",
+      "param3",
+      "param4"
+    ],
+    "219": [
+      "DriverName",
+      "DriverNameLength",
+      "FailureName",
+      "FailureNameLength",
+      "Status",
+      "Version"
+    ],
+    "10001": [
+      "param1",
+      "param2",
+      "param3",
+      "param4",
+      "param5"
+    ],
+    "10010": [
+      "param1"
+    ],
+    "10005": [
+      "param1",
+      "param2",
+      "param3",
+      "param4"
+    ],
+    "6008": [
+      "None"
+    ],
+    "41": [
+      "BootAppStatus",
+      "BugcheckCode",
+      "BugcheckParameter1",
+      "BugcheckParameter2",
+      "BugcheckParameter3",
+      "BugcheckParameter4",
+      "PowerButtonTimestamp",
+      "SleepInProgress"
+    ],
+    "414": [
+      "Parameter",
+      "TaskName"
+    ],
+    "7024": [
+      "param1",
+      "param2"
+    ],
+    "3": [
+      "None"
+    ],
+    "1056": [
+      "None"
+    ],
+    "23": [],
+    "4": [
+      "None"
+    ],
+    "36888": [
+      "AlertDesc",
+      "ErrorState"
+    ],
+    "7009": [
+      "param1",
+      "param2"
+    ],
+    "7000": [
+      "param1",
+      "param2"
+    ],
+    "7022": [
+      "param1"
+    ],
+    "7011": [
+      "param1",
+      "param2"
+    ],
+    "26": [
+      "Caption",
+      "Message"
+    ],
+    "1014": [
+      "Address",
+      "AddressLength",
+      "QueryName"
+    ],
+    "1502": [
+      "DCName",
+      "NumberOfGroupPolicyObjects",
+      "ProcessingMode",
+      "ProcessingTimeInMilliseconds",
+      "SupportInfo1",
+      "SupportInfo2"
+    ]
+  },
+  "providers": {
+    "EventLog": 147,
+    "Microsoft-Windows-Kernel-Power": 29,
+    "Microsoft-Windows-Kernel-General": 512,
+    "Microsoft-Windows-Kernel-Boot": 145,
+    "Microsoft-Windows-FilterManager": 203,
+    "Microsoft-Windows-Ntfs": 58,
+    "Microsoft-Windows-Kernel-Processor-Power": 35,
+    "Microsoft-Windows-Dhcp-Client": 56,
+    "Microsoft-Windows-DHCPv6-Client": 56,
+    "Service Control Manager": 616,
+    "Microsoft-Windows-UserPnp": 16,
+    "e1iexpress": 5,
+    "Microsoft-Windows-UserModePowerService": 7,
+    "Microsoft-Windows-Setup": 2,
+    "Microsoft-Windows-TPM-WMI": 3,
+    "User32": 32,
+    "Microsoft-Windows-Time-Service": 11,
+    "Microsoft-Windows-WindowsUpdateClient": 513,
+    "Microsoft-Windows-Winlogon": 51,
+    "Microsoft-Windows-GroupPolicy": 4,
+    "Microsoft-Windows-DistributedCOM": 43,
+    "Microsoft-Windows-Kernel-PnP": 6,
+    "Microsoft-Windows-TaskScheduler": 105,
+    "Virtual Disk Service": 11,
+    "Microsoft-Windows-TerminalServices-RemoteConnectionManager": 1,
+    "Microsoft-Windows-Eventlog": 8,
+    "Schannel": 49,
+    "Application Popup": 3,
+    "Microsoft-Windows-DNS-Client": 2
+  },
+  "first": "2015-07-10T12:22:57.9504769Z",
+  "last": "2018-02-15T18:37:32.7659868Z",
+  "eventsWithCompleteNetworkTuple": 0,
+  "trustedNormal": 0,
+  "independentReview": null
+}

@@ -1,0 +1,120 @@
+{
+  "version": "phase3-s3-preflight-v1",
+  "status": "BLOCKED",
+  "evidenceReady": false,
+  "trainingAuthorized": false,
+  "trainingStartAllowed": false,
+  "failureCode": "S2_NOT_ELIGIBLE",
+  "s2Evidence": {
+    "file": "dataset-readiness-v3.json",
+    "sha256": "6890b30b82f3a315bd13acf432af14f3d9969cd08a5f04f96009cfd279c872fc",
+    "status": "BLOCKED",
+    "trustedNormal": 0,
+    "blockerCount": 6
+  },
+  "matrix": {
+    "version": "phase3-s3-experiment-matrix-v1",
+    "sha256": "14c71d367d3ae584ba235c74802c9500f584f93a6235e1e6b4ab368c1c3048e7"
+  },
+  "reviewQueue": {
+    "manifest": "manifest.json",
+    "queueSha256": "aa77983aa252af3a965848a54cf23bff7d8289cd65994c0058f3a8ef7a7a37a4",
+    "selectedRows": 1674,
+    "acceptedRows": 0
+  },
+  "checks": [
+    {
+      "id": "s2_status_pass",
+      "passed": false,
+      "detail": "S2 status='BLOCKED'"
+    },
+    {
+      "id": "s3_eligible",
+      "passed": false,
+      "detail": "s3Eligible=False"
+    },
+    {
+      "id": "trusted_normal_available",
+      "passed": false,
+      "detail": "trustedNormal=0"
+    },
+    {
+      "id": "no_s2_blockers",
+      "passed": false,
+      "detail": "blockerCount=6"
+    },
+    {
+      "id": "independent_l1p_frozen",
+      "passed": false,
+      "detail": "new L1-P requires trusted labels, source verification and independent activity partitions"
+    },
+    {
+      "id": "new_l2_collection_frozen",
+      "passed": false,
+      "detail": "new L2 requires frozen in-scope Normal>=1000 and Attack>=100"
+    },
+    {
+      "id": "rule_scenarios_frozen",
+      "passed": false,
+      "detail": "independent rule scenario collection must be frozen"
+    },
+    {
+      "id": "l3_plan_registered",
+      "passed": false,
+      "detail": "L3 asset/interface/period authorization plan required; collection remains deferred to S7"
+    },
+    {
+      "id": "no_prior_training",
+      "passed": true,
+      "detail": "trainingExecuted=False"
+    },
+    {
+      "id": "no_prior_predictions",
+      "passed": true,
+      "detail": "predictionsExecuted=0"
+    },
+    {
+      "id": "holdout_still_locked",
+      "passed": true,
+      "detail": "holdoutFeaturesReadThisRun=False"
+    },
+    {
+      "id": "review_queue_pending_only",
+      "passed": true,
+      "detail": "queueRows=1674, accepted=0"
+    },
+    {
+      "id": "review_queue_bound_to_s2",
+      "passed": true,
+      "detail": "queue source must match the reviewed S2 candidate artifact"
+    },
+    {
+      "id": "training_authorized",
+      "passed": false,
+      "detail": "matrix trainingAuthorized=false"
+    }
+  ],
+  "reasons": [
+    "S2 status='BLOCKED'",
+    "s3Eligible=False",
+    "trustedNormal=0",
+    "blockerCount=6",
+    "new L1-P requires trusted labels, source verification and independent activity partitions",
+    "new L2 requires frozen in-scope Normal>=1000 and Attack>=100",
+    "independent rule scenario collection must be frozen",
+    "L3 asset/interface/period authorization plan required; collection remains deferred to S7",
+    "matrix trainingAuthorized=false",
+    "CIC trusted benign labels and independent human review pending",
+    "new L1-P per-flow labels and independent activity partitions not established",
+    "new CSE L2 lacks frozen in-scope trusted Normal>=1000 and Attack>=100 collection",
+    "rejected minimal-flow gate has no independently verified scan-rule handoff",
+    "independent rule scenario collection not frozen",
+    "new L3 asset/interface/period authorization plan not established"
+  ],
+  "trainingExecuted": false,
+  "predictionsExecuted": 0,
+  "holdoutRead": false,
+  "candidateOnly": true,
+  "historicalPipelineGuarded": false,
+  "runtimeAndDataGate": "future S3 entry must verify Windows runtime, reviewed dataset/partition hashes and budgets before any feature read"
+}

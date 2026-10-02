@@ -1,0 +1,15 @@
+{
+  "version": "cse-server-log-evidence-audit-v1",
+  "date": "2026-10-02",
+  "source": "CSE2018 Thursday-15 logs/U172.31.69.25",
+  "sourceSha256": "05a40886e17e57592e2822a3b537861dac2f32f12733228b6376833db25093fc",
+  "bytes": 87742,
+  "lines": 867,
+  "lineDatesChecked": "Feb 15",
+  "characterization": "syslog primarily system events, not a publisher benign business connection ledger",
+  "clientSessionIdentityJoinedToV4": false,
+  "trustedNormal": 0,
+  "reviewer": null,
+  "rawLineValuesIncluded": false,
+  "predictionsExecuted": 0
+}

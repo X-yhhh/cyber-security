@@ -3,3 +3,10 @@ docs/phase1/README.md -text
 docs/phase1/evidence/*-v[0-9]*.json -text
 src/cyber_training/source_screening.py -text
 tests/test_source_screening.py -text
+
+# 整改阶段 2 的冻结规格、证据和审计工具以 LF 字节绑定哈希。
+docs/remediation-phase2/README.md text eol=lf
+docs/remediation-phase2/evidence/*.json text eol=lf
+docs/remediation-phase2/evidence/v4-specification.md text eol=lf
+src/cyber_training/feature_pilot.py text eol=lf
+tests/test_feature_pilot.py text eol=lf

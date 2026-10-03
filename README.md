@@ -84,7 +84,7 @@ WHERE username = 'admin';
 
 本机验收使用 Temurin JDK 25.0.2、Maven 3.9.13 和指定 Maven 本地仓库。本机 macOS 登录 shell 从 macOS 钥匙串加载 `DB_URL`、`DB_USERNAME`、`DB_PASSWORD`、`DB_TEST_BASE_URL`、`DB_TEST_USERNAME`、`DB_TEST_PASSWORD`、`LOGIN_THROTTLE_HMAC_KEY`、`RABBITMQ_IT_ENABLED`、`RABBITMQ_IT_HOST`、`RABBITMQ_IT_PORT`、`RABBITMQ_IT_VHOST`、`RABBITMQ_IT_USERNAME`、`RABBITMQ_IT_PASSWORD`、`RABBITMQ_HOST`、`RABBITMQ_PORT`、`RABBITMQ_VHOST`、`RABBITMQ_USERNAME`、`RABBITMQ_PASSWORD` 和 `RABBITMQ_INGEST_EXCHANGE`；只保存变量名和加载方式，不把秘密写入仓库。其他环境应从各自受控密钥存储注入运行/测试所需变量。Java 测试应使用项目指定 JDK 与 Maven，集成测试只连接独立测试 schema。
 
-历史开发阶段 1 的实体生命周期、时间窗规则、TCP/握手模型范围门禁，以及规则页签和机器客户端登记已实现并经独立测试库验证。2026-10-01 已备份并迁移本机开发库至 V17、部署 JDK 25 新构建；`2026.10.2` 及 4 条仅告警窗口规则，经独立审阅批准后通过正式接口审批并激活。Intel Mac 实验已停止，实验数据源停用、机器凭据吊销，历史事实保留。2026-10-03 当前整改阶段 1 的[小体量来源初筛](docs/phase1/README.md)已完成：IoT-23 官方 80.5 MiB 子集进入阶段 2 试点，取得 29 条明确良性与 151,567 条攻击候选的起始包证据；完整流关联、v4 兼容性和训练准入仍须验证，S3 保持阻断。当前进度、验证边界和下一步统一见[模型整改与分阶段开发计划](docs/模型整改与分阶段开发计划.md)。
+历史开发阶段 1 的实体生命周期、时间窗规则、TCP/握手模型范围门禁，以及规则页签和机器客户端登记已实现并经独立测试库验证。2026-10-01 已备份并迁移本机开发库至 V17、部署 JDK 25 新构建；`2026.10.2` 及 4 条仅告警窗口规则，经独立审阅批准后通过正式接口审批并激活。Intel Mac 实验已停止，实验数据源停用、机器凭据吊销，历史事实保留。2026-10-03 当前整改[阶段 2 试点](docs/phase2-pilot/README.md)已收口：IoT-23 官方 80.5 MiB 子集经完整连接关联和 Go 同源 v4 提取审查，ready Normal 为 0；2,964 条 v4 合格攻击切段全部为 initiator，当前模型范围内候选为 0。该子集不进入阶段 3，返回阶段 1 寻找合适来源。Windows 完成了来源哈希绑定的 Mac 提取结果审计；原生提取被应用控制以 `4551` 阻止，平台 parity 未验证。S3 保持阻断。当前进度、验证边界和下一步统一见[模型整改与分阶段开发计划](docs/模型整改与分阶段开发计划.md)。
 
 ## 文档
 
@@ -96,6 +96,7 @@ WHERE username = 'admin';
 - [数据接入与特征提取模块开发设计](docs/数据接入与特征提取模块开发设计.md)
 - [特征规格 unsw-nb15-flow-v4](docs/特征规格-unsw-nb15-flow-v4.md)：已冻结，SHA-256 绑定在契约文件中，不得修改
 - [模型整改与分阶段开发计划](docs/模型整改与分阶段开发计划.md)：唯一当前计划入口，含跨数据集模型状态、训练/数据/后端/传感器/前端阶段分工与逐阶段出口
+- [整改阶段 2 完整流与特征试点](docs/phase2-pilot/README.md)：当前 IoT-23 的逐流决定、字段/对拍证据、Windows 原生运行边界及退回来源初筛的决定
 - [模型训练计划](docs/模型训练计划.md)：UNSW v4 历史训练协议、指标定义及复现记录；新训练按上述整改计划执行
 - [路线 B 实施路线](docs/路线B-可移植特征契约v4实施路线.md)：历史执行与授权决策追溯；因代码、迁移和冻结规格引用原路径而保留，不作为当前计划入口
 
@@ -112,7 +113,7 @@ WHERE username = 'admin';
 5. 禁止扫描、利用、恶意软件、凭据攻击、外部流量注入及任何针对未授权第三方的操作。
 
 
-### 阶段 2 交付状态（2026-10-02）
+### 历史开发阶段 2 交付状态（2026-10-02）
 
 阶段 2 的检测策略版本审批、模型信号/告警分层、规则版本管理、处置申请撤回、事件指派、模型退役与显式回退已实现；V18 已在空库、备份恢复库及本机开发库验证。六处前端已连接真实后端完成浏览器验收；后端 246 项、前端 68 项测试通过。CIC-IDS2017 Windows validation 的 Recall 为 `38.0367%`、Macro-F1 为 `0.33076`，模型线未通过；阶段三数据 readiness 当前 `BLOCKED`，可信 Normal/Attack 为 `0/0`，S3 未获训练授权。阶段证据保留在 `docs/phase1/evidence/`、`docs/phase2-evidence/`、`docs/phase3-optimization-evidence/`；后续门禁和处置计划见[统一计划](docs/模型整改与分阶段开发计划.md)。
 

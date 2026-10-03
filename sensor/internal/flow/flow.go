@@ -153,6 +153,10 @@ type LabelAudit struct {
 	SPackets int64 `json:"initiatorRawPackets"`
 	DPackets int64 `json:"responderRawPackets"`
 	Reliable bool  `json:"payloadLengthReliable"`
+	// 原始 IP 字节核对发布方完整连接计数，不替代 D11 折算后的 v4 字节。
+	SIPBytes        int64 `json:"initiatorRawIPBytes"`
+	DIPBytes        int64 `json:"responderRawIPBytes"`
+	IPBytesReliable bool  `json:"rawIPBytesReliable"`
 }
 
 func (t *Table) Active() int { return len(t.flows) }
@@ -205,7 +209,7 @@ func (t *Table) Accept(p *packet.Packet) []Completed {
 		f = &Flow{Key: k, AF: p.AF, Init: Endpoint{p.Src, p.SPort}, Resp: Endpoint{p.Dst, p.DPort},
 			Start: p.TS, Last: p.TS, HandshakeSeen: pureSYN}
 		if t.labelAudit {
-			f.LabelAudit = &LabelAudit{Reliable: true}
+			f.LabelAudit = &LabelAudit{Reliable: true, IPBytesReliable: true}
 		}
 		if c, ok := t.cont[k]; ok && p.TS.Sub(c.at) < spec.Idle(k.Proto) {
 			// §1.1：后续段继承首段的 initiator。
@@ -296,8 +300,13 @@ func (t *Table) count(f *Flow, p *packet.Packet, fromInit bool) {
 	if a := f.LabelAudit; a != nil {
 		if fromInit {
 			a.SPackets++
+			a.SIPBytes += int64(p.IPTotal)
 		} else {
 			a.DPackets++
+			a.DIPBytes += int64(p.IPTotal)
+		}
+		if p.TotalFromCap || p.IPTotal < p.IPHdr {
+			a.IPBytesReliable = false
 		}
 		if p.Proto != 6 || p.FirstFrag || p.LaterFrag || p.TCPHdr < 20 || p.IPTotal < p.IPHdr+p.TCPHdr || p.TotalFromCap {
 			a.Reliable = false

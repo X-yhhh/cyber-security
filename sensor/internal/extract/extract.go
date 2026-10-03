@@ -51,8 +51,9 @@ func Run(pcapPath string, out io.Writer, opt Options) (pipeline.Diagnostics, err
 	if opt.LabelAudit != nil {
 		tab.EnableLabelAudit()
 	}
+	policy := feature.NewAddressPolicy(opt.LocalAddrs, opt.Subnets)
 	p := pipeline.New(tab,
-		feature.NewBuilder(feature.NewAddressPolicy(opt.LocalAddrs, opt.Subnets), opt.KeyBase),
+		feature.NewBuilder(policy, opt.KeyBase),
 		func(rs []feature.Record) {
 			for _, r := range rs {
 				if werr == nil {
@@ -67,7 +68,8 @@ func Run(pcapPath string, out io.Writer, opt Options) (pipeline.Diagnostics, err
 		auditEncoder := json.NewEncoder(auditWriter)
 		p.CompletedObserver = func(c flow.Completed) {
 			if werr == nil {
-				werr = auditEncoder.Encode(LabelLine{c.ExportSeq, c.Start.UTC(), c.Last.UTC(), c.Init.Addr.String(), c.Resp.Addr.String(), c.Init.Port, c.Resp.Port, c.Key.Proto, c.Segment, c.Reason, c.LabelAudit})
+				werr = auditEncoder.Encode(LabelLine{c.ExportSeq, c.Start.UTC(), c.Last.UTC(), c.Init.Addr.String(), c.Resp.Addr.String(), c.Init.Port, c.Resp.Port, c.Key.Proto, c.Segment, c.Reason, c.LabelAudit,
+					policy.Classify(c.Init.Addr, c.Resp.Addr).Excluded})
 			}
 		}
 	}
@@ -107,4 +109,6 @@ type LabelLine struct {
 	Segment       int              `json:"segment"`
 	CloseReason   string           `json:"closeReason"`
 	Lengths       *flow.LabelAudit `json:"lengths"`
+	// 排除决定复用生产地址策略，使未入窗流也可逐条审查，不另造过滤规则。
+	ExcludedReason string `json:"excludedReason,omitempty"`
 }

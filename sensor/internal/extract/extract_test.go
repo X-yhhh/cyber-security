@@ -70,5 +70,8 @@ func TestLabelAuditDoesNotChangeFeatures(t *testing.T) {
 		if row.Lengths.SPayload != 70 || row.Lengths.DPayload != 140 || row.Lengths.SPackets != 2 || !row.Lengths.Reliable || row.Initiator != peer.String() {
 			t.Fatalf("头部长度统计错误: %+v", row.Lengths)
 		}
+		if row.Lengths.SIPBytes != 150 || row.Lengths.DIPBytes != 220 || !row.Lengths.IPBytesReliable {
+			t.Fatalf("原始 IP 字节旁路错误: %+v", row.Lengths)
+		}
 	}
 }

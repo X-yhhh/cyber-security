@@ -78,6 +78,8 @@ sudo dseditgroup -o delete access_bpf
 
 ## 离线工具（不联网、不打开网卡）
 
+整改阶段 2 支持 `CGO_ENABLED=0 go build -o bin/sensor-offline ./cmd/sensor` 的纯 Go 离线构建；交叉构建 Windows 时另设 `GOOS=windows GOARCH=amd64`。该构建复用相同的包解析、流表、100 流窗口和特征计算；`run` 与内核丢包统计均明确失败，需要实时采集时使用 cgo/libpcap/Npcap 构建。详见[整改阶段 2 试点](../docs/phase2-pilot/README.md)。
+
 ```sh
 # pcap/pcapng → 特征记录 JSONL（含非 ready 记录），用于对拍
 bin/sensor extract -pcap in.pcap -out records.jsonl -diagnostics diag.json \
@@ -105,7 +107,7 @@ go run ./cmd/g2fixtures -dir <目录> -pcap anon.pcap -local-addr 192.0.2.40 -su
 
 ### 公开数据集标签旁路与排序审核
 
-`extract -label-audit audit.label-audit.jsonl` 显式启用离线旁路（默认关闭，0600、新文件独占创建）。记录公开端点、流区间、原始方向包数以及 `IPTotal - IPHdr - TCPHdr` 的载荷长度；**不读取或保存载荷内容**。分片、缺失 TCP 头长或长度回退等条件标记长度不可靠，不用于 Attempted 判定。旁路只供离线标签关联，不能进入特征、上传或模型。正常的 `records.jsonl` 格式和 v4 特征计算不变；`sbytes/dbytes` 仍含 IP 头，不能当成 CICFlowMeter 载荷长度。
+`extract -label-audit audit.label-audit.jsonl` 显式启用离线旁路（默认关闭，0600、新文件独占创建）。记录公开端点、流区间、原始方向包数以及 `IPTotal - IPHdr - TCPHdr` 的载荷长度；**不读取或保存载荷内容**。整改阶段 2 另记录 D11 折算前的双向原始 IP 字节、`rawIPBytesReliable` 和与生产地址策略相同的 `excludedReason`，用于完整连接/切段计数核对和未入窗流逐条排除。分片、缺失 TCP 头长或长度回退等条件标记载荷长度不可靠；IP 长度来自回退时也不采信原始字节。旁路只供离线标签关联，不能进入特征、上传或模型。正常的 `records.jsonl` 格式和 v4 特征计算不变；`sbytes/dbytes` 仍含 IP 头，不能当成 CICFlowMeter 载荷长度。
 
 ```sh
 go build -o bin/pcapaudit ./cmd/pcapaudit

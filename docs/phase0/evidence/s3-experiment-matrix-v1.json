@@ -1,0 +1,65 @@
+{
+  "version": "phase3-s3-experiment-matrix-v1",
+  "stage": "S3",
+  "status": "registered_not_authorized",
+  "models": [
+    "XGBoost",
+    "LightGBM"
+  ],
+  "parametersSource": "src/cyber_training/v2/train.py:SCREEN_PARAMS",
+  "initialParameters": {
+    "XGBoost": {
+      "n_estimators": 2000, "learning_rate": 0.05, "max_depth": 8,
+      "subsample": 0.8, "colsample_bytree": 0.8, "min_child_weight": 1.0,
+      "gamma": 0.0, "early_stopping_rounds": 100
+    },
+    "LightGBM": {
+      "n_estimators": 3000, "learning_rate": 0.05, "num_leaves": 127,
+      "min_child_samples": 50, "colsample_bytree": 0.8, "subsample": 0.8,
+      "subsample_freq": 1, "reg_lambda": 0.0, "early_stopping_rounds": 100
+    }
+  },
+  "preprocessing": {
+    "scheme": "P1",
+    "fit": "train_only"
+  },
+  "seed": 20261003,
+  "sampling": {
+    "maxRowsPerSource": 100000,
+    "maxRowsTotal": 200000,
+    "strategy": "deterministic_group_stratified"
+  },
+  "validation": {
+    "partition": "validation",
+    "full": true,
+    "thresholdSelection": "validation_only",
+    "commonThreshold": true
+  },
+  "budget": {
+    "maxTrainingMinutes": 30,
+    "maxDevelopmentRevisions": 2,
+    "optunaAllowed": false
+  },
+  "gates": {
+    "perSource": {
+      "fnrMax": 0.04,
+      "fprMax": 0.015
+    }
+  },
+  "holdout": {
+    "read": false,
+    "fit": false,
+    "thresholdSelection": false,
+    "predictions": false
+  },
+  "stopConditions": [
+    "任一来源无法在同一阈值下同时满足 FNR<=0.04 与 FPR<=0.015 即停止",
+    "超过30分钟或两轮开发修订即停止",
+    "任何 holdout 读取、预测或调参行为即停止并保留审计记录"
+  ],
+  "authorization": {
+    "s2EvidenceRequired": "PASS",
+    "s3Eligible": false,
+    "trainingAuthorized": false
+  }
+}

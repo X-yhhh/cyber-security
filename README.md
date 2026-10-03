@@ -115,3 +115,7 @@ WHERE username = 'admin';
 ### 阶段 2 交付状态（2026-10-02）
 
 阶段 2 的检测策略版本审批、模型信号/告警分层、规则版本管理、处置申请撤回、事件指派、模型退役与显式回退已实现；V18 已在空库、备份恢复库及本机开发库验证。六处前端已连接真实后端完成浏览器验收；后端 246 项、前端 68 项测试通过。CIC-IDS2017 Windows validation 的 Recall 为 `38.0367%`、Macro-F1 为 `0.33076`，模型线未通过；阶段三数据 readiness 当前 `BLOCKED`，可信 Normal/Attack 为 `0/0`，S3 未获训练授权。阶段证据保留在 `docs/phase1/evidence/`、`docs/phase2-evidence/`、`docs/phase3-optimization-evidence/`；后续门禁和处置计划见[统一计划](docs/模型整改与分阶段开发计划.md)。
+
+### 整改计划阶段 0 完成（2026-10-03）
+
+已核实并冻结当前状态，同步本地与 Windows 训练仓库的阶段出口、门槛和证据；详见[阶段 0 状态冻结记录](docs/phase0/README.md)。数据 readiness/preflight 继续为 `BLOCKED`，S3 保持 `trainingAuthorized=false`，Monday 1,674 条仍为 `Unknown`。活动部署 `2026.10.2` 和历史发布批准只表示本机开发台账状态，不能作为生产批准或自动处置放行依据。下一步为候选来源初筛，本次阶段 0 没有开展训练、预测、holdout 读取、导出或真实处置。

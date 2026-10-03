@@ -1,0 +1,637 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cyber-security.invalid/contracts/observation.schema.json",
+  "title": "host-guard v5 observation",
+  "$comment": "P2 rc.2 因果观察契约；业务与时间不变量见检测与处置契约，动作能力未实现。",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "contractVersion": {
+      "const": "host-guard/5.0.0-rc.2"
+    },
+    "observationId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "assetId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "sensorId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "bootId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "captureScopeId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "flowId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "parentConnectionId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "snapshotIndex": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "profile": {
+      "type": "string",
+      "enum": [
+        "flow-prefix-v1",
+        "flow-final-v1"
+      ]
+    },
+    "environment": {
+      "type": "string",
+      "enum": [
+        "research",
+        "lab",
+        "authorized"
+      ]
+    },
+    "firstSeenAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,6})?Z$"
+    },
+    "asOf": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,6})?Z$"
+    },
+    "emittedAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,6})?Z$"
+    },
+    "addressFamily": {
+      "type": "string",
+      "enum": [
+        "ipv4",
+        "ipv6"
+      ]
+    },
+    "transport": {
+      "type": "string",
+      "enum": [
+        "tcp",
+        "udp",
+        "icmp",
+        "other"
+      ]
+    },
+    "direction": {
+      "type": "string",
+      "enum": [
+        "inbound",
+        "outbound",
+        "unknown"
+      ]
+    },
+    "serviceClass": {
+      "type": "string",
+      "enum": [
+        "dns",
+        "web",
+        "remote_admin",
+        "mail",
+        "other"
+      ]
+    },
+    "servicePort": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "peerKey": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "keyEpoch": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "targetRef": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "uuid"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "targetExpiresAt": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,6})?Z$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "features": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "bytesOutbound": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "bytesInbound": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "packetsOutbound": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "packetsInbound": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "elapsedMs": {
+          "type": "number",
+          "minimum": 0
+        },
+        "lengthMin": {
+          "type": "number",
+          "minimum": 0
+        },
+        "lengthMax": {
+          "type": "number",
+          "minimum": 0
+        },
+        "lengthMean": {
+          "type": "number",
+          "minimum": 0
+        },
+        "lengthStd": {
+          "type": "number",
+          "minimum": 0
+        },
+        "iatMeanUs": {
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "iatStdUs": {
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "synCount": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "synAckCount": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "rstCount": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "finCount": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "handshakeSeen": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "bytesOutbound",
+        "bytesInbound",
+        "packetsOutbound",
+        "packetsInbound",
+        "elapsedMs",
+        "lengthMin",
+        "lengthMax",
+        "lengthMean",
+        "lengthStd",
+        "iatMeanUs",
+        "iatStdUs",
+        "synCount",
+        "synAckCount",
+        "rstCount",
+        "finCount",
+        "handshakeSeen"
+      ]
+    },
+    "contexts": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "prefixItems": [
+        {
+          "properties": {
+            "windowSeconds": {
+              "const": 1
+            },
+            "coverageMs": {
+              "maximum": 1000
+            }
+          }
+        },
+        {
+          "properties": {
+            "windowSeconds": {
+              "const": 5
+            },
+            "coverageMs": {
+              "maximum": 5000
+            }
+          }
+        },
+        {
+          "properties": {
+            "windowSeconds": {
+              "const": 30
+            },
+            "coverageMs": {
+              "maximum": 30000
+            }
+          }
+        }
+      ],
+      "allOf": [
+        {
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "windowSeconds": {
+                "enum": [
+                  1,
+                  5,
+                  30
+                ]
+              },
+              "coverageMs": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 30000
+              },
+              "peerFlowStarts": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "peerSynCount": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "peerRstCount": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "peerDistinctServicePorts": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "hostFlowStarts": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "hostDistinctPeers": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "peerBytesOutbound": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "peerBytesInbound": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "required": [
+              "windowSeconds",
+              "coverageMs",
+              "peerFlowStarts",
+              "peerSynCount",
+              "peerRstCount",
+              "peerDistinctServicePorts",
+              "hostFlowStarts",
+              "hostDistinctPeers",
+              "peerBytesOutbound",
+              "peerBytesInbound"
+            ]
+          }
+        }
+      ],
+      "items": false
+    },
+    "quality": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "captureGap": {
+          "type": "boolean"
+        },
+        "latePacket": {
+          "type": "boolean"
+        },
+        "truncated": {
+          "type": "boolean"
+        },
+        "offloadSuspected": {
+          "type": "boolean"
+        },
+        "capacityDrop": {
+          "type": "boolean"
+        },
+        "clockSkewMs": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "captureGap",
+        "latePacket",
+        "truncated",
+        "offloadSuspected",
+        "capacityDrop",
+        "clockSkewMs"
+      ]
+    },
+    "lastPacketAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,6})?Z$"
+    },
+    "closeReason": {
+      "enum": [
+        null,
+        "fin",
+        "rst",
+        "idle",
+        "max_lifetime",
+        "eof",
+        "new_syn"
+      ]
+    }
+  },
+  "required": [
+    "contractVersion",
+    "observationId",
+    "assetId",
+    "sensorId",
+    "bootId",
+    "captureScopeId",
+    "flowId",
+    "parentConnectionId",
+    "snapshotIndex",
+    "profile",
+    "environment",
+    "firstSeenAt",
+    "asOf",
+    "emittedAt",
+    "addressFamily",
+    "transport",
+    "direction",
+    "serviceClass",
+    "servicePort",
+    "peerKey",
+    "keyEpoch",
+    "targetRef",
+    "targetExpiresAt",
+    "features",
+    "contexts",
+    "quality",
+    "lastPacketAt",
+    "closeReason"
+  ],
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "environment": {
+            "const": "research"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "targetRef": {
+            "type": "null"
+          },
+          "targetExpiresAt": {
+            "type": "null"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "targetRef": {
+            "type": "null"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "targetExpiresAt": {
+            "type": "null"
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "targetExpiresAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,6})?Z$"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "profile": {
+            "const": "flow-prefix-v1"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "closeReason": {
+            "type": "null"
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "closeReason": {
+            "enum": [
+              "fin",
+              "rst",
+              "idle",
+              "max_lifetime",
+              "eof",
+              "new_syn"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "transport": {
+            "const": "tcp"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "features": {
+            "properties": {
+              "synCount": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "synAckCount": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "rstCount": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "finCount": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "handshakeSeen": {
+                "type": "boolean"
+              }
+            }
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "features": {
+            "properties": {
+              "synCount": {
+                "type": "null"
+              },
+              "synAckCount": {
+                "type": "null"
+              },
+              "rstCount": {
+                "type": "null"
+              },
+              "finCount": {
+                "type": "null"
+              },
+              "handshakeSeen": {
+                "type": "null"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "direction": {
+            "const": "unknown"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "targetRef": {
+            "type": "null"
+          },
+          "targetExpiresAt": {
+            "type": "null"
+          },
+          "servicePort": {
+            "type": "null"
+          },
+          "serviceClass": {
+            "const": "other"
+          }
+        }
+      }
+    }
+  ]
+}

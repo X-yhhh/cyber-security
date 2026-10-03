@@ -1,0 +1,121 @@
+{
+  "contractVersion": "host-guard/5.0.0-rc.2",
+  "status": "frozen_research_candidate_not_deployed",
+  "profiles": [
+    "flow-prefix-v1",
+    "flow-final-v1"
+  ],
+  "numericFeatures": [
+    "features.elapsedMs",
+    "features.bytesOutbound",
+    "features.bytesInbound",
+    "features.packetsOutbound",
+    "features.packetsInbound",
+    "features.lengthMin",
+    "features.lengthMax",
+    "features.lengthMean",
+    "features.lengthStd",
+    "features.iatMeanUs",
+    "features.iatStdUs",
+    "features.synCount",
+    "features.synAckCount",
+    "features.rstCount",
+    "features.finCount",
+    "features.handshakeSeen",
+    "contexts.1.coverageMs",
+    "contexts.1.peerFlowStarts",
+    "contexts.1.peerSynCount",
+    "contexts.1.peerRstCount",
+    "contexts.1.peerDistinctServicePorts",
+    "contexts.1.hostFlowStarts",
+    "contexts.1.hostDistinctPeers",
+    "contexts.1.peerBytesOutbound",
+    "contexts.1.peerBytesInbound",
+    "contexts.5.coverageMs",
+    "contexts.5.peerFlowStarts",
+    "contexts.5.peerSynCount",
+    "contexts.5.peerRstCount",
+    "contexts.5.peerDistinctServicePorts",
+    "contexts.5.hostFlowStarts",
+    "contexts.5.hostDistinctPeers",
+    "contexts.5.peerBytesOutbound",
+    "contexts.5.peerBytesInbound",
+    "contexts.30.coverageMs",
+    "contexts.30.peerFlowStarts",
+    "contexts.30.peerSynCount",
+    "contexts.30.peerRstCount",
+    "contexts.30.peerDistinctServicePorts",
+    "contexts.30.hostFlowStarts",
+    "contexts.30.hostDistinctPeers",
+    "contexts.30.peerBytesOutbound",
+    "contexts.30.peerBytesInbound"
+  ],
+  "categoricalFeatures": [
+    "transport",
+    "direction",
+    "serviceClass"
+  ],
+  "nullableNumericFeatures": [
+    "features.iatMeanUs",
+    "features.iatStdUs",
+    "features.synCount",
+    "features.synAckCount",
+    "features.rstCount",
+    "features.finCount",
+    "features.handshakeSeen"
+  ],
+  "booleanEncoding": {
+    "false": 0,
+    "true": 1,
+    "null": "mask=1,value=0"
+  },
+  "contextExpansion": "match by windowSeconds; must appear exactly once in order 1,5,30",
+  "tensorContract": {
+    "numeric_values": {
+      "dtype": "float32",
+      "shape": [
+        "N",
+        43
+      ]
+    },
+    "numeric_missing": {
+      "dtype": "float32",
+      "shape": [
+        "N",
+        43
+      ]
+    },
+    "categorical_codes": {
+      "dtype": "int64",
+      "shape": [
+        "N",
+        3
+      ]
+    }
+  },
+  "units": {
+    "elapsedMs": "ms",
+    "coverageMs": "ms",
+    "iatMeanUs": "us",
+    "iatStdUs": "us",
+    "bytes": "IP bytes",
+    "length": "IP bytes",
+    "counts": "observed count"
+  },
+  "prefixScheduleSeconds": [
+    1,
+    5
+  ],
+  "continuedPrefixIntervalSeconds": 5,
+  "maxFlowLifetimeSeconds": 120,
+  "missingPolicy": "structural null encoded with mask; measured zero remains zero; preprocessing fit on train only",
+  "snapshotRequiresNewPacket": true,
+  "closeReasonIsModelInput": false,
+  "reorderDelayMs": 100,
+  "tcpIdleSeconds": 30,
+  "udpIdleSeconds": 10,
+  "tombstoneSeconds": 5,
+  "qualityRecoverySeconds": 30,
+  "eofPolicy": "release through maximum observed event clock; no future idle tick",
+  "newSynPolicy": "new parent unless same origin/ISN retransmission in incomplete handshake"
+}

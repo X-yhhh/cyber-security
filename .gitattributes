@@ -10,3 +10,10 @@ docs/remediation-phase2/evidence/*.json text eol=lf
 docs/remediation-phase2/evidence/v4-specification.md text eol=lf
 src/cyber_training/feature_pilot.py text eol=lf
 tests/test_feature_pilot.py text eol=lf
+
+# host-guard P2冻结依赖与P3代码/证据绑定SHA-256，Windows检出保持LF。
+contracts/host-guard-v5-rc2/** text eol=lf
+contracts/host-guard-p2-final-development-20261004/** text eol=lf
+docs/host-guard-p3/** text eol=lf
+src/cyber_training/host_guard/** text eol=lf
+tests/test_host_guard_p3.py text eol=lf

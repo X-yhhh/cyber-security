@@ -1,0 +1,192 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cyber-security.invalid/contracts/action-command.schema.json",
+  "title": "host-guard v5 action-command",
+  "$comment": "设计候选；业务、时间、归属和签名不变量见检测与处置契约。",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "contractVersion": {
+          "const": "host-guard/5.0.0-rc.2"
+        },
+        "commandId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "actionId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "executorId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "assetId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "sensorId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "bootId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "captureScopeId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "targetRef": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "peerKey": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "keyEpoch": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "environment": {
+          "type": "string",
+          "enum": [
+            "lab",
+            "authorized"
+          ]
+        },
+        "actionType": {
+          "const": "temporary_block"
+        },
+        "scope": {
+          "const": "peer_service"
+        },
+        "addressFamily": {
+          "const": "ipv4"
+        },
+        "direction": {
+          "type": "string",
+          "enum": [
+            "inbound",
+            "outbound"
+          ]
+        },
+        "transport": {
+          "const": "tcp"
+        },
+        "servicePort": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "capabilityId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "bundleId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "policySha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "evidenceSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "authorizationId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "authorizationRevision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "issuedAt": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,6})?Z$"
+        },
+        "applyBy": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,6})?Z$"
+        },
+        "leaseExpiresAt": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,6})?Z$"
+        },
+        "blockUntil": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,6})?Z$"
+        },
+        "idempotencyKey": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "executorBootId": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "required": [
+        "contractVersion",
+        "commandId",
+        "actionId",
+        "executorId",
+        "assetId",
+        "sensorId",
+        "bootId",
+        "captureScopeId",
+        "targetRef",
+        "peerKey",
+        "keyEpoch",
+        "environment",
+        "actionType",
+        "scope",
+        "addressFamily",
+        "direction",
+        "transport",
+        "servicePort",
+        "capabilityId",
+        "bundleId",
+        "policySha256",
+        "evidenceSha256",
+        "authorizationId",
+        "authorizationRevision",
+        "issuedAt",
+        "applyBy",
+        "leaseExpiresAt",
+        "blockUntil",
+        "idempotencyKey",
+        "executorBootId"
+      ]
+    },
+    "keyId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160
+    },
+    "algorithm": {
+      "const": "Ed25519"
+    },
+    "signature": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{86}$"
+    }
+  },
+  "required": [
+    "payload",
+    "keyId",
+    "algorithm",
+    "signature"
+  ]
+}

@@ -2,7 +2,13 @@
 
 Windows CUDA 仓库为本地网络威胁研判平台提供离线数据审查、训练、评估和候选制品。只处理公开或另行获准的数据及预制回放；不扫描网络、不利用漏洞、不生成/注入攻击流量，不在线自训练。
 
-## 当前状态（2026-10-03）
+## 当前状态（2026-10-04，host-guard v5）
+
+已获授权完成[P3模型与策略研究](docs/host-guard-p3/README.md)：10次完整拟合、LightGBM基础特征候选、独立角色校准及Windows/Mac的23020条ONNX对拍。研究实现完成，出口仍blocked；选型覆盖19/28，校准开发对照模型＋策略81/84、规则2/84，正常机会误伤均0/18。缺少合格早期证据、足量独立活动/正常机会及final_test，不能进入P6或自动执行。候选保持candidateOnly/alert_only，未接入应用。
+
+新实现入口为`src/cyber_training/host_guard/`及上述P3报告。P2数据与契约分别保存在`contracts/host-guard-p2-final-development-20261004`、`contracts/host-guard-v5-rc2`，原件与制品在忽略目录。下列UNSW/v4整改记录仅作历史证据，不能约束或替代已独立冻结的v5研究。
+
+## 历史整改状态（2026-10-03）
 
 阶段 0、1 已完成，当前[阶段 2 的 IoT-23 有界试点](docs/remediation-phase2/README.md)已收口，但该子集未通过阶段 3 数据准入，返回来源初筛。数据 readiness/S3 仍为 `BLOCKED`，可训练标签为 0，训练、应用激活和防火墙动作未获准。
 
@@ -11,7 +17,7 @@ Windows CUDA 仓库为本地网络威胁研判平台提供离线数据审查、�
 - 新来源 readiness 与 S3 preflight 为 `BLOCKED`；L2 trusted Normal/Attack=`0/0`，独立规则场景=`0/10`。S3 预算矩阵已登记但 `trainingAuthorized=false`；当前不训练、不预测、不解锁 holdout。
 - IoT-23 4 个已许可官方成员共 80.5 MiB。Somfy 两个单主机窗口仅 77/7 条，ready Normal=0；Muhstik 有 2,964 条完整关联且 v4 合格的攻击切段，全为 initiator，当前模型范围内候选为 0。Windows 完成了来源哈希绑定的 Mac Go 提取结果审计；原生 EXE 被应用控制以 `4551` 拒绝，平台 parity 未验证。独立活动、第二人复核和分区仍未接受；ToN-IoT 两个入口仍为 403。
 
-## 当前计划
+## 历史整改计划（v4）
 
 阶段 2 的当前子集审查结束，下一步返回阶段 1，寻找单主机良性流足够、逐流/独立活动可追溯且符合目标模型范围的来源。100 流窗口、v4 和 responder 范围不放宽；本次没有扩大下载、冻结分区或训练。完整阶段、资源上限、门禁与停止条件见[模型数据整改与训练路线](docs/model-readiness-roadmap.md)。
 

@@ -1,0 +1,105 @@
+{
+  "version": "p2-evaluation-plan-v2",
+  "contractVersion": "host-guard/5.0.0-rc.2",
+  "status": "frozen_before_model_selection",
+  "environment": "research",
+  "candidateOnly": true,
+  "candidateTask": "IPv4 TCP inbound connection_abuse at one host service",
+  "development": {
+    "capture": "CICIDS2017 Wednesday",
+    "exposure": "already_development_exposed_in_P1",
+    "trainEnd": "2017-07-05T13:10:30Z",
+    "validationStart": "2017-07-05T13:15:30Z",
+    "contextIsolationSeconds": 300,
+    "resetExtractorPerPartition": true,
+    "trainAttackActivity": "publisher Slowloris",
+    "validationAttackActivity": "publisher Slowhttptest",
+    "benignGroups": "publisher BENIGN, 15-minute background blocks; not independent controlled tasks",
+    "classLabels": {
+      "benign": 0,
+      "attack": 1
+    },
+    "finalProfileSupervision": "matched publisher labels, known direction, whole parent and label inside partition, clean quality",
+    "prefixSupervision": "diagnostic only until separate onset adjudication; structural candidate is insufficient",
+    "duplicatePolicy": "same parent/activity stays in one partition; normalized final feature signature at 100ms age and 1ms IAT precision excludes all cross-partition near-duplicate parents",
+    "weightPolicy": "each retained parent has total sample weight 1",
+    "excluded": [
+      "Attempted",
+      "unmatched or ambiguous labels",
+      "unsupported attack families",
+      "quality defects",
+      "unknown direction",
+      "cross-boundary parents or labels",
+      "cross-partition duplicate groups"
+    ],
+    "supportedScope": {
+      "addressFamily": "ipv4",
+      "transport": "tcp",
+      "direction": "inbound",
+      "servicePort": 80
+    },
+    "wholeParentExclusion": "any ambiguous, Attempted, unsupported-family or cross-boundary label segment excludes the entire parent"
+  },
+  "finalTest": {
+    "allocated": false,
+    "read": false,
+    "eligibleForFinalAcceptance": false,
+    "requirement": "new unexposed independent same-family positive activities plus corresponding difficult benign tasks; freeze hashes and access policy before P6",
+    "notEligible": [
+      "explored Wednesday",
+      "explored Friday",
+      "mirrors",
+      "resegmented or reordered copies"
+    ]
+  },
+  "selectionBudget": {
+    "baselines": [
+      "XGBoost",
+      "LightGBM",
+      "MLP"
+    ],
+    "initialSeedsEach": 1,
+    "winnerSeeds": 3,
+    "maxSearchTrials": 20,
+    "gpuHours": 4,
+    "maxParentsPerSource": 100000,
+    "sources": 2,
+    "calibration": "separate validation activity groups required before P3 calibration; current one positive validation activity does not satisfy this gate"
+  },
+  "decisionEvaluation": {
+    "episodeSeconds": 30,
+    "identity": "asset/peer/service/direction/protocol/family/version; parent deduplicated",
+    "ttlSeconds": 30,
+    "maxTtlSeconds": 60,
+    "maxContinuousBlockSeconds": 120,
+    "maxActiveRules": 10,
+    "maxNewActionsPerMinute": 5,
+    "protectedTargets": [
+      "management channel",
+      "gateway",
+      "DNS",
+      "registered protected peer/service"
+    ],
+    "attackOpportunityRatios": [
+      0.1,
+      0.01,
+      0.001
+    ],
+    "blockPrecision": "correct attack-target actions / all actions; undefined with zero actions",
+    "blockRecall": "timely covered supported attack episodes / all supported attack episodes",
+    "falseBlockRate": "blocked benign opportunities / all benign opportunities",
+    "confidenceIntervals": "bootstrap clustered by independent activity/capture; report unavailable with insufficient groups",
+    "targets": {
+      "precisionPoint": 0.99,
+      "episodeRecall": 0.8,
+      "minAttackEpisodes": 100,
+      "minBenignOpportunities": 3000,
+      "evidenceToActionP95Ms": 2000,
+      "onsetToActionP95Ms": 10000
+    },
+    "modelContribution": "rules vs model vs model+policy at identical false-block budget; no payload onset rule is a model input"
+  },
+  "failurePolicy": "retain failures; label/temporal defects return to P2, model benefit failure to P3, platform/recovery failure to P5; never tune using final_test",
+  "automaticExecutionAuthorized": false,
+  "revisionReason": "scope audit before model selection: other services cannot count as same-service benign evidence"
+}

@@ -1,0 +1,10 @@
+{
+  "version": "p2-public-background-grouping-v1",
+  "timing": "frozen before model selection and final supplemented dataset build",
+  "trainEnd": "2017-07-05T13:10:30Z",
+  "selectionStart": "2017-07-05T13:15:30Z",
+  "contextIsolationSeconds": 300,
+  "rule": "same client and 15-minute background block across servers shares an activity group; whole labels crossing time boundaries excluded; independent extractor and boot per server",
+  "priorUnpartitionedExtraction": "diagnostic-only retained; never delivered for training",
+  "scope": "eight registered TCP/80 servers selected by BENIGN counts; server contexts never merged; background groups are not controlled tasks"
+}

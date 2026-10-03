@@ -1,0 +1,13 @@
+{
+  "contractVersion": "host-guard/5.0.0-rc.1",
+  "receiptId": "00000000-0000-4000-8000-000000000016",
+  "commandId": "00000000-0000-4000-8000-000000000010",
+  "executorId": "00000000-0000-4000-8000-000000000012",
+  "status": "rejected",
+  "observedAt": "2026-10-03T00:00:03Z",
+  "ruleHandle": null,
+  "effectiveBlockUntil": null,
+  "errorCode": "SIGNATURE_INVALID",
+  "stateDigest": "0000000000000000000000000000000000000000000000000000000000000000",
+  "revocationId": null
+}

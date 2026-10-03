@@ -1,0 +1,371 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cyber-security.invalid/contracts/model-manifest.schema.json",
+  "title": "host-guard v5 model-manifest",
+  "$comment": "设计候选；业务、时间、归属和签名不变量见检测与处置契约。",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "contractVersion": {
+      "const": "host-guard/5.0.0-rc.1"
+    },
+    "modelId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "modelVersion": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160
+    },
+    "candidateOnly": {
+      "const": true
+    },
+    "artifactSha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "featureProfileSha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "extractorSha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "preprocessingSha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "calibrationSha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "datasetManifestSha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "splitManifestSha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "evaluationPlanSha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,6})?Z$"
+    },
+    "algorithm": {
+      "type": "string",
+      "enum": [
+        "xgboost",
+        "lightgbm",
+        "mlp"
+      ]
+    },
+    "profiles": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "flow-prefix-v1",
+          "flow-final-v1"
+        ]
+      },
+      "minItems": 1,
+      "maxItems": 2,
+      "uniqueItems": true
+    },
+    "numericFeatures": {
+      "const": [
+        "features.elapsedMs",
+        "features.bytesOutbound",
+        "features.bytesInbound",
+        "features.packetsOutbound",
+        "features.packetsInbound",
+        "features.lengthMin",
+        "features.lengthMax",
+        "features.lengthMean",
+        "features.lengthStd",
+        "features.iatMeanUs",
+        "features.iatStdUs",
+        "features.synCount",
+        "features.synAckCount",
+        "features.rstCount",
+        "features.finCount",
+        "features.handshakeSeen",
+        "contexts.1.coverageMs",
+        "contexts.1.peerFlowStarts",
+        "contexts.1.peerSynCount",
+        "contexts.1.peerRstCount",
+        "contexts.1.peerDistinctServicePorts",
+        "contexts.1.hostFlowStarts",
+        "contexts.1.hostDistinctPeers",
+        "contexts.1.peerBytesOutbound",
+        "contexts.1.peerBytesInbound",
+        "contexts.5.coverageMs",
+        "contexts.5.peerFlowStarts",
+        "contexts.5.peerSynCount",
+        "contexts.5.peerRstCount",
+        "contexts.5.peerDistinctServicePorts",
+        "contexts.5.hostFlowStarts",
+        "contexts.5.hostDistinctPeers",
+        "contexts.5.peerBytesOutbound",
+        "contexts.5.peerBytesInbound",
+        "contexts.30.coverageMs",
+        "contexts.30.peerFlowStarts",
+        "contexts.30.peerSynCount",
+        "contexts.30.peerRstCount",
+        "contexts.30.peerDistinctServicePorts",
+        "contexts.30.hostFlowStarts",
+        "contexts.30.hostDistinctPeers",
+        "contexts.30.peerBytesOutbound",
+        "contexts.30.peerBytesInbound"
+      ]
+    },
+    "categoricalFeatures": {
+      "const": [
+        "transport",
+        "direction",
+        "serviceClass"
+      ]
+    },
+    "supportedScope": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "addressFamily": {
+            "type": "string",
+            "enum": [
+              "ipv4",
+              "ipv6"
+            ]
+          },
+          "transport": {
+            "type": "string",
+            "enum": [
+              "tcp",
+              "udp",
+              "icmp",
+              "other"
+            ]
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "inbound",
+              "outbound"
+            ]
+          },
+          "family": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "minimumCoverageMs": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 30000
+          },
+          "coverageWindowSeconds": {
+            "enum": [
+              1,
+              5,
+              30
+            ]
+          }
+        },
+        "required": [
+          "addressFamily",
+          "transport",
+          "direction",
+          "family",
+          "minimumCoverageMs",
+          "coverageWindowSeconds"
+        ],
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "coverageWindowSeconds": {
+                  "const": 1
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "minimumCoverageMs": {
+                  "maximum": 1000
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "coverageWindowSeconds": {
+                  "const": 5
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "minimumCoverageMs": {
+                  "maximum": 5000
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "coverageWindowSeconds": {
+                  "const": 30
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "minimumCoverageMs": {
+                  "maximum": 30000
+                }
+              }
+            }
+          }
+        ]
+      },
+      "minItems": 1,
+      "maxItems": 100
+    },
+    "scoreCalibration": {
+      "type": "string",
+      "enum": [
+        "none",
+        "platt",
+        "isotonic",
+        "temperature"
+      ]
+    },
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "format": {
+          "const": "onnx"
+        },
+        "opset": {
+          "type": "integer",
+          "minimum": 17,
+          "maximum": 30
+        },
+        "maxProbabilityAbsError": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 0.0001
+        },
+        "runtimeVersion": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        }
+      },
+      "required": [
+        "format",
+        "opset",
+        "maxProbabilityAbsError",
+        "runtimeVersion"
+      ]
+    },
+    "validationReportSha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "finalEvaluationReportSha256": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "trainingRunId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "algorithmVersion": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160
+    },
+    "trainingCodeSha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "outputContract": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "attackScoreName": {
+          "const": "attack_score"
+        },
+        "binaryLabels": {
+          "const": {
+            "benign": 0,
+            "attack": 1
+          }
+        },
+        "familyScoreOrder": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "uniqueItems": true,
+          "maxItems": 100
+        }
+      },
+      "required": [
+        "attackScoreName",
+        "binaryLabels",
+        "familyScoreOrder"
+      ]
+    }
+  },
+  "required": [
+    "contractVersion",
+    "modelId",
+    "modelVersion",
+    "candidateOnly",
+    "artifactSha256",
+    "featureProfileSha256",
+    "extractorSha256",
+    "preprocessingSha256",
+    "calibrationSha256",
+    "datasetManifestSha256",
+    "splitManifestSha256",
+    "evaluationPlanSha256",
+    "createdAt",
+    "algorithm",
+    "profiles",
+    "numericFeatures",
+    "categoricalFeatures",
+    "supportedScope",
+    "scoreCalibration",
+    "runtime",
+    "validationReportSha256",
+    "finalEvaluationReportSha256",
+    "trainingRunId",
+    "algorithmVersion",
+    "trainingCodeSha256",
+    "outputContract"
+  ]
+}

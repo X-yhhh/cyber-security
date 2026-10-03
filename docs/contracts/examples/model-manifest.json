@@ -1,0 +1,99 @@
+{
+  "contractVersion": "host-guard/5.0.0-rc.1",
+  "modelId": "00000000-0000-4000-8000-000000000007",
+  "modelVersion": "example-only",
+  "candidateOnly": true,
+  "artifactSha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "featureProfileSha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "extractorSha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "preprocessingSha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "calibrationSha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "datasetManifestSha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "splitManifestSha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "evaluationPlanSha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "validationReportSha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "createdAt": "2026-10-03T00:00:00Z",
+  "algorithm": "xgboost",
+  "profiles": [
+    "flow-prefix-v1"
+  ],
+  "numericFeatures": [
+    "features.elapsedMs",
+    "features.bytesOutbound",
+    "features.bytesInbound",
+    "features.packetsOutbound",
+    "features.packetsInbound",
+    "features.lengthMin",
+    "features.lengthMax",
+    "features.lengthMean",
+    "features.lengthStd",
+    "features.iatMeanUs",
+    "features.iatStdUs",
+    "features.synCount",
+    "features.synAckCount",
+    "features.rstCount",
+    "features.finCount",
+    "features.handshakeSeen",
+    "contexts.1.coverageMs",
+    "contexts.1.peerFlowStarts",
+    "contexts.1.peerSynCount",
+    "contexts.1.peerRstCount",
+    "contexts.1.peerDistinctServicePorts",
+    "contexts.1.hostFlowStarts",
+    "contexts.1.hostDistinctPeers",
+    "contexts.1.peerBytesOutbound",
+    "contexts.1.peerBytesInbound",
+    "contexts.5.coverageMs",
+    "contexts.5.peerFlowStarts",
+    "contexts.5.peerSynCount",
+    "contexts.5.peerRstCount",
+    "contexts.5.peerDistinctServicePorts",
+    "contexts.5.hostFlowStarts",
+    "contexts.5.hostDistinctPeers",
+    "contexts.5.peerBytesOutbound",
+    "contexts.5.peerBytesInbound",
+    "contexts.30.coverageMs",
+    "contexts.30.peerFlowStarts",
+    "contexts.30.peerSynCount",
+    "contexts.30.peerRstCount",
+    "contexts.30.peerDistinctServicePorts",
+    "contexts.30.hostFlowStarts",
+    "contexts.30.hostDistinctPeers",
+    "contexts.30.peerBytesOutbound",
+    "contexts.30.peerBytesInbound"
+  ],
+  "categoricalFeatures": [
+    "transport",
+    "direction",
+    "serviceClass"
+  ],
+  "supportedScope": [
+    {
+      "addressFamily": "ipv4",
+      "transport": "tcp",
+      "direction": "outbound",
+      "family": "connection_abuse",
+      "minimumCoverageMs": 1000,
+      "coverageWindowSeconds": 5
+    }
+  ],
+  "scoreCalibration": "platt",
+  "runtime": {
+    "format": "onnx",
+    "opset": 17,
+    "maxProbabilityAbsError": 0.0001,
+    "runtimeVersion": "example-only"
+  },
+  "finalEvaluationReportSha256": null,
+  "trainingRunId": "00000000-0000-4000-8000-000000000017",
+  "algorithmVersion": "example-only",
+  "trainingCodeSha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "outputContract": {
+    "attackScoreName": "attack_score",
+    "binaryLabels": {
+      "benign": 0,
+      "attack": 1
+    },
+    "familyScoreOrder": []
+  }
+}

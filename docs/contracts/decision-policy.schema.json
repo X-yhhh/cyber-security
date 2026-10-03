@@ -1,0 +1,146 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cyber-security.invalid/contracts/decision-policy.schema.json",
+  "title": "host-guard v5 decision-policy",
+  "$comment": "设计候选；业务、时间、归属和签名不变量见检测与处置契约。",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "contractVersion": {
+      "const": "host-guard/5.0.0-rc.1"
+    },
+    "policyId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "policyVersion": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160
+    },
+    "mode": {
+      "type": "string",
+      "enum": [
+        "alert_only",
+        "auto"
+      ]
+    },
+    "modelId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "family": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160
+    },
+    "profile": {
+      "type": "string",
+      "enum": [
+        "flow-prefix-v1",
+        "flow-final-v1"
+      ]
+    },
+    "alertThreshold": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "autoThreshold": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "minDistinctFlows": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1000
+    },
+    "minEvidenceSpanMs": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 30000
+    },
+    "episodeSeconds": {
+      "const": 30
+    },
+    "contextWindowSeconds": {
+      "enum": [
+        1,
+        5,
+        30
+      ]
+    },
+    "minPeerFlowStarts": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "maxEvidenceAgeMs": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 10000
+    },
+    "maxTtlSeconds": {
+      "type": "integer",
+      "minimum": 5,
+      "maximum": 60
+    },
+    "maxContinuousBlockSeconds": {
+      "type": "integer",
+      "minimum": 5,
+      "maximum": 120
+    },
+    "maxActiveRulesPerAsset": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 10
+    },
+    "maxNewActionsPerMinute": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 5
+    },
+    "supportedCapabilityIds": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "format": "uuid"
+      },
+      "minItems": 1,
+      "maxItems": 100,
+      "uniqueItems": true
+    },
+    "protectionSetSha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "evaluationPlanSha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  },
+  "required": [
+    "contractVersion",
+    "policyId",
+    "policyVersion",
+    "mode",
+    "modelId",
+    "family",
+    "profile",
+    "alertThreshold",
+    "autoThreshold",
+    "minDistinctFlows",
+    "minEvidenceSpanMs",
+    "episodeSeconds",
+    "contextWindowSeconds",
+    "minPeerFlowStarts",
+    "maxEvidenceAgeMs",
+    "maxTtlSeconds",
+    "maxContinuousBlockSeconds",
+    "maxActiveRulesPerAsset",
+    "maxNewActionsPerMinute",
+    "supportedCapabilityIds",
+    "protectionSetSha256",
+    "evaluationPlanSha256"
+  ]
+}

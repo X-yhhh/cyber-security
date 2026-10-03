@@ -1,6 +1,6 @@
 # 模型数据整改与训练路线
 
-日期：2026-10-03。状态：**当前数据门禁未通过，S3 未授权；本文件是训练仓库的唯一实施入口。**
+日期：2026-10-03。状态：**阶段 0 状态冻结已完成；当前数据 readiness 与 S3 仍为 `BLOCKED`，训练和真实处置未授权；本文件是训练仓库的唯一实施入口。**
 
 适用仓库：`win-dev:E:\Workspace\ai\experiments\cyber-security-training`，分支 `training/windows-cuda`。此仓库只负责公开/获准数据的离线审查、预处理、训练、独立评估和制品导出。在线推理、资产授权、前端、模型激活和防火墙处置属于 macOS 应用仓库。
 
@@ -38,11 +38,14 @@
 
 ## 4. 分阶段执行与停止条件
 
-### 阶段 0：保持训练阻断
+### 阶段 0：冻结状态并保持训练阻断
 
 - **训练仓库：** S3 预检维持 `BLOCKED`，不跑训练、调参、holdout 预测或导出；不要为绕过阻断改 readiness 计数或授权布尔值。
 - **数据：** Monday 1,674 条保持 `Unknown`；ToN-IoT、IoT-23、CICIoT2023、AIT 和 CSE 按 §2 当前状态记录。
-- **出口：** 已有公开小样本来源通过许可与 PCAP—标签—活动证据 pilot。当前未达到；保持阶段 0。
+- **应用、传感器与前端：** 活动部署 `2026.10.2` 和发布台账 `approved` 只表示本机开发状态；当前模型作为历史/开发候选，不作生产批准。执行端点保持 `503 ACTION_EXECUTION_UNAVAILABLE`，不开放适配器；v4 严格校验和接口白名单保留，不新增训练启动或自动封禁控件。
+- **证据：** [阶段 0 验收记录](phase0/README.md)与 `docs/phase0/evidence/freeze-20261003.json` 记录两仓库状态和路径；同目录保存原字节的 `s3-experiment-matrix-v1.json`、`phase3-dataset-readiness-v4.json`、`s3-preflight-20261003-v3.json`、`cic-monday-human-review-acceptance-v1.json`。这些是既有摘要的哈希校验与同步，没有重算原始 pilot 或创建标签。
+- **矩阵：** 原矩阵 SHA-256 `14c71d367d3ae584ba235c74802c9500f584f93a6235e1e6b4ab368c1c3048e7` 保持不变；FNR≤`4%`、FPR≤`1.5%` 是更严格的开发停止条件，L1-P 最终验收仍为 FNR≤`5%` 等既有门槛。预算登记不授权运行；preflight 尚未接入所有历史训练入口，不能宣称任意旧命令均有不可绕过的 guard。
+- **出口：** 两仓库当前事实、门槛、证据路径与“不得开始 S3”一致，已达到。数据 readiness 仍为 `BLOCKED`，Monday 不转 Normal。许可/PCAP—标签—活动 pilot 属于阶段 1～2，阶段 0 完成不批准后续训练。
 
 ### 阶段 1：候选来源清单与有界 pilot
 

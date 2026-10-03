@@ -1,0 +1,32 @@
+{
+  "version": "cic-monday-human-review-acceptance-v1",
+  "reviewedAt": "2026-10-02T23:19:26+08:00",
+  "reviewer": "project owner (current conversation user)",
+  "reviewerIdentityEvidence": "The user explicitly accepted the Agent review results in the current Codex conversation; no external identity signature is represented by this record.",
+  "reviewScope": "Human review and acceptance of the independent Agent's per-record recommendations and aggregate evidence assessment; not a separate manual reconstruction of the underlying network evidence.",
+  "package": {
+    "path": "external local review package; folder name cic-monday-blind-review-20261002",
+    "manifestSha256": "22a8da7358ef1b28df8e9cb64cfd7781078bab48d86909f12f30945b8eaaf961",
+    "summarySha256": "8257e4ed67fd497e0717a0b7dfd41fa079642a58912a4bbdcd4a81facdb1a5a6",
+    "reviewResultsSha256": "abc662a8f6f546544b512040c885a8a6a0b82adac93cfc0499db0db9441a85e0",
+    "reviewedRows": 1674
+  },
+  "decision": {
+    "agentRecommendationsAccepted": true,
+    "acceptedAs": "Unknown",
+    "normalRecommendations": 0,
+    "attackRecommendations": 0,
+    "unknownRecommendations": 1674,
+    "trustedNormalLabelsCreated": 0,
+    "trainingEligibleRowsCreated": 0,
+    "reviewStatus": "human_reviewed_and_accepted"
+  },
+  "evidenceLimits": [
+    "Original sidecar content hashes cannot be recomputed from the package because source bytes and serialization rules are absent.",
+    "No actual business or attack session evidence was supplied, so the accepted recommendations remain Unknown.",
+    "This acceptance does not establish independent L1-P, CSE L2, rule-scenario, or L3 evidence."
+  ],
+  "sourceArtifactsMutated": false,
+  "s2Status": "BLOCKED",
+  "s3TrainingAuthorized": false
+}

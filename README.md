@@ -84,7 +84,7 @@ WHERE username = 'admin';
 
 本机验收使用 Temurin JDK 25.0.2、Maven 3.9.13 和指定 Maven 本地仓库。本机 macOS 登录 shell 从 macOS 钥匙串加载 `DB_URL`、`DB_USERNAME`、`DB_PASSWORD`、`DB_TEST_BASE_URL`、`DB_TEST_USERNAME`、`DB_TEST_PASSWORD`、`LOGIN_THROTTLE_HMAC_KEY`、`RABBITMQ_IT_ENABLED`、`RABBITMQ_IT_HOST`、`RABBITMQ_IT_PORT`、`RABBITMQ_IT_VHOST`、`RABBITMQ_IT_USERNAME`、`RABBITMQ_IT_PASSWORD`、`RABBITMQ_HOST`、`RABBITMQ_PORT`、`RABBITMQ_VHOST`、`RABBITMQ_USERNAME`、`RABBITMQ_PASSWORD` 和 `RABBITMQ_INGEST_EXCHANGE`；只保存变量名和加载方式，不把秘密写入仓库。其他环境应从各自受控密钥存储注入运行/测试所需变量。Java 测试应使用项目指定 JDK 与 Maven，集成测试只连接独立测试 schema。
 
-阶段 1 的实体生命周期、时间窗规则、TCP/握手模型范围门禁，以及规则页签和机器客户端登记已实现并经独立测试库验证。2026-10-01 已备份并迁移本机开发库至 V17、部署 JDK 25 新构建；`2026.10.2` 及 4 条仅告警窗口规则，经独立审阅批准后通过正式接口审批并激活。Intel Mac 实验已停止，实验数据源停用、机器凭据吊销，历史事实保留。当前进度、验证边界和下一步统一见[模型整改与分阶段开发计划](docs/模型整改与分阶段开发计划.md)。
+历史开发阶段 1 的实体生命周期、时间窗规则、TCP/握手模型范围门禁，以及规则页签和机器客户端登记已实现并经独立测试库验证。2026-10-01 已备份并迁移本机开发库至 V17、部署 JDK 25 新构建；`2026.10.2` 及 4 条仅告警窗口规则，经独立审阅批准后通过正式接口审批并激活。Intel Mac 实验已停止，实验数据源停用、机器凭据吊销，历史事实保留。2026-10-03 当前整改阶段 1 的[小体量来源初筛](docs/phase1/README.md)已完成：IoT-23 官方 80.5 MiB 子集进入阶段 2 试点，取得 29 条明确良性与 151,567 条攻击候选的起始包证据；完整流关联、v4 兼容性和训练准入仍须验证，S3 保持阻断。当前进度、验证边界和下一步统一见[模型整改与分阶段开发计划](docs/模型整改与分阶段开发计划.md)。
 
 ## 文档
 

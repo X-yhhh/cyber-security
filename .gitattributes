@@ -3,3 +3,6 @@
 backend/src/test/resources/feature-contract/fixtures/** -text -whitespace
 # Windows 生成的阶段 2 完成证据已绑定 SHA-256，保留 CRLF 原字节；仍检查其他尾部空白。
 docs/phase2-evidence/scope-v2/completion.json -text whitespace=trailing-space,space-before-tab,cr-at-eol
+# 阶段 1 收口记录绑定这些文件的 SHA-256，跨平台检出必须保留原始字节。
+docs/phase1/README.md -text
+docs/phase1/evidence/*-v[0-9]*.json -text

@@ -1,0 +1,12 @@
+{
+  "version": "source-screening-transport-v1",
+  "date": "2026-10-03",
+  "windowsDefaultTrustAttempt": "FAILED_CERTIFICATE_VERIFY_FAILED_UNABLE_TO_GET_LOCAL_ISSUER_CERTIFICATE",
+  "metadataRecovery": "Mac verified HTTPS metadata acquired with the same byte-bounded standard-library tool, then copied byte-for-byte to an ignored Windows data directory.",
+  "pilotTransport": "Windows Python 3.12.10 HTTPS with an explicit task-only public Mozilla certifi CA bundle.",
+  "caBundleSha256": "16be3f6feb15408195dcfe3aa1a75ef9db72f646b96ebbefdc68f56255f799f8",
+  "caBundleBytes": 238641,
+  "systemTrustStoreModified": false,
+  "tlsVerificationDisabled": false,
+  "globalProxyModified": false
+}

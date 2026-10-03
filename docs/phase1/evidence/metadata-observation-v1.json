@@ -1,0 +1,150 @@
+{
+  "version": "source-screening-metadata-observation-v1",
+  "date": "2026-10-03",
+  "metadataBytes": 654626,
+  "metadataInventory": [
+    {
+      "name": "iot23-publisher.html",
+      "url": "https://www.stratosphereips.org/datasets-iot23",
+      "bytes": 261424,
+      "sha256": "aec1fe0cb08cc4df9e5095a33dd397db41e8415204e53e207339e3dc7a5b4efa",
+      "status": "COMPLETE",
+      "lastModified": null
+    },
+    {
+      "name": "iot23-faq.html",
+      "url": "https://www.stratosphereips.org/datasets-faq",
+      "bytes": 103292,
+      "sha256": "c28ef8f410de0623393b2125a25f8b0caea7ab674a9d95edaa505095c693065a",
+      "status": "COMPLETE",
+      "lastModified": null
+    },
+    {
+      "name": "iot23-zenodo.json",
+      "url": "https://zenodo.org/api/records/4743746",
+      "bytes": 5087,
+      "sha256": "8571255c4a9d7a8ab130fc4b9cc5964997736a2a4b017f9b64b1a61bcd822498",
+      "status": "COMPLETE",
+      "lastModified": null
+    },
+    {
+      "name": "iot23-historical-conflict.md",
+      "url": "https://mcfp.felk.cvut.cz/publicDatasets/IoT-23-Dataset/IndividualScenarios/CTU-IoT-Malware-Capture-1-1/README.md",
+      "bytes": 1745,
+      "sha256": "27b932e5777c5b457eafc2f9cd8db3792527e509b31b123dfdf70d6e0c86fcfa",
+      "status": "COMPLETE",
+      "lastModified": "Wed, 31 Jul 2019 15:20:34 GMT"
+    },
+    {
+      "name": "iot23-normal-index.html",
+      "url": "https://mcfp.felk.cvut.cz/publicDatasets/IoT-23-Dataset/IndividualScenarios/CTU-Honeypot-Capture-7-1/Somfy-01/",
+      "bytes": 1366,
+      "sha256": "23e7aa180626dffcac90cc0be05d4044928408ce4d15cb095a10cbbaa925740a",
+      "status": "COMPLETE",
+      "lastModified": null
+    },
+    {
+      "name": "iot23-normal-bro-index.html",
+      "url": "https://mcfp.felk.cvut.cz/publicDatasets/IoT-23-Dataset/IndividualScenarios/CTU-Honeypot-Capture-7-1/Somfy-01/bro/",
+      "bytes": 1127,
+      "sha256": "0b858e5185144357c8f79f55f9abad58c78c3e7cb3bfbe17a36fe002d9e9bafa",
+      "status": "COMPLETE",
+      "lastModified": null
+    },
+    {
+      "name": "iot23-attack-index.html",
+      "url": "https://mcfp.felk.cvut.cz/publicDatasets/IoT-23-Dataset/IndividualScenarios/CTU-IoT-Malware-Capture-3-1/",
+      "bytes": 1670,
+      "sha256": "0583b292168ea37579f964d03a8874a0ed6fecd232bbd1f1ec3ab0bf8e9d1a42",
+      "status": "COMPLETE",
+      "lastModified": null
+    },
+    {
+      "name": "iot23-attack-bro-index.html",
+      "url": "https://mcfp.felk.cvut.cz/publicDatasets/IoT-23-Dataset/IndividualScenarios/CTU-IoT-Malware-Capture-3-1/bro/",
+      "bytes": 1109,
+      "sha256": "ac3d6f25ad182f62c2eb23f383a11d9910d09c741b993eccd379e938df300fd2",
+      "status": "COMPLETE",
+      "lastModified": null
+    },
+    {
+      "name": "iot23-attack-description.md",
+      "url": "https://mcfp.felk.cvut.cz/publicDatasets/IoT-23-Dataset/IndividualScenarios/CTU-IoT-Malware-Capture-3-1/README.md",
+      "bytes": 3663,
+      "sha256": "426f8ce8680c2593815f6d8bdc4f1f9cf183210a26d9459f135d4d100e91558f",
+      "status": "COMPLETE",
+      "lastModified": "Fri, 23 Aug 2019 17:42:22 GMT"
+    },
+    {
+      "name": "toniot-publisher.html",
+      "url": "https://research.unsw.edu.au/projects/toniot-datasets",
+      "bytes": 46750,
+      "sha256": "3c8bd31868ea66d5c8187787fad5fe8347cf55db2c5b17e599bfa7fa5c559809",
+      "status": "COMPLETE",
+      "lastModified": null
+    },
+    {
+      "name": "ctu13-publisher.html",
+      "url": "https://www.stratosphereips.org/datasets-ctu13",
+      "bytes": 118157,
+      "sha256": "496d9d0194b328f5536938bc76afab5e37ef1267ce8053ccdf8e61f5ddd3e78b",
+      "status": "COMPLETE",
+      "lastModified": null
+    },
+    {
+      "name": "ctu13-license.html",
+      "url": "https://mcfp.felk.cvut.cz/publicDatasets/CTU-13-Dataset/README.html",
+      "bytes": 580,
+      "sha256": "a6347a19736a64fa3d911d7d1baef2ee4eabddf78fc7d03965462296c89ca04c",
+      "status": "COMPLETE",
+      "lastModified": "Mon, 26 Dec 2016 19:13:34 GMT"
+    },
+    {
+      "name": "ciciot2023-publisher.html",
+      "url": "https://www.unb.ca/cic/datasets/iotdataset-2023.html",
+      "bytes": 108656,
+      "sha256": "99ae08c233d26aaa1c6cc5baa9eb6860587077cc2bc1097c63457bface422852",
+      "status": "COMPLETE",
+      "lastModified": "Wed, 25 Mar 2026 17:01:31 GMT"
+    }
+  ],
+  "licenseEvidence": {
+    "faqQuote": "You do not need to ask permission from us to use our datasets as long as you cite the datasets appropriately as specified above.",
+    "doi": "10.5281/zenodo.4743746",
+    "license": "CC BY 4.0",
+    "officialVersion": "1.0.0",
+    "individualSnapshotDate": "2026-10-03",
+    "fullArchiveMd5Verified": false
+  },
+  "normalEvidence": {
+    "publisherPage": "https://www.stratosphereips.org/datasets-iot23",
+    "basis": "Publisher documents three captures of uninfected real IoT devices; Somfy door lock is one of them. The selected member is explicitly the gateway first-start activity. Malicious-capture background is not used as Normal.",
+    "quotes": [
+      "These scenarios had been created by capturing network traffic data of not infected real IoT devices.",
+      "the second one benign IoT traffic only."
+    ]
+  },
+  "attackEvidence": {
+    "basis": "Publisher manually analysed packet captures and distributed per-flow analyst labels, not just an attack timetable. Muhstik scenario README records infection, persistent infection and IRC connectivity; labels must still match an actual packet tuple and start time.",
+    "ruleDetailsVerified": false,
+    "fullFlowJoinVerified": false
+  },
+  "access": {
+    "ToN-IoT": {
+      "officialDownloadLinksChecked": 2,
+      "statuses": [
+        403,
+        403
+      ],
+      "access": "BLOCKED_LOGIN_REQUIRED",
+      "datasetBytesRead": 0,
+      "sampleCorrelation": "NOT_RUN"
+    }
+  },
+  "scope": {
+    "metadataOnly": true,
+    "newTrainingLabelsCreated": 0,
+    "trainingExecuted": false,
+    "holdoutRead": false
+  }
+}

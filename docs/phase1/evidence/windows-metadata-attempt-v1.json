@@ -1,0 +1,140 @@
+{
+  "version": "source-screening-fetch-report-v1",
+  "mode": "metadata",
+  "planSha256": "bfc5c94b54a8abd322d7a771248f079ff4cc23043ffbba7c197cc105cb9adde1",
+  "files": [
+    {
+      "name": "iot23-publisher.html",
+      "url": "https://www.stratosphereips.org/datasets-iot23",
+      "kind": "metadata",
+      "status": "COMPLETE",
+      "bytes": 261424,
+      "sha256": "aec1fe0cb08cc4df9e5095a33dd397db41e8415204e53e207339e3dc7a5b4efa",
+      "contentLength": 261424,
+      "lastModified": null,
+      "etag": "W/\"3a8c36cc8361c45a246df9431ae8b60b\""
+    },
+    {
+      "name": "iot23-faq.html",
+      "url": "https://www.stratosphereips.org/datasets-faq",
+      "kind": "metadata",
+      "status": "COMPLETE",
+      "bytes": 103292,
+      "sha256": "c28ef8f410de0623393b2125a25f8b0caea7ab674a9d95edaa505095c693065a",
+      "contentLength": 103292,
+      "lastModified": null,
+      "etag": "W/\"81554758d2ec69817d9bfe8c56081dcc\""
+    },
+    {
+      "name": "iot23-zenodo.json",
+      "url": "https://zenodo.org/api/records/4743746",
+      "kind": "metadata",
+      "status": "COMPLETE",
+      "bytes": 5087,
+      "sha256": "8571255c4a9d7a8ab130fc4b9cc5964997736a2a4b017f9b64b1a61bcd822498",
+      "contentLength": 5087,
+      "lastModified": null,
+      "etag": "\"3\""
+    },
+    {
+      "name": "iot23-historical-conflict.md",
+      "url": "https://mcfp.felk.cvut.cz/publicDatasets/IoT-23-Dataset/IndividualScenarios/CTU-IoT-Malware-Capture-1-1/README.md",
+      "kind": "metadata",
+      "status": "FAILED",
+      "bytes": 0,
+      "sha256": null,
+      "error": "URLError"
+    },
+    {
+      "name": "iot23-normal-index.html",
+      "url": "https://mcfp.felk.cvut.cz/publicDatasets/IoT-23-Dataset/IndividualScenarios/CTU-Honeypot-Capture-7-1/Somfy-01/",
+      "kind": "metadata",
+      "status": "FAILED",
+      "bytes": 0,
+      "sha256": null,
+      "error": "URLError"
+    },
+    {
+      "name": "iot23-normal-bro-index.html",
+      "url": "https://mcfp.felk.cvut.cz/publicDatasets/IoT-23-Dataset/IndividualScenarios/CTU-Honeypot-Capture-7-1/Somfy-01/bro/",
+      "kind": "metadata",
+      "status": "FAILED",
+      "bytes": 0,
+      "sha256": null,
+      "error": "URLError"
+    },
+    {
+      "name": "iot23-attack-index.html",
+      "url": "https://mcfp.felk.cvut.cz/publicDatasets/IoT-23-Dataset/IndividualScenarios/CTU-IoT-Malware-Capture-3-1/",
+      "kind": "metadata",
+      "status": "FAILED",
+      "bytes": 0,
+      "sha256": null,
+      "error": "URLError"
+    },
+    {
+      "name": "iot23-attack-bro-index.html",
+      "url": "https://mcfp.felk.cvut.cz/publicDatasets/IoT-23-Dataset/IndividualScenarios/CTU-IoT-Malware-Capture-3-1/bro/",
+      "kind": "metadata",
+      "status": "FAILED",
+      "bytes": 0,
+      "sha256": null,
+      "error": "URLError"
+    },
+    {
+      "name": "iot23-attack-description.md",
+      "url": "https://mcfp.felk.cvut.cz/publicDatasets/IoT-23-Dataset/IndividualScenarios/CTU-IoT-Malware-Capture-3-1/README.md",
+      "kind": "metadata",
+      "status": "FAILED",
+      "bytes": 0,
+      "sha256": null,
+      "error": "URLError"
+    },
+    {
+      "name": "toniot-publisher.html",
+      "url": "https://research.unsw.edu.au/projects/toniot-datasets",
+      "kind": "metadata",
+      "status": "COMPLETE",
+      "bytes": 46750,
+      "sha256": "3c8bd31868ea66d5c8187787fad5fe8347cf55db2c5b17e599bfa7fa5c559809",
+      "contentLength": 46750,
+      "lastModified": null,
+      "etag": null
+    },
+    {
+      "name": "ctu13-publisher.html",
+      "url": "https://www.stratosphereips.org/datasets-ctu13",
+      "kind": "metadata",
+      "status": "COMPLETE",
+      "bytes": 118157,
+      "sha256": "496d9d0194b328f5536938bc76afab5e37ef1267ce8053ccdf8e61f5ddd3e78b",
+      "contentLength": 118157,
+      "lastModified": null,
+      "etag": "W/\"e9b7875734a8835635df6d567e5f6130\""
+    },
+    {
+      "name": "ctu13-license.html",
+      "url": "https://mcfp.felk.cvut.cz/publicDatasets/CTU-13-Dataset/README.html",
+      "kind": "metadata",
+      "status": "FAILED",
+      "bytes": 0,
+      "sha256": null,
+      "error": "URLError"
+    },
+    {
+      "name": "ciciot2023-publisher.html",
+      "url": "https://www.unb.ca/cic/datasets/iotdataset-2023.html",
+      "kind": "metadata",
+      "status": "FAILED",
+      "bytes": 0,
+      "sha256": null,
+      "error": "URLError"
+    }
+  ],
+  "licenseReviewSha256": null,
+  "bytesWritten": 534710,
+  "complete": false,
+  "trainingExecuted": false,
+  "predictionsExecuted": 0,
+  "holdoutRead": false
+}

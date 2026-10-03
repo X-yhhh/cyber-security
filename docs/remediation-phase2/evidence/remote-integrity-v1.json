@@ -1,0 +1,55 @@
+{
+  "version": "remediation-phase2-remote-integrity-v1",
+  "branch": "training/windows-cuda",
+  "head": "3ebdb7fa0627cce468ed6c9e3c864759a1958385",
+  "preexistingUntrackedFilesVerified": 15,
+  "preexistingFilesUnchanged": true,
+  "preservedFileChecksums": {
+    "scripts/phase2_finish_cic2017.py": "40f1a8d3787dc4705192b1cd18399c0e73d5b27686167f95e4b20ca64c1994c6",
+    "scripts/phase2_prepare_cic2017.py": "6f4514dffd426bb0cbfe886ccc94bd672f2cdb18cb4fcfdf6f69acbcd93d62bc",
+    "src/cyber_training/phase2/__init__.py": "7c3315fb646bf2ac7af8561c7a75637b379432389982c3092ae2baba6010eb4f",
+    "src/cyber_training/phase2/__main__.py": "c7f7116a0e9a72c81978f9307bbb289c0d304206cbddf7cd9cc054fb538f3ae0",
+    "src/cyber_training/phase2/baseline.py": "9411cee39744d22abe120c5a2558a7b81935a694cb78e792a4ab45bd01499e98",
+    "src/cyber_training/phase2/labels.py": "1eb9edabee64048640d11639a5e294ddd9c29b068780381edb1402bcbfe014e6",
+    "src/cyber_training/phase2/review.py": "efcf6edcba374c05704cd54aa14fa7b3ae70494013bf9bd62cf1c62e0f8693a4",
+    "src/cyber_training/phase2/scope.py": "e228bac9b54cc4f5d918eae46baa627061d7d250675770f00b3ba321219e7d50",
+    "src/cyber_training/phase2/split.py": "1f69c87e96d480589aa63b5d5346d56efc1566aaaeb2f8ed3b26ed9f0db4fc2a",
+    "src/cyber_training/phase2/transfer.py": "5fed6aafec89910995f74080c7cdc3fd3706c40f9a61d8dd707e76a129ff0ba8",
+    "tests/test_phase2_baseline.py": "c2fcdaa8c0c60ab71122d9988df4a0c640bba00c8c24299205945f9bf162ebec",
+    "tests/test_phase2_labels.py": "b56b8605890d0606d14c5165058acd2ac261583390b467da342765e85ab9b352",
+    "tests/test_phase2_review.py": "66596904eb311255e291b4565a765165b338ba867fdfed41e6d6f55f1d940ab9",
+    "tests/test_phase2_split.py": "76b371618d8eda66b604ba9cc43da15cfc84b311eb6ee18f1b1be79f8fe42ee5",
+    "tests/test_phase2_transfer.py": "9e51150a11a55191b3a1c709b366af498ed94f635d2477f127836907acd724e1"
+  },
+  "historicalEvidence": [
+    {
+      "id": "phase3-dataset-readiness-v4",
+      "sha256": "4d60ba578a8886f8f8b06da38dec614a2015b5e722fec333b463ec51c7b09531",
+      "unchanged": true
+    },
+    {
+      "id": "s3-preflight-20261003-v3",
+      "sha256": "06f75c584aea3e497eb3c6e5f60ad5f8fc41081d817f8ee70d41e65b5774cf0c",
+      "unchanged": true
+    },
+    {
+      "id": "cic-monday-human-review-acceptance-v1",
+      "sha256": "8a0532dbf8f0cc767a07034f9527e95429198f5705a578182e01f5523e43ed03",
+      "unchanged": true
+    },
+    {
+      "id": "s3-experiment-matrix-v1",
+      "sha256": "14c71d367d3ae584ba235c74802c9500f584f93a6235e1e6b4ab368c1c3048e7",
+      "unchanged": true
+    }
+  ],
+  "rawDerivedAndBinaryGitIgnored": true,
+  "trainingAuthorized": false,
+  "trainingEligibleRows": 0,
+  "trainingExecuted": false,
+  "predictionsExecuted": 0,
+  "holdoutRead": false,
+  "stage2AuditorSha256": "7ccfd5bc3db88e3f23d73e667ec2b1090d3eff8d8c26157f1ce912401c362399",
+  "stage2TestsSha256": "ff43ae8fc3bbab272c27ec2563366c3dd0abebfc0dc879584b0c365ac02ce97b",
+  "gitDiffCheckPassed": true
+}

@@ -1,0 +1,396 @@
+{
+  "version": "remediation-phase2-closeout-v1",
+  "capturedAt": "2026-10-03T18:09:12.623759+08:00",
+  "phase": "remediation-phase2",
+  "phase2Status": "COMPLETE_WITH_SOURCE_REJECTED",
+  "phase2PilotAuditComplete": true,
+  "sourceAcceptedForPhase3": false,
+  "nextPhase": "phase1_find_independent_benign_source",
+  "nextAction": "Return to phase 1 source screening; no stage 3 or training.",
+  "dataReadinessStatus": "BLOCKED",
+  "s3PreflightStatus": "BLOCKED",
+  "trainingAuthorized": false,
+  "trainingStartAllowed": false,
+  "source": {
+    "sourceId": "IoT-23/1.0.0",
+    "rawMembers": 4,
+    "rawMemberBytes": 84415438,
+    "aggregateCounts": {
+      "fullyJoinedPublisherConnections": 4447,
+      "records": 85989,
+      "v4ReadyRecords": 85803,
+      "v4InvalidReadyRecords": 0,
+      "Unknown": 83025,
+      "fullyJoinedSensorSegments": 6335,
+      "completedFlowsIncludingAddressExcluded": 86619,
+      "addressExcludedFlows": 630,
+      "Attack_candidate": 2964,
+      "currentModelScopeCandidates": 0
+    },
+    "profiles": [
+      {
+        "profile": "somfy-lan",
+        "counts": {
+          "fullyJoinedPublisherConnections": 70,
+          "records": 77,
+          "v4ReadyRecords": 0,
+          "v4InvalidReadyRecords": 0,
+          "Unknown": 77,
+          "fullyJoinedSensorSegments": 75,
+          "completedFlowsIncludingAddressExcluded": 356,
+          "addressExcludedFlows": 279
+        },
+        "groupingAudit": {
+          "candidateConnections": 0,
+          "multiSegmentCandidateConnections": 0,
+          "exactDuplicateFeatureRowsBeyondFirst": 0,
+          "nearDuplicateFeatureRowsBeyondFirst": 0,
+          "conflictingLabelsOnExactFeatures": 0,
+          "captureDatesUtc": {},
+          "verifiedIndependentActivities": 0,
+          "partitionedRows": 0,
+          "crossPartitionLeakageStatus": "NOT_EVALUABLE_NO_PARTITIONS",
+          "nearDuplicateMethod": "duration_ms/handshake_us/bytes_64B/mean_4B/load_log_5pct; packet/window/category exact",
+          "limits": "Coarse candidate signature may miss boundary pairs; no rows removed and no independence or zero-leakage claim."
+        },
+        "currentModelScopeExclusions": {}
+      },
+      {
+        "profile": "somfy-setup",
+        "counts": {
+          "fullyJoinedPublisherConnections": 70,
+          "records": 7,
+          "v4ReadyRecords": 0,
+          "v4InvalidReadyRecords": 0,
+          "Unknown": 7,
+          "completedFlowsIncludingAddressExcluded": 356,
+          "addressExcludedFlows": 349
+        },
+        "groupingAudit": {
+          "candidateConnections": 0,
+          "multiSegmentCandidateConnections": 0,
+          "exactDuplicateFeatureRowsBeyondFirst": 0,
+          "nearDuplicateFeatureRowsBeyondFirst": 0,
+          "conflictingLabelsOnExactFeatures": 0,
+          "captureDatesUtc": {},
+          "verifiedIndependentActivities": 0,
+          "partitionedRows": 0,
+          "crossPartitionLeakageStatus": "NOT_EVALUABLE_NO_PARTITIONS",
+          "nearDuplicateMethod": "duration_ms/handshake_us/bytes_64B/mean_4B/load_log_5pct; packet/window/category exact",
+          "limits": "Coarse candidate signature may miss boundary pairs; no rows removed and no independence or zero-leakage claim."
+        },
+        "currentModelScopeExclusions": {}
+      },
+      {
+        "profile": "muhstik",
+        "counts": {
+          "fullyJoinedPublisherConnections": 4377,
+          "records": 85905,
+          "v4ReadyRecords": 85803,
+          "v4InvalidReadyRecords": 0,
+          "Unknown": 82941,
+          "fullyJoinedSensorSegments": 6260,
+          "Attack_candidate": 2964,
+          "currentModelScopeCandidates": 0,
+          "completedFlowsIncludingAddressExcluded": 85907,
+          "addressExcludedFlows": 2
+        },
+        "groupingAudit": {
+          "candidateConnections": 1218,
+          "multiSegmentCandidateConnections": 5,
+          "exactDuplicateFeatureRowsBeyondFirst": 681,
+          "nearDuplicateFeatureRowsBeyondFirst": 925,
+          "conflictingLabelsOnExactFeatures": 0,
+          "captureDatesUtc": {
+            "2018-05-19": 534,
+            "2018-05-20": 1788,
+            "2018-05-21": 642
+          },
+          "verifiedIndependentActivities": 0,
+          "partitionedRows": 0,
+          "crossPartitionLeakageStatus": "NOT_EVALUABLE_NO_PARTITIONS",
+          "nearDuplicateMethod": "duration_ms/handshake_us/bytes_64B/mean_4B/load_log_5pct; packet/window/category exact",
+          "limits": "Coarse candidate signature may miss boundary pairs; no rows removed and no independence or zero-leakage claim."
+        },
+        "currentModelScopeExclusions": {
+          "viewpoint_initiator": 2964,
+          "handshake_not_seen": 1747
+        }
+      }
+    ],
+    "trainingEligibleRows": 0,
+    "trustedLabelsHumanReviewed": false,
+    "independentActivityLogJoinVerified": false,
+    "independentPartitionsFrozen": false,
+    "crossPartitionLeakageStatus": "NOT_EVALUABLE_NO_PARTITIONS"
+  },
+  "routeBlockers": [
+    "No uniquely joined v4-ready Normal; Somfy per-host windows never reach 100 flows.",
+    "No accepted candidate in current IPv4/responder/TCP/handshake model scope.",
+    "Independent activity/event evidence, second-person labels and partitions are not accepted.",
+    "Native Windows extractor/runtime parity remains unverified: OS application control."
+  ],
+  "repositories": {
+    "application": {
+      "branch": "main",
+      "head": "557d8c2bb91be875279a9c1b80b7bb0ea66b02ee",
+      "origin": "git@github.com:X-yhhh/cyber-security.git",
+      "modified": [
+        "README.md",
+        "docs/数据接入与特征提取模块开发设计.md",
+        "docs/模型整改与分阶段开发计划.md",
+        "docs/模型训练计划.md",
+        "sensor/README.md",
+        "sensor/internal/capture/live.go",
+        "sensor/internal/extract/extract.go",
+        "sensor/internal/extract/extract_test.go",
+        "sensor/internal/flow/flow.go"
+      ],
+      "new": [
+        "docs/phase2-pilot/README.md",
+        "docs/phase2-pilot/evidence/extraction-provenance-v1.json",
+        "docs/phase2-pilot/evidence/feature-pilot-v1.json",
+        "docs/phase2-pilot/evidence/parity-verification-v1.json",
+        "docs/phase2-pilot/evidence/remote-integrity-v1.json",
+        "sensor/internal/capture/live_nocgo.go",
+        "sensor/internal/capture/live_nocgo_test.go",
+        "docs/phase2-pilot/evidence/closeout-v1.json"
+      ],
+      "staged": []
+    },
+    "training": {
+      "branch": "training/windows-cuda",
+      "head": "3ebdb7fa0627cce468ed6c9e3c864759a1958385",
+      "origin": "git@github.com:X-yhhh/cyber-security.git",
+      "modified": [
+        "README.md",
+        "docs/model-readiness-roadmap.md"
+      ],
+      "untracked": [
+        "docs/remediation-phase2/README.md",
+        "docs/remediation-phase2/evidence/extraction-provenance-v1.json",
+        "docs/remediation-phase2/evidence/feature-pilot-v1.json",
+        "docs/remediation-phase2/evidence/parity-verification-v1.json",
+        "docs/remediation-phase2/evidence/remote-integrity-v1.json",
+        "docs/remediation-phase2/evidence/v4-contract.json",
+        "docs/remediation-phase2/evidence/v4-specification.md",
+        "scripts/phase2_finish_cic2017.py",
+        "scripts/phase2_prepare_cic2017.py",
+        "src/cyber_training/feature_pilot.py",
+        "src/cyber_training/phase2/__init__.py",
+        "src/cyber_training/phase2/__main__.py",
+        "src/cyber_training/phase2/baseline.py",
+        "src/cyber_training/phase2/labels.py",
+        "src/cyber_training/phase2/review.py",
+        "src/cyber_training/phase2/scope.py",
+        "src/cyber_training/phase2/split.py",
+        "src/cyber_training/phase2/transfer.py",
+        "tests/test_feature_pilot.py",
+        "tests/test_phase2_baseline.py",
+        "tests/test_phase2_labels.py",
+        "tests/test_phase2_review.py",
+        "tests/test_phase2_split.py",
+        "tests/test_phase2_transfer.py"
+      ],
+      "staged": []
+    }
+  },
+  "verification": {
+    "go": {
+      "commands": [
+        "SDKROOT=$(xcrun --show-sdk-path) go test ./...",
+        "CGO_ENABLED=0 go test ./...",
+        "CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags='-s -w' -o <ignored>/sensor-offline-windows-v3.exe ./cmd/sensor"
+      ],
+      "cgoPassed": true,
+      "pureGoPassed": true,
+      "windowsCrossBuildPassed": true,
+      "offlineAuditDoesNotChangeFeaturesTestPassed": true,
+      "pureGoLiveCaptureFailsClosedTestPassed": true
+    },
+    "java": {
+      "command": "JAVA_HOME=<JDK25>/Contents/Home mvn -q -Dtest=PacketLevelParityTest -Dg2.externalDir=<ignored>/golden-iot23-v1 test",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "publicGoldenComparedRecords": 1868,
+      "publicGoldenReadyRecords": 1769,
+      "publicGoldenFrames": 10000,
+      "allFieldsMetadataAndDiagnosticsMatched": true,
+      "numericFields": 17,
+      "categoricalFields": 2,
+      "assertionTolerance": "Exact numeric/text values and field order.",
+      "fixtureChecksums": {
+        "capture.pcap": "da10309db31859f99add2235669dc794108a4f5bbd602433af6bf65fa8747c4b",
+        "fixture.json": "99595f64143125042799a5d362785dae46fdbd32b524b45720fcb1aaa91a3f0c",
+        "expected-records.jsonl": "7db4d9aeebb049a58d4597a3a728fd8ec2501dfac3dae2a65ce85300387b057c",
+        "expected-diagnostics.json": "acc5a49076d9d9bc6345ebaeaccc37ae3d0ae46a35b6bc1680d8f56e95c14148"
+      },
+      "sourcePcapSha256": "c674dc0c8d584fa66e6f00c60df973c5fbacad551c850a76d75ec9952641d00b",
+      "selection": "First 10000 source frames; protocol headers only, no payload; outside all training partitions."
+    },
+    "windowsAudit": {
+      "command": "PYTHONPATH=src .venv/Scripts/python.exe -m pytest tests/test_source_screening.py tests/test_feature_pilot.py -q -o addopts=\"\"",
+      "testsPassed": 51,
+      "failures": 0,
+      "stage1Tests": 24,
+      "featurePilotTests": 27,
+      "nativeExtractionStatus": "BLOCKED_OS_APPLICATION_CONTROL",
+      "nativeExtractionWinError": 4551,
+      "nativeExtractorSha256": "5e4dc1d130f57f7727b4ee30ec63b68a02aee1466791cb265384c575e61af530",
+      "nativeExtractionParityVerified": false,
+      "applicationControlPolicyChanged": false,
+      "auditExecution": "Windows Python against hash-bound Mac extraction and locally rehashed original pilot.",
+      "auditorSha256": "7ccfd5bc3db88e3f23d73e667ec2b1090d3eff8d8c26157f1ce912401c362399",
+      "extractionBundleManifestSha256": "15482d31e96cea85e29d8bc9ca74d6153758dfee88f2e4046c507abb5eab7013"
+    },
+    "v4SpecificationAndContractUnchanged": true,
+    "v4SpecificationSha256": "dbba110432c2c381ec291e2ec373601256c7ca990efa3e7bdad405c25120c6f1",
+    "v4ContractSha256": "803faa2b535e26158da57e14139d06223cf0c67103ab6cd1360983ae75494461",
+    "immutableHistoricalEvidence": [
+      {
+        "id": "phase3-dataset-readiness-v4",
+        "applicationPath": "docs/phase3-optimization-evidence/phase3-dataset-readiness-v4.json",
+        "trainingPath": "docs/phase0/evidence/phase3-dataset-readiness-v4.json",
+        "sha256": "4d60ba578a8886f8f8b06da38dec614a2015b5e722fec333b463ec51c7b09531",
+        "unchanged": true
+      },
+      {
+        "id": "s3-preflight-20261003-v3",
+        "applicationPath": "docs/phase3-optimization-evidence/s3-preflight-20261003-v3.json",
+        "trainingPath": "docs/phase0/evidence/s3-preflight-20261003-v3.json",
+        "sha256": "06f75c584aea3e497eb3c6e5f60ad5f8fc41081d817f8ee70d41e65b5774cf0c",
+        "unchanged": true
+      },
+      {
+        "id": "cic-monday-human-review-acceptance-v1",
+        "applicationPath": "docs/phase3-optimization-evidence/cic-monday-human-review-acceptance-v1.json",
+        "trainingPath": "docs/phase0/evidence/cic-monday-human-review-acceptance-v1.json",
+        "sha256": "8a0532dbf8f0cc767a07034f9527e95429198f5705a578182e01f5523e43ed03",
+        "unchanged": true
+      },
+      {
+        "id": "s3-experiment-matrix-v1",
+        "applicationPath": "docs/phase0/evidence/s3-experiment-matrix-v1.json",
+        "trainingPath": "docs/phase0/evidence/s3-experiment-matrix-v1.json",
+        "sha256": "14c71d367d3ae584ba235c74802c9500f584f93a6235e1e6b4ab368c1c3048e7",
+        "unchanged": true
+      }
+    ],
+    "phase1EvidenceUnchangedInBothRepositories": true,
+    "preexistingTrainingFilesVerified": 15,
+    "preexistingTrainingFilesUnchanged": true,
+    "metadataMirroredBeforeCloseout": [
+      {
+        "applicationOrTaskPath": "task-scratch/training-edit/README.md",
+        "trainingPath": "README.md",
+        "sha256": "f02009cd820b43de576944ce367bfde2c7ca88508e3a5c3cf493e50016385e09",
+        "bytesEqual": true
+      },
+      {
+        "applicationOrTaskPath": "task-scratch/training-edit/docs/model-readiness-roadmap.md",
+        "trainingPath": "docs/model-readiness-roadmap.md",
+        "sha256": "e703d12f8c4ae329a5d55748cb4b3331c257e370f516d9379c447836b7a444e3",
+        "bytesEqual": true
+      },
+      {
+        "applicationOrTaskPath": "docs/phase2-pilot/README.md",
+        "trainingPath": "docs/remediation-phase2/README.md",
+        "sha256": "45209140f8fa54076c85786ae7ebc2ad6a851b755c33a4f52d3b2ec2dbed1086",
+        "bytesEqual": true
+      },
+      {
+        "applicationOrTaskPath": "docs/phase2-pilot/evidence/extraction-provenance-v1.json",
+        "trainingPath": "docs/remediation-phase2/evidence/extraction-provenance-v1.json",
+        "sha256": "15482d31e96cea85e29d8bc9ca74d6153758dfee88f2e4046c507abb5eab7013",
+        "bytesEqual": true
+      },
+      {
+        "applicationOrTaskPath": "docs/phase2-pilot/evidence/remote-integrity-v1.json",
+        "trainingPath": "docs/remediation-phase2/evidence/remote-integrity-v1.json",
+        "sha256": "133b64820f7b84d534dc935f3cf2c631a175e1cbb015021e8d2bc059c774f763",
+        "bytesEqual": true
+      },
+      {
+        "applicationOrTaskPath": "docs/phase2-pilot/evidence/feature-pilot-v1.json",
+        "trainingPath": "docs/remediation-phase2/evidence/feature-pilot-v1.json",
+        "sha256": "85b275ea5493aa2ddee24e6da42396de6975d54fef3fe52e03cb3cf529ab577a",
+        "bytesEqual": true
+      },
+      {
+        "applicationOrTaskPath": "docs/phase2-pilot/evidence/parity-verification-v1.json",
+        "trainingPath": "docs/remediation-phase2/evidence/parity-verification-v1.json",
+        "sha256": "96b8905b9ad6d3a6f73a20fac1abbc8a36cb8fda46f56edb9941e2c9624e1500",
+        "bytesEqual": true
+      }
+    ],
+    "mirrorScope": "Listed hashes describe the verified audit-time snapshot; later commit preparation is recorded separately below. This manifest is excluded from its own hash list.",
+    "markdownLocalLinksChecked": 42,
+    "jsonParsingPassed": true,
+    "applicationAndTrainingGitDiffCheckPassed": true,
+    "rawDerivedAndBinaryGitIgnoredOnTraining": true,
+    "noRawDataOrBinariesInApplicationGitChanges": true,
+    "sensorSourcesRehashedAfterVerification": true
+  },
+  "artifacts": {
+    "applicationTaskScratchRelativeToWorkspace": "scratch/temp/cyber-security-phase2-20261003",
+    "publicGoldenRelativeToTaskScratch": "golden-iot23-v1",
+    "macExtractionRelativeToTaskScratch": "mac-extraction-v3",
+    "trainingRepositoryRelative": "data/processed/remediation-phase2-iot23-20261003-v1",
+    "trainingFinalAuditRelative": "windows-import-audit-v2",
+    "reportSha256": "85b275ea5493aa2ddee24e6da42396de6975d54fef3fe52e03cb3cf529ab577a",
+    "evidenceChecksums": {
+      "extraction-provenance-v1.json": "15482d31e96cea85e29d8bc9ca74d6153758dfee88f2e4046c507abb5eab7013",
+      "feature-pilot-v1.json": "85b275ea5493aa2ddee24e6da42396de6975d54fef3fe52e03cb3cf529ab577a",
+      "parity-verification-v1.json": "96b8905b9ad6d3a6f73a20fac1abbc8a36cb8fda46f56edb9941e2c9624e1500",
+      "remote-integrity-v1.json": "098f903b721b38b8737a0804c00ebf97f4df4a3426914efb35fc5cbf19b907c8"
+    }
+  },
+  "commitPreparation": {
+    "readmeSha256ForCommit": "80427cfd4a433a146afb21a51666230fb89d4ca4494e7dd6b1058ee6a0825b55",
+    "readmeDeliveryStateClarifiedAsAuditSnapshot": true,
+    "remoteIntegrityNewlineNormalization": {
+      "originalWindowsSha256": "133b64820f7b84d534dc935f3cf2c631a175e1cbb015021e8d2bc059c774f763",
+      "originalWindowsNewline": "CRLF",
+      "committedSha256": "098f903b721b38b8737a0804c00ebf97f4df4a3426914efb35fc5cbf19b907c8",
+      "committedNewline": "LF",
+      "jsonValuesUnchanged": true,
+      "originalRetainedAtTrainingRepositoryRelative": "data/processed/remediation-phase2-iot23-20261003-v1/remote-integrity-v1.json"
+    },
+    "historicalStage0AndStage1EvidenceUnchanged": true
+  },
+  "thisStage": {
+    "trainingExecuted": false,
+    "predictionsExecuted": 0,
+    "holdoutRead": false,
+    "modelExportExecuted": false,
+    "modelActivationExecuted": false,
+    "actionsExecuted": 0,
+    "fullArchiveDownloaded": false,
+    "liveCaptureExecuted": false,
+    "databaseModified": false,
+    "apiModified": false,
+    "frontendModified": false,
+    "servicesRestarted": false,
+    "activeModelOrThresholdModified": false,
+    "onlineFeatureSemanticsChanged": false,
+    "osApplicationControlPolicyChanged": false,
+    "filesDeleted": false
+  },
+  "limits": [
+    "Java independently verified a bounded public prefix, not all 505235 original frames.",
+    "Windows native Go execution blocked by OS policy; importing hash-bound Mac output is not native platform parity.",
+    "No trusted labels, independent activities or partitions accepted; no production or live-network acceptance.",
+    "Classical PCAP capture drop counters and publisher subnet masks are not independently verified.",
+    "Complete join is conservative: time, direction, packet/IP bytes must all match; ambiguous connections remain Unknown.",
+    "Candidate counts are not trusted training labels; no split, threshold, prediction or model was generated.",
+    "Existing live services/database/model deployments were not revalidated in this offline stage.",
+    "No partitions exist; connection and date grouping is not proof of independent activities or zero leakage."
+  ],
+  "delivery": {
+    "committed": false,
+    "pushed": false,
+    "worktreeChangesOnly": true
+  }
+}

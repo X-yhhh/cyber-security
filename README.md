@@ -4,16 +4,16 @@ Windows CUDA 仓库为本地网络威胁研判平台提供离线数据审查、�
 
 ## 当前状态（2026-10-03）
 
-阶段 0 状态冻结及阶段 1 小体量来源初筛已完成，记录见[阶段 0 状态冻结与验收](docs/phase0/README.md)和[阶段 1 候选初筛](docs/phase1/README.md)。IoT-23 官方有界子集进入阶段 2 试点；数据 readiness 与 S3 仍为 `BLOCKED`，可训练标签仍为 0，训练、应用激活和防火墙动作未获准。
+阶段 0、1 已完成，当前[阶段 2 的 IoT-23 有界试点](docs/remediation-phase2/README.md)已收口，但该子集未通过阶段 3 数据准入，返回来源初筛。数据 readiness/S3 仍为 `BLOCKED`，可训练标签为 0，训练、应用激活和防火墙动作未获准。
 
 - UNSW v4 历史 holdout 为 Macro-F1 `0.9456`、FNR `4.94%`、FPR `0.77%`、PR-AUC `0.9741`、ROC-AUC `0.9988`。它只证明原 UNSW 切分内表现，FNR 门槛余量很小；D1→D2 Macro-F1 约 `0.510`、ROC-AUC `0.681`，不能据此声称跨域可用。
 - 现有 `2026.10.2` 在 CIC-IDS2017 Windows validation 上 Recall `38.0367%`、Macro-F1 `0.33076`，L2 不通过。PR-AUC `0.99656` 受极高攻击比例影响。
 - 新来源 readiness 与 S3 preflight 为 `BLOCKED`；L2 trusted Normal/Attack=`0/0`，独立规则场景=`0/10`。S3 预算矩阵已登记但 `trainingAuthorized=false`；当前不训练、不预测、不解锁 holdout。
-- IoT-23 的发布方 FAQ 与官方 DOI/CC BY 4.0 已补齐许可依据；4 个官方成员共 80.5 MiB，取得 29 条良性、151,567 条攻击候选的精确起始包证据，4,637 条保持 Unknown。完整连接/活动日志、v4 特征和第二人复核尚未完成；ToN-IoT 两个入口仍为 403，其他来源未获训练准入。
+- IoT-23 4 个已许可官方成员共 80.5 MiB。Somfy 两个单主机窗口仅 77/7 条，ready Normal=0；Muhstik 有 2,964 条完整关联且 v4 合格的攻击切段，全为 initiator，当前模型范围内候选为 0。Windows 完成了来源哈希绑定的 Mac Go 提取结果审计；原生 EXE 被应用控制以 `4551` 拒绝，平台 parity 未验证。独立活动、第二人复核和分区仍未接受；ToN-IoT 两个入口仍为 403。
 
 ## 当前计划
 
-下一步按阶段 2 核验已登记 IoT-23 子集的完整连接/标签/活动证据及传感器同源 v4 特征；不扩大到全量归档，也不启动训练。完整阶段、资源上限、数据切分、门禁与停止条件见[模型数据整改与训练路线](docs/model-readiness-roadmap.md)。不要只因 Kaggle 上存在可下载数据，就把它当作可训练数据。
+阶段 2 的当前子集审查结束，下一步返回阶段 1，寻找单主机良性流足够、逐流/独立活动可追溯且符合目标模型范围的来源。100 流窗口、v4 和 responder 范围不放宽；本次没有扩大下载、冻结分区或训练。完整阶段、资源上限、门禁与停止条件见[模型数据整改与训练路线](docs/model-readiness-roadmap.md)。
 
 在独立来源、可信 Normal/Attack、分组 holdout 和 readiness 全部通过之前，不开始 S3。即使训练通过，产物仍为 `candidate_only=true`、`production_approved=false`；模型训练不会批准本地应用激活或防火墙动作。
 
@@ -22,6 +22,7 @@ Windows CUDA 仓库为本地网络威胁研判平台提供离线数据审查、�
 - [阶段 0 状态冻结与验收记录](docs/phase0/README.md)：阶段验收与当前阻断边界；`docs/phase0/evidence/` 保存冻结摘要、原始 S3 矩阵、最新 readiness/preflight 及 Monday 审查摘要。
 
 - [阶段 1 候选初筛与有界 pilot](docs/phase1/README.md)：来源/许可清单、Windows 审计工具、24 项测试和当前 pilot v2；原始成员留在 Git 忽略目录。
+- [整改阶段 2 完整流与特征试点](docs/remediation-phase2/README.md)：同源提取、逐流决定/近重复分组、51 项门禁测试、Go/Java 对拍和 Windows 原生阻断边界。
 - [当前模型数据整改与训练路线](docs/model-readiness-roadmap.md)：唯一当前实施入口。
 - [CIC-IDS2017 阶段二审查](docs/phase2/README.md)：历史数据、标签范围和 Windows validation 结果，旧模型明确未达 Recall 门槛。
 - [UNSW v2 训练计划](docs/v2/training-plan-v2.md) 与 [`v2/evidence/`](docs/v2/evidence/)：仅作已完成历史实验与审计证据，不是新数据源批准或新权重验收。

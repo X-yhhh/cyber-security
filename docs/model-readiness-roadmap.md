@@ -1,6 +1,6 @@
 # 模型数据整改与训练路线
 
-日期：2026-10-03。状态：**阶段 0 状态冻结及阶段 1 小体量来源初筛已完成；IoT-23 官方子集进入阶段 2 试点。当前数据 readiness 与 S3 仍为 `BLOCKED`，训练和真实处置未授权；本文件是训练仓库的唯一实施入口。**
+日期：2026-10-03。状态：**阶段 0、1 已完成，阶段 2 的 IoT-23 有界试点已收口，但该子集未通过阶段 3 数据准入，返回阶段 1 寻找合适来源。Windows 原生提取未验证。数据 readiness/S3 仍为 `BLOCKED`，训练和真实处置未授权；本文件是训练仓库唯一实施入口。**
 
 适用仓库：`win-dev:E:\Workspace\ai\experiments\cyber-security-training`，分支 `training/windows-cuda`。此仓库只负责公开/获准数据的离线审查、预处理、训练、独立评估和制品导出。在线推理、资产授权、前端、模型激活和防火墙处置属于 macOS 应用仓库。
 
@@ -19,7 +19,7 @@
 ## 2. 来源初筛状态
 
 - ToN-IoT：发布说明的 PCAP、Zeek、带标签流及事件时间信息与目标较匹配；官方链接要求登录，尚未读取样本或验证逐流关联，不准入。
-- IoT-23：已以发布方 FAQ 的明确引用许可及官方 DOI 4743746 的 CC BY 4.0 核对本次公开离线子集用途；旧 README 冲突原文保留并登记哈希。4 个官方成员共 80.5 MiB；29 条良性候选（TCP 10、UDP 19）和 151,567 条攻击候选有精确起始包对应，进入阶段 2 兼容性/完整流关联试点。完整归档 MD5 未验证，没有可训练标签。
+- IoT-23：许可和 80.5 MiB 官方子集身份保持冻结；阶段 2 已完成完整流/字段审查。Somfy 的单主机 100 流窗口不能暖机，ready Normal=0；2,964 条 v4 合格攻击切段全部为 initiator，当前模型范围内候选为 0。该子集不进入阶段 3。完整归档 MD5 未验证，独立活动和第二人复核未接受，没有可训练标签。
 - CICIoT2023：发布说明未提供项目所需的独立可审计主机/安全事件日志来源，本轮不优先。
 - AIT-LDS：有少量关联试点候选，但没有接受为可信 Normal/Attack 的标签，也没有冻结独立活动分区。
 - CSE-CIC-IDS2018 Thursday-15：EVTX 筛查未找到同时具备地址和端口字段的成员，无法形成可信逐流真值；旧的背景 Normal 标签不采信。
@@ -63,6 +63,8 @@
 - **本地后端与传感器交接：** v4 可完整复现则锁定相同 contract hash 并提供双端 golden rows。v4 不可复现则远端停止，先由应用仓库更新特征规格、Java validator、Go/Windows 流处理和 manifest schema 的版本化设计。
 - **出口：** 所有保留样本的必需字段、单位、类别编码和阈值输入语义都准确；每条未能确认的流均排除，不能造值。契约不兼容就更换数据或先完成新版本契约，不进入正式 split。
 
+**执行记录（2026-10-03）：** 本次有界试点已收口，见[完整关联与特征审计](remediation-phase2/README.md)。`feature_pilot.py` 复核许可、原始成员、v4 与提取包哈希，关联完整区间/方向/双向原始包和 IP 字节；全部标签与完成流都有候选/排除账本，Unknown 不进入训练。精确/近重复特征签名、连接切段及日期分组已审查，未创建分区，不声称跨分区零泄漏。Mac 同源提取产生 85,803 条 v4 ready 攻击场景流，字段检查失败 0；其中 2,964 条具有完整连接攻击证据，但全部是 initiator。Somfy 两个窗口仅 77/7 条、ready Normal=0，因此当前子集不进入阶段 3，返回阶段 1。Windows 原生新 EXE 被应用控制以 `WinError 4551` 拒绝；没有修改该策略，Windows 只完成了来源哈希绑定 Mac 结果的审计，原生提取 parity 未验证。51 项 Windows 门禁测试和 JDK 25 的 Go/Java 公开 golden 对拍通过。可训练标签仍为 0，独立活动/第二人复核/分区未接受；S3、旧 readiness/preflight 和 holdout 保持原状态。
+
 ### 阶段 3：数据冻结和 readiness 通过
 
 - **训练仓库要实现：** 可复算的数据 manifest、标签证据账本、完全/近重复审计、分组切分、跨分区泄漏检查和不可绕过的 holdout guard；输出代码/数据/特征/分区指纹。
@@ -105,6 +107,7 @@
 
 - 本文件：训练仓库当前路线与 gate。
 - [`phase1/README.md`](phase1/README.md)：阶段 1 的候选、许可、字节预算、Windows 工具与 pilot 交接；当前数据仍不能训练。
+- [`remediation-phase2/README.md`](remediation-phase2/README.md)：当前阶段 2 的审计与退回来源初筛决定，不是历史 CIC 阶段二；原始/派生/旁路/账本留在忽略目录。
 - [`phase2/README.md`](phase2/README.md)：CIC-IDS2017 历史审查、冻结范围和 Windows validation 结果；不表示新模型训练完成。
 - [`v2/training-plan-v2.md`](v2/training-plan-v2.md) 和 [`v2/evidence/`](v2/evidence/)：UNSW v2 旧实验协议与其原始结果，仅供历史复现。
 - [`route-b/evidence/`](route-b/evidence/)：冻结 v4 路线中的原始审计摘要和报告。

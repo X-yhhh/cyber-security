@@ -1,0 +1,93 @@
+{
+  "version": "remediation-phase2-extraction-bundle-v1",
+  "runtime": "darwin/arm64",
+  "goVersion": "go1.26.4",
+  "applicationBaseHead": "557d8c2bb91be875279a9c1b80b7bb0ea66b02ee",
+  "applicationSourceHashes": {
+    "sensor/go.mod": "4d3892a91c888721e78e922c2e6c345ed1b53a54e52fa85752314a6738b136b4",
+    "sensor/go.sum": "12883fa8fd46ce19b69e581e19efd1141237c1179c882b5939d9492ef15977df",
+    "sensor/internal/pipeline/pipeline.go": "6503aae08509bc966da968e7a324402f9df95bc5951e6304e9907e27ab856698",
+    "sensor/internal/capture/live_nocgo_test.go": "f7de5a7a10c885ab2df21ffd509cf44cb147e34ae3af69a03fb21182647be280",
+    "sensor/internal/capture/pcapng_test.go": "cfa271f92724bff587a0625ecbf770ec4330abfd14400e64459c385652f1b5e7",
+    "sensor/internal/capture/live_nocgo.go": "27b7789e0c33db925039aac26347064e7c9ee111a892c11083ecebdd8d29b12e",
+    "sensor/internal/capture/file_test.go": "06bf35875784889dfd71c68307145528c04f8c5194f1b686dfd339e2428d40c4",
+    "sensor/internal/capture/live.go": "5ad859be9287b8ec7168a076fd0aff8ff675901e0e7e171ab1ba2342282d8613",
+    "sensor/internal/capture/file.go": "bafb49ed36d226a9b97938c7fa0dd1b2c83b8600bf2dced7430e78b2000ff007",
+    "sensor/internal/anon/anon_test.go": "e6a5f9eddb7b4f408b55a461c2c401c80fede2a201d574f4e1675f486a5cf594",
+    "sensor/internal/anon/anon.go": "912f54d1f467836b639b107376cc1c1cc3156918915b6d7486151a954d4f5ac7",
+    "sensor/internal/privdrop/privdrop_test.go": "6603a35a06729838a45939b2a0bb560712c92704b918020d45591726086ac7f5",
+    "sensor/internal/privdrop/privdrop_windows.go": "a7eb9ce0a5a230bc63552d6138f2ae4fc262dca68fc202e22b7db4c6a76fb308",
+    "sensor/internal/privdrop/privdrop_unix.go": "06e263b099926138961c102ff3679f8d2b24e8f9c413d234132e7e0f4126102e",
+    "sensor/internal/keystore/keychain_darwin.go": "ee4a4871bfab51bef54508586f368c914afa249584f50ed9d4181f268d3df65d",
+    "sensor/internal/keystore/keystore_test.go": "68fef41766e8d9626f321ecd4a110a7460aa9eef4bec9daa7824d393c45c8f68",
+    "sensor/internal/keystore/keychain_other.go": "b5c5d5c8b567f57a0ba986f5c6e7d2bb5932ab2352aad14793f1ebd9ed025d9b",
+    "sensor/internal/keystore/keystore.go": "fa74675cfe6f6e1db69e5824771d508c7f2c4dd35467ab957835f05f74c81be0",
+    "sensor/internal/spec/spec.go": "5a3301fc2852c345d4b5b79a7a61b6a5a3dc360ccf5b56588ab16e393e58b2d7",
+    "sensor/internal/spec/iana-protocol-numbers.json": "3bd1a36ee931c61f43708aa4dcf8232012e9aae505f35b7cddb8064d02e1feb3",
+    "sensor/internal/spec/spec_test.go": "189d75cc752b58b8bf05a721cdd899dd073a0a59fade7462fcf8654997807b0f",
+    "sensor/internal/agent/uploader_test.go": "fed091147b86b50162deb9cfc73e8acbbd4fe88b43b517ac781584a1bbae3f6b",
+    "sensor/internal/agent/config.go": "f3836270d89108588a33d4157ddf9f11b8ab8b127ac31c833537b42d2681de60",
+    "sensor/internal/agent/uploader.go": "e48f49ee469530babc9e69e4081a962ad090abd7cfdc09c9f0e6edb2006bded9",
+    "sensor/internal/agent/agent.go": "223e3a9870cb94430a270c88fdfa677718446ca9471180521ceb624a85d6f865",
+    "sensor/internal/agent/state.go": "12f5b6c4bfa5c60e99867cf0e5a924fc2c55d0d7282828b7cbfff1beb615d85a",
+    "sensor/internal/agent/config_test.go": "c626924683f626643b8802f1c0f9f060dd40778f1ec7415777a460f0af7045b6",
+    "sensor/internal/synth/synth.go": "222debf381fb62de01f2af3d28c5d3b56d119429877e1bb12335d811990c8475",
+    "sensor/internal/synth/g2.go": "25ea9a4daa748567103b2954e07cc7989928f444f1f532168e5e905f21e48266",
+    "sensor/internal/extract/extract_test.go": "34e701358ef08fcd6c95782951ca145a7ba762341cc6ebf10b85d71483a41bd7",
+    "sensor/internal/extract/extract.go": "7efd7b3d648ac54d696221d19a2623cdcdd538f0203b20f94d56338997b944f8",
+    "sensor/internal/feature/address.go": "a7e27fb9c5b955e179e9e1ea012a49ddc7fa28ab5c8d36b1790a3bc2ef98eadd",
+    "sensor/internal/feature/builder.go": "d9d7d52efc234892417177b3abb786581a8cd87e7890d25363b11f180513e2df",
+    "sensor/internal/feature/builder_test.go": "9d748783227cc60f100a6ceb07163ac0c7b0d80312b85f741811e859590fcb5e",
+    "sensor/internal/packet/parse_test.go": "e4bb9a44c8d5bab215ff1a012247ecb27ab245463dd150f9f64ff9c7204c358e",
+    "sensor/internal/packet/parse.go": "d9a7ef56a542edb097e8be462e12b054a1552a3f4546b9107f5daf2ae9a68592",
+    "sensor/internal/uplink/client.go": "ff932bb67e6de33b192db1333888db5aa910a3bf1e546c745d34a830bee542ec",
+    "sensor/internal/uplink/client_test.go": "d4159d2f8e53b338790d5a13a457c9160ee8badcf7d14c2a5ffeaac263d121e8",
+    "sensor/internal/flow/flow.go": "ab2b59f421acc2a2122a5f6c0b40c6df2c19202cb2851b6b457078fb770fe013",
+    "sensor/internal/flow/flow_test.go": "65912bc50e351b9179eb7c8ddc0a07417ea4de31521f337711c939bded60d401",
+    "sensor/cmd/pcapaudit/main.go": "325a7092bfd7d3eb8200230ed78edacd1ed0e617f6c715faf9ba9cf9bfa618e2",
+    "sensor/cmd/pcapaudit/main_test.go": "d8d5caa56db9937ab9db8cca02007ffa111d2e3c394764414970940d3bfa195f",
+    "sensor/cmd/sensor/main.go": "f85b1fa9908eda6c23e9b89e021c73b8e6b07098ad1af299ef4aa506fd251d35",
+    "sensor/cmd/pcapanon/main.go": "ef1432445cbca621cc152d8ee942c9ab49c06fcfec2a9c616fd6cd70de1ce421",
+    "sensor/cmd/g2fixtures/real_test.go": "9dcc764b8860dcf0802e2e07679edb936d8a03904f45bdc7d82df3c726a055a3",
+    "sensor/cmd/g2fixtures/main.go": "d4de47fa02097952fc679fae19b2a9b7b5d17f7e263dcaedef7dd7f8ce8910be",
+    "sensor/cmd/g2fixtures/main_test.go": "52387b91ae451bbb21ca99db90893913d43d99d655feb2968e49b75d366b174b"
+  },
+  "sourceHashes": {
+    "somfy-conn.log.labeled": "fb37fb38393c48b064d3afd373b075ffe31063d4924a2df1c5d13fc490b830cc",
+    "iot23-muhstik.pcap": "c674dc0c8d584fa66e6f00c60df973c5fbacad551c850a76d75ec9952641d00b",
+    "muhstik-conn.log.labeled": "9851009bbca03e15089fa1a356dd4b5eee4a98161a51703626058a0b507f50d0",
+    "somfy-first-start.pcap": "0ec756ff0e26fc6c7d985178a35206bd7bc5b8a33cc5c7a23d6bb0b103db2a2a"
+  },
+  "extractorSha256": "26a15140011c432241f915e5e7e97ca44cfe1f290b7a3fcbe6eb20f325ca4abd",
+  "specSha256": "dbba110432c2c381ec291e2ec373601256c7ca990efa3e7bdad405c25120c6f1",
+  "contractSha256": "803faa2b535e26158da57e14139d06223cf0c67103ab6cd1360983ae75494461",
+  "stage1PilotSha256": "349ec46407ece5234ede30382907d4370b536290ce94ac83d79454429fa44679",
+  "profiles": [
+    {
+      "id": "somfy-lan",
+      "localHostSha256": "frozen in audit report"
+    },
+    {
+      "id": "somfy-setup",
+      "localHostSha256": "frozen in audit report"
+    },
+    {
+      "id": "muhstik",
+      "localHostSha256": "frozen in audit report"
+    }
+  ],
+  "files": {
+    "somfy-lan/records.jsonl": "2804fbbb2f13f89b3f9487e92611c131ab966f23e0539d27dcff00f27e55f24d",
+    "somfy-lan/flows.label-audit.jsonl": "1e25a8a391d4d079740cc26d2ce5283d35c7854152dc9e003d77a31787c8c6b1",
+    "somfy-lan/diagnostics.json": "60a734b6ce535a3b4efd6ef0032142237896b52fc99d685ca81616cd2f367fc8",
+    "somfy-setup/records.jsonl": "98a679429a15e1e6326ad951d16f67b67b0f518c6dc9e63c5bb640a6d02a649e",
+    "somfy-setup/flows.label-audit.jsonl": "fa365cebdbccf1410fa18b15d9b3bdf76c6a806d612f2ce86f14b26f85287400",
+    "somfy-setup/diagnostics.json": "efced26fe951c13c0517de6d0ecfdbc17c2dc95719bedfe789f7da8e5d75b19f",
+    "muhstik/records.jsonl": "4198df521058964f3bc5abe64540839e716d1e0da46aee15d1b73a21b0717f65",
+    "muhstik/flows.label-audit.jsonl": "dfec4ea269c4dcb217691c0bb6804118aa63d0cfabfb204e4af865ae6814676f",
+    "muhstik/diagnostics.json": "d8331184e258a0b40c50a51f7d94ecc1cefeaefdd8ffcbbd689583cbdbbd4008"
+  },
+  "trainingExecuted": false,
+  "predictionsExecuted": 0,
+  "holdoutRead": false
+}

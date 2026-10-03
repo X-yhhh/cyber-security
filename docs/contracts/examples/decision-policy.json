@@ -1,5 +1,5 @@
 {
-  "contractVersion": "host-guard/5.0.0-rc.1",
+  "contractVersion": "host-guard/5.0.0-rc.2",
   "policyId": "00000000-0000-4000-8000-000000000008",
   "policyVersion": "example-only",
   "mode": "alert_only",

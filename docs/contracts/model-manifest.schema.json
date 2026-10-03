@@ -7,7 +7,7 @@
   "additionalProperties": false,
   "properties": {
     "contractVersion": {
-      "const": "host-guard/5.0.0-rc.1"
+      "const": "host-guard/5.0.0-rc.2"
     },
     "modelId": {
       "type": "string",

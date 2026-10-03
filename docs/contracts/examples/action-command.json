@@ -1,6 +1,6 @@
 {
   "payload": {
-    "contractVersion": "host-guard/5.0.0-rc.1",
+    "contractVersion": "host-guard/5.0.0-rc.2",
     "commandId": "00000000-0000-4000-8000-000000000010",
     "actionId": "00000000-0000-4000-8000-000000000011",
     "executorId": "00000000-0000-4000-8000-000000000012",

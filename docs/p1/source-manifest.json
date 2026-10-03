@@ -1,0 +1,241 @@
+{
+  "version": "p1-source-manifest-v1",
+  "provenance": {
+    "version": "p1-provenance-v1",
+    "codeSha256": "9bde9c24ed5107ebef1eecf1903744bc3bc835157406975c603b186566bf4847",
+    "codeFiles": [
+      {
+        "path": "sensor/go.mod",
+        "bytes": 146,
+        "sha256": "4d3892a91c888721e78e922c2e6c345ed1b53a54e52fa85752314a6738b136b4"
+      },
+      {
+        "path": "sensor/go.sum",
+        "bytes": 328,
+        "sha256": "12883fa8fd46ce19b69e581e19efd1141237c1179c882b5939d9492ef15977df"
+      },
+      {
+        "path": "sensor/internal/capture/file.go",
+        "bytes": 2947,
+        "sha256": "bafb49ed36d226a9b97938c7fa0dd1b2c83b8600bf2dced7430e78b2000ff007"
+      },
+      {
+        "path": "sensor/internal/packet/parse.go",
+        "bytes": 5077,
+        "sha256": "d9a7ef56a542edb097e8be462e12b054a1552a3f4546b9107f5daf2ae9a68592"
+      },
+      {
+        "path": "sensor/internal/probe/join.go",
+        "bytes": 16577,
+        "sha256": "22574b523cf72822bfd18ce103041dee78444b406929f354ce57c60698e42b42"
+      },
+      {
+        "path": "sensor/internal/probe/join_test.go",
+        "bytes": 4716,
+        "sha256": "d43b7145aa5912e939c0d822ad76cd78bd6ac69b6c44c82e8e377aa4a37b3a7d"
+      },
+      {
+        "path": "sensor/cmd/p1audit/main.go",
+        "bytes": 2620,
+        "sha256": "74e59dc619ba7856443ca98adf99e36e530d1b19a199c5585cb9f3de262da196"
+      },
+      {
+        "path": "sensor/cmd/p1canary/main.go",
+        "bytes": 3307,
+        "sha256": "186effeff3d7397ea1b3653f1d3efec58a9f261c1af52e273af39e5c0990bc75"
+      },
+      {
+        "path": "sensor/cmd/p1canary/main_test.go",
+        "bytes": 583,
+        "sha256": "c462eb4d50ae48652099539c68fc6af83b6454b11f74d5917e72c1778185b25b"
+      },
+      {
+        "path": "scripts/p1/windows-preflight.ps1",
+        "bytes": 4346,
+        "sha256": "dce7859dd080ae7eb4ad7ac70321c5d9c28620bcf7fe4d139b4feef41891639c"
+      },
+      {
+        "path": "scripts/p1/summarize.mjs",
+        "bytes": 12115,
+        "sha256": "2a793010cc50192b8b71be158b1aa9296becdc43a43161fced3ab3eb65f497c4"
+      }
+    ],
+    "applicationBaseline": "f4429f5afc92ad071bcce4ec0bf6b682f4b978be",
+    "windowsTrainingBaseline": "9378f027e08d49192a54371a8ff23730358547ed",
+    "contractsSha256": "13fe0ecafde812849d0a36272bc03c7153ea4c00354ec50f85688ab16b72456f",
+    "contractFiles": [
+      {
+        "path": "docs/contracts/action-command.schema.json",
+        "bytes": 4609,
+        "sha256": "6b3580cc9cb62a0d46024d0ca9d63c47d76f1035d5e6b93e9261657aceb098f3"
+      },
+      {
+        "path": "docs/contracts/action-receipt.schema.json",
+        "bytes": 3538,
+        "sha256": "d7d62db21996922bb575fbfab8e32207eaa9bcc44721f625a054b6221ceb23b2"
+      },
+      {
+        "path": "docs/contracts/decision-policy.schema.json",
+        "bytes": 3044,
+        "sha256": "788be0cfcf1ef314f93d031e6f20d1e1fa257e7526e33eb0241b608ebb87247b"
+      },
+      {
+        "path": "docs/contracts/examples/action-command.json",
+        "bytes": 1670,
+        "sha256": "65137ed9c9a7012d3b4d00a4bc26a509cabc5bff298d6ee1e08f7ff5e0f1efbd"
+      },
+      {
+        "path": "docs/contracts/examples/action-receipt.json",
+        "bytes": 477,
+        "sha256": "3085e1ab1bad7fbd80b932aaecad2f5ec1c3169e5f042d91f5d0508eec35bb35"
+      },
+      {
+        "path": "docs/contracts/examples/decision-policy.json",
+        "bytes": 877,
+        "sha256": "afb539a4d8985e9776c7bea3783033c70da1ca7bb8dad77eb1bb1c13fd55206a"
+      },
+      {
+        "path": "docs/contracts/examples/model-manifest.json",
+        "bytes": 3361,
+        "sha256": "824f0143032949f3ded9e506f169ece3b4614bb4e5fe936919fb0c7b29ab2da2"
+      },
+      {
+        "path": "docs/contracts/examples/observation.json",
+        "bytes": 2448,
+        "sha256": "b6e36af70619ea8c4203e592d9fdabde23a85edd3b21b286a99d2987dba3226c"
+      },
+      {
+        "path": "docs/contracts/feature-profile.json",
+        "bytes": 2879,
+        "sha256": "448e55452aca5d518aebb206851430a1d85839331dffd1d8d8d8641d7ec3159b"
+      },
+      {
+        "path": "docs/contracts/model-manifest.schema.json",
+        "bytes": 8759,
+        "sha256": "dd2c6eddcbb5d49521139ded1cc1b021cd2669a9f794f1d271bcc38d481f656d"
+      },
+      {
+        "path": "docs/contracts/observation.schema.json",
+        "bytes": 13158,
+        "sha256": "b1282f3410d4f393ff327f86b8441361b4160cf1f9371b6b10977940812fa3c2"
+      },
+      {
+        "path": "docs/检测与处置契约.md",
+        "bytes": 20374,
+        "sha256": "668197a3f797a8517a372f4d9c7b35c69e1571c6f369c737f63bc096e0a3ba64"
+      }
+    ],
+    "config": {
+      "countPerScenario": 30,
+      "timestampToleranceUs": 1000,
+      "offloadScreenMTU": 1500,
+      "positiveAndNegativeSampling": "10 TCP/UDP per class, then 10 boundary samples, stable SHA-256 order",
+      "protocolScope": [
+        "tcp",
+        "udp"
+      ],
+      "labelScope": "final_only",
+      "rawBudgetBytes": 2147483648,
+      "packetOrder": "global timestamp order for reference calculation only; not a v5 causal extractor"
+    },
+    "configSha256": "dc256425f78719c07fbb046426daa349f9db26552b30bd7e77878b22416b586c",
+    "labelPolicySha256": "e77e938db62cbeded054cff2fabda8995cbc53c2b765dcee450619de7bee0ab6",
+    "observedAt": "2026-10-03T12:44:49.4645328Z",
+    "environment": {
+      "arch": "arm64",
+      "go": "go1.26.4",
+      "mode": "offline_reference_only",
+      "os": "darwin"
+    }
+  },
+  "candidateSourceCount": 2,
+  "rawBudgetBytes": 2147483648,
+  "rawBytes": 215077369,
+  "files": [
+    {
+      "scenario": "CTU-IoT-Malware-Capture-8-1",
+      "path": "data/raw/p1/iot23/hakai.pcap",
+      "bytes": 2098362,
+      "sha256": "80dcc2602519479ddcde889fa902fee19a76696630811452f8df38888af894f2",
+      "originalUrl": "https://mcfp.felk.cvut.cz/publicDatasets/IoT-23-Dataset/IndividualScenarios/CTU-IoT-Malware-Capture-8-1/2018-07-31-15-15-09-192.168.100.113.pcap"
+    },
+    {
+      "scenario": "CTU-IoT-Malware-Capture-8-1",
+      "path": "data/raw/p1/iot23/hakai-conn.log.labeled",
+      "bytes": 1431000,
+      "sha256": "4877ca8f0f01902fbd18d28b7d06cb3d0be082355b7f2c8862c9deef1782eb8a",
+      "originalUrl": "https://mcfp.felk.cvut.cz/publicDatasets/IoT-23-Dataset/IndividualScenarios/CTU-IoT-Malware-Capture-8-1/bro/conn.log.labeled"
+    },
+    {
+      "scenario": "CTU-IoT-Malware-Capture-3-1",
+      "path": "data/raw/p1/iot23/muhstik.pcap",
+      "bytes": 57919772,
+      "sha256": "c674dc0c8d584fa66e6f00c60df973c5fbacad551c850a76d75ec9952641d00b",
+      "originalUrl": "https://mcfp.felk.cvut.cz/publicDatasets/IoT-23-Dataset/IndividualScenarios/CTU-IoT-Malware-Capture-3-1/2018-05-21_capture.pcap"
+    },
+    {
+      "scenario": "CTU-IoT-Malware-Capture-3-1",
+      "path": "data/raw/p1/iot23/muhstik-conn.log.labeled",
+      "bytes": 24383537,
+      "sha256": "9851009bbca03e15089fa1a356dd4b5eee4a98161a51703626058a0b507f50d0",
+      "originalUrl": "https://mcfp.felk.cvut.cz/publicDatasets/IoT-23-Dataset/IndividualScenarios/CTU-IoT-Malware-Capture-3-1/bro/conn.log.labeled"
+    },
+    {
+      "scenario": "CTU-IoT-Malware-Capture-34-1",
+      "path": "data/raw/p1/iot23/mirai.pcap",
+      "bytes": 126317980,
+      "sha256": "92ec7e2f6658ee4b007d0b816986c46cc0338bc5e2bec6ceaaca566c695e4699",
+      "originalUrl": "https://mcfp.felk.cvut.cz/publicDatasets/IoT-23-Dataset/IndividualScenarios/CTU-IoT-Malware-Capture-34-1/2018-12-21-15-50-14-192.168.1.195.pcap"
+    },
+    {
+      "scenario": "CTU-IoT-Malware-Capture-34-1",
+      "path": "data/raw/p1/iot23/mirai-conn.log.labeled",
+      "bytes": 2926718,
+      "sha256": "d69e49b2aae8c1bd33286936531658202dec47d989f0439bad3f8be180467a6e",
+      "originalUrl": "https://mcfp.felk.cvut.cz/publicDatasets/IoT-23-Dataset/IndividualScenarios/CTU-IoT-Malware-Capture-34-1/bro/conn.log.labeled"
+    }
+  ],
+  "sources": [
+    {
+      "id": "iot23",
+      "publisher": "Stratosphere Laboratory",
+      "doi": "10.5281/zenodo.4743746",
+      "version": "1.0.0",
+      "citation": "Garcia, Parmisano and Erquiaga (2020). IoT-23. doi:10.5281/zenodo.4743746",
+      "licence": "CC-BY-4.0 in versioned Zenodo record; mirror master README links CC-BY-2.0",
+      "licenceEvidence": {
+        "path": "data/raw/p1/iot23/zenodo-record.json",
+        "bytes": 5087,
+        "sha256": "8571255c4a9d7a8ab130fc4b9cc5964997736a2a4b017f9b64b1a61bcd822498"
+      },
+      "licenceReview": "Dataset-level public grant; legacy per-capture README permission wording retained as a discrepancy. Only documented IoT-23 PCAP/labels used; no malware binaries.",
+      "mirrorRevisionIsFrozenRelease": false,
+      "role": "public final-flow research; IoT benign labels do not prove desktop benign coverage"
+    },
+    {
+      "id": "cicids2017-cns2022",
+      "status": "blocked_raw_acquisition",
+      "sourceUrl": "https://intrusion-detection.distrinet-research.be/CNS2022/Datasets/",
+      "metadataEvidence": {
+        "path": "artifacts/p1/cic-corrected-index.html",
+        "bytes": 1162,
+        "sha256": "5e7eae1a94ed37942aeda3718edc39da4b26d4afd8706bb4b5104bd63fdbceaf"
+      },
+      "correctedTableArchiveAdvertisedSize": "328M",
+      "correctedTableDownloaded": false,
+      "pcapEndpoint": "https://iscxdownloads.cs.unb.ca/iscxdownloads/CIC-IDS-2017/PCAPs/",
+      "attemptedReadExitCode": 6,
+      "reason": "PCAP endpoint DNS resolution failed; corrected CSV is not raw packets",
+      "licenceReviewedForLocalUse": false,
+      "nextExperiment": "Restore publisher PCAP access and verify a complete bounded scene before downloading corrected tables"
+    }
+  ],
+  "remoteReuse": {
+    "source": "existing Windows Muhstik pilot",
+    "pcapAndLabelHashesMatch": true,
+    "transferInterrupted": true,
+    "publisherFallbackHashesMatch": true
+  },
+  "holdoutEvaluated": false,
+  "trainingExecuted": false
+}

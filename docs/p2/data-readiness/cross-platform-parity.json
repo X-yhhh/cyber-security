@@ -1,0 +1,8 @@
+{
+  "status": "passed",
+  "scope": "one complete new Windows loopback session; all 190 prefix/final observations byte-identical",
+  "macSha256": "7b54f29ef25aaa70061bdc8786070780cbb92e34d8a4fb76cb0b735d3dfc9770",
+  "windowsSha256": "7b54f29ef25aaa70061bdc8786070780cbb92e34d8a4fb76cb0b735d3dfc9770",
+  "frames": 12365,
+  "observations": 190
+}

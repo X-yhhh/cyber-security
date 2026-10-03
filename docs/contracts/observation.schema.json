@@ -2,12 +2,12 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://cyber-security.invalid/contracts/observation.schema.json",
   "title": "host-guard v5 observation",
-  "$comment": "设计候选；业务、时间、归属和签名不变量见检测与处置契约。",
+  "$comment": "P2 rc.2 因果观察契约；业务与时间不变量见检测与处置契约，动作能力未实现。",
   "type": "object",
   "additionalProperties": false,
   "properties": {
     "contractVersion": {
-      "const": "host-guard/5.0.0-rc.1"
+      "const": "host-guard/5.0.0-rc.2"
     },
     "observationId": {
       "type": "string",
@@ -439,7 +439,8 @@
         "rst",
         "idle",
         "max_lifetime",
-        "eof"
+        "eof",
+        "new_syn"
       ]
     }
   },
@@ -541,7 +542,8 @@
               "rst",
               "idle",
               "max_lifetime",
-              "eof"
+              "eof",
+              "new_syn"
             ]
           }
         }

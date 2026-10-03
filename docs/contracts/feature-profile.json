@@ -1,6 +1,6 @@
 {
-  "contractVersion": "host-guard/5.0.0-rc.1",
-  "status": "design_candidate_not_deployed",
+  "contractVersion": "host-guard/5.0.0-rc.2",
+  "status": "frozen_research_candidate_not_deployed",
   "profiles": [
     "flow-prefix-v1",
     "flow-final-v1"
@@ -110,5 +110,12 @@
   "maxFlowLifetimeSeconds": 120,
   "missingPolicy": "structural null encoded with mask; measured zero remains zero; preprocessing fit on train only",
   "snapshotRequiresNewPacket": true,
-  "closeReasonIsModelInput": false
+  "closeReasonIsModelInput": false,
+  "reorderDelayMs": 100,
+  "tcpIdleSeconds": 30,
+  "udpIdleSeconds": 10,
+  "tombstoneSeconds": 5,
+  "qualityRecoverySeconds": 30,
+  "eofPolicy": "release through maximum observed event clock; no future idle tick",
+  "newSynPolicy": "new parent unless same origin/ISN retransmission in incomplete handshake"
 }

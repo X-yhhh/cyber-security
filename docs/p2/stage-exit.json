@@ -1,0 +1,142 @@
+{
+  "version": "p2-stage-exit-v1",
+  "phase": "P2",
+  "evidenceDate": "2026-10-04",
+  "status": "passed",
+  "scope": "causal extractor and frozen research contract; no model/policy/platform release qualification",
+  "contractVersion": "host-guard/5.0.0-rc.2",
+  "checks": {
+    "goTests": true,
+    "race": true,
+    "vet": true,
+    "schema": true,
+    "javaReference": true,
+    "windowsActualExecution": true,
+    "crossPlatformByteParity": true,
+    "fullPilotJoin": true,
+    "partitionIntegrity": true,
+    "developmentPositiveNegativeAvailable": true,
+    "windowsDeliveryHashVerified": true
+  },
+  "fullPilot": {
+    "frames": 13788878,
+    "observations": 293378,
+    "tcpLabels": 180765,
+    "joins": {
+      "matched": 180765
+    },
+    "structuralOnsetCandidates": 475
+  },
+  "controlledBenign": {
+    "frames": 2958,
+    "observations": 71,
+    "distribution": {
+      "tcp/inbound/flow-final-v1/clean": 9,
+      "tcp/inbound/flow-prefix-v1/clean": 62
+    },
+    "observationSha256": "90e6a12ecd1afed3ac7cfe998f99a244736645a9ddf2f63463852b415583cc17"
+  },
+  "validation": {
+    "goTests": {
+      "pass": 82,
+      "skip": 1
+    },
+    "skippedTests": [
+      "TestKeychainRoundTrip"
+    ],
+    "goldenScenarios": 20,
+    "goldenObservations": 55,
+    "schema": {
+      "schemas": 5,
+      "negativeCases": 8,
+      "observations": 293310,
+      "status": "passed"
+    },
+    "java": "jdk=25.0.2+10-LTS independent_reference_snapshots=21 status=passed",
+    "windows": {
+      "version": "p2-windows-verification-v1",
+      "status": "passed",
+      "system": "Windows",
+      "machine": "AMD64",
+      "osVersion": "10.0.26200",
+      "python": "3.14.4",
+      "commands": [
+        {
+          "program": "hostguard.test.exe",
+          "exitCode": 0,
+          "logSha256": "7cfa25b8f75a6401411d1a701d92ffee2b1515b99c967abb63cd3254a3c6c719"
+        },
+        {
+          "program": "guardgolden.exe",
+          "exitCode": 0,
+          "logSha256": "2bae3fe628ec48fb1b6e39f4263b2e0b2e5a1c5bf90800672b5df7a0f5a0d3f7"
+        },
+        {
+          "program": "guardextract.exe",
+          "exitCode": 0,
+          "logSha256": "cef0e56c24ab9ac9a6e5374c94e531ed3510b933755ebe9ad17ca2dc1acb9738"
+        }
+      ],
+      "filesHashVerified": 24,
+      "observationSha256": "90e6a12ecd1afed3ac7cfe998f99a244736645a9ddf2f63463852b415583cc17",
+      "expectedObservationSha256": "90e6a12ecd1afed3ac7cfe998f99a244736645a9ddf2f63463852b415583cc17",
+      "goldenExecuted": true,
+      "extractorExecuted": true,
+      "trainingExecuted": false,
+      "liveCaptureExecuted": false,
+      "firewallModified": false
+    }
+  },
+  "development": {
+    "profile": "flow-final-v1",
+    "scope": "ipv4/tcp/inbound/servicePort80; other services only diagnostic",
+    "retainedSnapshots": {
+      "train/0": 1,
+      "train/1": 3024,
+      "validation/1": 1238,
+      "validation/0": 4
+    },
+    "retainedParents": {
+      "train/0": 1,
+      "train/1": 1731,
+      "validation/1": 742,
+      "validation/0": 4
+    },
+    "prefixDevelopmentReady": false,
+    "adequateForModelSelection": false
+  },
+  "retainedLimits": [
+    "same-service benign support is only train 1 / validation 4 snapshots; other services do not count",
+    "475 structural onset candidates are not approved prefix supervision",
+    "one positive validation activity does not provide independent calibration groups",
+    "final_test remains unallocated and unread; independent final acceptance unavailable",
+    "PCAP/live parity uses deterministic input fixtures; no new physical live-capture qualification",
+    "P1 Windows strict reboot TTL remains unverified and Mac action tests remain deferred",
+    "target IPC is an ephemeral prototype without firewall execution or persistent recovery"
+  ],
+  "initialFailures": [
+    "same boot was initially reused for partition resets; integrity check rejected overlap; separate boot configurations fixed it",
+    "RAW IP controlled capture was initially rejected; explicit Ethernet/RAW adapter added and parity tested",
+    "first Windows test launcher was rejected by App Control 4551; later normal verification succeeded; no system policy changed and cause remains unknown",
+    "ARM fused multiply-add caused last-bit standard-deviation differences; explicit float64 rounding fixed exact JSON parity"
+  ],
+  "trainingExecuted": false,
+  "databaseMigrated": false,
+  "activeRuntimeChanged": false,
+  "firewallModified": false,
+  "gitCommitted": false,
+  "gitPushed": false,
+  "evidenceHashes": {
+    "wednesday-final-extraction.json": "24b4118c450f23fb3f3df6c35c366073ff903e7a21e91e39f59075f08ca74432",
+    "controlled-final-extraction.json": "df44ab787f73b9fb44fc10e8ab6c52158bbf340dc56b35e8dd49b18369a571bb",
+    "partition-manifest.json": "6c0083fc48cd06c5cfe3436d57efc82920e1d571f2bf4f366f7d07934a3e3708",
+    "windows-verification.json": "1940ed69893560d179e50ec541fec902859b946f1b98a6097370af48ef9214dd",
+    "windows-delivery-verification.json": "4e7b019971f6612fe4f0a0653f6a08f67b4834967bb0261570600f2ad645b5bc",
+    "schema-validation.json": "f77e6927139304d5c34136d903deed8a6046a4a4483fe2bf35dc84b14b9e90c2",
+    "go-tests-final.jsonl": "90251eec6216f1b14441035ababa519893014590293a1ac3e2c73dffa1296736",
+    "go-race-final.log": "cd6ce88dace4650f5ab9fa1d778e7758210ee17177b2d915c079ae0a5f436769",
+    "go-vet-final.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "java-reference.log": "078c7e119c365a4d46d71c5e3336c3f7db753843706540fbb4226466bc311b3d"
+  },
+  "freezeManifestSha256": "3d4cf75f1a150690a1908ba5cae4e886b1fce05c65a98814033561df5930a9d6"
+}

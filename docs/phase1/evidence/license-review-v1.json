@@ -1,0 +1,34 @@
+{
+  "version": "source-screening-license-review-v1",
+  "date": "2026-10-03",
+  "sourceId": "IoT-23/1.0.0",
+  "decision": "ACCEPTED_ACADEMIC_ATTRIBUTED_SUBSET",
+  "scope": "offline_public_iot23_subset_only",
+  "citation": "Sebastian Garcia, Agustin Parmisano, Maria Jose Erquiaga (2020). IoT-23, Version 1.0.0. DOI:10.5281/zenodo.4743746. CC BY 4.0.",
+  "evidence": [
+    {
+      "role": "publisher_faq",
+      "file": "iot23-faq.html",
+      "sha256": "c28ef8f410de0623393b2125a25f8b0caea7ab674a9d95edaa505095c693065a",
+      "url": "https://www.stratosphereips.org/datasets-faq"
+    },
+    {
+      "role": "official_doi",
+      "file": "iot23-zenodo.json",
+      "sha256": "8571255c4a9d7a8ab130fc4b9cc5964997736a2a4b017f9b64b1a61bcd822498",
+      "url": "https://zenodo.org/api/records/4743746"
+    },
+    {
+      "role": "historical_conflict",
+      "file": "iot23-historical-conflict.md",
+      "sha256": "27b932e5777c5b457eafc2f9cd8db3792527e509b31b123dfdf70d6e0c86fcfa",
+      "url": "https://mcfp.felk.cvut.cz/publicDatasets/IoT-23-Dataset/IndividualScenarios/CTU-IoT-Malware-Capture-1-1/README.md"
+    }
+  ],
+  "resolution": "Publisher FAQ explicitly grants use of its datasets with appropriate citation; official publisher-linked DOI 4743746 is open and CC BY 4.0. This supplies the publisher authorization requested by older generic README text for this offline attributed public subset. The old statement is retained and hashed; it is not silently discarded.",
+  "boundaries": [
+    "Only the four named public PCAP/label members are used offline. No malware, executable, payload replay or network actions.",
+    "Individual member hashes are observed and frozen in this pilot; the full Zenodo archive MD5 is not verified, and byte identity with the entire DOI archive is not claimed.",
+    "No permission to train or to use private/restricted captures."
+  ]
+}

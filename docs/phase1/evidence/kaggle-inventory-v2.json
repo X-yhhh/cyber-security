@@ -1,0 +1,934 @@
+{
+  "version": "source-screening-kaggle-inventory-v1",
+  "date": "2026-10-03",
+  "candidates": [
+    {
+      "ref": "dhoogla/ctu13",
+      "id": 2402944,
+      "currentVersionNumber": 3,
+      "licenseName": "CC BY-NC-SA 4.0",
+      "totalBytes": 122260500,
+      "lastUpdated": "2022-08-12T10:46:28.35Z",
+      "snapshotSha256": "bb0f19607c69df3626a7429353a7ed0df7ac02eb9f038f047a4dbceaef5e533e",
+      "fileCountObserved": 13,
+      "files": [
+        {
+          "name": "1-Neris-20110810.binetflow.parquet",
+          "bytes": 17835057
+        },
+        {
+          "name": "10-Rbot-20110818.binetflow.parquet",
+          "bytes": 9337907
+        },
+        {
+          "name": "11-Rbot-20110818-2.binetflow.parquet",
+          "bytes": 849597
+        },
+        {
+          "name": "12-NsisAy-20110819.binetflow.parquet",
+          "bytes": 2659805
+        },
+        {
+          "name": "13-Virut-20110815-3.binetflow.parquet",
+          "bytes": 11139041
+        },
+        {
+          "name": "2-Neris-20110811.binetflow.parquet",
+          "bytes": 12528710
+        },
+        {
+          "name": "3-Rbot-20110812.binetflow.parquet",
+          "bytes": 21361396
+        },
+        {
+          "name": "4-Rbot-20110815.binetflow.parquet",
+          "bytes": 8298296
+        },
+        {
+          "name": "5-Virut-20110815-2.binetflow.parquet",
+          "bytes": 1094505
+        },
+        {
+          "name": "6-Menti-20110816.binetflow.parquet",
+          "bytes": 4344568
+        },
+        {
+          "name": "7-Sogou-20110816-2.binetflow.parquet",
+          "bytes": 1016517
+        },
+        {
+          "name": "8-Murlo-20110816-3.binetflow.parquet",
+          "bytes": 16920429
+        },
+        {
+          "name": "9-Neris-20110817.binetflow.parquet",
+          "bytes": 14874672
+        }
+      ],
+      "observedFileBytesSum": 122260500,
+      "inventoryComplete": true,
+      "fileInventorySha256": "1a97c3754ec85ea9c23436922a7793ba3fb9cbd7f6b3c7c29ae11a93c3d9c5e6",
+      "metadataSnapshotFile": "kaggle-dhoogla-ctu13.json"
+    },
+    {
+      "ref": "dhoogla/nftoniotv2",
+      "id": 2810653,
+      "currentVersionNumber": 2,
+      "licenseName": "CC BY-NC-SA 4.0",
+      "totalBytes": 209172454,
+      "lastUpdated": "2023-01-14T11:12:48.687Z",
+      "snapshotSha256": "5e15f229143aa28540d9345515dfc44dc72c1cfa32b45eba0f4da6fc28126dc0",
+      "fileCountObserved": 2,
+      "files": [
+        {
+          "name": "NF-ToN-IoT-V2.parquet",
+          "bytes": 209170339
+        },
+        {
+          "name": "NetFlow v2 Features.csv",
+          "bytes": 2115
+        }
+      ],
+      "observedFileBytesSum": 209172454,
+      "inventoryComplete": true,
+      "fileInventorySha256": "724b50517ef379f3ef34f8468e38340d0fc239a512f97595d26e8afa5d4ac003",
+      "metadataSnapshotFile": "kaggle-dhoogla-nftoniotv2.json"
+    },
+    {
+      "ref": "emmanuelwestra/uwf-zeekdata",
+      "id": 11423722,
+      "currentVersionNumber": 5,
+      "licenseName": "Unknown",
+      "totalBytes": 1674573873,
+      "lastUpdated": "2026-07-30T14:38:45.227Z",
+      "snapshotSha256": "3d8990a305fc6ef79f40361eb4219f21fcf4c523e2e26ef0d0aab68133f08fe8",
+      "fileCountObserved": 117,
+      "files": [
+        {
+          "name": "configs/data/uwf_combined_sources.yaml",
+          "bytes": 10690
+        },
+        {
+          "name": "data/csv/Benign/part-00000-2ac3ee1a-f94a-44bb-9413-dbfa36b751da-c000.csv",
+          "bytes": 6029295
+        },
+        {
+          "name": "data/csv/Benign/part-00000-70d13bea-4727-426b-97af-a2b1d3ca4184-c000.csv",
+          "bytes": 14172382
+        },
+        {
+          "name": "data/csv/Benign/part-00000-747d1f47-d077-4ed4-bd79-53966a168887-c000.csv",
+          "bytes": 3606142
+        },
+        {
+          "name": "data/csv/Benign/part-00000-b039213f-1208-4f1b-b71d-5e8e3a4a2939-c000.csv",
+          "bytes": 10163424
+        },
+        {
+          "name": "data/csv/Benign/part-00000-dbbf2445-0a2a-4f90-909b-464726e9453f-c000.csv",
+          "bytes": 10040391
+        },
+        {
+          "name": "data/csv/Collection/part-00000-ef88bc2f-7929-4a49-83c6-9f05f3259767-c000.csv",
+          "bytes": 490
+        },
+        {
+          "name": "data/csv/Command_and_Control/part-00000-c365ae06-4940-4fb1-b261-3a9ed9970961-c000.csv",
+          "bytes": 4032
+        },
+        {
+          "name": "data/csv/Command_and_Control/part-00000-eac46840-7128-467c-b661-98cb0893dbae-c000.csv",
+          "bytes": 1012
+        },
+        {
+          "name": "data/csv/Credential_Access/part-00000-912fdc44-5727-4d42-8fd6-a0e206ba29f8-c000.csv",
+          "bytes": 10794836
+        },
+        {
+          "name": "data/csv/Credential_Access/part-00000-e2d04a3b-0704-4f6d-93e9-8cc2cb67ebe5-c000.csv",
+          "bytes": 506
+        },
+        {
+          "name": "data/csv/Defense_Evasion/part-00000-5d994449-f882-4bff-8512-187eca1ee804-c000.csv",
+          "bytes": 88585
+        },
+        {
+          "name": "data/csv/Defense_Evasion/part-00000-7df57cbc-0a05-49a0-9641-66b02c2bbcd9-c000.csv",
+          "bytes": 30332
+        },
+        {
+          "name": "data/csv/Defense_Evasion/part-00000-85b1a966-f6cf-481a-b60d-fd80ec61a72b-c000.csv",
+          "bytes": 36800
+        },
+        {
+          "name": "data/csv/Defense_Evasion/part-00000-de4985c7-284a-4b6e-b507-e69a2d172582-c000.csv",
+          "bytes": 74867
+        },
+        {
+          "name": "data/csv/Discovery/part-00000-0615e778-641c-4399-8d78-f14cb2da50bd-c000.csv",
+          "bytes": 13498788
+        },
+        {
+          "name": "data/csv/Discovery/part-00000-20202de3-67ac-4628-90e5-6f7a8153737d-c000.csv",
+          "bytes": 11558
+        },
+        {
+          "name": "data/csv/Discovery/part-00000-895bb511-4fab-4ccc-a736-ed3ebb740f90-c000.csv",
+          "bytes": 4902141
+        },
+        {
+          "name": "data/csv/Discovery/part-00000-e657cc2b-c050-490e-9e91-5a7800d55398-c000.csv",
+          "bytes": 162803
+        },
+        {
+          "name": "data/csv/Execution/part-00000-315a0a18-560b-448e-8afc-fc50e3647a69-c000.csv",
+          "bytes": 6689
+        },
+        {
+          "name": "data/csv/Execution/part-00000-a67f7b8b-dca6-409c-8489-d3395adc6720-c000.csv",
+          "bytes": 748
+        },
+        {
+          "name": "data/csv/Exfiltration/part-00000-6a530c25-0f6b-46a1-ba16-c6b658ef75e8-c000.csv",
+          "bytes": 6223
+        },
+        {
+          "name": "data/csv/Initial_Access/part-00000-480c0de0-b1ec-438f-a936-215b584dc14e-c000.csv",
+          "bytes": 4621
+        },
+        {
+          "name": "data/csv/Initial_Access/part-00000-9a37b839-429e-444b-82a5-a6d5e69dad7e-c000.csv",
+          "bytes": 135532
+        },
+        {
+          "name": "data/csv/Initial_Access/part-00000-cdf1eaba-5033-45e8-94f5-c846fe812699-c000.csv",
+          "bytes": 516
+        },
+        {
+          "name": "data/csv/Initial_Access/part-00000-e6022464-fb77-4508-a850-006424f5de8a-c000.csv",
+          "bytes": 8846
+        },
+        {
+          "name": "data/csv/Lateral_Movement/part-00000-0d012414-989a-4b0f-937d-36b02cacf398-c000.csv",
+          "bytes": 7300
+        },
+        {
+          "name": "data/csv/Lateral_Movement/part-00000-4890c258-40e8-4ef8-b345-06d436539b95-c000.csv",
+          "bytes": 5052
+        },
+        {
+          "name": "data/csv/Lateral_Movement/part-00000-cb77fb58-4c81-4214-a80f-fe34149a9cc5-c000.csv",
+          "bytes": 2817
+        },
+        {
+          "name": "data/csv/Persistence/part-00000-b1bc440d-2d7b-45cf-b899-8f4f7687cdd9-c000.csv",
+          "bytes": 2481
+        },
+        {
+          "name": "data/csv/Persistence/part-00000-fb5a764a-e65e-4e10-b6fb-1a189589d5e0-c000.csv",
+          "bytes": 78127
+        },
+        {
+          "name": "data/csv/Privilege_Escalation/part-00000-0ce40f4d-eaf4-4dbb-a55e-ee367070b88b-c000.csv",
+          "bytes": 32194
+        },
+        {
+          "name": "data/csv/Privilege_Escalation/part-00000-6ad4239d-5ae3-4837-ab6f-0e99113cac95-c000.csv",
+          "bytes": 96451
+        },
+        {
+          "name": "data/csv/Privilege_Escalation/part-00000-b16554a3-7c9d-4ef8-b8d1-2b557946dd0f-c000.csv",
+          "bytes": 40087
+        },
+        {
+          "name": "data/csv/Privilege_Escalation/part-00000-d8fcf83a-aed1-4cb1-babf-581208088293-c000.csv",
+          "bytes": 81061
+        },
+        {
+          "name": "data/csv/Reconnaissance/part-00000-27b9c76f-8291-49ef-bd5a-c47c18444b18-c000.csv",
+          "bytes": 6718541
+        },
+        {
+          "name": "data/csv/Reconnaissance/part-00000-30aee0c5-aea5-4666-aa1d-36370893753a-c000.csv",
+          "bytes": 4835269
+        },
+        {
+          "name": "data/csv/Reconnaissance/part-00000-49ed1cc6-3205-4c76-8e28-4da9abf78363-c000.csv",
+          "bytes": 626614
+        },
+        {
+          "name": "data/csv/Reconnaissance/part-00000-ae3fd4d9-9aba-4c1d-968c-88755355ee78-c000.csv",
+          "bytes": 1170632
+        },
+        {
+          "name": "data/csv/Reconnaissance/part-00000-c7143b72-6907-4e7e-8c3e-aba9609460c8-c000.csv",
+          "bytes": 546457
+        },
+        {
+          "name": "data/csv/Resource_Development/part-00000-49e0af72-8a62-4a12-a23b-34be9c7db1f8-c000.csv",
+          "bytes": 2708589
+        },
+        {
+          "name": "data/csv/part-00000-0af89d10-df53-44fd-b124-a8a496fd5023-c000.csv",
+          "bytes": 4530213
+        },
+        {
+          "name": "data/csv/part-00000-15e3dd03-ea76-429e-a52a-ce96a90517f9-c000.csv",
+          "bytes": 2057705
+        },
+        {
+          "name": "data/csv/part-00000-318611a1-7cdc-4dd0-9348-c6368917fd0c-c000.csv",
+          "bytes": 2012939
+        },
+        {
+          "name": "data/csv/part-00000-5b4f5c3f-e8a9-4020-8fa1-e8985f7c27f3-c000.csv",
+          "bytes": 196337021
+        },
+        {
+          "name": "data/csv/part-00000-95e0a460-e7c5-4b35-8367-c2e6fbbcf9e1-c000.csv",
+          "bytes": 197216207
+        },
+        {
+          "name": "data/parquet/2021-12-12 - 2021-12-19/part-00000-7c2e9adb-5430-4792-a42b-10ff5bbd46e8-c000.snappy.parquet",
+          "bytes": 25872433
+        },
+        {
+          "name": "data/parquet/2021-12-12 - 2021-12-19/part-00000-d512890f-d1e9-49d5-a136-f87f0183cb4d-c000.snappy.parquet",
+          "bytes": 1415673
+        },
+        {
+          "name": "data/parquet/2021-12-19 - 2021-12-26/part-00000-3f86626a-1225-47f9-a5a2-0170b737e404-c000.snappy.parquet",
+          "bytes": 109771100
+        },
+        {
+          "name": "data/parquet/2021-12-19 - 2021-12-26/part-00000-d28b031b-bff1-4e16-853a-9b7d896627e7-c000.snappy.parquet",
+          "bytes": 6217059
+        },
+        {
+          "name": "data/parquet/2021-12-26 - 2022-01-02/part-00000-94d13437-ae00-4a8c-9f38-edd0196cfdee-c000.snappy.parquet",
+          "bytes": 6256209
+        },
+        {
+          "name": "data/parquet/2021-12-26 - 2022-01-02/part-00000-b1a9fc13-8068-4a5d-91b2-871438709e81-c000.snappy.parquet",
+          "bytes": 109929897
+        },
+        {
+          "name": "data/parquet/2022-01-02 - 2022-01-09/part-00000-26e9208e-7819-451b-b23f-2e47f6d1e834-c000.snappy.parquet",
+          "bytes": 145347005
+        },
+        {
+          "name": "data/parquet/2022-01-02 - 2022-01-09/part-00000-745e350a-da9e-4619-bd52-8cc23bb41ad5-c000.snappy.parquet",
+          "bytes": 9565381
+        },
+        {
+          "name": "data/parquet/2022-01-09 - 2022-01-16/part-00000-36240b61-b84f-4164-a873-d7973e652780-c000.snappy.parquet",
+          "bytes": 150286656
+        },
+        {
+          "name": "data/parquet/2022-01-16 - 2022-01-23/part-00000-cbf26680-106d-40e7-8278-60520afdbb0e-c000.snappy.parquet",
+          "bytes": 20598337
+        },
+        {
+          "name": "data/parquet/2022-02-06 - 2022-02-13/part-00000-df678a79-4a73-452b-8e72-d624b2732f17-c000.snappy.parquet",
+          "bytes": 7013316
+        },
+        {
+          "name": "data/parquet/2022-02-13 - 2022-02-20/part-00000-1da06990-329c-4e38-913a-0f0aa39b388d-c000.snappy.parquet",
+          "bytes": 12257
+        },
+        {
+          "name": "data/parquet/2022-08-28 - 2022-09-04/part-00000-9a46dd05-4b06-4a39-a45b-5c8460b6c37b-c000.snappy.parquet",
+          "bytes": 2456553
+        },
+        {
+          "name": "data/parquet/2022-09-04 - 2022-09-11/part-00000-ea53b0e8-d346-44e3-9a87-1f60ac35c610-c000.snappy.parquet",
+          "bytes": 89702
+        },
+        {
+          "name": "data/parquet/2022-09-11 - 2022-09-18/part-00000-f9afaec0-242e-41e7-906d-a42681515d75-c000.snappy.parquet",
+          "bytes": 1065873
+        },
+        {
+          "name": "data/parquet/2022-09-18 - 2022-09-25/part-00000-9ac876be-c07d-4a18-878d-959efa26f484-c000.snappy.parquet",
+          "bytes": 17747459
+        },
+        {
+          "name": "data/parquet/2022-09-25 - 2022-10-02/part-00000-be6d0798-554d-4c7a-9fef-d4c07aa0ce19-c000.snappy.parquet",
+          "bytes": 13266
+        },
+        {
+          "name": "data/parquet/2022-10-02 - 2022-10-09/part-00000-2b76f9cc-0710-45e4-9e33-98ad5808ee79-c000.snappy.parquet",
+          "bytes": 8062
+        },
+        {
+          "name": "data/parquet/2022-10-09 - 2022-10-16/part-00000-b2b625bc-5816-4586-b977-35f9ed4487fd-c000.snappy.parquet",
+          "bytes": 9856
+        },
+        {
+          "name": "data/parquet/2022-10-16 - 2022-10-23/part-00000-9aeb279c-81c6-4481-9b30-d35d4d194fea-c000.snappy.parquet",
+          "bytes": 9208
+        },
+        {
+          "name": "data/parquet/2022-10-23 - 2022-10-30/part-00000-23fdcfa3-9dd3-4c72-886c-e945bfcf92e1-c000.snappy.parquet",
+          "bytes": 7834
+        },
+        {
+          "name": "data/parquet/2024-02-25 - 2024-03-03/part-00000-8b838a85-76eb-4896-a0b6-2fc425e828c2-c000.snappy.parquet",
+          "bytes": 18779592
+        },
+        {
+          "name": "data/parquet/2024-03-03 - 2024-03-10/part-00000-0955ed97-8460-41bd-872a-7375a7f0207e-c000.snappy.parquet",
+          "bytes": 3733862
+        },
+        {
+          "name": "data/parquet/2024-03-10 - 2024-03-17/part-00000-071774ae-97f3-4f31-9700-8bfcdf41305a-c000.snappy.parquet",
+          "bytes": 12282299
+        },
+        {
+          "name": "data/parquet/2024-03-17 - 2024-03-24/part-00000-5f556208-a1fc-40a1-9cc2-a4e24c76aeb3-c000.snappy.parquet",
+          "bytes": 27802118
+        },
+        {
+          "name": "data/parquet/2024-03-24 - 2024-03-31/part-00000-ea3a47a3-0973-4d6b-a3a2-8dd441ee7901-c000.snappy.parquet",
+          "bytes": 7834447
+        },
+        {
+          "name": "data/parquet/2024-09-15 - 2024-09-22/part-00000-71f94c04-0853-433f-ad56-45d80000fa4d-c000.snappy.parquet",
+          "bytes": 19314
+        },
+        {
+          "name": "data/parquet/2024-09-22 - 2024-09-29/part-00000-47ad3994-9e36-4638-90fa-9651c6c60ad3-c000.snappy.parquet",
+          "bytes": 93267889
+        },
+        {
+          "name": "data/parquet/2024-10-27 - 2024-11-03/part-00000-69700ccb-c1c1-4763-beb7-cd0f1a61c268-c000.snappy.parquet",
+          "bytes": 33163904
+        },
+        {
+          "name": "data/parquet/2024-10-27 - 2024-11-03/part-00000-e0469268-a9e0-458d-beec-4e95db2677fc-c000.snappy.parquet",
+          "bytes": 3592190
+        },
+        {
+          "name": "data/parquet/2024-11-03 - 2024-11-10/part-00000-a67cd4d5-0aa5-4378-87f4-a61f467d855d-c000.snappy.parquet",
+          "bytes": 365126
+        },
+        {
+          "name": "data/parquet/2024-11-03 - 2024-11-10/part-00000-f078acc1-ab56-40a6-a6e1-99d780645c57-c000.snappy.parquet",
+          "bytes": 36635805
+        },
+        {
+          "name": "data/parquet/2024-11-10 - 2024-11-17/part-00000-7f01bb0b-25b4-4353-a7c2-7418346e3cbb-c000.snappy.parquet",
+          "bytes": 718184
+        },
+        {
+          "name": "data/parquet/2024-11-17 - 2024-11-24/part-00000-5bcfc093-4a1f-4fc2-af09-14f133aa5b13-c000.snappy.parquet",
+          "bytes": 2239267
+        },
+        {
+          "name": "data/parquet/2024-11-24 - 2024-12-01/part-00000-24521abf-f2eb-4cb7-b243-257846310bb6-c000.snappy.parquet",
+          "bytes": 38596742
+        },
+        {
+          "name": "data/parquet/2024-12-01 - 2024-12-08/part-00000-3c25b9c9-b28c-4a19-b79a-3fadb292d329-c000.snappy.parquet",
+          "bytes": 54062181
+        },
+        {
+          "name": "data/parquet/2024-12-08 - 2024-12-15/part-00000-fdff949b-33b2-4ebc-b926-a59d462d7ea4-c000.snappy.parquet",
+          "bytes": 16112559
+        },
+        {
+          "name": "data/parquet/2025-05-18 - 2025-05-25/part-00000-4a30e497-f66c-48fe-8821-1562e55976ab-c000.snappy.parquet",
+          "bytes": 17663583
+        },
+        {
+          "name": "data/parquet/2025-05-18 - 2025-05-25/part-00000-e1c83503-04fd-4fe4-bd2d-faeaad297203-c000.snappy.parquet",
+          "bytes": 3705225
+        },
+        {
+          "name": "data/parquet/2025-05-25 - 2025-06-01/part-00000-3ae4b075-b232-4236-a80a-cea24642e2a0-c000.snappy.parquet",
+          "bytes": 13189832
+        },
+        {
+          "name": "data/parquet/2025-05-25 - 2025-06-01/part-00000-8739111d-8a2e-49ff-b5fa-101462488c2e-c000.snappy.parquet",
+          "bytes": 80731967
+        },
+        {
+          "name": "data/parquet/2025-06-01 - 2025-06-08/part-00000-315345ff-16fc-4157-8763-637ef869d9f9-c000.snappy.parquet",
+          "bytes": 21943537
+        },
+        {
+          "name": "data/parquet/2025-06-01 - 2025-06-08/part-00000-b268f002-6ca8-4262-9922-9f42869ae327-c000.snappy.parquet",
+          "bytes": 32559430
+        },
+        {
+          "name": "data/parquet/2025-06-08 - 2025-06-15/part-00000-5cc4cb38-e483-4d93-90fa-23067bcbd3f6-c000.snappy.parquet",
+          "bytes": 7801
+        },
+        {
+          "name": "data/parquet/2025-06-08 - 2025-06-15/part-00000-cfb5ba46-709a-4f58-b544-70867804a6bd-c000.snappy.parquet",
+          "bytes": 3297617
+        },
+        {
+          "name": "data/parquet/2025-06-15 - 2025-06-22/part-00000-f5b79446-d311-4f4e-aa58-d40e9917f1fe-c000.snappy.parquet",
+          "bytes": 626141
+        },
+        {
+          "name": "data/parquet/2025-06-29 - 2025-07-06/part-00000-d4a6d03f-60f8-45c6-b2f0-414a83ff658e-c000.snappy.parquet",
+          "bytes": 75316
+        },
+        {
+          "name": "data/parquet/2025-07-13 - 2025-07-20/part-00000-0025d004-4dce-4510-b353-9d4dcd486f56-c000.snappy.parquet",
+          "bytes": 31883249
+        },
+        {
+          "name": "data/parquet/2025-07-20 - 2025-07-27/part-00000-40a0140a-c89b-4f39-aa77-66f24db1e784-c000.snappy.parquet",
+          "bytes": 12618761
+        },
+        {
+          "name": "data/parquet/2025-07-27 - 2025-08-03/part-00000-77e2302e-7cb5-4a29-a6cd-9ab3435bf6c0-c000.snappy.parquet",
+          "bytes": 445376
+        },
+        {
+          "name": "data/parquet/_parquet_binary_metrics_/part-00000-0e953022-c8d6-4153-a1ac-82298623515c-c000.csv",
+          "bytes": 1447
+        },
+        {
+          "name": "data/parquet/_parquet_binary_metrics_/part-00000-4cde30e0-bdbe-4bf7-91e0-96bf7023d0d3-c000.csv",
+          "bytes": 1173
+        },
+        {
+          "name": "data/parquet/_parquet_binary_metrics_/part-00000-5d95be11-108b-48d4-bc8e-7209f0ba6780-c000.csv",
+          "bytes": 688
+        },
+        {
+          "name": "data/parquet/_parquet_binary_metrics_/part-00000-61749c61-2765-48d1-acf4-7a5b55b60b0a-c000.csv",
+          "bytes": 1448
+        },
+        {
+          "name": "data/parquet/_parquet_binary_metrics_/part-00000-fa66dc88-0b67-476a-81c7-7d788ad3873b-c000.csv",
+          "bytes": 1984
+        },
+        {
+          "name": "data/parquet/_parquet_cve_metrics_/part-00000-18293426-cb46-4767-9792-88d9a677ab36-c000.csv",
+          "bytes": 1419
+        },
+        {
+          "name": "data/parquet/_parquet_cve_metrics_/part-00000-723c46a3-eb6d-4e9b-afb0-d89e104c759a-c000.csv",
+          "bytes": 1150
+        },
+        {
+          "name": "data/parquet/_parquet_cve_metrics_/part-00000-9b61e5ed-fb50-4b2b-bbb7-d87376e583c8-c000.csv",
+          "bytes": 1421
+        },
+        {
+          "name": "data/parquet/_parquet_cve_metrics_/part-00000-f1fdd1b8-13a0-440f-bc7a-2829bbc8164c-c000.csv",
+          "bytes": 667
+        },
+        {
+          "name": "data/parquet/_parquet_file_metrics_/part-00000-d32a9d5e-45b7-4e51-807e-1af297aba2df-c000.csv",
+          "bytes": 1657
+        },
+        {
+          "name": "data/parquet/_parquet_tactic_metrics_/part-00000-8b2cdc97-66f1-45cd-bc10-9e4c73f9fcec-c000.csv",
+          "bytes": 717
+        },
+        {
+          "name": "data/parquet/_parquet_tactic_metrics_/part-00000-93eb1079-8b63-4fe1-b459-a7236ffefe10-c000.csv",
+          "bytes": 1605
+        },
+        {
+          "name": "data/parquet/_parquet_tactic_metrics_/part-00000-96b98da6-0c8b-4f3f-b73d-484cff64125e-c000.csv",
+          "bytes": 1399
+        },
+        {
+          "name": "data/parquet/_parquet_tactic_metrics_/part-00000-d7aa7eef-d977-4e34-9d3d-a6eae18c846f-c000.csv",
+          "bytes": 1674
+        },
+        {
+          "name": "data/parquet/_parquet_tactic_metrics_/part-00000-e2ca97b6-6e3e-42bc-b674-04a5e4ffa9b3-c000.csv",
+          "bytes": 2311
+        },
+        {
+          "name": "data/parquet/_parquet_technique_metrics_/part-00000-1c38cbb2-0dd0-47ea-a67e-4e70a8053a4b-c000.csv",
+          "bytes": 1304
+        },
+        {
+          "name": "data/parquet/_parquet_technique_metrics_/part-00000-399da0d0-b5a9-4063-bcaf-acca9e0a5044-c000.csv",
+          "bytes": 707
+        },
+        {
+          "name": "data/parquet/_parquet_technique_metrics_/part-00000-60b00fec-58a1-4673-8240-a174cea16d50-c000.csv",
+          "bytes": 1578
+        },
+        {
+          "name": "data/parquet/_parquet_technique_metrics_/part-00000-8c53ceaf-1fd1-4711-aa7d-26d0c5323dab-c000.csv",
+          "bytes": 2434
+        },
+        {
+          "name": "data/parquet/_parquet_technique_metrics_/part-00000-a72b1445-b8bd-4628-90a1-01965c61417b-c000.csv",
+          "bytes": 1665
+        },
+        {
+          "name": "docs/data/uwf-dataset-catalog.csv",
+          "bytes": 969
+        }
+      ],
+      "observedFileBytesSum": 1674573873,
+      "inventoryComplete": true,
+      "fileInventorySha256": "022b27ad67bef4c8e17b31ffb6ac0a3ebac1fb758d92ce1f4f1b56cef7fbd321",
+      "metadataSnapshotFile": "kaggle-emmanuelwestra-uwf-zeekdata.json"
+    },
+    {
+      "ref": "sonalimishra3/iot-2023-dataset-full",
+      "id": 10969173,
+      "currentVersionNumber": 1,
+      "licenseName": "Attribution 4.0 International (CC BY 4.0)",
+      "totalBytes": 113571284237,
+      "lastUpdated": "2026-06-30T14:49:09.1Z",
+      "snapshotSha256": "3900fc3c799788b5d583ae7080dca6d163c97064deb41bcf7c729b468bede18d",
+      "fileCountObserved": 84,
+      "files": [
+        {
+          "name": "opt/Malware-Project/BigDataset/IoTScenarios/CTU-Honeypot-Capture-4-1/2018-09-14-13-40-25-Philips-Hue-Bridge.pcap",
+          "bytes": 2429328
+        },
+        {
+          "name": "opt/Malware-Project/BigDataset/IoTScenarios/CTU-Honeypot-Capture-4-1/2018-10-25-14-06-32-192.168.1.132.pcap",
+          "bytes": 4594492
+        },
+        {
+          "name": "opt/Malware-Project/BigDataset/IoTScenarios/CTU-Honeypot-Capture-4-1/README.md",
+          "bytes": 2357
+        },
+        {
+          "name": "opt/Malware-Project/BigDataset/IoTScenarios/CTU-Honeypot-Capture-4-1/bro/conn.log.labeled",
+          "bytes": 61653
+        },
+        {
+          "name": "opt/Malware-Project/BigDataset/IoTScenarios/CTU-Honeypot-Capture-5-1/2018-09-21-capture.pcap",
+          "bytes": 381382656
+        },
+        {
+          "name": "opt/Malware-Project/BigDataset/IoTScenarios/CTU-Honeypot-Capture-5-1/README.md",
+          "bytes": 311
+        },
+        {
+          "name": "opt/Malware-Project/BigDataset/IoTScenarios/CTU-Honeypot-Capture-5-1/bro/conn.log.labeled",
+          "bytes": 182147
+        },
+        {
+          "name": "opt/Malware-Project/BigDataset/IoTScenarios/CTU-Honeypot-Capture-7-1/Somfy-01/2019-07-03-15-15-47-first_start_somfy_gateway.pcap",
+          "bytes": 2094105
+        },
+        {
+          "name": "opt/Malware-Project/BigDataset/IoTScenarios/CTU-Honeypot-Capture-7-1/Somfy-01/bro/conn.log.labeled",
+          "bytes": 18024
+        },
+        {
+          "name": "opt/Malware-Project/BigDataset/IoTScenarios/CTU-Honeypot-Capture-7-1/Somfy-02/2019-07-03-16-41-09-192.168.1.158.pcap",
+          "bytes": 33104424
+        },
+        {
+          "name": "opt/Malware-Project/BigDataset/IoTScenarios/CTU-Honeypot-Capture-7-1/Somfy-03/2019-07-04-16-41-10-192.168.1.158.pcap",
+          "bytes": 17182720
+        },
+        {
+          "name": "opt/Malware-Project/BigDataset/IoTScenarios/CTU-Honeypot-Capture-7-1/Somfy-04/2019-07-05-16-41-14-192.168.1.158.pcap",
+          "bytes": 33213386
+        },
+        {
+          "name": "opt/Malware-Project/BigDataset/IoTScenarios/CTU-Honeypot-Capture-7-1/Somfy-05/2019-07-06-16-41-17-192.168.1.158.pcap",
+          "bytes": 33358852
+        },
+        {
+          "name": "opt/Malware-Project/BigDataset/IoTScenarios/CTU-Honeypot-Capture-7-1/Somfy-06/2019-07-07-16-41-19-192.168.1.158.pcap",
+          "bytes": 32964494
+        },
+        {
+          "name": "opt/Malware-Project/BigDataset/IoTScenarios/CTU-IoT-Malware-Capture-1-1/2018-05-09-192.168.100.103.pcap",
+          "bytes": 145928231
+        },
+        {
+          "name": "opt/Malware-Project/BigDataset/IoTScenarios/CTU-IoT-Malware-Capture-1-1/README.md",
+          "bytes": 1745
+        },
+        {
+          "name": "opt/Malware-Project/BigDataset/IoTScenarios/CTU-IoT-Malware-Capture-1-1/bro/conn.log.labeled",
+          "bytes": 148305428
+        },
+        {
+          "name": "opt/Malware-Project/BigDataset/IoTScenarios/CTU-IoT-Malware-Capture-17-1/2018-09-06-11-43-12-192.168.100.111.only15000000.pcap",
+          "bytes": 1140255362
+        },
+        {
+          "name": "opt/Malware-Project/BigDataset/IoTScenarios/CTU-IoT-Malware-Capture-17-1/2018-09-06-11-43-12-192.168.100.111.pcap",
+          "bytes": 8316708998
+        },
+        {
+          "name": "opt/Malware-Project/BigDataset/IoTScenarios/CTU-IoT-Malware-Capture-17-1/README.md",
+          "bytes": 2018
+        },
+        {
+          "name": "opt/Malware-Project/BigDataset/IoTScenarios/CTU-IoT-Malware-Capture-17-1/bro/conn.log.labeled",
+          "bytes": 8139370158
+        },
+        {
+          "name": "opt/Malware-Project/BigDataset/IoTScenarios/CTU-IoT-Malware-Capture-20-1/2018-10-02-13-12-30-192.168.100.103.pcap",
+          "bytes": 4057401
+        },
+        {
+          "name": "opt/Malware-Project/BigDataset/IoTScenarios/CTU-IoT-Malware-Capture-20-1/README.md",
+          "bytes": 1786
+        },
+        {
+          "name": "opt/Malware-Project/BigDataset/IoTScenarios/CTU-IoT-Malware-Capture-20-1/bro/conn.log.labeled",
+          "bytes": 419604
+        },
+        {
+          "name": "opt/Malware-Project/BigDataset/IoTScenarios/CTU-IoT-Malware-Capture-21-1/2018-10-03-15-22-32-192.168.100.113.pcap",
+          "bytes": 4063997
+        },
+        {
+          "name": "opt/Malware-Project/BigDataset/IoTScenarios/CTU-IoT-Malware-Capture-21-1/README.md",
+          "bytes": 1787
+        },
+        {
+          "name": "opt/Malware-Project/BigDataset/IoTScenarios/CTU-IoT-Malware-Capture-21-1/bro/conn.log.labeled",
+          "bytes": 428943
+        },
+        {
+          "name": "opt/Malware-Project/BigDataset/IoTScenarios/CTU-IoT-Malware-Capture-3-1/2018-05-21_capture.pcap",
+          "bytes": 57919772
+        },
+        {
+          "name": "opt/Malware-Project/BigDataset/IoTScenarios/CTU-IoT-Malware-Capture-3-1/README.md",
+          "bytes": 3663
+        },
+        {
+          "name": "opt/Malware-Project/BigDataset/IoTScenarios/CTU-IoT-Malware-Capture-3-1/bro/conn.log.labeled",
+          "bytes": 24383537
+        },
+        {
+          "name": "opt/Malware-Project/BigDataset/IoTScenarios/CTU-IoT-Malware-Capture-3-1/test.pcap",
+          "bytes": 984289
+        },
+        {
+          "name": "opt/Malware-Project/BigDataset/IoTScenarios/CTU-IoT-Malware-Capture-33-1/2018-12-20-21-10-00-192.168.1.197.pcap",
+          "bytes": 4142551050
+        },
+        {
+          "name": "opt/Malware-Project/BigDataset/IoTScenarios/CTU-IoT-Malware-Capture-33-1/README.md",
+          "bytes": 1537
+        },
+        {
+          "name": "opt/Malware-Project/BigDataset/IoTScenarios/CTU-IoT-Malware-Capture-33-1/bro/conn.log.labeled",
+          "bytes": 7867920121
+        },
+        {
+          "name": "opt/Malware-Project/BigDataset/IoTScenarios/CTU-IoT-Malware-Capture-34-1/2018-12-21-15-50-14-192.168.1.195.irc.pcap",
+          "bytes": 3754028
+        },
+        {
+          "name": "opt/Malware-Project/BigDataset/IoTScenarios/CTU-IoT-Malware-Capture-34-1/2018-12-21-15-50-14-192.168.1.195.pcap",
+          "bytes": 126317980
+        },
+        {
+          "name": "opt/Malware-Project/BigDataset/IoTScenarios/CTU-IoT-Malware-Capture-34-1/README.md",
+          "bytes": 1547
+        },
+        {
+          "name": "opt/Malware-Project/BigDataset/IoTScenarios/CTU-IoT-Malware-Capture-34-1/bro/conn.log.labeled",
+          "bytes": 3019311
+        },
+        {
+          "name": "opt/Malware-Project/BigDataset/IoTScenarios/CTU-IoT-Malware-Capture-35-1/104.248.160.24-23.pcap",
+          "bytes": 775712
+        },
+        {
+          "name": "opt/Malware-Project/BigDataset/IoTScenarios/CTU-IoT-Malware-Capture-35-1/104.248.160.24-80.pcap",
+          "bytes": 321708203
+        },
+        {
+          "name": "opt/Malware-Project/BigDataset/IoTScenarios/CTU-IoT-Malware-Capture-35-1/104.248.160.24.port80TCP.pcap",
+          "bytes": 1225095
+        },
+        {
+          "name": "opt/Malware-Project/BigDataset/IoTScenarios/CTU-IoT-Malware-Capture-35-1/104.248.160.24.port80UDP.pcap",
+          "bytes": 320483132
+        },
+        {
+          "name": "opt/Malware-Project/BigDataset/IoTScenarios/CTU-IoT-Malware-Capture-35-1/2018-12-21-15-33-59-192.168.1.196.pcap",
+          "bytes": 3810783348
+        },
+        {
+          "name": "opt/Malware-Project/BigDataset/IoTScenarios/CTU-IoT-Malware-Capture-35-1/85.217.225.181.23.pcap",
+          "bytes": 8783
+        },
+        {
+          "name": "opt/Malware-Project/BigDataset/IoTScenarios/CTU-IoT-Malware-Capture-35-1/README.md",
+          "bytes": 1526
+        },
+        {
+          "name": "opt/Malware-Project/BigDataset/IoTScenarios/CTU-IoT-Malware-Capture-35-1/bro/conn.log.labeled",
+          "bytes": 1340179107
+        },
+        {
+          "name": "opt/Malware-Project/BigDataset/IoTScenarios/CTU-IoT-Malware-Capture-35-1/malware-capture-35-1-port-23.pcap",
+          "bytes": 1481611135
+        },
+        {
+          "name": "opt/Malware-Project/BigDataset/IoTScenarios/CTU-IoT-Malware-Capture-36-1/2018-12-21-13-36-41-192.168.1.198.pcap",
+          "bytes": 1039545119
+        },
+        {
+          "name": "opt/Malware-Project/BigDataset/IoTScenarios/CTU-IoT-Malware-Capture-36-1/README.md",
+          "bytes": 1532
+        },
+        {
+          "name": "opt/Malware-Project/BigDataset/IoTScenarios/CTU-IoT-Malware-Capture-36-1/bro/conn.log.labeled",
+          "bytes": 1787852355
+        },
+        {
+          "name": "opt/Malware-Project/BigDataset/IoTScenarios/CTU-IoT-Malware-Capture-39-1/2019-01-09-21-25-11-192.168.1.194.pcap",
+          "bytes": 5617836032
+        },
+        {
+          "name": "opt/Malware-Project/BigDataset/IoTScenarios/CTU-IoT-Malware-Capture-39-1/README.md",
+          "bytes": 1525
+        },
+        {
+          "name": "opt/Malware-Project/BigDataset/IoTScenarios/CTU-IoT-Malware-Capture-39-1/bro/conn.log.labeled",
+          "bytes": 10885361439
+        },
+        {
+          "name": "opt/Malware-Project/BigDataset/IoTScenarios/CTU-IoT-Malware-Capture-42-1/2019-01-10-14-34-38-192.168.1.197.pcap",
+          "bytes": 2908160
+        },
+        {
+          "name": "opt/Malware-Project/BigDataset/IoTScenarios/CTU-IoT-Malware-Capture-42-1/README.md",
+          "bytes": 1528
+        },
+        {
+          "name": "opt/Malware-Project/BigDataset/IoTScenarios/CTU-IoT-Malware-Capture-42-1/bro/conn.log.labeled",
+          "bytes": 585829
+        },
+        {
+          "name": "opt/Malware-Project/BigDataset/IoTScenarios/CTU-IoT-Malware-Capture-43-1/2019-01-10-19-22-51-192.168.1.198.pcap",
+          "bytes": 6345876572
+        },
+        {
+          "name": "opt/Malware-Project/BigDataset/IoTScenarios/CTU-IoT-Malware-Capture-43-1/README.md",
+          "bytes": 1592
+        },
+        {
+          "name": "opt/Malware-Project/BigDataset/IoTScenarios/CTU-IoT-Malware-Capture-43-1/bro/conn.log.labeled",
+          "bytes": 9363261631
+        },
+        {
+          "name": "opt/Malware-Project/BigDataset/IoTScenarios/CTU-IoT-Malware-Capture-44-1/2019-01-10-21-06-26-192.168.1.199.pcap",
+          "bytes": 1822543872
+        },
+        {
+          "name": "opt/Malware-Project/BigDataset/IoTScenarios/CTU-IoT-Malware-Capture-44-1/README.md",
+          "bytes": 1527
+        },
+        {
+          "name": "opt/Malware-Project/BigDataset/IoTScenarios/CTU-IoT-Malware-Capture-44-1/bro/conn.log.labeled",
+          "bytes": 31179
+        },
+        {
+          "name": "opt/Malware-Project/BigDataset/IoTScenarios/CTU-IoT-Malware-Capture-48-1/2019-02-28-19-15-13-192.168.1.200.pcap",
+          "bytes": 1222967296
+        },
+        {
+          "name": "opt/Malware-Project/BigDataset/IoTScenarios/CTU-IoT-Malware-Capture-48-1/README.md",
+          "bytes": 1522
+        },
+        {
+          "name": "opt/Malware-Project/BigDataset/IoTScenarios/CTU-IoT-Malware-Capture-48-1/bro/conn.log.labeled",
+          "bytes": 531738215
+        },
+        {
+          "name": "opt/Malware-Project/BigDataset/IoTScenarios/CTU-IoT-Malware-Capture-49-1/2019-02-28-20-50-15-192.168.1.193.pcap",
+          "bytes": 1381228544
+        },
+        {
+          "name": "opt/Malware-Project/BigDataset/IoTScenarios/CTU-IoT-Malware-Capture-49-1/README.md",
+          "bytes": 1582
+        },
+        {
+          "name": "opt/Malware-Project/BigDataset/IoTScenarios/CTU-IoT-Malware-Capture-49-1/bro/conn.log.labeled",
+          "bytes": 853630635
+        },
+        {
+          "name": "opt/Malware-Project/BigDataset/IoTScenarios/CTU-IoT-Malware-Capture-52-1/2019-03-08-13-24-30-192.168.1.197.pcap",
+          "bytes": 4904467819
+        },
+        {
+          "name": "opt/Malware-Project/BigDataset/IoTScenarios/CTU-IoT-Malware-Capture-52-1/README.md",
+          "bytes": 1532
+        },
+        {
+          "name": "opt/Malware-Project/BigDataset/IoTScenarios/CTU-IoT-Malware-Capture-52-1/bro/conn.log.labeled",
+          "bytes": 3070319722
+        },
+        {
+          "name": "opt/Malware-Project/BigDataset/IoTScenarios/CTU-IoT-Malware-Capture-60-1/2019-09-20-02-40-32-192.168.1.195.pcap",
+          "bytes": 22028429274
+        },
+        {
+          "name": "opt/Malware-Project/BigDataset/IoTScenarios/CTU-IoT-Malware-Capture-60-1/README.md",
+          "bytes": 1873
+        },
+        {
+          "name": "opt/Malware-Project/BigDataset/IoTScenarios/CTU-IoT-Malware-Capture-60-1/bro/conn.log.labeled",
+          "bytes": 467559811
+        },
+        {
+          "name": "opt/Malware-Project/BigDataset/IoTScenarios/CTU-IoT-Malware-Capture-7-1/2018-07-20-17-31-20-192.168.100.108.pcap",
+          "bytes": 940133712
+        },
+        {
+          "name": "opt/Malware-Project/BigDataset/IoTScenarios/CTU-IoT-Malware-Capture-7-1/README.md",
+          "bytes": 2791
+        },
+        {
+          "name": "opt/Malware-Project/BigDataset/IoTScenarios/CTU-IoT-Malware-Capture-7-1/bro/conn.log.labeled",
+          "bytes": 1581263847
+        },
+        {
+          "name": "opt/Malware-Project/BigDataset/IoTScenarios/CTU-IoT-Malware-Capture-8-1/2018-07-31-15-15-09-192.168.100.113.pcap",
+          "bytes": 2098362
+        },
+        {
+          "name": "opt/Malware-Project/BigDataset/IoTScenarios/CTU-IoT-Malware-Capture-8-1/README.md",
+          "bytes": 1688
+        },
+        {
+          "name": "opt/Malware-Project/BigDataset/IoTScenarios/CTU-IoT-Malware-Capture-8-1/bro/conn.log.labeled",
+          "bytes": 1431000
+        },
+        {
+          "name": "opt/Malware-Project/BigDataset/IoTScenarios/CTU-IoT-Malware-Capture-9-1/2018-07-25-10-53-16-192.168.100.111.pcap",
+          "bytes": 494553863
+        },
+        {
+          "name": "opt/Malware-Project/BigDataset/IoTScenarios/CTU-IoT-Malware-Capture-9-1/README.md",
+          "bytes": 1806
+        },
+        {
+          "name": "opt/Malware-Project/BigDataset/IoTScenarios/CTU-IoT-Malware-Capture-9-1/bro/conn.log.labeled",
+          "bytes": 993459767
+        },
+        {
+          "name": "opt/Malware-Project/BigDataset/IoTScenarios/CTU-IoT-Malware-Capture-9-1/telnet.pcap",
+          "bytes": 288412401
+        }
+      ],
+      "observedFileBytesSum": 113571284237,
+      "inventoryComplete": true,
+      "fileInventorySha256": "4f22ddda71792b62e0d0d05b6002bd348cb6f4bdb5cf267e2248e9cf70ded8b0",
+      "metadataSnapshotFile": "kaggle-sonalimishra3-iot-2023-dataset-full.json"
+    }
+  ]
+}

@@ -1,0 +1,58 @@
+{
+  "version": "source-screening-fetch-report-v1",
+  "mode": "pilot",
+  "planSha256": "db4299ababa5e71412a7d44eb48788a699d852a8651e82bd544de008e83f879e",
+  "files": [
+    {
+      "name": "somfy-first-start.pcap",
+      "url": "https://mcfp.felk.cvut.cz/publicDatasets/IoT-23-Dataset/IndividualScenarios/CTU-Honeypot-Capture-7-1/Somfy-01/2019-07-03-15-15-47-first_start_somfy_gateway.pcap",
+      "kind": "pilot",
+      "status": "COMPLETE",
+      "bytes": 2094105,
+      "sha256": "0ec756ff0e26fc6c7d985178a35206bd7bc5b8a33cc5c7a23d6bb0b103db2a2a",
+      "contentLength": 2094105,
+      "lastModified": "Tue, 09 Jul 2019 09:23:44 GMT",
+      "etag": "\"1ff419-58d3c1df98800\""
+    },
+    {
+      "name": "somfy-conn.log.labeled",
+      "url": "https://mcfp.felk.cvut.cz/publicDatasets/IoT-23-Dataset/IndividualScenarios/CTU-Honeypot-Capture-7-1/Somfy-01/bro/conn.log.labeled",
+      "kind": "pilot",
+      "status": "COMPLETE",
+      "bytes": 18024,
+      "sha256": "fb37fb38393c48b064d3afd373b075ffe31063d4924a2df1c5d13fc490b830cc",
+      "contentLength": 18024,
+      "lastModified": "Thu, 05 Dec 2019 18:12:15 GMT",
+      "etag": "\"4668-598f8de73ddc0\""
+    },
+    {
+      "name": "iot23-muhstik.pcap",
+      "url": "https://mcfp.felk.cvut.cz/publicDatasets/IoT-23-Dataset/IndividualScenarios/CTU-IoT-Malware-Capture-3-1/2018-05-21_capture.pcap",
+      "kind": "pilot",
+      "status": "COMPLETE",
+      "bytes": 57919772,
+      "sha256": "c674dc0c8d584fa66e6f00c60df973c5fbacad551c850a76d75ec9952641d00b",
+      "contentLength": 57919772,
+      "lastModified": "Wed, 30 Jan 2019 16:51:28 GMT",
+      "etag": "\"373c91c-580afb895a400\""
+    },
+    {
+      "name": "muhstik-conn.log.labeled",
+      "url": "https://mcfp.felk.cvut.cz/publicDatasets/IoT-23-Dataset/IndividualScenarios/CTU-IoT-Malware-Capture-3-1/bro/conn.log.labeled",
+      "kind": "pilot",
+      "status": "COMPLETE",
+      "bytes": 24383537,
+      "sha256": "9851009bbca03e15089fa1a356dd4b5eee4a98161a51703626058a0b507f50d0",
+      "contentLength": 24383537,
+      "lastModified": "Wed, 25 Dec 2019 10:41:17 GMT",
+      "etag": "\"1741031-59a84e67f0d40\""
+    }
+  ],
+  "licenseReviewSha256": "bcabe8db80750e7f5e895e73281ba0ff66e1ba076aaa9a67e32851c487f4dd25",
+  "caBundleSha256": "16be3f6feb15408195dcfe3aa1a75ef9db72f646b96ebbefdc68f56255f799f8",
+  "bytesWritten": 84415438,
+  "complete": true,
+  "trainingExecuted": false,
+  "predictionsExecuted": 0,
+  "holdoutRead": false
+}

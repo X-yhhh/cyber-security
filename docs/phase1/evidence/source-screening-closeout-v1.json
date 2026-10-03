@@ -1,0 +1,186 @@
+{
+  "version": "source-screening-closeout-v1",
+  "capturedAt": "2026-10-03T16:08:39.118443+08:00",
+  "phase": "remediation-phase1",
+  "phase1Status": "COMPLETE",
+  "phase1ExitPassed": true,
+  "nextPhase": "phase2_feature_compatibility_and_full_label_join",
+  "dataReadinessStatus": "BLOCKED",
+  "s3PreflightStatus": "BLOCKED",
+  "trainingAuthorized": false,
+  "trainingStartAllowed": false,
+  "thisStage": {
+    "trainingExecuted": false,
+    "predictionsExecuted": 0,
+    "holdoutRead": false,
+    "modelExportExecuted": false,
+    "fullArchiveDownloaded": false,
+    "actionsExecuted": 0,
+    "servicesRestarted": false,
+    "filesDeleted": false,
+    "businessCodeModified": false,
+    "databaseModified": false,
+    "apiModified": false,
+    "onlineSensorModified": false,
+    "frontendModified": false
+  },
+  "repositories": {
+    "application": {
+      "branch": "main",
+      "head": "6b4345f1dc6e71336e83fc2cf4acce24769fe051",
+      "origin": "git@github.com:X-yhhh/cyber-security.git"
+    },
+    "training": {
+      "host": "win-dev",
+      "computer": "XYH",
+      "branch": "training/windows-cuda",
+      "head": "91158e95a592f386f9a42d1e59a2606857a33539",
+      "origin": "git@github.com:X-yhhh/cyber-security.git",
+      "preExistingUntrackedEntriesStillPresent": [
+        "?? scripts/phase2_finish_cic2017.py",
+        "?? scripts/phase2_prepare_cic2017.py",
+        "?? src/cyber_training/phase2/",
+        "?? tests/test_phase2_baseline.py",
+        "?? tests/test_phase2_labels.py",
+        "?? tests/test_phase2_review.py",
+        "?? tests/test_phase2_split.py",
+        "?? tests/test_phase2_transfer.py"
+      ],
+      "preExistingUntrackedContentsRehashed": false,
+      "preservationBoundary": "No task writes targeted the existing phase2 files; their original untracked status entries remain present."
+    }
+  },
+  "acceptedCandidate": {
+    "sourceId": "IoT-23/1.0.0",
+    "officialSubsetOnly": true,
+    "rawMemberBytes": 84415438,
+    "rawMembers": 4,
+    "normalPilotCandidates": 29,
+    "normalTcpCandidates": 10,
+    "attackPilotCandidates": 151567,
+    "unknownRows": 4637,
+    "trainingEligibleRows": 0,
+    "trustedLabelsHumanReviewed": false,
+    "fullConnectionJoinVerified": false,
+    "v4CompatibilityVerified": false,
+    "independentEventLogJoinVerified": false,
+    "independentActivitySplitFrozen": false,
+    "publisherArchiveMd5Verified": false
+  },
+  "verification": {
+    "windowsPython": "3.12.10",
+    "command": "PYTHONPATH=src .venv/Scripts/python.exe -m pytest tests/test_source_screening.py -q -o addopts=\"\"",
+    "testsPassed": 24,
+    "failures": 0,
+    "jsonParsingPassed": true,
+    "applicationAndTrainingDiffCheckPassed": true,
+    "applicationChangeScope": "README/design/current plan and small evidence summaries only",
+    "trainingChangeScope": "source_screening module, focused tests, README/current roadmap and small evidence summaries only",
+    "trainingToolSha256": "aa78025a887c5d9d3a9f50c647b28d1f6d04e5dd881034a62263c25671f71d71",
+    "trainingTestsSha256": "6b2e71ce31865f9aff0ffa35e8aea37a6cfcecbbda3d29d520142489f52e1576",
+    "evidenceMirrored": [
+      {
+        "file": "docs/phase1/evidence/source-screening-registry-v1.json",
+        "sha256": "18d5c9162cc35429daa24b1f186fd35383ddf003f6324cb4f623a00dab670ed3",
+        "applicationTrainingBytesEqual": true
+      },
+      {
+        "file": "docs/phase1/evidence/source-screening-pilot-v2.json",
+        "sha256": "349ec46407ece5234ede30382907d4370b536290ce94ac83d79454429fa44679",
+        "applicationTrainingBytesEqual": true
+      },
+      {
+        "file": "docs/phase1/evidence/metadata-observation-v1.json",
+        "sha256": "bc8247abe00b2d4c63cef5c65e4df911f399ee1c1f13045daa93a48602d881b7",
+        "applicationTrainingBytesEqual": true
+      },
+      {
+        "file": "docs/phase1/evidence/scenario-spec-v1.json",
+        "sha256": "507906b33b089afcd620f5ca6b68878ed2862be64bee80115e173d22466a3bcb",
+        "applicationTrainingBytesEqual": true
+      },
+      {
+        "file": "docs/phase1/evidence/license-review-v1.json",
+        "sha256": "bcabe8db80750e7f5e895e73281ba0ff66e1ba076aaa9a67e32851c487f4dd25",
+        "applicationTrainingBytesEqual": true
+      },
+      {
+        "file": "docs/phase1/evidence/pilot-download-report-v1.json",
+        "sha256": "70da8fcb4859c6675876495566611fa6b4eaa34e12c21748e26b6d7d062633ff",
+        "applicationTrainingBytesEqual": true
+      },
+      {
+        "file": "docs/phase1/evidence/windows-metadata-attempt-v1.json",
+        "sha256": "6918b32b2c3fd6cc12ca609bf888c23b765563392fdd11e688662600c466818f",
+        "applicationTrainingBytesEqual": true
+      },
+      {
+        "file": "docs/phase1/evidence/pilot-fetch-plan-v1.json",
+        "sha256": "db4299ababa5e71412a7d44eb48788a699d852a8651e82bd544de008e83f879e",
+        "applicationTrainingBytesEqual": true
+      },
+      {
+        "file": "docs/phase1/evidence/kaggle-inventory-v2.json",
+        "sha256": "6f553cd7432654eae625ada01f22426c8312e8a38ee00d56be969cd997995269",
+        "applicationTrainingBytesEqual": true
+      },
+      {
+        "file": "docs/phase1/evidence/metadata-fetch-plan-v1.json",
+        "sha256": "bfc5c94b54a8abd322d7a771248f079ff4cc23043ffbba7c197cc105cb9adde1",
+        "applicationTrainingBytesEqual": true
+      },
+      {
+        "file": "docs/phase1/evidence/source-screening-pilot-v1.json",
+        "sha256": "59f5d71b7717bc056abcab2158ee232bcc4b51147c916d8698c97200bf9ffdf3",
+        "applicationTrainingBytesEqual": true
+      },
+      {
+        "file": "docs/phase1/evidence/transport-v1.json",
+        "sha256": "83caefcdbd9ebc04d11184c14ae86b8f38b3c9e54a4aa39e8a828bcd204a6d0f",
+        "applicationTrainingBytesEqual": true
+      }
+    ],
+    "phase1ReadmeSha256": "4ed872a2a73a2f8c4d0b2476b410a085d301a08101c0493df9eef261fb434b90",
+    "immutableStage0Evidence": [
+      {
+        "id": "phase3-dataset-readiness-v4",
+        "applicationPath": "docs/phase3-optimization-evidence/phase3-dataset-readiness-v4.json",
+        "trainingPath": "docs/phase0/evidence/phase3-dataset-readiness-v4.json",
+        "sha256": "4d60ba578a8886f8f8b06da38dec614a2015b5e722fec333b463ec51c7b09531"
+      },
+      {
+        "id": "s3-preflight-20261003-v3",
+        "applicationPath": "docs/phase3-optimization-evidence/s3-preflight-20261003-v3.json",
+        "trainingPath": "docs/phase0/evidence/s3-preflight-20261003-v3.json",
+        "sha256": "06f75c584aea3e497eb3c6e5f60ad5f8fc41081d817f8ee70d41e65b5774cf0c"
+      },
+      {
+        "id": "cic-monday-human-review-acceptance-v1",
+        "applicationPath": "docs/phase3-optimization-evidence/cic-monday-human-review-acceptance-v1.json",
+        "trainingPath": "docs/phase0/evidence/cic-monday-human-review-acceptance-v1.json",
+        "sha256": "8a0532dbf8f0cc767a07034f9527e95429198f5705a578182e01f5523e43ed03"
+      },
+      {
+        "id": "s3-experiment-matrix-v1",
+        "applicationPath": "docs/phase0/evidence/s3-experiment-matrix-v1.json",
+        "trainingPath": "docs/phase0/evidence/s3-experiment-matrix-v1.json",
+        "sha256": "14c71d367d3ae584ba235c74802c9500f584f93a6235e1e6b4ab368c1c3048e7"
+      }
+    ],
+    "v4SpecificationAndContractUnchanged": true,
+    "dataMetadataCaIgnoredByGit": true,
+    "stagedFiles": []
+  },
+  "limits": [
+    "Pilot match only verifies exact tuple/protocol/microsecond start packet, not full connection/segmentation or v4 features.",
+    "No second-person trusted label review; no new training labels, enough Normal TCP samples, independent activity partitions or readiness authorization.",
+    "Full archive and publisher MD5 were not verified; individual official snapshot identity is pinned by observed length/time/SHA-256.",
+    "Windows direct metadata fetch initially failed certificate validation; HTTPS recovered with task-only public CA bundle and TLS verification remained enabled.",
+    "No services, live database, active model, thresholds, online capture or response executor changed; their runtime was not revalidated this phase."
+  ],
+  "delivery": {
+    "committed": false,
+    "pushed": false,
+    "worktreeChangesOnly": true
+  }
+}

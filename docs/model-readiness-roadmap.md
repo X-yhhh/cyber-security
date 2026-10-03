@@ -1,6 +1,6 @@
 # 模型数据整改与训练路线
 
-日期：2026-10-03。状态：**阶段 0 状态冻结已完成；当前数据 readiness 与 S3 仍为 `BLOCKED`，训练和真实处置未授权；本文件是训练仓库的唯一实施入口。**
+日期：2026-10-03。状态：**阶段 0 状态冻结及阶段 1 小体量来源初筛已完成；IoT-23 官方子集进入阶段 2 试点。当前数据 readiness 与 S3 仍为 `BLOCKED`，训练和真实处置未授权；本文件是训练仓库的唯一实施入口。**
 
 适用仓库：`win-dev:E:\Workspace\ai\experiments\cyber-security-training`，分支 `training/windows-cuda`。此仓库只负责公开/获准数据的离线审查、预处理、训练、独立评估和制品导出。在线推理、资产授权、前端、模型激活和防火墙处置属于 macOS 应用仓库。
 
@@ -19,7 +19,7 @@
 ## 2. 来源初筛状态
 
 - ToN-IoT：发布说明的 PCAP、Zeek、带标签流及事件时间信息与目标较匹配；官方链接要求登录，尚未读取样本或验证逐流关联，不准入。
-- IoT-23：公开目录与场景 README 的授权条款不一致；冲突解决前不下载、不使用抓包成员。
+- IoT-23：已以发布方 FAQ 的明确引用许可及官方 DOI 4743746 的 CC BY 4.0 核对本次公开离线子集用途；旧 README 冲突原文保留并登记哈希。4 个官方成员共 80.5 MiB；29 条良性候选（TCP 10、UDP 19）和 151,567 条攻击候选有精确起始包对应，进入阶段 2 兼容性/完整流关联试点。完整归档 MD5 未验证，没有可训练标签。
 - CICIoT2023：发布说明未提供项目所需的独立可审计主机/安全事件日志来源，本轮不优先。
 - AIT-LDS：有少量关联试点候选，但没有接受为可信 Normal/Attack 的标签，也没有冻结独立活动分区。
 - CSE-CIC-IDS2018 Thursday-15：EVTX 筛查未找到同时具备地址和端口字段的成员，无法形成可信逐流真值；旧的背景 Normal 标签不采信。
@@ -53,6 +53,8 @@
 - **数据要实现：** 先选 1～2 个最有希望的来源验证一段 Normal 与一段 Attack；保存逐流标签关联报告、人工核验样本、Unknown/冲突原因及分来源计数。
 - **本地接口依赖：** 无后端改动；发布方与许可要求必须在训练仓库登记。
 - **停止条件：** 许可不明/只允许登录但无法授权、文件过大、没有可唯一关联的逐流标签、没有独立可信良性流或只能提供攻击流，均拒绝该来源。
+
+**执行记录（2026-10-03）：** 阶段 1 已完成，详见[候选初筛与有界 pilot](phase1/README.md)。10 项来源/镜像的版本、许可、体量与结论已登记；`source-screening-pilot-v2.json` 为当前报告，`stage2Candidate=true`、Normal 候选 29、Attack 候选 151,567、Unknown 4,637。标准库工具 `src/cyber_training/source_screening.py` 与 24 项测试已验证字节/时间/许可、源哈希、重复/冲突、Unknown 和禁止覆盖门禁。仅准备阶段 2 的公开离线 PCAP；完整流与独立活动日志关联、v4 兼容性、第二人标签复核和活动分区尚未验证，`trainingEligibleRows=0`、`trainingAuthorized=false`，原 readiness/preflight 不改写。
 
 ### 阶段 2：v4 兼容性与传感器同源提取
 
@@ -102,6 +104,7 @@
 ### 相关文档
 
 - 本文件：训练仓库当前路线与 gate。
+- [`phase1/README.md`](phase1/README.md)：阶段 1 的候选、许可、字节预算、Windows 工具与 pilot 交接；当前数据仍不能训练。
 - [`phase2/README.md`](phase2/README.md)：CIC-IDS2017 历史审查、冻结范围和 Windows validation 结果；不表示新模型训练完成。
 - [`v2/training-plan-v2.md`](v2/training-plan-v2.md) 和 [`v2/evidence/`](v2/evidence/)：UNSW v2 旧实验协议与其原始结果，仅供历史复现。
 - [`route-b/evidence/`](route-b/evidence/)：冻结 v4 路线中的原始审计摘要和报告。

@@ -1,0 +1,26 @@
+{
+  "contractVersion": "host-guard/5.0.0-rc.2",
+  "policyId": "db3c7f19-086b-41d1-9b3d-1041f31e625f",
+  "policyVersion": "host-guard-p3-20261004-final",
+  "mode": "alert_only",
+  "modelId": "fe4d8ba2-8640-4c9b-93f5-a3d992367526",
+  "family": "connection_abuse",
+  "profile": "flow-final-v1",
+  "alertThreshold": 0.975,
+  "autoThreshold": 0.999,
+  "minDistinctFlows": 3,
+  "minEvidenceSpanMs": 0,
+  "episodeSeconds": 30,
+  "contextWindowSeconds": 5,
+  "minPeerFlowStarts": 3,
+  "maxEvidenceAgeMs": 10000,
+  "maxTtlSeconds": 30,
+  "maxContinuousBlockSeconds": 120,
+  "maxActiveRulesPerAsset": 10,
+  "maxNewActionsPerMinute": 5,
+  "supportedCapabilityIds": [
+    "2dc298ee-320e-4bd3-8cd1-de513549d69a"
+  ],
+  "protectionSetSha256": "53107d9276a99ed1db39e7a59917da507b34b62e056d562e128b15583cb7912d",
+  "evaluationPlanSha256": "25633b2fdedcb91fe649e7879ef157c02248f2a947cbf50074e698a6d3e4fd1b"
+}

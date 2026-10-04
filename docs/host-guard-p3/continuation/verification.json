@@ -1,0 +1,102 @@
+{
+  "status": "passed_for_implemented_scope",
+  "windowsUnitTests": {
+    "command": ".venv/Scripts/python.exe -m pytest tests/test_host_guard_p3.py -q",
+    "passed": 38
+  },
+  "localOnsetTests": {
+    "command": "python3 -m unittest discover -s scripts/p3 -p 'test_*.py' -v",
+    "passed": 4
+  },
+  "pythonCompile": "passed",
+  "windowsGitDiffCheck": "passed",
+  "frozenRegressionAssertions": {
+    "rawSelection": [
+      19,
+      28
+    ],
+    "calibratedSelection": [
+      17,
+      28
+    ],
+    "frozenSelection": [
+      4,
+      28
+    ],
+    "frozenTrain": [
+      39,
+      40
+    ],
+    "frozenCalibration": [
+      81,
+      84
+    ],
+    "falseOpportunities": 0
+  },
+  "windowsCandidateVerification": {
+    "status": "passed",
+    "filesVerified": 86,
+    "rows": 23020,
+    "maxAbsError": 3.5390257835388184e-07,
+    "thresholdFlips": {
+      "alertThreshold": 0,
+      "autoThreshold": 0
+    },
+    "runtimeVersion": "1.23.2"
+  },
+  "macArtifactVerification": {
+    "status": "passed",
+    "filesVerified": 69,
+    "rows": 23020,
+    "maxAbsError": 3.5390257835388184e-07,
+    "thresholdFlips": {
+      "alertThreshold": 0,
+      "autoThreshold": 0
+    },
+    "runtimeVersion": "1.27.0",
+    "scope": "original delivery of identical SHA256 weights and fixture; new Windows metadata package not copied in full"
+  },
+  "unchangedModelSha256": "fcc1f3910575441be86f96d15f55b8317fe7b5c1ceef60d583af4cf5d0c3767f",
+  "softwareFreeze": {
+    "status": "passed",
+    "files": 45,
+    "collectionSha256": "327fa3aad84f32e55bd978d6e68bfe4c09ab814e4ccef5a2e7a240800bc95c69"
+  },
+  "datasetFreeze": {
+    "status": "passed",
+    "publicFiles": 22,
+    "inputEvidenceFiles": 116,
+    "collectionSha256": "e7e7cbd97a9e99cd06725b73a5bea0d6f52a17fcd82eba1c90053c35ac33b7c8"
+  },
+  "interruptedValidation": {
+    "run": "runs/host-guard-p3-continuation-20261004-finalize",
+    "reason": "legacy finalizer repeated threshold/policy search; task-owned process stopped after identity check; failed output preserved; replaced with fixed-parameter finalizer",
+    "weightsRefit": false
+  },
+  "unverified": [
+    "qualified prefix model",
+    "independent development performance",
+    "P6 final test",
+    "real firewall actions and strict TTL",
+    "new complete Mac metadata package verification"
+  ],
+  "documentChecks": {
+    "status": "passed",
+    "markdownFiles": 8,
+    "localLinksAndAnchors": 118,
+    "oldP3FilesUnchanged": 5,
+    "evaluationSourceHashesVerified": 9,
+    "secretOrAbsolutePathFindings": 0,
+    "localGitDiffCheck": "passed"
+  },
+  "remotePreservation": {
+    "status": "passed",
+    "unrelatedUntrackedFilesPreserved": 15,
+    "originalDeliveryUnchanged": true,
+    "headUnchanged": true,
+    "branch": "training/windows-cuda",
+    "head": "d6a3afd8a708055e952c195af4a8cbf8ab364bf7",
+    "committed": false,
+    "pushed": false
+  }
+}

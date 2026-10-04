@@ -1,5 +1,9 @@
 # host-guard v5 P3 离线模型与策略研究
 
+2026-10-04 解决方案更新：[当前修复与交付记录](resolution/README.md)登记42项回归、累计预算修复及最新数据证据。下文保留原阶段快照。
+
+2026-10-04 后续实施更新：[P3-A诊断/回归与P3-B/C有界审查记录](continuation/README.md)已交付。完整策略选型仅4/28，prefix及独立数据准入未通过，P3仍blocked；未重训、未获得处置授权。下文首轮记录保留。
+
 2026-10-04：P3实现及有界实验完成，阶段出口blocked，不能进入P6或自动执行。依据已同步的P2 rc.2冻结契约和23020条final研究观察；不复用UNSW/v4成绩，不使用历史整改路线的阻塞记录代替本次数据准入。
 
 结果见[汇总](results-summary.json)、[出口裁决](stage-exit.json)、[实验计划](experiment-plan.json)及[环境依赖锁](requirements-windows.lock)。应用仓库main的P1/P2基线为efcbd12。P3训练实现与冻结公共依赖在training/windows-cuda分支交付，应用报告在main交付；原phase2未提交工作保留，不在本次提交范围。delivery-verification.json中的提交/推送字段是验证生成时的历史快照，实际交付以分支Git记录为准。

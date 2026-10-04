@@ -1,0 +1,895 @@
+{
+  "version": "p3-frozen-development-regression-v1",
+  "budgetReplay": "global_before_grouping",
+  "unit": "observed_final_target_30s_opportunity",
+  "selectionChanged": false,
+  "calibrationRefit": false,
+  "finalTestRead": false,
+  "workingPoints": {
+    "raw_model": {
+      "parameters": {
+        "threshold": 0.95
+      },
+      "global": {
+        "unit": "observed_final_target_30s_opportunity",
+        "attackOpportunities": 152,
+        "coveredAttackOpportunities": 140,
+        "benignOpportunities": 1555,
+        "ambiguousOpportunitiesCountedAsBenign": 1,
+        "falseBenignOpportunities": 0,
+        "candidateActions": 131,
+        "correctAttackCandidateActions": 131,
+        "incorrectCandidateActions": 0,
+        "blockPrecisionCandidate": 1.0,
+        "opportunityRecallDiagnostic": 0.9210526315789473,
+        "falseBenignOpportunityRate": 0.0,
+        "falsePer1000BenignOpportunities": 0.0,
+        "affectedBenignParents": 0,
+        "falseCandidateSeconds": 0.0,
+        "candidateActionsPerObservedCalendarHour": 0.0016161390993252775,
+        "calendarDurationCaveat": "source days/gaps preserved; not continuous monitored host hours",
+        "attackActivities": 3,
+        "benignGroups": 312,
+        "clusterConfidenceInterval": null,
+        "confidenceReason": "no independent development activity evaluation; indexed groups do not establish independent replications",
+        "blockRecallTimely": null,
+        "onsetToActionP95Ms": null,
+        "evidenceToOsActionP95Ms": null,
+        "timingReason": "final-only dataset lacks qualified per-episode attack onset and real executor",
+        "precisionAtOpportunityRatios": {
+          "0.1": 1.0,
+          "0.01": 1.0,
+          "0.001": 1.0
+        },
+        "actualActions": 0,
+        "candidateOnly": true,
+        "executionGatesUnavailable": [
+          "research targetRef=null",
+          "clockSkewMs unknown",
+          "release/capability/authorization not granted"
+        ],
+        "suppressed": {
+          "insufficient_distinct_fresh_evidence": 5018,
+          "ttl_dedup": 17871
+        }
+      },
+      "byRole": {
+        "train": {
+          "attackOpportunities": 40,
+          "benignOpportunities": 195,
+          "coveredAttackOpportunities": 40,
+          "falseBenignOpportunities": 0,
+          "opportunityRecallDiagnostic": 1.0,
+          "ambiguousOpportunitiesCountedAsBenign": 0,
+          "candidateActions": 39,
+          "incorrectCandidateActions": 0,
+          "opportunityStates": {
+            "covered": 40,
+            "uncovered": 195
+          },
+          "firstRejections": {
+            "low_score": 880,
+            "ttl_dedup": 2925
+          },
+          "ttlCoveredObservations": 2925,
+          "attackActivities": 1,
+          "benignIndexedGroups": 54,
+          "independentEvaluation": false,
+          "onsetTimingEvaluated": false,
+          "exposure": "model_and_preprocessing_fit_diagnostic_only"
+        },
+        "validation_calibration": {
+          "attackOpportunities": 84,
+          "benignOpportunities": 18,
+          "coveredAttackOpportunities": 81,
+          "falseBenignOpportunities": 0,
+          "opportunityRecallDiagnostic": 0.9642857142857143,
+          "ambiguousOpportunitiesCountedAsBenign": 0,
+          "candidateActions": 79,
+          "incorrectCandidateActions": 0,
+          "opportunityStates": {
+            "covered": 80,
+            "uncovered": 21,
+            "late_covered": 1
+          },
+          "firstRejections": {
+            "low_score": 287,
+            "stale_last_packet": 266,
+            "ttl_dedup": 14421
+          },
+          "ttlCoveredObservations": 14421,
+          "attackActivities": 1,
+          "benignIndexedGroups": 14,
+          "independentEvaluation": false,
+          "onsetTimingEvaluated": false,
+          "exposure": "calibration_and_policy_selection_exposed"
+        },
+        "validation_selection": {
+          "attackOpportunities": 28,
+          "benignOpportunities": 1342,
+          "coveredAttackOpportunities": 19,
+          "falseBenignOpportunities": 0,
+          "opportunityRecallDiagnostic": 0.6785714285714286,
+          "ambiguousOpportunitiesCountedAsBenign": 1,
+          "candidateActions": 13,
+          "incorrectCandidateActions": 0,
+          "opportunityStates": {
+            "uncovered": 1351,
+            "covered": 12,
+            "late_covered": 7
+          },
+          "firstRejections": {
+            "low_score": 2916,
+            "stale_last_packet": 669,
+            "ttl_dedup": 525
+          },
+          "ttlCoveredObservations": 598,
+          "attackActivities": 1,
+          "benignIndexedGroups": 244,
+          "independentEvaluation": false,
+          "onsetTimingEvaluated": false,
+          "exposure": "model_and_raw_threshold_selection_exposed"
+        }
+      },
+      "bySource": {
+        "cic2017-wednesday": {
+          "attackOpportunities": 68,
+          "benignOpportunities": 1532,
+          "coveredAttackOpportunities": 59,
+          "falseBenignOpportunities": 0,
+          "opportunityRecallDiagnostic": 0.8676470588235294,
+          "ambiguousOpportunitiesCountedAsBenign": 1,
+          "candidateActions": 52,
+          "incorrectCandidateActions": 0,
+          "opportunityStates": {
+            "covered": 52,
+            "uncovered": 1541,
+            "late_covered": 7
+          },
+          "firstRejections": {
+            "low_score": 3253,
+            "ttl_dedup": 3450,
+            "stale_last_packet": 669
+          },
+          "ttlCoveredObservations": 3523,
+          "attackActivities": 2,
+          "benignIndexedGroups": 294,
+          "independentEvaluation": false,
+          "onsetTimingEvaluated": false
+        },
+        "cic2018-thursday": {
+          "attackOpportunities": 84,
+          "benignOpportunities": 14,
+          "coveredAttackOpportunities": 81,
+          "falseBenignOpportunities": 0,
+          "opportunityRecallDiagnostic": 0.9642857142857143,
+          "ambiguousOpportunitiesCountedAsBenign": 0,
+          "candidateActions": 79,
+          "incorrectCandidateActions": 0,
+          "opportunityStates": {
+            "covered": 80,
+            "late_covered": 1,
+            "uncovered": 17
+          },
+          "firstRejections": {
+            "low_score": 24,
+            "stale_last_packet": 266,
+            "ttl_dedup": 14421
+          },
+          "ttlCoveredObservations": 14421,
+          "attackActivities": 1,
+          "benignIndexedGroups": 12,
+          "independentEvaluation": false,
+          "onsetTimingEvaluated": false
+        },
+        "controlled-win-loopback": {
+          "attackOpportunities": 0,
+          "benignOpportunities": 9,
+          "coveredAttackOpportunities": 0,
+          "falseBenignOpportunities": 0,
+          "opportunityRecallDiagnostic": null,
+          "ambiguousOpportunitiesCountedAsBenign": 0,
+          "candidateActions": 0,
+          "incorrectCandidateActions": 0,
+          "opportunityStates": {
+            "uncovered": 9
+          },
+          "firstRejections": {
+            "low_score": 806
+          },
+          "ttlCoveredObservations": 0,
+          "attackActivities": 0,
+          "benignIndexedGroups": 6,
+          "independentEvaluation": false,
+          "onsetTimingEvaluated": false
+        }
+      },
+      "byScenario": {
+        "cic2017_slowloris": {
+          "attackOpportunities": 40,
+          "benignOpportunities": 0,
+          "coveredAttackOpportunities": 40,
+          "falseBenignOpportunities": 0,
+          "opportunityRecallDiagnostic": 1.0,
+          "ambiguousOpportunitiesCountedAsBenign": 0,
+          "candidateActions": 39,
+          "incorrectCandidateActions": 0,
+          "opportunityStates": {
+            "covered": 40
+          },
+          "firstRejections": {
+            "ttl_dedup": 2925
+          },
+          "ttlCoveredObservations": 2925,
+          "attackActivities": 1,
+          "benignIndexedGroups": 0,
+          "independentEvaluation": false,
+          "onsetTimingEvaluated": false,
+          "role": "train",
+          "sourceId": "cic2017-wednesday",
+          "exposure": "model_and_preprocessing_fit_diagnostic_only"
+        },
+        "cic2017_slowhttptest": {
+          "attackOpportunities": 28,
+          "benignOpportunities": 1,
+          "coveredAttackOpportunities": 19,
+          "falseBenignOpportunities": 0,
+          "opportunityRecallDiagnostic": 0.6785714285714286,
+          "ambiguousOpportunitiesCountedAsBenign": 1,
+          "candidateActions": 13,
+          "incorrectCandidateActions": 0,
+          "opportunityStates": {
+            "uncovered": 10,
+            "covered": 12,
+            "late_covered": 7
+          },
+          "firstRejections": {
+            "stale_last_packet": 668,
+            "low_score": 30,
+            "ttl_dedup": 525
+          },
+          "ttlCoveredObservations": 598,
+          "attackActivities": 1,
+          "benignIndexedGroups": 0,
+          "independentEvaluation": false,
+          "onsetTimingEvaluated": false,
+          "role": "validation_selection",
+          "sourceId": "cic2017-wednesday",
+          "exposure": "model_and_raw_threshold_selection_exposed"
+        },
+        "cic2018_slowloris": {
+          "attackOpportunities": 84,
+          "benignOpportunities": 0,
+          "coveredAttackOpportunities": 81,
+          "falseBenignOpportunities": 0,
+          "opportunityRecallDiagnostic": 0.9642857142857143,
+          "ambiguousOpportunitiesCountedAsBenign": 0,
+          "candidateActions": 79,
+          "incorrectCandidateActions": 0,
+          "opportunityStates": {
+            "covered": 80,
+            "late_covered": 1,
+            "uncovered": 3
+          },
+          "firstRejections": {
+            "stale_last_packet": 266,
+            "ttl_dedup": 14421
+          },
+          "ttlCoveredObservations": 14421,
+          "attackActivities": 1,
+          "benignIndexedGroups": 0,
+          "independentEvaluation": false,
+          "onsetTimingEvaluated": false,
+          "role": "validation_calibration",
+          "sourceId": "cic2018-thursday",
+          "exposure": "calibration_and_policy_selection_exposed"
+        }
+      },
+      "activityGroupsSummarized": 315
+    },
+    "calibrated_model": {
+      "parameters": {
+        "threshold": 0.999
+      },
+      "global": {
+        "unit": "observed_final_target_30s_opportunity",
+        "attackOpportunities": 152,
+        "coveredAttackOpportunities": 138,
+        "benignOpportunities": 1555,
+        "ambiguousOpportunitiesCountedAsBenign": 1,
+        "falseBenignOpportunities": 0,
+        "candidateActions": 130,
+        "correctAttackCandidateActions": 130,
+        "incorrectCandidateActions": 0,
+        "blockPrecisionCandidate": 1.0,
+        "opportunityRecallDiagnostic": 0.9078947368421053,
+        "falseBenignOpportunityRate": 0.0,
+        "falsePer1000BenignOpportunities": 0.0,
+        "affectedBenignParents": 0,
+        "falseCandidateSeconds": 0.0,
+        "candidateActionsPerObservedCalendarHour": 0.0016038021596357717,
+        "calendarDurationCaveat": "source days/gaps preserved; not continuous monitored host hours",
+        "attackActivities": 3,
+        "benignGroups": 312,
+        "clusterConfidenceInterval": null,
+        "confidenceReason": "no independent development activity evaluation; indexed groups do not establish independent replications",
+        "blockRecallTimely": null,
+        "onsetToActionP95Ms": null,
+        "evidenceToOsActionP95Ms": null,
+        "timingReason": "final-only dataset lacks qualified per-episode attack onset and real executor",
+        "precisionAtOpportunityRatios": {
+          "0.1": 1.0,
+          "0.01": 1.0,
+          "0.001": 1.0
+        },
+        "actualActions": 0,
+        "candidateOnly": true,
+        "executionGatesUnavailable": [
+          "research targetRef=null",
+          "clockSkewMs unknown",
+          "release/capability/authorization not granted"
+        ],
+        "suppressed": {
+          "insufficient_distinct_fresh_evidence": 5020,
+          "ttl_dedup": 17870
+        }
+      },
+      "byRole": {
+        "train": {
+          "attackOpportunities": 40,
+          "benignOpportunities": 195,
+          "coveredAttackOpportunities": 40,
+          "falseBenignOpportunities": 0,
+          "opportunityRecallDiagnostic": 1.0,
+          "ambiguousOpportunitiesCountedAsBenign": 0,
+          "candidateActions": 39,
+          "incorrectCandidateActions": 0,
+          "opportunityStates": {
+            "covered": 40,
+            "uncovered": 195
+          },
+          "firstRejections": {
+            "low_score": 880,
+            "ttl_dedup": 2925
+          },
+          "ttlCoveredObservations": 2925,
+          "attackActivities": 1,
+          "benignIndexedGroups": 54,
+          "independentEvaluation": false,
+          "onsetTimingEvaluated": false,
+          "exposure": "model_and_preprocessing_fit_diagnostic_only"
+        },
+        "validation_calibration": {
+          "attackOpportunities": 84,
+          "benignOpportunities": 18,
+          "coveredAttackOpportunities": 81,
+          "falseBenignOpportunities": 0,
+          "opportunityRecallDiagnostic": 0.9642857142857143,
+          "ambiguousOpportunitiesCountedAsBenign": 0,
+          "candidateActions": 79,
+          "incorrectCandidateActions": 0,
+          "opportunityStates": {
+            "covered": 80,
+            "uncovered": 21,
+            "late_covered": 1
+          },
+          "firstRejections": {
+            "low_score": 440,
+            "stale_last_packet": 113,
+            "ttl_dedup": 14421
+          },
+          "ttlCoveredObservations": 14421,
+          "attackActivities": 1,
+          "benignIndexedGroups": 14,
+          "independentEvaluation": false,
+          "onsetTimingEvaluated": false,
+          "exposure": "calibration_and_policy_selection_exposed"
+        },
+        "validation_selection": {
+          "attackOpportunities": 28,
+          "benignOpportunities": 1342,
+          "coveredAttackOpportunities": 17,
+          "falseBenignOpportunities": 0,
+          "opportunityRecallDiagnostic": 0.6071428571428571,
+          "ambiguousOpportunitiesCountedAsBenign": 1,
+          "candidateActions": 12,
+          "incorrectCandidateActions": 0,
+          "opportunityStates": {
+            "uncovered": 1353,
+            "covered": 10,
+            "late_covered": 7
+          },
+          "firstRejections": {
+            "low_score": 3109,
+            "stale_last_packet": 478,
+            "ttl_dedup": 524
+          },
+          "ttlCoveredObservations": 597,
+          "attackActivities": 1,
+          "benignIndexedGroups": 244,
+          "independentEvaluation": false,
+          "onsetTimingEvaluated": false,
+          "exposure": "model_and_raw_threshold_selection_exposed"
+        }
+      },
+      "bySource": {
+        "cic2017-wednesday": {
+          "attackOpportunities": 68,
+          "benignOpportunities": 1532,
+          "coveredAttackOpportunities": 57,
+          "falseBenignOpportunities": 0,
+          "opportunityRecallDiagnostic": 0.8382352941176471,
+          "ambiguousOpportunitiesCountedAsBenign": 1,
+          "candidateActions": 51,
+          "incorrectCandidateActions": 0,
+          "opportunityStates": {
+            "covered": 50,
+            "uncovered": 1543,
+            "late_covered": 7
+          },
+          "firstRejections": {
+            "low_score": 3446,
+            "ttl_dedup": 3449,
+            "stale_last_packet": 478
+          },
+          "ttlCoveredObservations": 3522,
+          "attackActivities": 2,
+          "benignIndexedGroups": 294,
+          "independentEvaluation": false,
+          "onsetTimingEvaluated": false
+        },
+        "cic2018-thursday": {
+          "attackOpportunities": 84,
+          "benignOpportunities": 14,
+          "coveredAttackOpportunities": 81,
+          "falseBenignOpportunities": 0,
+          "opportunityRecallDiagnostic": 0.9642857142857143,
+          "ambiguousOpportunitiesCountedAsBenign": 0,
+          "candidateActions": 79,
+          "incorrectCandidateActions": 0,
+          "opportunityStates": {
+            "covered": 80,
+            "late_covered": 1,
+            "uncovered": 17
+          },
+          "firstRejections": {
+            "low_score": 177,
+            "stale_last_packet": 113,
+            "ttl_dedup": 14421
+          },
+          "ttlCoveredObservations": 14421,
+          "attackActivities": 1,
+          "benignIndexedGroups": 12,
+          "independentEvaluation": false,
+          "onsetTimingEvaluated": false
+        },
+        "controlled-win-loopback": {
+          "attackOpportunities": 0,
+          "benignOpportunities": 9,
+          "coveredAttackOpportunities": 0,
+          "falseBenignOpportunities": 0,
+          "opportunityRecallDiagnostic": null,
+          "ambiguousOpportunitiesCountedAsBenign": 0,
+          "candidateActions": 0,
+          "incorrectCandidateActions": 0,
+          "opportunityStates": {
+            "uncovered": 9
+          },
+          "firstRejections": {
+            "low_score": 806
+          },
+          "ttlCoveredObservations": 0,
+          "attackActivities": 0,
+          "benignIndexedGroups": 6,
+          "independentEvaluation": false,
+          "onsetTimingEvaluated": false
+        }
+      },
+      "byScenario": {
+        "cic2017_slowloris": {
+          "attackOpportunities": 40,
+          "benignOpportunities": 0,
+          "coveredAttackOpportunities": 40,
+          "falseBenignOpportunities": 0,
+          "opportunityRecallDiagnostic": 1.0,
+          "ambiguousOpportunitiesCountedAsBenign": 0,
+          "candidateActions": 39,
+          "incorrectCandidateActions": 0,
+          "opportunityStates": {
+            "covered": 40
+          },
+          "firstRejections": {
+            "ttl_dedup": 2925
+          },
+          "ttlCoveredObservations": 2925,
+          "attackActivities": 1,
+          "benignIndexedGroups": 0,
+          "independentEvaluation": false,
+          "onsetTimingEvaluated": false,
+          "role": "train",
+          "sourceId": "cic2017-wednesday",
+          "exposure": "model_and_preprocessing_fit_diagnostic_only"
+        },
+        "cic2017_slowhttptest": {
+          "attackOpportunities": 28,
+          "benignOpportunities": 1,
+          "coveredAttackOpportunities": 17,
+          "falseBenignOpportunities": 0,
+          "opportunityRecallDiagnostic": 0.6071428571428571,
+          "ambiguousOpportunitiesCountedAsBenign": 1,
+          "candidateActions": 12,
+          "incorrectCandidateActions": 0,
+          "opportunityStates": {
+            "uncovered": 12,
+            "covered": 10,
+            "late_covered": 7
+          },
+          "firstRejections": {
+            "low_score": 223,
+            "stale_last_packet": 477,
+            "ttl_dedup": 524
+          },
+          "ttlCoveredObservations": 597,
+          "attackActivities": 1,
+          "benignIndexedGroups": 0,
+          "independentEvaluation": false,
+          "onsetTimingEvaluated": false,
+          "role": "validation_selection",
+          "sourceId": "cic2017-wednesday",
+          "exposure": "model_and_raw_threshold_selection_exposed"
+        },
+        "cic2018_slowloris": {
+          "attackOpportunities": 84,
+          "benignOpportunities": 0,
+          "coveredAttackOpportunities": 81,
+          "falseBenignOpportunities": 0,
+          "opportunityRecallDiagnostic": 0.9642857142857143,
+          "ambiguousOpportunitiesCountedAsBenign": 0,
+          "candidateActions": 79,
+          "incorrectCandidateActions": 0,
+          "opportunityStates": {
+            "covered": 80,
+            "late_covered": 1,
+            "uncovered": 3
+          },
+          "firstRejections": {
+            "low_score": 153,
+            "stale_last_packet": 113,
+            "ttl_dedup": 14421
+          },
+          "ttlCoveredObservations": 14421,
+          "attackActivities": 1,
+          "benignIndexedGroups": 0,
+          "independentEvaluation": false,
+          "onsetTimingEvaluated": false,
+          "role": "validation_calibration",
+          "sourceId": "cic2018-thursday",
+          "exposure": "calibration_and_policy_selection_exposed"
+        }
+      },
+      "activityGroupsSummarized": 315
+    },
+    "frozen_policy": {
+      "parameters": {
+        "threshold": 0.999,
+        "min_flows": 3,
+        "span_ms": 0,
+        "min_starts": 3,
+        "ttl": 30
+      },
+      "global": {
+        "unit": "observed_final_target_30s_opportunity",
+        "attackOpportunities": 152,
+        "coveredAttackOpportunities": 124,
+        "benignOpportunities": 1555,
+        "ambiguousOpportunitiesCountedAsBenign": 1,
+        "falseBenignOpportunities": 0,
+        "candidateActions": 117,
+        "correctAttackCandidateActions": 117,
+        "incorrectCandidateActions": 0,
+        "blockPrecisionCandidate": 1.0,
+        "opportunityRecallDiagnostic": 0.8157894736842105,
+        "falseBenignOpportunityRate": 0.0,
+        "falsePer1000BenignOpportunities": 0.0,
+        "affectedBenignParents": 0,
+        "falseCandidateSeconds": 0.0,
+        "candidateActionsPerObservedCalendarHour": 0.0014434219436721945,
+        "calendarDurationCaveat": "source days/gaps preserved; not continuous monitored host hours",
+        "attackActivities": 3,
+        "benignGroups": 312,
+        "clusterConfidenceInterval": null,
+        "confidenceReason": "no independent development activity evaluation; indexed groups do not establish independent replications",
+        "blockRecallTimely": null,
+        "onsetToActionP95Ms": null,
+        "evidenceToOsActionP95Ms": null,
+        "timingReason": "final-only dataset lacks qualified per-episode attack onset and real executor",
+        "precisionAtOpportunityRatios": {
+          "0.1": 1.0,
+          "0.01": 1.0,
+          "0.001": 1.0
+        },
+        "actualActions": 0,
+        "candidateOnly": true,
+        "executionGatesUnavailable": [
+          "research targetRef=null",
+          "clockSkewMs unknown",
+          "release/capability/authorization not granted"
+        ],
+        "suppressed": {
+          "insufficient_distinct_fresh_evidence": 5106,
+          "ttl_dedup": 17063,
+          "insufficient_context": 734
+        }
+      },
+      "byRole": {
+        "train": {
+          "attackOpportunities": 40,
+          "benignOpportunities": 195,
+          "coveredAttackOpportunities": 39,
+          "falseBenignOpportunities": 0,
+          "opportunityRecallDiagnostic": 0.975,
+          "ambiguousOpportunitiesCountedAsBenign": 0,
+          "candidateActions": 37,
+          "incorrectCandidateActions": 0,
+          "opportunityStates": {
+            "covered": 37,
+            "uncovered": 196,
+            "late_covered": 2
+          },
+          "firstRejections": {
+            "insufficient_distinct_parents": 202,
+            "low_score": 577,
+            "expired_evidence": 108,
+            "ttl_dedup": 2786,
+            "insufficient_peer_flow_starts": 127,
+            "stale_last_packet": 7
+          },
+          "ttlCoveredObservations": 2905,
+          "attackActivities": 1,
+          "benignIndexedGroups": 54,
+          "independentEvaluation": false,
+          "onsetTimingEvaluated": false,
+          "exposure": "model_and_preprocessing_fit_diagnostic_only"
+        },
+        "validation_calibration": {
+          "attackOpportunities": 84,
+          "benignOpportunities": 18,
+          "coveredAttackOpportunities": 81,
+          "falseBenignOpportunities": 0,
+          "opportunityRecallDiagnostic": 0.9642857142857143,
+          "ambiguousOpportunitiesCountedAsBenign": 0,
+          "candidateActions": 78,
+          "incorrectCandidateActions": 0,
+          "opportunityStates": {
+            "covered": 80,
+            "uncovered": 21,
+            "late_covered": 1
+          },
+          "firstRejections": {
+            "insufficient_distinct_parents": 23,
+            "low_score": 488,
+            "expired_evidence": 4,
+            "stale_last_packet": 73,
+            "ttl_dedup": 14260,
+            "insufficient_peer_flow_starts": 127
+          },
+          "ttlCoveredObservations": 14365,
+          "attackActivities": 1,
+          "benignIndexedGroups": 14,
+          "independentEvaluation": false,
+          "onsetTimingEvaluated": false,
+          "exposure": "calibration_and_policy_selection_exposed"
+        },
+        "validation_selection": {
+          "attackOpportunities": 28,
+          "benignOpportunities": 1342,
+          "coveredAttackOpportunities": 4,
+          "falseBenignOpportunities": 0,
+          "opportunityRecallDiagnostic": 0.14285714285714285,
+          "ambiguousOpportunitiesCountedAsBenign": 1,
+          "candidateActions": 2,
+          "incorrectCandidateActions": 0,
+          "opportunityStates": {
+            "uncovered": 1366,
+            "covered": 2,
+            "late_covered": 2
+          },
+          "firstRejections": {
+            "insufficient_distinct_parents": 1431,
+            "low_score": 1288,
+            "stale_last_packet": 307,
+            "expired_evidence": 598,
+            "insufficient_peer_flow_starts": 480,
+            "ttl_dedup": 17
+          },
+          "ttlCoveredObservations": 84,
+          "attackActivities": 1,
+          "benignIndexedGroups": 244,
+          "independentEvaluation": false,
+          "onsetTimingEvaluated": false,
+          "exposure": "model_and_raw_threshold_selection_exposed"
+        }
+      },
+      "bySource": {
+        "cic2017-wednesday": {
+          "attackOpportunities": 68,
+          "benignOpportunities": 1532,
+          "coveredAttackOpportunities": 43,
+          "falseBenignOpportunities": 0,
+          "opportunityRecallDiagnostic": 0.6323529411764706,
+          "ambiguousOpportunitiesCountedAsBenign": 1,
+          "candidateActions": 39,
+          "incorrectCandidateActions": 0,
+          "opportunityStates": {
+            "covered": 39,
+            "uncovered": 1557,
+            "late_covered": 4
+          },
+          "firstRejections": {
+            "insufficient_distinct_parents": 1625,
+            "low_score": 1330,
+            "expired_evidence": 706,
+            "ttl_dedup": 2803,
+            "insufficient_peer_flow_starts": 607,
+            "stale_last_packet": 314
+          },
+          "ttlCoveredObservations": 2989,
+          "attackActivities": 2,
+          "benignIndexedGroups": 294,
+          "independentEvaluation": false,
+          "onsetTimingEvaluated": false
+        },
+        "cic2018-thursday": {
+          "attackOpportunities": 84,
+          "benignOpportunities": 14,
+          "coveredAttackOpportunities": 81,
+          "falseBenignOpportunities": 0,
+          "opportunityRecallDiagnostic": 0.9642857142857143,
+          "ambiguousOpportunitiesCountedAsBenign": 0,
+          "candidateActions": 78,
+          "incorrectCandidateActions": 0,
+          "opportunityStates": {
+            "covered": 80,
+            "late_covered": 1,
+            "uncovered": 17
+          },
+          "firstRejections": {
+            "insufficient_distinct_parents": 19,
+            "low_score": 229,
+            "expired_evidence": 4,
+            "stale_last_packet": 73,
+            "ttl_dedup": 14260,
+            "insufficient_peer_flow_starts": 127
+          },
+          "ttlCoveredObservations": 14365,
+          "attackActivities": 1,
+          "benignIndexedGroups": 12,
+          "independentEvaluation": false,
+          "onsetTimingEvaluated": false
+        },
+        "controlled-win-loopback": {
+          "attackOpportunities": 0,
+          "benignOpportunities": 9,
+          "coveredAttackOpportunities": 0,
+          "falseBenignOpportunities": 0,
+          "opportunityRecallDiagnostic": null,
+          "ambiguousOpportunitiesCountedAsBenign": 0,
+          "candidateActions": 0,
+          "incorrectCandidateActions": 0,
+          "opportunityStates": {
+            "uncovered": 9
+          },
+          "firstRejections": {
+            "insufficient_distinct_parents": 12,
+            "low_score": 794
+          },
+          "ttlCoveredObservations": 0,
+          "attackActivities": 0,
+          "benignIndexedGroups": 6,
+          "independentEvaluation": false,
+          "onsetTimingEvaluated": false
+        }
+      },
+      "byScenario": {
+        "cic2017_slowloris": {
+          "attackOpportunities": 40,
+          "benignOpportunities": 0,
+          "coveredAttackOpportunities": 39,
+          "falseBenignOpportunities": 0,
+          "opportunityRecallDiagnostic": 0.975,
+          "ambiguousOpportunitiesCountedAsBenign": 0,
+          "candidateActions": 37,
+          "incorrectCandidateActions": 0,
+          "opportunityStates": {
+            "covered": 37,
+            "late_covered": 2,
+            "uncovered": 1
+          },
+          "firstRejections": {
+            "insufficient_distinct_parents": 4,
+            "expired_evidence": 3,
+            "ttl_dedup": 2786,
+            "insufficient_peer_flow_starts": 127,
+            "stale_last_packet": 7
+          },
+          "ttlCoveredObservations": 2905,
+          "attackActivities": 1,
+          "benignIndexedGroups": 0,
+          "independentEvaluation": false,
+          "onsetTimingEvaluated": false,
+          "role": "train",
+          "sourceId": "cic2017-wednesday",
+          "exposure": "model_and_preprocessing_fit_diagnostic_only"
+        },
+        "cic2017_slowhttptest": {
+          "attackOpportunities": 28,
+          "benignOpportunities": 1,
+          "coveredAttackOpportunities": 4,
+          "falseBenignOpportunities": 0,
+          "opportunityRecallDiagnostic": 0.14285714285714285,
+          "ambiguousOpportunitiesCountedAsBenign": 1,
+          "candidateActions": 2,
+          "incorrectCandidateActions": 0,
+          "opportunityStates": {
+            "uncovered": 25,
+            "covered": 2,
+            "late_covered": 2
+          },
+          "firstRejections": {
+            "insufficient_distinct_parents": 11,
+            "low_score": 400,
+            "stale_last_packet": 307,
+            "expired_evidence": 19,
+            "insufficient_peer_flow_starts": 480,
+            "ttl_dedup": 17
+          },
+          "ttlCoveredObservations": 84,
+          "attackActivities": 1,
+          "benignIndexedGroups": 0,
+          "independentEvaluation": false,
+          "onsetTimingEvaluated": false,
+          "role": "validation_selection",
+          "sourceId": "cic2017-wednesday",
+          "exposure": "model_and_raw_threshold_selection_exposed"
+        },
+        "cic2018_slowloris": {
+          "attackOpportunities": 84,
+          "benignOpportunities": 0,
+          "coveredAttackOpportunities": 81,
+          "falseBenignOpportunities": 0,
+          "opportunityRecallDiagnostic": 0.9642857142857143,
+          "ambiguousOpportunitiesCountedAsBenign": 0,
+          "candidateActions": 78,
+          "incorrectCandidateActions": 0,
+          "opportunityStates": {
+            "covered": 80,
+            "late_covered": 1,
+            "uncovered": 3
+          },
+          "firstRejections": {
+            "insufficient_distinct_parents": 4,
+            "low_score": 222,
+            "stale_last_packet": 73,
+            "expired_evidence": 2,
+            "ttl_dedup": 14260,
+            "insufficient_peer_flow_starts": 127
+          },
+          "ttlCoveredObservations": 14365,
+          "attackActivities": 1,
+          "benignIndexedGroups": 0,
+          "independentEvaluation": false,
+          "onsetTimingEvaluated": false,
+          "role": "validation_calibration",
+          "sourceId": "cic2018-thursday",
+          "exposure": "calibration_and_policy_selection_exposed"
+        }
+      },
+      "activityGroupsSummarized": 315
+    }
+  },
+  "sourceValidationReportSha256": "5a52dbb46edf00dc57452031233b44275541443509af6a7ae2008f3ad7b4eba8",
+  "validationReportSha256": "b4e2142189b138094d881af5e6aa01bfe0f8f754a95bf338c034991d96ad310c",
+  "evaluationCodeSha256": "99e71bc85bc861fa148425de28ff6d39d31dda17b0778ad291c3b0526c59e3eb",
+  "privateDetails": "training runs/host-guard-p3-continuation-20261004-finalize-v2/audit-history; excluded from Git",
+  "independentActivitiesNotInferredFromGroupCount": true
+}

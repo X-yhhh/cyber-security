@@ -1,14 +1,80 @@
 package hostguard
 
 import (
+	"context"
 	"encoding/binary"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
 	"testing"
+	"time"
 
+	"github.com/gopacket/gopacket"
+	"github.com/gopacket/gopacket/layers"
 	"github.com/xyh/cyber-security/sensor/internal/synth"
 )
+
+func TestLoopbackAFByteOrderAndLengths(t *testing.T) {
+	f := synth.Build(synth.Spec{TS: epoch, Src: peer, Dst: host, SPort: 40000, DPort: 80, Proto: 6, Flags: synth.SYN, Payload: 30}, 256)
+	for _, tc := range []struct {
+		link  layers.LinkType
+		order binary.ByteOrder
+		af    uint32
+		valid bool
+	}{
+		{layers.LinkTypeNull, binary.LittleEndian, 2, true}, {layers.LinkTypeNull, binary.BigEndian, 2, true},
+		{layers.LinkTypeLoop, binary.BigEndian, 2, true}, {layers.LinkTypeLoop, binary.LittleEndian, 2, false},
+		{layers.LinkTypeNull, binary.LittleEndian, 999, false}, {layers.LinkTypeNull, binary.LittleEndian, 30, false},
+	} {
+		b := make([]byte, 4)
+		tc.order.PutUint32(b, tc.af)
+		b = append(b, f.Data[14:]...)
+		ci := gopacket.CaptureInfo{Timestamp: epoch, Length: f.WireLen - 10, CaptureLength: len(b)}
+		got, info, err := normalizeLink(b, ci, tc.link)
+		if (err == nil) != tc.valid {
+			t.Fatalf("AF %d 链路 %d: %v", tc.af, tc.link, err)
+		}
+		if tc.valid && (!reflect.DeepEqual(got[14:], f.Data[14:]) || info.Length != f.WireLen || info.Timestamp != epoch || info.CaptureLength != len(got)) {
+			t.Fatal("回环适配改变原 IP 或线路长度")
+		}
+	}
+}
+
+func TestLiveTraceReplaysIdenticalClockAndWatermark(t *testing.T) {
+	var live, replay []Observation
+	frames := []synth.Frame{}
+	for i, ms := range []int{0, 500, 1000, 6000, 37000} {
+		frames = append(frames, synth.Build(synth.Spec{TS: epoch.Add(time.Duration(ms) * time.Millisecond), Src: peer, Dst: host, SPort: 40000, DPort: 53, Proto: 17, Payload: 10 + i}, 256))
+	}
+	e, _ := New(config(&live))
+	s := &liveFixture{frames: frames}
+	var events []LiveEvent
+	if err := RunLiveTrace(context.Background(), s, e, func() time.Time { return s.now }, func(v LiveEvent) error {
+		// 经 JSON 往返模拟私有文件，Packet 格式无载荷成员。
+		b, err := json.Marshal(v)
+		if err != nil {
+			return err
+		}
+		var decoded LiveEvent
+		if err = json.Unmarshal(b, &decoded); err != nil {
+			return err
+		}
+		events = append(events, decoded)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	r, _ := New(config(&replay))
+	for _, v := range events {
+		if err := r.ApplyLiveEvent(v); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if !reflect.DeepEqual(live, replay) || !reflect.DeepEqual(e.Stats, r.Stats) {
+		t.Fatal("同包轨迹时钟/水位/观察未一致")
+	}
+}
 
 func TestRawIPParityAndUnknownLinkRejected(t *testing.T) {
 	f := synth.Build(synth.Spec{TS: epoch, Src: peer, Dst: host, SPort: 40000, DPort: 80, Proto: 6, Flags: synth.SYN, Payload: 30}, 256)

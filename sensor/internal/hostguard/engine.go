@@ -127,6 +127,10 @@ func (e *Engine) nextID(kind string) string { e.idSeq++; return e.cfg.id(kind, e
 // Frame 为 PCAP 和 live 共用的输入，captureSeq 由读取方递增，不允许离线全局排序。
 func (e *Engine) Frame(data []byte, wire int, at time.Time, seq uint64) error {
 	p, status := Parse(data, wire, at, seq, e.cfg.MTU)
+	return e.frameParsed(p, status)
+}
+
+func (e *Engine) frameParsed(p Packet, status string) error {
 	e.Stats["parse_"+status]++
 	if status == "non_ip" {
 		return e.enqueue(event{p: p, invalid: true})

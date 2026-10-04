@@ -3,6 +3,7 @@ package hostguard
 import (
 	"bufio"
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
@@ -86,7 +87,7 @@ func WalkPCAP(path string, visit func([]byte, gopacket.CaptureInfo, uint64) erro
 }
 
 func supportedLink(link layers.LinkType) bool {
-	return link == layers.LinkTypeEthernet || link == layers.LinkTypeRaw || link == layers.LinkType(12)
+	return link == layers.LinkTypeEthernet || link == layers.LinkTypeRaw || link == layers.LinkType(12) || link == layers.LinkTypeNull || link == layers.LinkTypeLoop
 }
 
 // RAW 的12/101编号都表示原始IP，补充的以太网头只作解析适配，IP长度和内容不变。
@@ -97,6 +98,23 @@ func normalizeLink(data []byte, ci gopacket.CaptureInfo, link layers.LinkType) (
 	}
 	if !supportedLink(link) || len(data) == 0 {
 		return nil, ci, fmt.Errorf("RAW IP 帧无效")
+	}
+	if link == layers.LinkTypeNull || link == layers.LinkTypeLoop {
+		if len(data) < 5 || ci.Length < 5 || ci.CaptureLength < 5 {
+			return nil, ci, fmt.Errorf("回环 AF 头截断")
+		}
+		// DLT_NULL 使用捕获平台本机字节序；兼容已知 AF 的两种字节序。
+		// DLT_LOOP 固定网络字节序。只接受有定义的 IPv4/IPv6 AF 且核对 IP 版本。
+		af := binary.BigEndian.Uint32(data[:4])
+		if link == layers.LinkTypeNull && !loopAF(af, data[4]>>4) {
+			af = binary.LittleEndian.Uint32(data[:4])
+		}
+		if !loopAF(af, data[4]>>4) {
+			return nil, ci, fmt.Errorf("未知或不匹配的回环 AF")
+		}
+		data = data[4:]
+		ci.Length -= 4
+		ci.CaptureLength -= 4
 	}
 	b := make([]byte, 14+len(data))
 	copy(b[14:], data)
@@ -112,6 +130,10 @@ func normalizeLink(data []byte, ci gopacket.CaptureInfo, link layers.LinkType) (
 	ci.Length += 14
 	ci.CaptureLength += 14
 	return b, ci, nil
+}
+
+func loopAF(af uint32, version byte) bool {
+	return af == 2 && version == 4 || (af == 10 || af == 24 || af == 28 || af == 30) && version == 6
 }
 
 func ReadPCAP(path string, e *Engine) error {
@@ -134,44 +156,93 @@ var ErrCaptureTimeout = errors.New("capture timeout")
 
 // RunLive 接受已由调用方授权/打开的捕获句柄，不自行选择网卡或申请系统权限。
 func RunLive(ctx context.Context, s LiveSource, e *Engine, now func() time.Time) error {
+	return RunLiveTrace(ctx, s, e, now, nil)
+}
+
+// RunLiveTrace 将同一捕获句柄的头部事件、真实 drop/gap 与 Tick 顺序送到私有旁路。
+// 不记录载荷；旁路写入失败即停止本次采集，不能交付不可复算的成功报告。
+func RunLiveTrace(ctx context.Context, s LiveSource, e *Engine, now func() time.Time, trace func(LiveEvent) error) error {
 	if now == nil {
 		return fmt.Errorf("实时输入缺少采集时钟")
 	}
-	e.emissionClock = now
 	var seq, drops uint64
 	known := false
+	apply := func(v LiveEvent) error {
+		if trace != nil {
+			if err := trace(v); err != nil {
+				return err
+			}
+		}
+		return e.ApplyLiveEvent(v)
+	}
 	for ctx.Err() == nil {
 		b, ci, err := s.Next()
+		at := now()
 		if err == nil {
 			seq++
-			if err = e.Frame(b, ci.Length, ci.Timestamp, seq); err != nil {
+			p, status := Parse(b, ci.Length, ci.Timestamp, seq, e.cfg.MTU)
+			if err = apply(LiveEvent{Kind: "frame", At: at, Packet: &p, ParseStatus: status}); err != nil {
 				return err
 			}
 		} else if errors.Is(err, io.EOF) {
-			return e.Close()
+			return apply(LiveEvent{Kind: "close", At: at})
 		} else if !errors.Is(err, ErrCaptureTimeout) {
-			_ = e.Gap(now())
+			if gapErr := apply(LiveEvent{Kind: "gap", At: at}); gapErr != nil {
+				return gapErr
+			}
 			return err
 		}
-		at := now()
 		n, err := s.Drops()
 		if err != nil {
 			known = false
-			if err = e.Gap(at); err != nil {
+			if err = apply(LiveEvent{Kind: "gap", At: at, DropsKnown: false}); err != nil {
 				return err
 			}
 		} else {
 			if !known && n > 0 || known && n != drops {
-				if err = e.Gap(at); err != nil {
+				if err = apply(LiveEvent{Kind: "gap", At: at, DropsKnown: true, Drops: n}); err != nil {
 					return err
 				}
 			}
 			drops = n
 			known = true
 		}
-		if err = e.Tick(at); err != nil {
+		if err = apply(LiveEvent{Kind: "tick", At: at, DropsKnown: known, Drops: drops}); err != nil {
 			return err
 		}
 	}
-	return e.Close()
+	return apply(LiveEvent{Kind: "close", At: now()})
+}
+
+// LiveEvent 是私有、仅含头部的同包复算格式；包含端点，禁止提交或上传。
+type LiveEvent struct {
+	Kind        string    `json:"kind"`
+	At          time.Time `json:"at"`
+	Packet      *Packet   `json:"packet,omitempty"`
+	ParseStatus string    `json:"parseStatus,omitempty"`
+	DropsKnown  bool      `json:"dropsKnown"`
+	Drops       uint64    `json:"drops"`
+}
+
+// ApplyLiveEvent 只复算冻结捕获轨迹，不开抓包句柄；close 沿用原捕获的截止点。
+func (e *Engine) ApplyLiveEvent(v LiveEvent) error {
+	if v.At.IsZero() {
+		return fmt.Errorf("轨迹缺少采集时刻")
+	}
+	e.emissionClock = func() time.Time { return v.At }
+	switch v.Kind {
+	case "frame":
+		if v.Packet == nil || v.ParseStatus == "" {
+			return fmt.Errorf("轨迹缺少头部")
+		}
+		return e.frameParsed(*v.Packet, v.ParseStatus)
+	case "gap":
+		return e.Gap(v.At)
+	case "tick":
+		return e.Tick(v.At)
+	case "close":
+		return e.Close()
+	default:
+		return fmt.Errorf("未知轨迹事件")
+	}
 }

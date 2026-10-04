@@ -60,9 +60,8 @@ def validate_scope(scope, now=None):
     if scope.get('captureInterface') != INTERFACE:
         raise ValueError('只允许登记的 Npcap 回环接口')
     expiry = datetime.fromisoformat(scope['authorizedUntil']).timestamp()
-    total  = scope.get('maximumTotalSeconds', 1800)
-    if not (now < expiry <= now + total + 60):
-        raise ValueError('须提供本轮有效新授权')
+    if not expiry > now:
+        raise ValueError('须提供本轮有效新授权（截止时间已过）')
     if not scope.get('authorizationId'):
         raise ValueError('缺少授权引用 authorizationId')
     return expiry

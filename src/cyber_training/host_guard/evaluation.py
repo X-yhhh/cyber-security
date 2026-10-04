@@ -3,11 +3,14 @@ from __future__ import annotations
 
 from collections import defaultdict, deque
 import math
+import hashlib
+import json
 
 import numpy as np
 from sklearn.metrics import average_precision_score, log_loss, roc_auc_score, roc_curve, precision_recall_curve
 
 from .data import time_ms
+from .target_budget import TargetBudget
 
 
 def target_key(o):
@@ -72,43 +75,118 @@ class Replay:
             opportunities[(key, int(t // 30000))].append(i)
         self.opportunities = opportunities
 
-    def run(self, scores, threshold, min_flows=1, span_ms=0, min_starts=0, ttl=30):
-        if min_flows < 1 or span_ms < 0 or span_ms > 10000 or ttl not in (15, 30):
+    def run(self, scores, threshold, min_flows=1, span_ms=0, min_starts=0, ttl=30, *, diagnostics=None, raw_scores=None, policy_version="target-budget-v2", target_ids=None, capture_health_since=None):
+        if min_flows < 1 or min_starts < 0 or span_ms < 0 or span_ms > 10000 or ttl not in (15, 30) or not 0 <= threshold <= 1:
             raise ValueError("策略参数越界")
         scores = np.asarray(scores).reshape(-1)
-        if len(scores) != len(self.times) or not np.isfinite(scores).all():
+        if len(scores) != len(self.times) or not np.isfinite(scores).all() or np.any((scores < 0) | (scores > 1)):
             raise ValueError("无效分数")
+        if raw_scores is not None:
+            raw_scores = np.asarray(raw_scores).reshape(-1)
+            if len(raw_scores) != len(scores) or not np.isfinite(raw_scores).all():
+                raise ValueError("原始诊断分数无效")
+        if policy_version not in ('target-budget-v2','legacy-final-diagnostic-v1'):
+            raise ValueError('未知策略预算版本')
+        safe = policy_version == 'target-budget-v2'
+        if safe:
+            target_ids = target_ids or [r.get('budgetTargetId') for r in self.batch.rows]
+            if len(target_ids) != len(self.times) or any(not isinstance(k,str) or not k for k in target_ids):
+                raise ValueError('新版策略要求冻结的稳定真实目标映射')
+        if capture_health_since is not None and len(capture_health_since) != len(self.times):
+            raise ValueError('捕获健康旁路与观察数量不符')
+        budget = TargetBudget()
         evidence, last_expiry, chain_start = defaultdict(dict), {}, {}
         active, recent = defaultdict(dict), defaultdict(deque)
-        actions, reasons = [], defaultdict(int)
-        for i in self.order:
+        actions, reasons, action_ids = [], defaultdict(int), []
+        traces = []
+        # 保留旧决策顺序；诊断状态不参与动作生成，也不改变冻结的机会分母。
+        for index in self.order:
+            i = int(index)
             o = self.batch.observations[i]; t = self.times[i]; key = self.keys[i]
-            asset = key[:3]
-            # 无论新分数是否过阈值都替换旧记录，禁止保留历史最高分。
-            evidence[key][o["parentConnectionId"]] = int(i)
+            budget_key = target_ids[i] if safe else key
+            asset = key[0]  # 预算归属资产；传感器/boot仍隔离证据，但不能重置同资产动作额度。
+            previous = evidence[key].get(o["parentConnectionId"])
+            evidence[key][o["parentConnectionId"]] = i
+            expired = [j for j in evidence[key].values() if self.times[j] < t - 10000]
             evidence[key] = {p: j for p, j in evidence[key].items() if self.times[j] >= t - 10000}
-            qualified = [j for j in evidence[key].values() if scores[j] >= threshold and t - self.last[j] <= 15000
-                         and self.batch.observations[j]["contexts"][1]["coverageMs"] >= 5000]
+            high = [j for j in evidence[key].values() if scores[j] >= threshold]
+            fresh = [j for j in high if t - self.last[j] <= 15000]
+            qualified = [j for j in fresh if self.batch.observations[j]["contexts"][1]["coverageMs"] >= 5000]
+            if safe:
+                account = budget.observe(budget_key, t, bool(qualified), capture_health_since[i] if capture_health_since is not None else None)
+            span = float(max(self.times[j] for j in qualified) - min(self.times[j] for j in qualified)) if qualified else 0.0
+            gates = {name: "not_checked" for name in (
+                "distinct_parents", "evidence_span", "peer_flow_starts", "ttl_dedup",
+                "simultaneous_rules", "actions_per_minute", "continuous_ttl")}
+            trace = {"index": i, "observationId": o.get("observationId", str(i)),
+                     "parentConnectionId": o["parentConnectionId"], "activityId": self.batch.rows[i].get("activityId"),
+                     "captureScopeId": o["captureScopeId"], "role": self.batch.rows[i].get("split", self.batch.role),
+                     "targetDigest": hashlib.sha256(json.dumps(key).encode()).hexdigest(),
+                     "eventTimeMs": float(t), "rawScore": float(raw_scores[i]) if raw_scores is not None else None,
+                     "score": float(scores[i]), "threshold": float(threshold),
+                     "replacedObservationIndex": previous, "expiredEvidenceIndices": expired,
+                     "evidenceAgeMs": 0.0, "ageBasis": "event-time replay; ingestion lag not measured", "lastPacketAgeMs": float(t - self.last[i]),
+                     "coverageMs": o["contexts"][1]["coverageMs"],
+                     "currentEvidenceChecks": {"score": bool(scores[i] >= threshold), "evidence_age": True,
+                        "last_packet_age": bool(t - self.last[i] <= 15000),
+                        "context_coverage": o["contexts"][1]["coverageMs"] >= 5000},
+                     "evidenceCounts": {"latestFreshAgeParents": len(evidence[key]), "highScoreParents": len(high),
+                        "freshPacketParents": len(fresh), "qualifiedParents": len(qualified),
+                        "expiredAgeParents": len(expired), "lowScoreParents": len(evidence[key]) - len(high),
+                        "stalePacketParents": len(high) - len(fresh), "coldContextParents": len(fresh) - len(qualified)},
+                     "evidenceSpanMs": span, "peerFlowStarts": o["contexts"][1]["peerFlowStarts"],
+                     "existingTtlExpiresMs": float(last_expiry[budget_key]) if budget_key in last_expiry else None,
+                     "coveredByExistingTtl": bool(last_expiry.get(budget_key, -math.inf) > t),
+                     "activeRules": None, "actionsLastMinute": None, "continuousBlockMs": None,
+                     "gates": gates, "firstRejection": None, "candidateActionId": None} if diagnostics is not None else {}
+            def reject(reason, legacy=None):
+                trace["firstRejection"] = reason
+                reasons[legacy or reason] += 1
+                if diagnostics is not None:
+                    traces.append(trace)
+            gates["distinct_parents"] = "passed" if len(qualified) >= min_flows else "failed"
             if len(qualified) < min_flows:
-                reasons["insufficient_distinct_fresh_evidence"] += 1; continue
-            if max(self.times[j] for j in qualified) - min(self.times[j] for j in qualified) < span_ms:
-                reasons["insufficient_span"] += 1; continue
-            if o["contexts"][1]["peerFlowStarts"] < min_starts:
-                reasons["insufficient_context"] += 1; continue
-            if last_expiry.get(key, -math.inf) > t:
-                reasons["ttl_dedup"] += 1; continue
+                # 报告使合格数量首次不足的原因；更晚的有状态门槛保持未检查。
+                reason = ("insufficient_distinct_parents" if len(evidence[key]) < min_flows else
+                          "low_score" if len(high) < min_flows else
+                          "stale_last_packet" if len(fresh) < min_flows else "insufficient_context_coverage")
+                if len(evidence[key]) < min_flows <= len(evidence[key]) + len(expired):
+                    reason = "expired_evidence"
+                reject(reason, "insufficient_distinct_fresh_evidence"); continue
+            gates["evidence_span"] = "passed" if span >= span_ms else "failed"
+            if span < span_ms:
+                reject("insufficient_span"); continue
+            gates["peer_flow_starts"] = "passed" if o["contexts"][1]["peerFlowStarts"] >= min_starts else "failed"
+            if gates["peer_flow_starts"] == "failed":
+                reject("insufficient_peer_flow_starts", "insufficient_context"); continue
+            gates["ttl_dedup"] = "failed" if last_expiry.get(budget_key, -math.inf) > t else "passed"
+            if gates["ttl_dedup"] == "failed":
+                reject("ttl_dedup"); continue
             active[asset] = {k: expires for k, expires in active[asset].items() if expires > t}
             while recent[asset] and recent[asset][0] <= t - 60000:
                 recent[asset].popleft()
-            if len(active[asset]) >= 10 or len(recent[asset]) >= 5:
-                reasons["action_budget"] += 1; continue
-            if key not in chain_start or t > last_expiry.get(key, -math.inf) + 1:
+            trace["activeRules"], trace["actionsLastMinute"] = len(active[asset]), len(recent[asset])
+            gates["simultaneous_rules"] = "passed" if len(active[asset]) < 10 else "failed"
+            if len(active[asset]) >= 10:
+                reject("simultaneous_rule_budget", "action_budget"); continue
+            gates["actions_per_minute"] = "passed" if len(recent[asset]) < 5 else "failed"
+            if len(recent[asset]) >= 5:
+                reject("per_minute_action_budget", "action_budget"); continue
+            if key not in chain_start or t > last_expiry.get(budget_key, -math.inf) + 1:
                 chain_start[key] = t
-            if t + ttl * 1000 - chain_start[key] > 120000:
-                reasons["continuous_ttl_budget"] += 1; continue
+            trace["continuousBlockMs"] = (budget.proposed_ms(budget_key,t,t+ttl*1000) if safe
+                                          else float(t + ttl * 1000 - chain_start[key]))
+            gates["continuous_ttl"] = "passed" if trace["continuousBlockMs"] <= 120000 else "failed"
+            if gates["continuous_ttl"] == "failed":
+                reject("continuous_ttl_budget"); continue
             expires = t + ttl * 1000
-            active[asset][key] = expires; recent[asset].append(t); last_expiry[key] = expires
+            if safe: budget.commit(budget_key,t,expires)
+            active[asset][budget_key] = expires; recent[asset].append(t); last_expiry[budget_key] = expires
             actions.append((key, t, expires, tuple(qualified)))
+            action_ids.append(i)
+            trace["candidateActionId"] = f"action-{len(actions)-1}"
+            if diagnostics is not None:
+                traces.append(trace)
         by_target = defaultdict(list)
         for a in actions:
             by_target[a[0]].append(a)
@@ -142,7 +220,30 @@ class Replay:
         fpr = counts["falseBenignOpportunities"] / negatives if negatives else None
         groups = {label: len({r["activityId"] for r in self.batch.rows if r["label"] == label}) for label in (0, 1)}
         duration_hours = max(1e-12, (self.times.max() - self.times.min()) / 3600000)
-        return {"unit": "observed_final_target_30s_opportunity", **dict(counts), "candidateActions": len(actions),
+        if diagnostics is not None:
+            diagnostics.update(observations=traces, actions=[], opportunities=[])
+            for ordinal, ((key, start, end, qualified), trigger) in enumerate(zip(actions, action_ids, strict=True)):
+                collateral = [j for j in rows_by_target[key] if self.batch.rows[j]["label"] == 0 and start <= self.times[j] < end]
+                diagnostics["actions"].append({"id": f"action-{ordinal}", "triggerIndex": trigger,
+                    "startMs": float(start), "endMs": float(end), "evidenceIndices": list(qualified),
+                    "evidenceAgesMs": [float(start-self.times[j]) for j in qualified],
+                    "collateralIndices": collateral,
+                    "correct": {self.batch.rows[j]["label"] for j in qualified} == {1} and not collateral})
+            for ordinal, ((key, bucket), ids) in enumerate(self.opportunities.items()):
+                related = [(n, a) for n, a in enumerate(actions) if a[0] == key and
+                           any(a[1] <= self.times[j] < a[2] for j in ids)]
+                affected = [j for j in ids if any(a[1] <= self.times[j] < a[2] for _, a in related)]
+                labels = {self.batch.rows[j]["label"] for j in ids}
+                first = min(self.times[j] for j in ids)
+                status = ("evidence_not_evaluable" if not labels <= {0, 1} else
+                          "uncovered" if not affected else
+                          "covered" if min(self.times[j] for j in affected) == first else "late_covered")
+                diagnostics["opportunities"].append({"id": f"opportunity-{ordinal}", "bucket": bucket,
+                    "observationIndices": ids, "candidateActionIds": [f"action-{n}" for n, _ in related],
+                    "positive": labels == {1}, "mixedCountedAsBenign": len(labels) != 1,
+                    "status": status, "affectedObservationIndices": affected,
+                    "timingMeaning": "relative to first observed final in bucket; not qualified attack onset"})
+        return {"policyVersion": policy_version, "unit": "observed_final_target_30s_opportunity", **dict(counts), "candidateActions": len(actions),
                 "correctAttackCandidateActions": good_actions, "incorrectCandidateActions": len(actions) - good_actions,
                 "blockPrecisionCandidate": good_actions / len(actions) if actions else None,
                 "opportunityRecallDiagnostic": recall, "falseBenignOpportunityRate": fpr,
@@ -152,7 +253,7 @@ class Replay:
                 "calendarDurationCaveat": "source days/gaps preserved; not continuous monitored host hours",
                 "attackActivities": groups[1], "benignGroups": groups[0],
                 "clusterConfidenceInterval": None,
-                "confidenceReason": "only one independent attack activity in this role; no reliable activity bootstrap",
+                "confidenceReason": "no independent development activity evaluation; indexed groups do not establish independent replications",
                 "blockRecallTimely": None, "onsetToActionP95Ms": None, "evidenceToOsActionP95Ms": None,
                 "timingReason": "final-only dataset lacks qualified per-episode attack onset and real executor",
                 "precisionAtOpportunityRatios": {str(ratio): (ratio * recall / (ratio * recall + (1 - ratio) * fpr)

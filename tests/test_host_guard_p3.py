@@ -24,7 +24,7 @@ def batch(events, role="train"):
              "asOf": timestamp(t), "lastPacketAt": timestamp(t),
              "contexts": [{"windowSeconds": w, "coverageMs": w * 1000, "peerFlowStarts": 5} for w in [1, 5, 30]]}
         o.update(updates); obs.append(o)
-        rows.append({"label": label, "parentConnectionId": parent, "activityId": str(label), "sampleWeight": 1.0})
+        rows.append({"label": label, "parentConnectionId": parent, "activityId": str(label), "sampleWeight": 1.0, "budgetTargetId": str((o["assetId"],o["peerKey"],o["servicePort"]))})
     return Batch(rows, obs, np.ones((len(rows), 43), dtype=np.float32), np.zeros((len(rows), 43), dtype=np.float32),
                  np.asarray([["tcp", "inbound", "web"]] * len(rows)), role)
 
@@ -171,3 +171,127 @@ def test_artifact_verifier_rejects_path_escape(tmp_path):
     write(tmp_path / "checksums.json", {"../outside.json": "0" * 64})
     with pytest.raises(ValueError, match="路径逃逸"):
         verify(tmp_path)
+
+
+def test_diagnostic_evidence_causes_and_unchecked_state():
+    cases = [([0], {}, {}, 'low_score'),
+             ([1], {'lastPacketAt': timestamp(-10)}, {}, 'stale_last_packet'),
+             ([1], {'contexts': [{'windowSeconds': w, 'coverageMs': 0, 'peerFlowStarts': 0} for w in (1,5,30)]}, {}, 'insufficient_context_coverage'),
+             ([1], {}, {'min_flows': 2}, 'insufficient_distinct_parents'),
+             ([1], {}, {'min_starts': 6}, 'insufficient_peer_flow_starts')]
+    for scores, changes, parameters, cause in cases:
+        diagnostics = {}
+        Replay(batch([(10, 'a', 1, changes)])).run(scores, .9, diagnostics=diagnostics, **parameters)
+        trace = diagnostics['observations'][0]
+        assert trace['firstRejection'] == cause
+        assert trace['gates']['actions_per_minute'] == 'not_checked'
+
+
+def test_diagnostics_age_eviction_and_latest_replacement():
+    diagnostics = {}
+    Replay(batch([(1, 'old', 1, {}), (12, 'new', 1, {}), (13, 'new', 1, {})])).run(
+        [1, 1, .1], .9, min_flows=2, diagnostics=diagnostics)
+    assert diagnostics['observations'][1]['firstRejection'] == 'expired_evidence'
+    assert diagnostics['observations'][1]['expiredEvidenceIndices'] == [0]
+    assert diagnostics['observations'][2]['replacedObservationIndex'] == 1
+
+
+def test_ttl_covered_is_distinct_from_uncovered_opportunity():
+    diagnostics = {}
+    b = batch([(10, 'a', 1, {}), (11, 'b', 1, {}), (80, 'c', 1, {})])
+    result = Replay(b).run([1, 1, 0], .9, diagnostics=diagnostics)
+    assert result['coveredAttackOpportunities'] == 1
+    assert [o['status'] for o in diagnostics['opportunities']] == ['covered', 'uncovered']
+    assert diagnostics['observations'][1]['firstRejection'] == 'ttl_dedup'
+    assert diagnostics['observations'][1]['coveredByExistingTtl']
+    assert diagnostics['opportunities'][0]['candidateActionIds'] == ['action-0']
+
+
+def test_late_final_coverage_is_not_onset_timing():
+    diagnostics = {}
+    Replay(batch([(10, 'a', 1, {}), (11, 'b', 1, {})])).run([0, 1], .9, diagnostics=diagnostics)
+    assert diagnostics['opportunities'][0]['status'] == 'late_covered'
+    assert 'not qualified attack onset' in diagnostics['opportunities'][0]['timingMeaning']
+
+
+def test_projection_does_not_reset_competing_source_budget():
+    from cyber_training.host_guard.regression import summarize
+    b = batch([(10+i, str(i), 1, {'peerKey': str(i)}) for i in range(8)])
+    d = {}; Replay(b).run(np.ones(8), .9, diagnostics=d)
+    a = summarize(b, d, range(5)); other = summarize(b, d, range(5,8))
+    assert a['candidateActions'] == 5 and other['candidateActions'] == 0
+    assert other['firstRejections'] == {'per_minute_action_budget': 3}
+    assert other['coveredAttackOpportunities'] == 0
+
+
+def test_collateral_and_mixed_denominator_in_diagnostics():
+    d = {}; b = batch([(10, 'attack', 1, {}), (11, 'normal', 0, {})])
+    Replay(b).run([1, 0], .9, diagnostics=d)
+    assert d['opportunities'][0]['mixedCountedAsBenign']
+    assert not d['opportunities'][0]['positive']
+    assert not d['actions'][0]['correct'] and d['actions'][0]['collateralIndices'] == [1]
+
+
+def test_shared_stage_decision_cannot_hide_selection_failure():
+    from cyber_training.host_guard.regression import stage_decision
+    metric = lambda recall: dict(opportunityRecallDiagnostic=recall, falseBenignOpportunities=0, incorrectCandidateActions=0)
+    policy = {'byRole': {'train': metric(1), 'validation_selection': metric(4/28), 'validation_calibration': metric(81/84)},
+              'byScenario': {'cic2017_slowloris': dict(metric(1), role='train'),
+                             'cic2017_slowhttptest': dict(metric(4/28), role='validation_selection'),
+                             'cic2018_slowloris': dict(metric(81/84), role='validation_calibration')}}
+    report = {'developmentRegression': {'workingPoints': {'raw_model': {'byRole': {'validation_selection': metric(19/28)}},
+                                                         'frozen_policy': policy}}, 'e5': {'positiveCoverageGain': .94}}
+    result = stage_decision(report)
+    assert {'SELECTION_COVERAGE_BELOW_TARGET', 'FROZEN_POLICY_SCENARIO_COVERAGE_BELOW_TARGET'} <= set(result['blockingReasons'])
+    assert result['feasibilityStatus'] == 'failed' and not result['p6Authorized']
+    assert result['implementationGaps'] == []
+
+
+def test_regression_source_verification_rejects_tampered_fixture(tmp_path):
+    from cyber_training.host_guard.regression import verify_source
+    write(tmp_path/'checksums.json', {'candidate/parity-fixture.npz': '0'*64})
+    with pytest.raises(ValueError, match='哈希或路径'):
+        verify_source(tmp_path)
+
+
+def test_asset_budget_is_shared_across_sensor_and_boot():
+    b = batch([(10+i, str(i), 1, {'peerKey': str(i), 'sensorId': 'sensor-'+str(i), 'bootId': 'boot-'+str(i)}) for i in range(8)])
+    d = {}; result = Replay(b).run(np.ones(8), .9, diagnostics=d)
+    assert result['candidateActions'] == 5
+    assert d['observations'][-1]['firstRejection'] == 'per_minute_action_budget'
+
+
+def test_target_budget_gap_and_epoch_cannot_extend_120_seconds():
+    events=[]
+    for n in range(6):
+        for j in range(3):
+            events.append((10+n*30.002+j*.0001,f'p{n}-{j}',1,{'bootId':f'boot-{n}','keyEpoch':str(n)}))
+    b=batch(events);d={};r=Replay(b).run(np.ones(len(events)),.9,min_flows=3,diagnostics=d)
+    assert r['candidateActions']==4
+    assert sum(a['endMs']-a['startMs'] for a in d['actions'])==120000
+    assert any(x['firstRejection']=='continuous_ttl_budget' for x in d['observations'])
+
+
+def test_new_policy_fails_closed_without_target_mapping():
+    b=batch([(10,'a',1,{})]);b.rows[0].pop('budgetTargetId')
+    with pytest.raises(ValueError,match='稳定真实目标'):
+        Replay(b).run([1],.9)
+
+
+def test_label_timeline_keeps_unobserved_attack_and_collateral_lifetime():
+    from cyber_training.host_guard.target_budget import evaluate_timeline
+    r=evaluate_timeline([dict(episodeId='attack',targetId='target',startMs=0,endMs=90000,label=1)],
+        [dict(actionId='a',targetId='target',startMs=10000,endMs=40000)],
+        [dict(parentConnectionId='benign',targetId='target',startMs=0,endMs=100000)],['target'])
+    assert len(r['opportunities'])==3
+    assert r['opportunities'][-1]['blockedMs']==0
+    assert r['collateral']==[dict(parentConnectionId='benign',actionId='a')]
+
+
+def test_budget_requires_proven_healthy_cooldown():
+    from cyber_training.host_guard.target_budget import TargetBudget
+    b=TargetBudget();b.observe('target',0,True);b.commit('target',0,120000)
+    b.observe('target',300000,False)
+    assert b.proposed_ms('target',300000,330000)==150000
+    b.observe('target',300000,False,healthy_since=120000)
+    assert b.proposed_ms('target',300000,330000)==30000

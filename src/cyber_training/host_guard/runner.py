@@ -19,6 +19,7 @@ from .data import Dataset, Preprocessor, contract_validator, read, sha, write
 from .evaluation import Replay, choose_threshold, classification, error_groups, objective, rules, select_policy
 from .export import export, latency, parity, score_session, session
 from .models import calibrate, calibrated, fit, predict
+from .regression import regression, stage_decision
 
 
 def progress(stage, **fields):
@@ -214,7 +215,10 @@ def run(dataset, train, selection, plan, plan_path, out, code_sha):
     feeds = {name: np.concatenate([pre.feed(b)[name] for b in fixtures]) for name in pre.feed(selection)}
     expected = np.concatenate([calibrated(predict(algorithm, model, pre.transform(b)), calibration) for b in fixtures])
     np.savez_compressed(folder / "parity-fixture.npz", **feeds, expected=expected)
-    report = {"phase": "P3", "scope": plan["scope"], "candidateOnly": True, "productionApproved": False,
+    raw_development = [predict(algorithm, model, pre.transform(b)) for b in fixtures]
+    development = regression(fixtures, raw_development, [calibrated(v, calibration) for v in raw_development],
+                             winner["summary"]["workingPoint"]["threshold"], policy_choice["parameters"], out / "private")
+    report = {"developmentRegression": development, "phase": "P3", "scope": plan["scope"], "candidateOnly": True, "productionApproved": False,
               "evaluationPlanSha256": sha(plan_path), "trainingCodeSha256": code_sha, "datasetVerification": dataset.verification,
               "selectionFrozen": lock, "modelMatrix": [i["summary"] for i in items],
               "threeSeeds": {"seeds": [s["summary"]["seed"] for s in seeds], "reports": [s["summary"] for s in seeds],
@@ -222,9 +226,7 @@ def run(dataset, train, selection, plan, plan_path, out, code_sha):
               "calibration": calibration, "calibrationBefore": classification(calibration_batch, raw),
               "calibrationAfter": classification(calibration_batch, scores, alert_choice["threshold"], curves=True),
               "calibrationErrors": error_groups(calibration_batch, scores, alert_choice["threshold"]),
-              "policyBySource": {source: Replay(calibration_batch.take(ids)).run(scores[ids], **policy_choice["parameters"])
-                    for source in sorted({r["sourceId"] for r in calibration_batch.rows})
-                    for ids in [[i for i, r in enumerate(calibration_batch.rows) if r["sourceId"] == source]]},
+              "policyBySource": development["workingPoints"]["frozen_policy"]["bySource"],
               "alertSelection": alert_choice, "policySelection": policy_choice, "e5": e5,
               "export": final_check, "latency": latency(folder / "model.onnx", pre, selection),
               "totalSeconds": time.perf_counter() - start, "finalTestRead": False,
@@ -236,25 +238,11 @@ def run(dataset, train, selection, plan, plan_path, out, code_sha):
     write(out / "policy-search.json", {"trials": policy_trials, "rules": rule_trials})
     manifest(dataset, winner, report, calibration, plan_path, out, code_sha)
     export_complete = final_check["status"] == "passed" and all(s["summary"]["onnx"]["status"] == "passed" for s in seeds)
-    metrics = policy_choice["metrics"]
-    reasons = ["MISSING_QUALIFIED_ONSET_AND_PREFIX", "INSUFFICIENT_INDEPENDENT_ATTACK_ACTIVITIES", "FINAL_TEST_UNALLOCATED"]
-    if e5["positiveCoverageGain"] <= 0:
-        reasons.append("NO_POSITIVE_MODEL_POLICY_COVERAGE_GAIN")
-    if (metrics["opportunityRecallDiagnostic"] or 0) < 0.8:
-        reasons.append("DIAGNOSTIC_COVERAGE_BELOW_TARGET")
-    if metrics["benignOpportunities"] < 3000:
-        reasons.append("INSUFFICIENT_BENIGN_OPPORTUNITIES")
-    if (metrics["precisionAtOpportunityRatios"]["0.01"] or 0) < 0.99:
-        reasons.append("PRIMARY_RATIO_PRECISION_BELOW_TARGET_OR_UNDEFINED")
-    if not export_complete:
-        reasons.append("WINNER_SEED_EXPORT_FAILURE")
-    exit_report = {"phase": "P3", "implementationStatus": "completed" if export_complete else "failed",
-                   "status": "blocked", "modelFeasibilityGatePassed": False, "p6Authorized": False,
-                   "blockingReasons": reasons, "rootCauses": ["sample_size_and_independence", "missing_observable_early_evidence"],
-                   "candidateOnly": True, "automaticExecutionAuthorized": False, "finalTestRead": False,
-                   "experimentCount": report["fullModelFits"], "correctiveFits": 2,
-                   "candidateModelSha256": sha(folder / "model.onnx"), "validationReportSha256": sha(out / "validation-report.json"),
-                   "next": "Return to P2 for independent prefix/early task evidence; preserve these candidates as diagnostic only. P4/P5 may proceed independently."}
+    exit_report = stage_decision(report, export_passed=export_complete)
+    exit_report.update(experimentCount=report["fullModelFits"], correctiveFits=2,
+                       candidateModelSha256=sha(folder / "model.onnx"),
+                       validationReportSha256=sha(out / "validation-report.json"),
+                       next="Resolve prefix and independent-activity gates before new bounded experiments; P6 remains closed.")
     write(out / "stage-exit.json", exit_report)
     all_files = {p.relative_to(out).as_posix(): sha(p) for p in sorted(out.rglob("*")) if p.is_file()}
     write(out / "checksums.json", all_files)

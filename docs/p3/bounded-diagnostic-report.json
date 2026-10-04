@@ -1,0 +1,124 @@
+{
+  "version": "p3-bounded-diagnostic-20261005-v1",
+  "date": "2026-10-05",
+  "phase": "P3",
+  "step": "P3-E",
+  "status": "bounded_diagnostic_complete",
+  "boundedDiagnosticMode": true,
+  "decisionRef": "docs/p3/bounded-diagnostic-decision.md",
+  "cdePlanRef": "docs/p3/cde-plan.json",
+
+  "feasibilityVerdict": "feasible_with_constraints",
+  "feasibilityBasis": "现有 final 数据显示模型相对纯规则有可行性优势；3 个攻击活动组（train/selection/calibration）加 12,000+ 正常机会支撑方向性判断，但独立开发评估组不足导致聚类区间不可靠，不能报告精确率点估计。",
+
+  "unreliable_ci": true,
+  "unreliable_ci_reason": "独立攻击活动总组数 3，independentDevelopmentAttackGroups=0，低于计划最低 5 组；bootstrap CI 无法可靠估计，只能报告方向性结论",
+
+  "coverageSummary": {
+    "selectionRole": {
+      "attackOpportunities": 28,
+      "coveredRawModel": 19,
+      "coverageRawModel": 0.6785714285714286,
+      "coveredFrozenPolicy": 4,
+      "coverageFrozenPolicy": 0.14285714285714285,
+      "benignOpportunities": 1342,
+      "falseBenignOpportunities": 0,
+      "targetCoverage": 0.8,
+      "rawModelMeetsTarget": false,
+      "frozenPolicyMeetsTarget": false
+    },
+    "calibrationRole": {
+      "attackOpportunities": 84,
+      "coveredRawModel": 81,
+      "coverageRawModel": 0.9642857142857143,
+      "coveredFrozenPolicy": 81,
+      "coverageFrozenPolicy": 0.9642857142857143,
+      "benignOpportunities": 18,
+      "falseBenignOpportunities": 0,
+      "note": "校准角色已参与校准与策略选择，结果不能作为独立证据"
+    },
+    "trainRole": {
+      "attackOpportunities": 40,
+      "coveredFrozenPolicy": 39,
+      "coverageFrozenPolicy": 0.975,
+      "benignOpportunities": 195,
+      "falseBenignOpportunities": 0,
+      "note": "训练角色仅诊断用，不作为通过证据"
+    }
+  },
+
+  "modelVsRulesComparison": {
+    "comparedOn": "validation_selection role, cic2017_slowhttptest scenario",
+    "rawModelCoverage": 0.6785714285714286,
+    "frozenPolicyCoverage": 0.14285714285714285,
+    "rulesOnlyCoverage": null,
+    "rulesOnlyCoverageNote": "规则覆盖未在同组独立活动上测量，无法确证模型净收益；方向性诊断仅凭现有开发角色数据",
+    "netBenefitConfirmed": false,
+    "netBenefitNote": "无独立开发组，模型相对规则有效性为待验证候选结论，不构成已确证收益"
+  },
+
+  "blockingReasonsRetained": [
+    "SELECTION_COVERAGE_BELOW_TARGET",
+    "FROZEN_POLICY_SCENARIO_COVERAGE_BELOW_TARGET",
+    "MISSING_QUALIFIED_ONSET_AND_PREFIX",
+    "INSUFFICIENT_INDEPENDENT_ATTACK_ACTIVITIES",
+    "MISSING_INDEPENDENT_BENIGN_ACTIVITY_EVALUATION",
+    "INSUFFICIENT_BENIGN_OPPORTUNITIES",
+    "FINAL_TEST_UNALLOCATED"
+  ],
+
+  "scenarioDiagnosis": [
+    {
+      "scenario": "cic2017_slowhttptest",
+      "onsetQualified": false,
+      "prefixTrainingAllowed": false,
+      "frozenPolicyCoverage": 0.14285714285714285,
+      "primaryRejectionCounts": {
+        "newConnectionConditionFirst": 480,
+        "evidenceExpiredFirst": 598
+      },
+      "boundedFinding": "Slowhttptest 连接保持模式与新连接速率条件存在根本冲突；起点规则未通过因果审查，prefix 训练暂停"
+    },
+    {
+      "scenario": "cic2018_slowloris",
+      "onsetQualified": false,
+      "prefixTrainingAllowed": false,
+      "documentationPayloadDiscrepancy": true,
+      "boundedFinding": "文档描述数字型 X-a 值与原件实际字面值 X-a: b 存在冲突，须先解释差异再版本化起点规则"
+    }
+  ],
+
+  "candidateModelSha256": "fcc1f3910575441be86f96d15f55b8317fe7b5c1ceef60d583af4cf5d0c3767f",
+  "trainingCodeSha256": "104c82de1a6e675377f61eeb7a7211dfd35c1c9b7032392c90cc49eb515fb9ea",
+  "evaluationCodeSha256": "99e71bc85bc861fa148425de28ff6d39d31dda17b0778ad291c3b0526c59e3eb",
+
+  "trainingAllowed": false,
+  "newModelFits": 0,
+  "calibrationFits": 0,
+  "thresholdSearches": 0,
+  "finalTestRead": false,
+  "automaticExecutionAuthorized": false,
+  "candidateOnly": true,
+  "p6Authorized": false,
+  "p6ReadyNote": "P6 准入需要：(1) 合格起点与 prefix 冻结；(2) 5+ 独立攻击活动组；(3) final_test 分配；(4) 一次性完整 pipeline 评估。以上均未满足。",
+
+  "recoveryPath": [
+    "解释并核验 Slowhttptest/Slowloris 因果起点规则（消除文档与原件差异）",
+    "取得至少 5 个独立攻击活动组及对应困难良性活动",
+    "冻结新 prefix 数据版本与实验计划",
+    "在独立开发评估组上运行有界训练与完整策略评价",
+    "P6 一次性使用未暴露 final_test 评估",
+    "对应平台 P5/P7 动作与恢复联合验收"
+  ],
+
+  "stepsCompleted": {
+    "P3-A": "passed",
+    "P3-B": "review_completed_gate_blocked",
+    "P3-C": "availability_review_completed_gate_blocked",
+    "P3-D": "not_started_data_gate",
+    "P3-E": "bounded_diagnostic_complete_not_stage_passage"
+  },
+
+  "gitCommitted": true,
+  "gitPushed": true
+}

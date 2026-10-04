@@ -81,3 +81,28 @@ Windows复现入口（在既有训练仓库执行；输出必须不存在）：
 当前候选只能保留 `candidateOnly=true / alert_only`，且没有接入活动运行时。P3完整策略覆盖和独立早期证据未通过，阻止P6最终验收准入；即便后续模型通过，Windows严格TTL/恢复缺口及Mac无自动能力还会阻止对应P7联合自动资格。发布批准也不能替代执行时的登记资产与有效授权。
 
 恢复路线依次为：解释并核验来源起点规则 → 在有界来源计划中取得可追溯的独立活动及长期良性任务 → 冻结新prefix数据与实验计划 → 有界训练并完成完整策略的逐场景/独立评价 → P6一次性评估 → 对应平台P5/P7动作与恢复联合验收 → P8限定资产授权。若来源和可观察证据仍不能支持任务，应返回任务范围可行性审查；不能通过降低门槛或修改授权配置补足证据。
+
+## P3-E 有界诊断收口（2026-10-05）
+
+用户明确选择方案1，授权以现有 3 个攻击活动组（train/selection/calibration 各一）产出有界诊断，不等待第 5 个合格攻击组。决策依据与约束见 [bounded-diagnostic-decision.md](../bounded-diagnostic-decision.md)，机器可读结果见 [bounded-diagnostic-report.json](../bounded-diagnostic-report.json)。`cde-plan.json` 已将 `rejectWithoutQualifiedAttackGroups` 改为 `false` 并新增 `boundedDiagnosticMode: true`。
+
+**有界可行性结论：模型相对规则在可行性方向成立，但无法确证净收益。**
+
+- 原始模型工作点（threshold=0.95）在选型角色覆盖 19/28（67.9%），未达 80% 目标。
+- 冻结完整策略在选型角色覆盖 4/28（14.3%），差距主要来自新连接速率条件与 Slowhttptest 长保持模式的根本冲突（480 次观察首先被新连接条件拒绝）以及证据过期（598 次）。
+- 校准角色 81/84 不能抵消选型失败；训练角色仅诊断用。
+- `independentDevelopmentAttackGroups=0`（攻击活动总计 3 组），**聚类区间不可靠**，不报告精确率点估计，不确证模型有净收益。
+
+**保留的阻塞原因（原样不动）：**
+
+| 代码 | 含义 |
+|---|---|
+| `SELECTION_COVERAGE_BELOW_TARGET` | 19/28 < 80% |
+| `FROZEN_POLICY_SCENARIO_COVERAGE_BELOW_TARGET` | 4/28 < 80% |
+| `MISSING_QUALIFIED_ONSET_AND_PREFIX` | 两个声明场景起点规则均未通过审查 |
+| `INSUFFICIENT_INDEPENDENT_ATTACK_ACTIVITIES` | 独立开发组 0，攻击活动总数 3，低于计划 5 |
+| `MISSING_INDEPENDENT_BENIGN_ACTIVITY_EVALUATION` | 独立开发良性组 0 |
+| `INSUFFICIENT_BENIGN_OPPORTUNITIES` | P6 正式验收底线未达 |
+| `FINAL_TEST_UNALLOCATED` | final_test 未分配 |
+
+P3 阶段状态仍为 `blocked`，`trainingAllowed=false`，`p6Authorized=false`。本次收口不授权新拟合、不改写历史裁决、不构成 P3 阶段通过声明。P3-E 步骤标注为 `bounded_diagnostic_complete_not_stage_passage`。

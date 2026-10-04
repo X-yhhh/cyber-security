@@ -1,0 +1,44 @@
+{
+  "version": "p3-source-availability-v1",
+  "status": "blocked",
+  "newSourcesReviewed": 2,
+  "maximumNewSources": 2,
+  "newRawDownloadBytes": 0,
+  "newRawDownloadBudgetBytes": 2147483648,
+  "metadataOnly": true,
+  "sources": [
+    {
+      "id": "cic-dos-2017",
+      "url": "https://www.unb.ca/cic/datasets/dos-dataset.html",
+      "evidenceFile": "cic-dos.html",
+      "publisherAdvertisedSize": "4.6 GB",
+      "completeMemberBytes": null,
+      "expectedRawDownloadBytes": null,
+      "rawDownloadApproved": false,
+      "availability": "publisher explicitly says dataset not available at this time",
+      "licenseStatus": "not qualified; no downloadable original/license package verified",
+      "citation": "H. Hadian Jazi et al., Detecting HTTP-based Application Layer DoS attacks on Web Servers in the presence of sampling, Computer Networks, 2017",
+      "independenceCaveat": "8 traces mapped to 10 servers cannot be counted as 80 independent attacks; background reused from ISCX-IDS",
+      "exitReason": "NO_AVAILABLE_ORIGINAL",
+      "metadataSha256": "c029d7f5d1cf7befc5e7d55303f198a26bd80ef06fe45986fefa618a60c01ee5",
+      "metadataBytes": 67137
+    },
+    {
+      "id": "iscx-ids-2012",
+      "url": "https://www.unb.ca/cic/datasets/ids.html",
+      "evidenceFile": "iscx-ids2012.html",
+      "publisherAdvertisedRelevantDay": "2010-06-14 HTTP Denial of Service",
+      "publisherAdvertisedSize": "6.85 GB (day), not verified exact archive/member bytes",
+      "completeMemberBytes": null,
+      "expectedRawDownloadBytes": null,
+      "rawDownloadApproved": false,
+      "availability": "metadata page available; no qualified complete member within budget",
+      "licenseStatus": "research availability stated, exact redistribution/use terms not verified for acquisition",
+      "citation": "A. Shiravi et al., Toward developing a systematic approach to generate benchmark datasets for intrusion detection, Computers & Security 31(3), 2012",
+      "independenceCaveat": "one HTTP DoS day does not establish five independent slow-request activities; overlaps CIC DoS background",
+      "exitReason": "TASK_MODE_AND_MEMBER_QUALIFICATION_MISSING; advertised relevant day exceeds 2GiB default",
+      "metadataSha256": "ffe21b30dd148205a1d9a9d663f3836f960450fa0457173b7bd59d1af66b9992",
+      "metadataBytes": 71182
+    }
+  ]
+}

@@ -1,0 +1,8 @@
+spring:
+  session:
+    jdbc:
+      initialize-schema: never
+cyber:
+  security:
+    local-admin-bootstrap:
+      enabled: ${LOCAL_ADMIN_BOOTSTRAP_ENABLED:true}

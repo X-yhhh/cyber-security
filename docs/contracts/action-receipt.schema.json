@@ -1,0 +1,175 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cyber-security.invalid/contracts/action-receipt.schema.json",
+  "title": "host-guard v5 action-receipt",
+  "$comment": "设计候选；业务、时间、归属和签名不变量见检测与处置契约。",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "contractVersion": {
+      "const": "host-guard/5.0.0-rc.2"
+    },
+    "receiptId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "commandId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "executorId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "applied",
+        "rejected",
+        "revoked",
+        "expired",
+        "uncertain",
+        "recovery_failed"
+      ]
+    },
+    "observedAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,6})?Z$"
+    },
+    "ruleHandle": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "effectiveBlockUntil": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,6})?Z$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "errorCode": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^[A-Z][A-Z0-9_]{1,79}$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "stateDigest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "revocationId": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "uuid"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "contractVersion",
+    "receiptId",
+    "commandId",
+    "executorId",
+    "status",
+    "observedAt",
+    "ruleHandle",
+    "effectiveBlockUntil",
+    "errorCode",
+    "stateDigest",
+    "revocationId"
+  ],
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "applied"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "ruleHandle": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "effectiveBlockUntil": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,6})?Z$"
+          },
+          "errorCode": {
+            "type": "null"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "enum": [
+              "rejected",
+              "uncertain",
+              "recovery_failed"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "errorCode": {
+            "type": "string",
+            "pattern": "^[A-Z][A-Z0-9_]{1,79}$"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "enum": [
+              "revoked",
+              "expired"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "effectiveBlockUntil": {
+            "type": "null"
+          },
+          "errorCode": {
+            "type": "null"
+          }
+        }
+      }
+    }
+  ]
+}

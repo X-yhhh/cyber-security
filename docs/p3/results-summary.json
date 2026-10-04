@@ -1,0 +1,919 @@
+{
+  "phase": "P3",
+  "date": "2026-10-04",
+  "implementationStatus": "completed",
+  "stageGate": "blocked",
+  "candidateOnly": true,
+  "trainingRun": "runs/host-guard-p3-20261004-01",
+  "finalizedRun": "runs/host-guard-p3-20261004-final",
+  "trainingBranch": "training/windows-cuda",
+  "trainingBaseline": "9378f027e08d49192a54371a8ff23730358547ed",
+  "applicationBaseline": "efcbd1260a42cc4f3d8e06504a5b86734dc40680",
+  "evaluationPlanSha256": "25633b2fdedcb91fe649e7879ef157c02248f2a947cbf50074e698a6d3e4fd1b",
+  "trainingCodeSha256": "104c82de1a6e675377f61eeb7a7211dfd35c1c9b7032392c90cc49eb515fb9ea",
+  "evaluationCodeSha256": "05b9554a4ede26a886a6eddf0b49d46fafdea6205a97d078e8d64ea2c8474d48",
+  "datasetSnapshots": 23020,
+  "datasetParents": 11198,
+  "fullModelFits": 10,
+  "smokeFits": {
+    "passed": 3,
+    "exportFailed": 1
+  },
+  "budgetDeviation": "One extra identical small smoke fit after repairing missing default ONNX opset; no new hyperparameter trial or full retraining. Registered plan is preserved.",
+  "winner": "lightgbm-base-42",
+  "selection": {
+    "threshold": 0.95,
+    "metrics": {
+      "attackOpportunities": 28,
+      "benignOpportunities": 1342,
+      "coveredAttackOpportunities": 19,
+      "falseBenignOpportunities": 0,
+      "candidateActions": 13,
+      "blockPrecisionCandidate": 1.0,
+      "opportunityRecallDiagnostic": 0.6785714285714286,
+      "affectedBenignParents": 0,
+      "falseCandidateSeconds": 0.0,
+      "attackActivities": 1,
+      "benignGroups": 244,
+      "blockRecallTimely": null,
+      "clusterConfidenceInterval": null,
+      "precisionAtOpportunityRatios": {
+        "0.1": 1.0,
+        "0.01": 1.0,
+        "0.001": 1.0
+      }
+    }
+  },
+  "matrix": [
+    {
+      "id": "xgboost-base-42",
+      "algorithm": "xgboost",
+      "features": "base",
+      "seed": 42,
+      "threshold": 0.95,
+      "fit": {
+        "device": "cuda",
+        "seed": 42,
+        "fitSeconds": 0.29213870000057796,
+        "trainingRows": 3844,
+        "trainingParents": 2580,
+        "fitRole": "train",
+        "calibrationAccess": false,
+        "cudaPeakAllocatedBytes": 0
+      },
+      "classification": {
+        "precision": 0.9980928162746344,
+        "recall": 0.7062528115159694,
+        "fpr": 0.00037439161362785476,
+        "rocAuc": 0.9963153807810843,
+        "prAuc": 0.9909683542627158,
+        "logLoss": 0.04849771121383348,
+        "brier": 0.009063349475891238
+      },
+      "opportunities": {
+        "attackOpportunities": 28,
+        "benignOpportunities": 1342,
+        "coveredAttackOpportunities": 19,
+        "falseBenignOpportunities": 0,
+        "candidateActions": 13,
+        "blockPrecisionCandidate": 1.0,
+        "opportunityRecallDiagnostic": 0.6785714285714286,
+        "affectedBenignParents": 0,
+        "falseCandidateSeconds": 0.0,
+        "attackActivities": 1,
+        "benignGroups": 244,
+        "blockRecallTimely": null,
+        "clusterConfidenceInterval": null,
+        "precisionAtOpportunityRatios": {
+          "0.1": 1.0,
+          "0.01": 1.0,
+          "0.001": 1.0
+        }
+      },
+      "onnx": {
+        "status": "passed",
+        "rows": 7967,
+        "maxAbsError": 1.1920928955078125e-07,
+        "thresholdFlips": 0,
+        "checkedThresholds": [
+          0.95
+        ],
+        "byRole": {
+          "train": {
+            "rows": 3844,
+            "maxAbsError": 1.1920928955078125e-07,
+            "thresholdFlips": 0
+          },
+          "validation_selection": {
+            "rows": 4123,
+            "maxAbsError": 1.1920928955078125e-07,
+            "thresholdFlips": 0
+          }
+        },
+        "provider": "CPUExecutionProvider",
+        "runtimeVersion": "1.23.2",
+        "embeddedPreprocessingAndCalibration": true
+      }
+    },
+    {
+      "id": "lightgbm-base-42",
+      "algorithm": "lightgbm",
+      "features": "base",
+      "seed": 42,
+      "threshold": 0.95,
+      "fit": {
+        "device": "cpu",
+        "seed": 42,
+        "fitSeconds": 0.09020739999868965,
+        "trainingRows": 3844,
+        "trainingParents": 2580,
+        "fitRole": "train",
+        "calibrationAccess": false,
+        "cudaPeakAllocatedBytes": 0
+      },
+      "classification": {
+        "precision": 0.9982527664531159,
+        "recall": 0.7710301394511921,
+        "fpr": 0.00037439161362785476,
+        "rocAuc": 0.9977915021019318,
+        "prAuc": 0.9939532278821004,
+        "logLoss": 0.0482728971702386,
+        "brier": 0.0110910492406589
+      },
+      "opportunities": {
+        "attackOpportunities": 28,
+        "benignOpportunities": 1342,
+        "coveredAttackOpportunities": 19,
+        "falseBenignOpportunities": 0,
+        "candidateActions": 13,
+        "blockPrecisionCandidate": 1.0,
+        "opportunityRecallDiagnostic": 0.6785714285714286,
+        "affectedBenignParents": 0,
+        "falseCandidateSeconds": 0.0,
+        "attackActivities": 1,
+        "benignGroups": 244,
+        "blockRecallTimely": null,
+        "clusterConfidenceInterval": null,
+        "precisionAtOpportunityRatios": {
+          "0.1": 1.0,
+          "0.01": 1.0,
+          "0.001": 1.0
+        }
+      },
+      "onnx": {
+        "status": "passed",
+        "rows": 7967,
+        "maxAbsError": 1.7881393432617188e-07,
+        "thresholdFlips": 0,
+        "checkedThresholds": [
+          0.95
+        ],
+        "byRole": {
+          "train": {
+            "rows": 3844,
+            "maxAbsError": 6.984919309616089e-08,
+            "thresholdFlips": 0
+          },
+          "validation_selection": {
+            "rows": 4123,
+            "maxAbsError": 1.7881393432617188e-07,
+            "thresholdFlips": 0
+          }
+        },
+        "provider": "CPUExecutionProvider",
+        "runtimeVersion": "1.23.2",
+        "embeddedPreprocessingAndCalibration": true
+      }
+    },
+    {
+      "id": "mlp-base-42",
+      "algorithm": "mlp",
+      "features": "base",
+      "seed": 42,
+      "threshold": 0.995,
+      "fit": {
+        "device": "cuda",
+        "seed": 42,
+        "fitSeconds": 4.365150800000265,
+        "trainingRows": 3844,
+        "trainingParents": 2580,
+        "fitRole": "train",
+        "calibrationAccess": false,
+        "cudaPeakAllocatedBytes": 18853376
+      },
+      "classification": {
+        "precision": 1.0,
+        "recall": 0.49032838506522725,
+        "fpr": 0.0,
+        "rocAuc": 0.9799699756900866,
+        "prAuc": 0.9734515135066021,
+        "logLoss": 0.2229671122843693,
+        "brier": 0.0417403058488593
+      },
+      "opportunities": {
+        "attackOpportunities": 28,
+        "benignOpportunities": 1342,
+        "coveredAttackOpportunities": 19,
+        "falseBenignOpportunities": 0,
+        "candidateActions": 13,
+        "blockPrecisionCandidate": 1.0,
+        "opportunityRecallDiagnostic": 0.6785714285714286,
+        "affectedBenignParents": 0,
+        "falseCandidateSeconds": 0.0,
+        "attackActivities": 1,
+        "benignGroups": 244,
+        "blockRecallTimely": null,
+        "clusterConfidenceInterval": null,
+        "precisionAtOpportunityRatios": {
+          "0.1": 1.0,
+          "0.01": 1.0,
+          "0.001": 1.0
+        }
+      },
+      "onnx": {
+        "status": "passed",
+        "rows": 7967,
+        "maxAbsError": 3.5762786865234375e-07,
+        "thresholdFlips": 0,
+        "checkedThresholds": [
+          0.995
+        ],
+        "byRole": {
+          "train": {
+            "rows": 3844,
+            "maxAbsError": 1.1920928955078125e-07,
+            "thresholdFlips": 0
+          },
+          "validation_selection": {
+            "rows": 4123,
+            "maxAbsError": 3.5762786865234375e-07,
+            "thresholdFlips": 0
+          }
+        },
+        "provider": "CPUExecutionProvider",
+        "runtimeVersion": "1.23.2",
+        "embeddedPreprocessingAndCalibration": true
+      }
+    },
+    {
+      "id": "xgboost-context-42",
+      "algorithm": "xgboost",
+      "features": "context",
+      "seed": 42,
+      "threshold": 0.5,
+      "fit": {
+        "device": "cuda",
+        "seed": 42,
+        "fitSeconds": 0.2640892999988864,
+        "trainingRows": 3844,
+        "trainingParents": 2580,
+        "fitRole": "train",
+        "calibrationAccess": false,
+        "cudaPeakAllocatedBytes": 20273152
+      },
+      "classification": {
+        "precision": 0.998280309544282,
+        "recall": 0.7834008097165992,
+        "fpr": 0.00037439161362785476,
+        "rocAuc": 0.9827601166997008,
+        "prAuc": 0.9658136883131028,
+        "logLoss": 0.19572133461748423,
+        "brier": 0.045610223563708675
+      },
+      "opportunities": {
+        "attackOpportunities": 28,
+        "benignOpportunities": 1342,
+        "coveredAttackOpportunities": 12,
+        "falseBenignOpportunities": 0,
+        "candidateActions": 8,
+        "blockPrecisionCandidate": 1.0,
+        "opportunityRecallDiagnostic": 0.42857142857142855,
+        "affectedBenignParents": 0,
+        "falseCandidateSeconds": 0.0,
+        "attackActivities": 1,
+        "benignGroups": 244,
+        "blockRecallTimely": null,
+        "clusterConfidenceInterval": null,
+        "precisionAtOpportunityRatios": {
+          "0.1": 1.0,
+          "0.01": 1.0,
+          "0.001": 1.0
+        }
+      },
+      "onnx": {
+        "status": "passed",
+        "rows": 7967,
+        "maxAbsError": 1.1920928955078125e-07,
+        "thresholdFlips": 0,
+        "checkedThresholds": [
+          0.5
+        ],
+        "byRole": {
+          "train": {
+            "rows": 3844,
+            "maxAbsError": 1.1920928955078125e-07,
+            "thresholdFlips": 0
+          },
+          "validation_selection": {
+            "rows": 4123,
+            "maxAbsError": 1.1920928955078125e-07,
+            "thresholdFlips": 0
+          }
+        },
+        "provider": "CPUExecutionProvider",
+        "runtimeVersion": "1.23.2",
+        "embeddedPreprocessingAndCalibration": true
+      }
+    },
+    {
+      "id": "lightgbm-context-42",
+      "algorithm": "lightgbm",
+      "features": "context",
+      "seed": 42,
+      "threshold": 0.975,
+      "fit": {
+        "device": "cpu",
+        "seed": 42,
+        "fitSeconds": 0.04589219999979832,
+        "trainingRows": 3844,
+        "trainingParents": 2580,
+        "fitRole": "train",
+        "calibrationAccess": false,
+        "cudaPeakAllocatedBytes": 20273152
+      },
+      "classification": {
+        "precision": 0.9980145598941098,
+        "recall": 0.6783625730994152,
+        "fpr": 0.00037439161362785476,
+        "rocAuc": 0.9929204603360744,
+        "prAuc": 0.9782070619909611,
+        "logLoss": 0.2460991031601809,
+        "brier": 0.05162399333106523
+      },
+      "opportunities": {
+        "attackOpportunities": 28,
+        "benignOpportunities": 1342,
+        "coveredAttackOpportunities": 11,
+        "falseBenignOpportunities": 0,
+        "candidateActions": 7,
+        "blockPrecisionCandidate": 1.0,
+        "opportunityRecallDiagnostic": 0.39285714285714285,
+        "affectedBenignParents": 0,
+        "falseCandidateSeconds": 0.0,
+        "attackActivities": 1,
+        "benignGroups": 244,
+        "blockRecallTimely": null,
+        "clusterConfidenceInterval": null,
+        "precisionAtOpportunityRatios": {
+          "0.1": 1.0,
+          "0.01": 1.0,
+          "0.001": 1.0
+        }
+      },
+      "onnx": {
+        "status": "passed",
+        "rows": 7967,
+        "maxAbsError": 1.043081283569336e-07,
+        "thresholdFlips": 0,
+        "checkedThresholds": [
+          0.975
+        ],
+        "byRole": {
+          "train": {
+            "rows": 3844,
+            "maxAbsError": 8.777715265750885e-08,
+            "thresholdFlips": 0
+          },
+          "validation_selection": {
+            "rows": 4123,
+            "maxAbsError": 1.043081283569336e-07,
+            "thresholdFlips": 0
+          }
+        },
+        "provider": "CPUExecutionProvider",
+        "runtimeVersion": "1.23.2",
+        "embeddedPreprocessingAndCalibration": true
+      }
+    },
+    {
+      "id": "mlp-context-42",
+      "algorithm": "mlp",
+      "features": "context",
+      "seed": 42,
+      "threshold": 0.995,
+      "fit": {
+        "device": "cuda",
+        "seed": 42,
+        "fitSeconds": 2.9496596999997564,
+        "trainingRows": 3844,
+        "trainingParents": 2580,
+        "fitRole": "train",
+        "calibrationAccess": false,
+        "cudaPeakAllocatedBytes": 20273152
+      },
+      "classification": {
+        "precision": 1.0,
+        "recall": 0.6972559604138551,
+        "fpr": 0.0,
+        "rocAuc": 0.9894199001521313,
+        "prAuc": 0.9867276528024789,
+        "logLoss": 0.13308095383191035,
+        "brier": 0.01631149195410213
+      },
+      "opportunities": {
+        "attackOpportunities": 28,
+        "benignOpportunities": 1342,
+        "coveredAttackOpportunities": 17,
+        "falseBenignOpportunities": 0,
+        "candidateActions": 12,
+        "blockPrecisionCandidate": 1.0,
+        "opportunityRecallDiagnostic": 0.6071428571428571,
+        "affectedBenignParents": 0,
+        "falseCandidateSeconds": 0.0,
+        "attackActivities": 1,
+        "benignGroups": 244,
+        "blockRecallTimely": null,
+        "clusterConfidenceInterval": null,
+        "precisionAtOpportunityRatios": {
+          "0.1": 1.0,
+          "0.01": 1.0,
+          "0.001": 1.0
+        }
+      },
+      "onnx": {
+        "status": "passed",
+        "rows": 7967,
+        "maxAbsError": 3.5762786865234375e-07,
+        "thresholdFlips": 0,
+        "checkedThresholds": [
+          0.995
+        ],
+        "byRole": {
+          "train": {
+            "rows": 3844,
+            "maxAbsError": 1.1920928955078125e-07,
+            "thresholdFlips": 0
+          },
+          "validation_selection": {
+            "rows": 4123,
+            "maxAbsError": 3.5762786865234375e-07,
+            "thresholdFlips": 0
+          }
+        },
+        "provider": "CPUExecutionProvider",
+        "runtimeVersion": "1.23.2",
+        "embeddedPreprocessingAndCalibration": true
+      }
+    },
+    {
+      "id": "lightgbm-without-controlled-42",
+      "algorithm": "lightgbm",
+      "features": "base",
+      "seed": 42,
+      "threshold": 0.999,
+      "fit": {
+        "device": "cpu",
+        "seed": 42,
+        "fitSeconds": 0.028840799999670708,
+        "trainingRows": 3572,
+        "trainingParents": 2308,
+        "fitRole": "train",
+        "calibrationAccess": false,
+        "cudaPeakAllocatedBytes": 21224448
+      },
+      "classification": {
+        "precision": 0.9943396226415094,
+        "recall": 0.23706702654071077,
+        "fpr": 0.00037439161362785476,
+        "rocAuc": 0.9941337903504641,
+        "prAuc": 0.9863552335009707,
+        "logLoss": 0.062295684126032806,
+        "brier": 0.011984872841787127
+      },
+      "opportunities": {
+        "attackOpportunities": 28,
+        "benignOpportunities": 1342,
+        "coveredAttackOpportunities": 19,
+        "falseBenignOpportunities": 0,
+        "candidateActions": 13,
+        "blockPrecisionCandidate": 1.0,
+        "opportunityRecallDiagnostic": 0.6785714285714286,
+        "affectedBenignParents": 0,
+        "falseCandidateSeconds": 0.0,
+        "attackActivities": 1,
+        "benignGroups": 244,
+        "blockRecallTimely": null,
+        "clusterConfidenceInterval": null,
+        "precisionAtOpportunityRatios": {
+          "0.1": 1.0,
+          "0.01": 1.0,
+          "0.001": 1.0
+        }
+      },
+      "onnx": {
+        "status": "passed",
+        "rows": 7695,
+        "maxAbsError": 1.1920928955078125e-07,
+        "thresholdFlips": 0,
+        "checkedThresholds": [
+          0.999
+        ],
+        "byRole": {
+          "train": {
+            "rows": 3572,
+            "maxAbsError": 1.1920928955078125e-07,
+            "thresholdFlips": 0
+          },
+          "validation_selection": {
+            "rows": 4123,
+            "maxAbsError": 1.1920928955078125e-07,
+            "thresholdFlips": 0
+          }
+        },
+        "provider": "CPUExecutionProvider",
+        "runtimeVersion": "1.23.2",
+        "embeddedPreprocessingAndCalibration": true
+      }
+    },
+    {
+      "id": "lightgbm-no-host-context-42",
+      "algorithm": "lightgbm",
+      "features": "no_host_context",
+      "seed": 42,
+      "threshold": 0.99,
+      "fit": {
+        "device": "cpu",
+        "seed": 42,
+        "fitSeconds": 0.04287139999905776,
+        "trainingRows": 3844,
+        "trainingParents": 2580,
+        "fitRole": "train",
+        "calibrationAccess": false,
+        "cudaPeakAllocatedBytes": 21224448
+      },
+      "classification": {
+        "precision": 1.0,
+        "recall": 0.26203328834907785,
+        "fpr": 0.0,
+        "rocAuc": 0.9920100793251001,
+        "prAuc": 0.9782731609260228,
+        "logLoss": 0.2259068098597028,
+        "brier": 0.04987258895137504
+      },
+      "opportunities": {
+        "attackOpportunities": 28,
+        "benignOpportunities": 1342,
+        "coveredAttackOpportunities": 11,
+        "falseBenignOpportunities": 0,
+        "candidateActions": 7,
+        "blockPrecisionCandidate": 1.0,
+        "opportunityRecallDiagnostic": 0.39285714285714285,
+        "affectedBenignParents": 0,
+        "falseCandidateSeconds": 0.0,
+        "attackActivities": 1,
+        "benignGroups": 244,
+        "blockRecallTimely": null,
+        "clusterConfidenceInterval": null,
+        "precisionAtOpportunityRatios": {
+          "0.1": 1.0,
+          "0.01": 1.0,
+          "0.001": 1.0
+        }
+      },
+      "onnx": {
+        "status": "passed",
+        "rows": 7967,
+        "maxAbsError": 1.1920928955078125e-07,
+        "thresholdFlips": 0,
+        "checkedThresholds": [
+          0.99
+        ],
+        "byRole": {
+          "train": {
+            "rows": 3844,
+            "maxAbsError": 8.381903171539307e-08,
+            "thresholdFlips": 0
+          },
+          "validation_selection": {
+            "rows": 4123,
+            "maxAbsError": 1.1920928955078125e-07,
+            "thresholdFlips": 0
+          }
+        },
+        "provider": "CPUExecutionProvider",
+        "runtimeVersion": "1.23.2",
+        "embeddedPreprocessingAndCalibration": true
+      }
+    }
+  ],
+  "threeSeeds": {
+    "seeds": [
+      42,
+      43,
+      44
+    ],
+    "selectionOpportunityRecall": [
+      0.6785714285714286,
+      0.6785714285714286,
+      0.6785714285714286
+    ],
+    "selectionRocAuc": [
+      0.9977915021019318,
+      0.9975559452731415,
+      0.9975400045775814
+    ],
+    "selectionRecallStd": 1.1102230246251565e-16
+  },
+  "calibration": {
+    "method": "platt",
+    "fitRole": "validation_calibration",
+    "slope": 1.1208974123001099,
+    "intercept": 2.1387927532196045,
+    "clip": [
+      1e-06,
+      0.999999
+    ],
+    "parentWeighted": true,
+    "independentUnbiasedEvaluation": false
+  },
+  "candidatePolicy": {
+    "alertThreshold": 0.975,
+    "threshold": 0.999,
+    "min_flows": 3,
+    "span_ms": 0,
+    "min_starts": 3,
+    "ttl": 30,
+    "mode": "alert_only"
+  },
+  "e5": {
+    "rules": {
+      "attackOpportunities": 84,
+      "benignOpportunities": 18,
+      "coveredAttackOpportunities": 2,
+      "falseBenignOpportunities": 0,
+      "candidateActions": 1,
+      "blockPrecisionCandidate": 1.0,
+      "opportunityRecallDiagnostic": 0.023809523809523808,
+      "affectedBenignParents": 0,
+      "falseCandidateSeconds": 0.0,
+      "attackActivities": 1,
+      "benignGroups": 14,
+      "blockRecallTimely": null,
+      "clusterConfidenceInterval": null,
+      "precisionAtOpportunityRatios": {
+        "0.1": 1.0,
+        "0.01": 1.0,
+        "0.001": 1.0
+      }
+    },
+    "modelOnly": {
+      "attackOpportunities": 84,
+      "benignOpportunities": 18,
+      "coveredAttackOpportunities": 81,
+      "falseBenignOpportunities": 0,
+      "candidateActions": 79,
+      "blockPrecisionCandidate": 1.0,
+      "opportunityRecallDiagnostic": 0.9642857142857143,
+      "affectedBenignParents": 0,
+      "falseCandidateSeconds": 0.0,
+      "attackActivities": 1,
+      "benignGroups": 14,
+      "blockRecallTimely": null,
+      "clusterConfidenceInterval": null,
+      "precisionAtOpportunityRatios": {
+        "0.1": 1.0,
+        "0.01": 1.0,
+        "0.001": 1.0
+      }
+    },
+    "modelAndPolicy": {
+      "attackOpportunities": 84,
+      "benignOpportunities": 18,
+      "coveredAttackOpportunities": 81,
+      "falseBenignOpportunities": 0,
+      "candidateActions": 78,
+      "blockPrecisionCandidate": 1.0,
+      "opportunityRecallDiagnostic": 0.9642857142857143,
+      "affectedBenignParents": 0,
+      "falseCandidateSeconds": 0.0,
+      "attackActivities": 1,
+      "benignGroups": 14,
+      "blockRecallTimely": null,
+      "clusterConfidenceInterval": null,
+      "precisionAtOpportunityRatios": {
+        "0.1": 1.0,
+        "0.01": 1.0,
+        "0.001": 1.0
+      }
+    }
+  },
+  "e5CoverageGainDiagnostic": 0.9404761904761905,
+  "sourceDiagnostic": {
+    "task": "controlled Windows benign vs public benign",
+    "fitRole": "train benign only",
+    "reportRole": "validation_selection benign only",
+    "rocAuc": 1.0,
+    "balancedAccuracy": 1.0,
+    "implication": "high source separability warns of capture/domain confounding; not proof attack classifier relies on it",
+    "calibrationAccess": false
+  },
+  "policyBySource": {
+    "cic2018-thursday": {
+      "unit": "observed_final_target_30s_opportunity",
+      "attackOpportunities": 84,
+      "coveredAttackOpportunities": 81,
+      "benignOpportunities": 14,
+      "falseBenignOpportunities": 0,
+      "candidateActions": 78,
+      "correctAttackCandidateActions": 78,
+      "incorrectCandidateActions": 0,
+      "blockPrecisionCandidate": 1.0,
+      "opportunityRecallDiagnostic": 0.9642857142857143,
+      "falseBenignOpportunityRate": 0.0,
+      "falsePer1000BenignOpportunities": 0.0,
+      "affectedBenignParents": 0,
+      "falseCandidateSeconds": 0.0,
+      "candidateActionsPerObservedCalendarHour": 9.138119709262028,
+      "calendarDurationCaveat": "source days/gaps preserved; not continuous monitored host hours",
+      "attackActivities": 1,
+      "benignGroups": 12,
+      "clusterConfidenceInterval": null,
+      "confidenceReason": "only one independent attack activity in this role; no reliable activity bootstrap",
+      "blockRecallTimely": null,
+      "onsetToActionP95Ms": null,
+      "evidenceToOsActionP95Ms": null,
+      "timingReason": "final-only dataset lacks qualified per-episode attack onset and real executor",
+      "precisionAtOpportunityRatios": {
+        "0.1": 1.0,
+        "0.01": 1.0,
+        "0.001": 1.0
+      },
+      "actualActions": 0,
+      "candidateOnly": true,
+      "executionGatesUnavailable": [
+        "research targetRef=null",
+        "clockSkewMs unknown",
+        "release/capability/authorization not granted"
+      ],
+      "suppressed": {
+        "insufficient_distinct_fresh_evidence": 325,
+        "ttl_dedup": 14260,
+        "insufficient_context": 127
+      }
+    },
+    "controlled-win-loopback": {
+      "unit": "observed_final_target_30s_opportunity",
+      "benignOpportunities": 4,
+      "attackOpportunities": 0,
+      "falseBenignOpportunities": 0,
+      "candidateActions": 0,
+      "correctAttackCandidateActions": 0,
+      "incorrectCandidateActions": 0,
+      "blockPrecisionCandidate": null,
+      "opportunityRecallDiagnostic": null,
+      "falseBenignOpportunityRate": 0.0,
+      "falsePer1000BenignOpportunities": 0.0,
+      "affectedBenignParents": 0,
+      "falseCandidateSeconds": 0.0,
+      "candidateActionsPerObservedCalendarHour": 0.0,
+      "calendarDurationCaveat": "source days/gaps preserved; not continuous monitored host hours",
+      "attackActivities": 0,
+      "benignGroups": 2,
+      "clusterConfidenceInterval": null,
+      "confidenceReason": "only one independent attack activity in this role; no reliable activity bootstrap",
+      "blockRecallTimely": null,
+      "onsetToActionP95Ms": null,
+      "evidenceToOsActionP95Ms": null,
+      "timingReason": "final-only dataset lacks qualified per-episode attack onset and real executor",
+      "precisionAtOpportunityRatios": {
+        "0.1": null,
+        "0.01": null,
+        "0.001": null
+      },
+      "actualActions": 0,
+      "candidateOnly": true,
+      "executionGatesUnavailable": [
+        "research targetRef=null",
+        "clockSkewMs unknown",
+        "release/capability/authorization not granted"
+      ],
+      "suppressed": {
+        "insufficient_distinct_fresh_evidence": 263
+      }
+    }
+  },
+  "crossPlatform": {
+    "windows": {
+      "status": "passed",
+      "filesVerified": 69,
+      "rows": 23020,
+      "maxAbsError": 3.5390257835388184e-07,
+      "thresholdFlips": {
+        "alertThreshold": 0,
+        "autoThreshold": 0
+      },
+      "platform": "Windows",
+      "architecture": "AMD64",
+      "runtimeVersion": "1.23.2",
+      "candidateOnly": true,
+      "finalTestRead": false,
+      "modelSha256": "fcc1f3910575441be86f96d15f55b8317fe7b5c1ceef60d583af4cf5d0c3767f"
+    },
+    "mac": {
+      "status": "passed",
+      "filesVerified": 69,
+      "rows": 23020,
+      "maxAbsError": 3.5390257835388184e-07,
+      "thresholdFlips": {
+        "alertThreshold": 0,
+        "autoThreshold": 0
+      },
+      "platform": "Darwin",
+      "architecture": "arm64",
+      "runtimeVersion": "1.27.0",
+      "candidateOnly": true,
+      "finalTestRead": false,
+      "modelSha256": "fcc1f3910575441be86f96d15f55b8317fe7b5c1ceef60d583af4cf5d0c3767f"
+    }
+  },
+  "resource": {
+    "fullRunSeconds": 167.18338869999934,
+    "gpu": "NVIDIA GeForce RTX 3070 Ti Laptop GPU",
+    "gpuTotalMiB": 8192,
+    "torchPeakAllocatedBytes": 21224448,
+    "inference": {
+      "scope": "warm ONNX CPU batch=1 only",
+      "iterations": 200,
+      "p50Ms": 0.050999999984924216,
+      "p95Ms": 0.06021500003043911,
+      "maxMs": 0.9183000001939945,
+      "osActionLatencyVerified": false
+    }
+  },
+  "stageExit": {
+    "phase": "P3",
+    "implementationStatus": "completed",
+    "status": "blocked",
+    "modelFeasibilityGatePassed": false,
+    "p6Authorized": false,
+    "blockingReasons": [
+      "MISSING_QUALIFIED_ONSET_AND_PREFIX",
+      "INSUFFICIENT_INDEPENDENT_ATTACK_ACTIVITIES",
+      "FINAL_TEST_UNALLOCATED",
+      "INSUFFICIENT_BENIGN_OPPORTUNITIES"
+    ],
+    "rootCauses": [
+      "sample_size_and_independence",
+      "missing_observable_early_evidence"
+    ],
+    "candidateOnly": true,
+    "automaticExecutionAuthorized": false,
+    "finalTestRead": false,
+    "experimentCount": 10,
+    "correctiveFits": 2,
+    "candidateModelSha256": "fcc1f3910575441be86f96d15f55b8317fe7b5c1ceef60d583af4cf5d0c3767f",
+    "validationReportSha256": "5a52dbb46edf00dc57452031233b44275541443509af6a7ae2008f3ad7b4eba8",
+    "trainingCodeSha256": "104c82de1a6e675377f61eeb7a7211dfd35c1c9b7032392c90cc49eb515fb9ea",
+    "evaluationCodeSha256": "05b9554a4ede26a886a6eddf0b49d46fafdea6205a97d078e8d64ea2c8474d48",
+    "next": "Return to P2 for independent qualified early evidence and stronger benign/activity coverage; P4/P5 can proceed independently."
+  },
+  "limitations": [
+    "one independent attack activity per role",
+    "no qualified prefix selection/calibration",
+    "no locked final_test",
+    "source/host confounding and calibration shift",
+    "calibration and policy scores are adaptive development results",
+    "final opportunities are not onset-based timely episodes",
+    "P1 strict recovery blocked; no real actions"
+  ],
+  "finalTestRead": false,
+  "realFirewallActions": 0,
+  "restartPerformed": false,
+  "sourceRunPreserved": true,
+  "modelWeightsUnchangedDuringFinalization": true,
+  "collateralMetricCorrectionChangedThisDataset": false,
+  "archiveSha256": "1f5d5335448b2a64931f489b246c42ccc8d446fc6bf05a07cd09b273065d4e8b",
+  "candidateModelSha256": "fcc1f3910575441be86f96d15f55b8317fe7b5c1ceef60d583af4cf5d0c3767f",
+  "validationReportSha256": "5a52dbb46edf00dc57452031233b44275541443509af6a7ae2008f3ad7b4eba8",
+  "sourceArchives": [
+    {
+      "archive": ".cache/p3-source-full-20261004.tar.gz",
+      "sha256": "0704eee4a0238d06c5efec46e98445af688996d175892f4d1393ebd626f97335",
+      "moduleFilesVerified": 7,
+      "codeSha256": "104c82de1a6e675377f61eeb7a7211dfd35c1c9b7032392c90cc49eb515fb9ea"
+    },
+    {
+      "archive": ".cache/p3-finalize-tools-v2-20261004.tar.gz",
+      "sha256": "5bdfa1e8aacb436f62126f9851b16c5f7cc7ff9e5c746cad3d92806f77a71cf2",
+      "moduleFilesVerified": 8,
+      "codeSha256": "05b9554a4ede26a886a6eddf0b49d46fafdea6205a97d078e8d64ea2c8474d48"
+    }
+  ],
+  "validation": {
+    "p3RegressionTests": 29,
+    "compileall": "passed",
+    "pipCheck": "passed",
+    "schemaFormatsExplicitlyValidated": true,
+    "windowsAndMacFullParity": "passed"
+  }
+}

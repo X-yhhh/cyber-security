@@ -1,0 +1,211 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.xyh.cybersecurity.shadow.ShadowReportMapper">
+    <resultMap id="healthWindow" type="com.xyh.cybersecurity.shadow.ShadowReportMapper$HealthWindow">
+        <constructor>
+            <arg column="sensor_id" javaType="_long"/>
+            <arg column="ws" javaType="java.time.LocalDateTime"/>
+            <arg column="we" javaType="java.time.LocalDateTime"/>
+            <arg column="flows_seen" javaType="_long"/>
+            <arg column="flows_emitted" javaType="_long"/>
+            <arg column="flows_dropped" javaType="_long"/>
+            <arg column="queue_depth_max" javaType="_long"/>
+        </constructor>
+    </resultMap>
+    <resultMap id="recordCount" type="com.xyh.cybersecurity.shadow.ShadowReportMapper$RecordCount">
+        <constructor>
+            <arg column="quality_status" javaType="string"/>
+            <arg column="inference_status" javaType="string"/>
+            <arg column="error_code" javaType="string"/>
+            <arg column="reject_reason" javaType="string"/>
+            <arg column="binary_label" javaType="string"/>
+            <arg column="n" javaType="_long"/>
+        </constructor>
+    </resultMap>
+    <resultMap id="codeCount" type="com.xyh.cybersecurity.shadow.ShadowReportMapper$CodeCount">
+        <constructor>
+            <arg column="code" javaType="string"/>
+            <arg column="n" javaType="_long"/>
+        </constructor>
+    </resultMap>
+    <resultMap id="alertHour" type="com.xyh.cybersecurity.shadow.ShadowReportMapper$AlertHour">
+        <constructor>
+            <arg column="asset_id" javaType="_long"/>
+            <arg column="alert_hour" javaType="java.time.LocalDateTime"/>
+            <arg column="n" javaType="_long"/>
+        </constructor>
+    </resultMap>
+    <resultMap id="alertLabel" type="com.xyh.cybersecurity.shadow.ShadowReportMapper$AlertLabel">
+        <constructor>
+            <idArg column="id" javaType="_long"/>
+            <arg column="alert_key" javaType="string"/>
+            <arg column="detected_at" javaType="java.time.LocalDateTime"/>
+            <arg column="severity" javaType="string"/>
+            <arg column="score" javaType="java.lang.Double"/>
+            <arg column="label" javaType="string"/>
+            <arg column="review_status" javaType="string"/>
+        </constructor>
+    </resultMap>
+    <resultMap id="scoredModel" type="com.xyh.cybersecurity.shadow.ShadowReportMapper$ScoredModel">
+        <constructor>
+            <arg column="model_version_id" javaType="_long"/>
+            <arg column="version" javaType="string"/>
+            <arg column="artifact_sha256" javaType="string"/>
+            <arg column="n" javaType="_long"/>
+        </constructor>
+    </resultMap>
+    <resultMap id="featureRow" type="com.xyh.cybersecurity.shadow.ShadowReportMapper$FeatureRow">
+        <constructor>
+            <idArg column="id" javaType="_long"/>
+            <arg column="features" javaType="string"/>
+        </constructor>
+    </resultMap>
+    <resultMap id="backlog" type="com.xyh.cybersecurity.shadow.ShadowReportMapper$Backlog">
+        <constructor>
+            <arg column="consumer_retrying" javaType="_long"/>
+            <arg column="outbox_pending" javaType="_long"/>
+            <arg column="oldest_pending_seconds" javaType="java.lang.Double"/>
+        </constructor>
+    </resultMap>
+
+    <sql id="batchInRange">
+        ib.data_source_id=#{sourceId} AND ib.started_at &gt;= #{from} AND ib.started_at &lt; #{to}
+    </sql>
+
+    <select id="hasSourcePermission" resultType="boolean">
+        SELECT EXISTS (SELECT 1 FROM sys_user su
+                JOIN sys_user_role ur ON ur.user_id=su.id
+                JOIN sys_role r ON r.id=ur.role_id AND r.status='active'
+                JOIN sys_role_permission rp ON rp.role_id=r.id
+                JOIN sys_permission p ON p.id=rp.permission_id AND p.status='active'
+                WHERE su.id=#{userId} AND su.status='active' AND p.permission_key=#{permission}
+                  AND ((ur.scope_type='data_source' AND ur.scope_id=CAST(#{sourceId} AS CHAR))
+                    OR (r.role_key='platform_admin' AND ur.scope_type='global' AND ur.scope_id='*')))
+    </select>
+
+    <select id="listHealthWindows" resultMap="healthWindow">
+        SELECT sw.sensor_id, GREATEST(sw.window_start, #{from}) ws, LEAST(sw.window_end, #{to}) we,
+               sw.flows_seen, sw.flows_emitted, sw.flows_dropped, sw.queue_depth_max
+        FROM sensor_health_window sw
+        WHERE sw.sensor_id IN (SELECT DISTINCT ib.sensor_id FROM ingest_batch ib
+                               WHERE ib.data_source_id=#{sourceId} AND ib.sensor_id IS NOT NULL)
+          AND sw.window_end &gt; #{from} AND sw.window_start &lt; #{to}
+        ORDER BY sw.sensor_id, sw.window_start
+    </select>
+
+    <select id="countRecords" resultMap="recordCount">
+        SELECT r.quality_status, ir.status inference_status, ir.error_code, ir.reject_reason, ir.binary_label, COUNT(*) n
+        FROM ingest_record r
+        JOIN ingest_batch ib ON ib.id=r.batch_id
+        LEFT JOIN inference_request ir ON ir.ingest_record_id=r.id
+        WHERE <include refid="batchInRange"/>
+        GROUP BY r.quality_status, ir.status, ir.error_code, ir.reject_reason, ir.binary_label
+    </select>
+
+    <select id="countIngestIssues" resultMap="codeCount">
+        SELECT jt.code, COUNT(*) n
+        FROM ingest_record r
+        JOIN ingest_batch ib ON ib.id=r.batch_id
+        CROSS JOIN JSON_TABLE(r.quality_issues_json, '$[*]' COLUMNS (code VARCHAR(64) PATH '$.code')) jt
+        WHERE <include refid="batchInRange"/> AND r.quality_status='rejected'
+        GROUP BY jt.code
+    </select>
+
+    <select id="countOutOfVocabulary" resultMap="codeCount">
+        SELECT jt.field code, COUNT(DISTINCT r.id) n
+        FROM ingest_record r
+        JOIN ingest_batch ib ON ib.id=r.batch_id
+        JOIN inference_request ir ON ir.ingest_record_id=r.id AND ir.status='succeeded'
+        CROSS JOIN JSON_TABLE(r.quality_issues_json, '$[*]' COLUMNS (
+            issue VARCHAR(64) PATH '$.code', field VARCHAR(64) PATH '$.field')) jt
+        WHERE <include refid="batchInRange"/> AND jt.issue='CATEGORY_OUT_OF_VOCABULARY'
+        GROUP BY jt.field
+    </select>
+
+    <select id="countModelAlertsByHour" resultMap="alertHour">
+        SELECT COALESCE(ir.asset_id, 0) asset_id,
+               STR_TO_DATE(DATE_FORMAT(da.detected_at, '%Y-%m-%d %H:00:00'), '%Y-%m-%d %H:%i:%s') alert_hour,
+               COUNT(*) n
+        FROM detection_alert da
+        JOIN ingest_record ir ON ir.id=da.ingest_record_id
+        JOIN ingest_batch ib ON ib.id=ir.batch_id
+        WHERE da.alert_type='model' AND ib.data_source_id=#{sourceId}
+          AND da.detected_at &gt;= #{from} AND da.detected_at &lt; #{to}
+        GROUP BY COALESCE(ir.asset_id, 0), alert_hour
+    </select>
+
+    <select id="listModelAlertLabels" resultMap="alertLabel">
+        SELECT da.id, da.alert_key, da.detected_at, da.severity, da.score, fs.label, fs.review_status
+        FROM detection_alert da
+        JOIN ingest_record ir ON ir.id=da.ingest_record_id
+        JOIN ingest_batch ib ON ib.id=ir.batch_id
+        LEFT JOIN feedback_sample fs ON fs.active_alert_id=da.id
+        WHERE da.alert_type='model' AND ib.data_source_id=#{sourceId}
+          AND da.detected_at &gt;= #{from} AND da.detected_at &lt; #{to}
+        ORDER BY da.id
+    </select>
+
+    <select id="listScoredModels" resultMap="scoredModel">
+        SELECT ir.model_version_id, mv.version, mv.artifact_sha256, COUNT(*) n
+        FROM inference_request ir
+        JOIN ingest_record r ON r.id=ir.ingest_record_id
+        JOIN ingest_batch ib ON ib.id=r.batch_id
+        JOIN model_version mv ON mv.id=ir.model_version_id
+        WHERE <include refid="batchInRange"/> AND ir.status='succeeded'
+        GROUP BY ir.model_version_id, mv.version, mv.artifact_sha256
+    </select>
+
+    <select id="listModelIdsByArtifact" resultType="long">
+        SELECT id FROM model_version WHERE artifact_sha256=#{artifactSha256} ORDER BY id DESC
+    </select>
+
+    <select id="findManifest" resultType="string">
+        SELECT CAST(manifest_json AS CHAR) FROM model_version WHERE id=#{modelId}
+    </select>
+
+    <select id="listScoredFeatures" resultMap="featureRow">
+        SELECT ir.id, CAST(JSON_EXTRACT(r.normalized_payload, '$.features') AS CHAR) features
+        FROM inference_request ir
+        JOIN ingest_record r ON r.id=ir.ingest_record_id
+        JOIN ingest_batch ib ON ib.id=r.batch_id
+        JOIN model_version mv ON mv.id=ir.model_version_id
+        WHERE <include refid="batchInRange"/> AND ir.status='succeeded' AND mv.artifact_sha256=#{artifactSha256}
+          AND ir.id &gt; #{afterId}
+        ORDER BY ir.id
+        LIMIT #{limit}
+    </select>
+
+    <select id="listBatchLatencies" resultType="long">
+        SELECT TIMESTAMPDIFF(MICROSECOND, ib.started_at, MAX(ir.completed_at)) DIV 1000
+        FROM ingest_batch ib
+        JOIN ingest_record r ON r.batch_id=ib.id
+        JOIN inference_request ir ON ir.ingest_record_id=r.id
+        WHERE <include refid="batchInRange"/> AND ir.completed_at IS NOT NULL
+        GROUP BY ib.id, ib.started_at
+        HAVING SUM(ir.status='succeeded') &gt; 0
+    </select>
+
+    <select id="countDeadLetters" resultType="long">
+        SELECT COUNT(DISTINCT oe.id)
+        FROM outbox_event oe
+        JOIN ingest_batch ib ON ib.id=CAST(oe.aggregate_id AS UNSIGNED)
+        LEFT JOIN consumed_message cm ON cm.consumer='ingest.batch.received' AND cm.message_key=oe.event_key
+        WHERE oe.aggregate_type='ingest_batch' AND <include refid="batchInRange"/>
+          AND (oe.status='dead_letter' OR cm.status='dead_lettered')
+    </select>
+
+    <select id="backlog" resultMap="backlog">
+        SELECT
+            (SELECT COUNT(*) FROM consumed_message cm
+             JOIN outbox_event oe ON oe.event_key=cm.message_key AND oe.aggregate_type='ingest_batch'
+             JOIN ingest_batch ib ON ib.id=CAST(oe.aggregate_id AS UNSIGNED)
+             WHERE cm.consumer='ingest.batch.received' AND cm.status='retrying' AND ib.data_source_id=#{sourceId}) consumer_retrying,
+            (SELECT COUNT(*) FROM outbox_event oe JOIN ingest_batch ib ON ib.id=CAST(oe.aggregate_id AS UNSIGNED)
+             WHERE oe.aggregate_type='ingest_batch' AND oe.status IN ('pending', 'failed')
+               AND ib.data_source_id=#{sourceId}) outbox_pending,
+            (SELECT TIMESTAMPDIFF(MICROSECOND, MIN(oe.created_at), UTC_TIMESTAMP(3)) / 1000000
+             FROM outbox_event oe JOIN ingest_batch ib ON ib.id=CAST(oe.aggregate_id AS UNSIGNED)
+             WHERE oe.aggregate_type='ingest_batch' AND oe.status IN ('pending', 'failed')
+               AND ib.data_source_id=#{sourceId}) oldest_pending_seconds
+    </select>
+</mapper>

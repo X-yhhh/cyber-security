@@ -1,0 +1,117 @@
+{
+  "status": "passed",
+  "models": {
+    "xgboost": {
+      "fit": {
+        "device": "cuda",
+        "seed": 42,
+        "fitSeconds": 0.1955073999997694,
+        "trainingRows": 92,
+        "trainingParents": 64,
+        "fitRole": "train",
+        "calibrationAccess": false,
+        "cudaPeakAllocatedBytes": 0
+      },
+      "onnx": {
+        "status": "passed",
+        "rows": 220,
+        "maxAbsError": 2.9802322387695312e-08,
+        "thresholdFlips": 0,
+        "checkedThresholds": [
+          0.5
+        ],
+        "byRole": {
+          "train": {
+            "rows": 92,
+            "maxAbsError": 2.9802322387695312e-08,
+            "thresholdFlips": 0
+          },
+          "validation_selection": {
+            "rows": 128,
+            "maxAbsError": 2.9802322387695312e-08,
+            "thresholdFlips": 0
+          }
+        },
+        "provider": "CPUExecutionProvider",
+        "runtimeVersion": "1.23.2",
+        "embeddedPreprocessingAndCalibration": true
+      },
+      "totalSeconds": 0.27516339999965567
+    },
+    "lightgbm": {
+      "fit": {
+        "device": "cpu",
+        "seed": 42,
+        "fitSeconds": 0.06931689999873925,
+        "trainingRows": 92,
+        "trainingParents": 64,
+        "fitRole": "train",
+        "calibrationAccess": false,
+        "cudaPeakAllocatedBytes": 0
+      },
+      "onnx": {
+        "status": "passed",
+        "rows": 220,
+        "maxAbsError": 5.960464477539063e-08,
+        "thresholdFlips": 0,
+        "checkedThresholds": [
+          0.5
+        ],
+        "byRole": {
+          "train": {
+            "rows": 92,
+            "maxAbsError": 5.960464477539063e-08,
+            "thresholdFlips": 0
+          },
+          "validation_selection": {
+            "rows": 128,
+            "maxAbsError": 5.960464477539063e-08,
+            "thresholdFlips": 0
+          }
+        },
+        "provider": "CPUExecutionProvider",
+        "runtimeVersion": "1.23.2",
+        "embeddedPreprocessingAndCalibration": true
+      },
+      "totalSeconds": 0.11663000000044121
+    },
+    "mlp": {
+      "fit": {
+        "device": "cuda",
+        "seed": 42,
+        "fitSeconds": 2.148203900000226,
+        "trainingRows": 92,
+        "trainingParents": 64,
+        "fitRole": "train",
+        "calibrationAccess": false,
+        "cudaPeakAllocatedBytes": 18291200
+      },
+      "onnx": {
+        "status": "passed",
+        "rows": 220,
+        "maxAbsError": 5.960464477539063e-08,
+        "thresholdFlips": 0,
+        "checkedThresholds": [
+          0.5
+        ],
+        "byRole": {
+          "train": {
+            "rows": 92,
+            "maxAbsError": 5.960464477539063e-08,
+            "thresholdFlips": 0
+          },
+          "validation_selection": {
+            "rows": 128,
+            "maxAbsError": 5.960464477539063e-08,
+            "thresholdFlips": 0
+          }
+        },
+        "provider": "CPUExecutionProvider",
+        "runtimeVersion": "1.23.2",
+        "embeddedPreprocessingAndCalibration": true
+      },
+      "totalSeconds": 2.1902587999993557
+    }
+  },
+  "finalTestRead": false
+}

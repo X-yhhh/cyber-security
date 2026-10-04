@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.xyh.cybersecurity.audit.AuditMapper">
+    <insert id="insertAudit" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO audit_log
+            (occurred_at, actor_type, actor_id, action, resource_type, resource_id, request_id, outcome, reason)
+        VALUES (#{occurredAt}, #{actorType}, #{actorId}, #{action}, #{resourceType}, #{resourceId},
+                #{requestId}, #{outcome}, #{reason})
+    </insert>
+
+    <insert id="insertResourceScope">
+        INSERT IGNORE INTO audit_resource_scope (audit_id, scope_type, scope_id)
+        VALUES (#{auditId}, #{scopeType}, #{scopeId})
+    </insert>
+
+    <insert id="insertEventAssetScopes">
+        INSERT IGNORE INTO audit_resource_scope (audit_id, scope_type, scope_id)
+        SELECT #{auditId}, 'asset', CAST(asset_id AS CHAR)
+        FROM event_asset_link WHERE event_id=#{eventId}
+    </insert>
+
+    <insert id="insertEventAlertAssetScopes">
+        INSERT IGNORE INTO audit_resource_scope (audit_id, scope_type, scope_id)
+        SELECT #{auditId}, 'asset', CAST(ir.asset_id AS CHAR)
+        FROM event_alert_link eal
+        JOIN detection_alert da ON da.id=eal.alert_id
+        JOIN ingest_record ir ON ir.id=da.ingest_record_id
+        WHERE eal.event_id=#{eventId} AND ir.asset_id IS NOT NULL
+    </insert>
+
+    <insert id="insertEventAlertSourceScopes">
+        INSERT IGNORE INTO audit_resource_scope (audit_id, scope_type, scope_id)
+        SELECT #{auditId}, 'data_source', CAST(ib.data_source_id AS CHAR)
+        FROM event_alert_link eal
+        JOIN detection_alert da ON da.id=eal.alert_id
+        JOIN ingest_record ir ON ir.id=da.ingest_record_id
+        JOIN ingest_batch ib ON ib.id=ir.batch_id
+        WHERE eal.event_id=#{eventId}
+    </insert>
+    <resultMap id="auditView" type="com.xyh.cybersecurity.audit.AuditMapper$AuditView">
+        <constructor>
+            <idArg column="id" javaType="_long"/>
+            <arg column="occurred_at" javaType="java.time.LocalDateTime"/>
+            <arg column="actor_type" javaType="string"/>
+            <arg column="action" javaType="string"/>
+            <arg column="resource_type" javaType="string"/>
+            <arg column="resource_id" javaType="string"/>
+            <arg column="request_id" javaType="string"/>
+            <arg column="outcome" javaType="string"/>
+        </constructor>
+    </resultMap>
+
+    <sql id="visibleAuditPredicate">
+        EXISTS (
+            SELECT 1 FROM sys_user_role global_ur
+            JOIN sys_role global_r ON global_r.id = global_ur.role_id AND global_r.status = 'active'
+            JOIN sys_role_permission global_rp ON global_rp.role_id = global_r.id
+            JOIN sys_permission global_p ON global_p.id = global_rp.permission_id AND global_p.status = 'active'
+            WHERE global_ur.user_id = #{userId} AND global_r.role_key = 'platform_admin'
+              AND global_ur.scope_type = 'global' AND global_ur.scope_id = '*'
+              AND global_p.permission_key = 'audit.read'
+        )
+        OR (
+            EXISTS (SELECT 1 FROM audit_resource_scope any_scope WHERE any_scope.audit_id = al.id)
+            AND NOT EXISTS (
+                SELECT 1
+                FROM audit_resource_scope scope_row
+                WHERE scope_row.audit_id = al.id
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM sys_user_role ur
+                      JOIN sys_role r ON r.id = ur.role_id AND r.status = 'active'
+                      JOIN sys_role_permission rp ON rp.role_id = r.id
+                      JOIN sys_permission p ON p.id = rp.permission_id AND p.status = 'active'
+                      WHERE ur.user_id = #{userId} AND p.permission_key = 'audit.read'
+                        AND ur.scope_type = scope_row.scope_type AND ur.scope_id = scope_row.scope_id
+                  )
+            )
+        )
+    </sql>
+
+    <select id="countVisible" resultType="long">
+        SELECT COUNT(*) FROM audit_log al WHERE <include refid="visibleAuditPredicate"/>
+    </select>
+
+    <select id="listVisible" resultMap="auditView">
+        SELECT al.id, al.occurred_at, al.actor_type, al.action, al.resource_type,
+               al.resource_id, al.request_id, al.outcome
+        FROM audit_log al
+        WHERE <include refid="visibleAuditPredicate"/>
+        ORDER BY al.occurred_at DESC, al.id DESC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+</mapper>

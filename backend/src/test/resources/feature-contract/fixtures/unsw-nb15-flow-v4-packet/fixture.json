@@ -1,0 +1,37 @@
+{
+  "contract": "unsw-nb15-flow-v4",
+  "purpose": "包 → 流 → 特征 的 Go/Java 独立实现对拍（G2）；只验证实现一致性，不代表真实流量分布",
+  "localAddrs": [
+    "192.0.2.2",
+    "2001:db8::2"
+  ],
+  "subnets": [
+    "192.0.2.0/24"
+  ],
+  "mtu": 1500,
+  "snapLen": 128,
+  "keyBase": "g2",
+  "frames": 514,
+  "addressing": "RFC 5737 / RFC 3849 文档保留地址，载荷全零，合成生成",
+  "coverage": [
+    "window_fill_ipv4",
+    "tcp_full_handshake_fin",
+    "tcp_rst",
+    "tombstone_absorb_then_pure_syn",
+    "midstream_no_handshake",
+    "max_lifetime_split_continuation",
+    "d11_oversize_mss_split",
+    "ipv4_fragments_and_orphan",
+    "icmp_no_ports",
+    "vlan_dhcp",
+    "ip_length_zero_uses_wire_length",
+    "exclude_multicast",
+    "exclude_limited_broadcast",
+    "exclude_directed_broadcast",
+    "exclude_no_local_endpoint",
+    "outbound_initiator_viewpoint",
+    "ipv6_window_and_handshake",
+    "proto_out_of_table",
+    "non_ip_frame"
+  ]
+}

@@ -1,0 +1,72 @@
+{
+  "version": "p3-b-onset-review-v1",
+  "scenarios": {
+    "cic2017_slowhttptest": {
+      "scenario": "cic2017_slowhttptest",
+      "status": "sample_review_complete",
+      "connectionsReviewed": 28,
+      "completeConnections": 23,
+      "decisions": {
+        "unknown": 28
+      },
+      "reasons": {
+        "sourceRuleDefined": 28,
+        "cleanCapture": 12,
+        "causalContinuation": 28,
+        "publisherWindow": 28,
+        "fullConnectionClosure": 5,
+        "publisherLabel": 4
+      },
+      "payloadShapes": {
+        "other": 35,
+        "get_request": 7
+      },
+      "sourceMode": "not specified by corrected publisher; inspect separately; no approved onset rule",
+      "sourceDocumentSha256": "1ca975b9316d922e9225b221e96e0f73998d01bdae008b13b7b2dcf7bb6de2cc",
+      "captureSha256": "cd2674db7559a53f24bc03be3239b315700174ccaef72d10f5edc4c1a08f6186",
+      "reviewsSha256": "300e95e22b35367a579f226bd03694f74534d99f22c5a500af75ce22bb1c903a",
+      "registrationSha256": "b0d8a569552ec1b41ea5ebcd0bd7854b526728c47e08b8347057b2aa052b1c88",
+      "fullLabelsApproved": false,
+      "prefixResearchReady": false,
+      "finalTestRead": false,
+      "limitation": "sample feasibility only; new dataset roles and independent activities not qualified"
+    },
+    "cic2018_slowloris": {
+      "scenario": "cic2018_slowloris",
+      "status": "sample_review_complete",
+      "connectionsReviewed": 28,
+      "completeConnections": 24,
+      "decisions": {
+        "unknown": 28
+      },
+      "reasons": {
+        "causalContinuation": 28,
+        "publisherWindow": 28,
+        "publisherLabel": 4,
+        "fullConnectionClosure": 4
+      },
+      "payloadShapes": {
+        "get_request": 24,
+        "literal_b_x_a": 128
+      },
+      "sourceMode": "incomplete GET then separate X-a integer 1..5000 header fragments",
+      "sourceDocumentSha256": "c9edddbcba999cf4a004a090d991e915ded9226cae3f0e9589fa302631f9803b",
+      "captureSha256": "e014495a36764d766b5812b126c9c3f7f18795343dbc79ee07d0073585d64e53",
+      "reviewsSha256": "66dc24763f933fe9bfcb68c9fb852de0f8a5a3369af749a23ac4ca1820f3a1db",
+      "registrationSha256": "14707d7f38acd6f7b390ebf879cb27bbbfbe06b7dec95ef08f86fbe8a49a6cbc",
+      "fullLabelsApproved": false,
+      "prefixResearchReady": false,
+      "finalTestRead": false,
+      "limitation": "sample feasibility only; new dataset roles and independent activities not qualified"
+    }
+  },
+  "overall": "blocked",
+  "knownPublisherDiscrepancy": "2018 documentation: numeric X-a; sampled original: 128 literal b fragments",
+  "slowhttptest": "corrected publisher provides final labels/window but no reviewed causal mode rule",
+  "allPrefixesRemainUnknown": true,
+  "original2017SlowlorisTrainCandidatesUnchanged": true,
+  "minimumCompleteConnectionsPerScenario": 20,
+  "fullLabelsApproved": false,
+  "finalTestRead": false,
+  "samplingAmendment": "initial 20 positive +4 attempted had only19 closed 2017 connections; increased deterministic positive sample to24 +4 attempted before v2 review; initial reports retained"
+}

@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.xyh.cybersecurity.detection.DetectionPolicyMapper">
+ <sql id="columns">id,policy_type,version,CAST(config_json AS CHAR) config_json,status,created_by,based_on_policy_id,
+ change_reason,content_sha256,submitted_at,reviewed_by,reviewed_at,decision_reason,retired_by,retired_at,created_at</sql>
+ <select id="list" resultType="com.xyh.cybersecurity.detection.DetectionPolicyMapper$Row">
+ SELECT <include refid="columns"/> FROM detection_policy ORDER BY policy_type,id DESC LIMIT 500</select>
+ <select id="find" resultType="com.xyh.cybersecurity.detection.DetectionPolicyMapper$Row">
+ SELECT <include refid="columns"/> FROM detection_policy WHERE id=#{id}</select>
+ <select id="lockType" resultType="string">SELECT policy_type FROM detection_policy_lock WHERE policy_type=#{type} FOR UPDATE</select>
+ <select id="versions" resultType="com.xyh.cybersecurity.detection.DetectionPolicyMapper$Row">
+ SELECT <include refid="columns"/> FROM detection_policy WHERE policy_type=#{type} ORDER BY id FOR UPDATE</select>
+ <insert id="insert">INSERT INTO detection_policy (policy_type,version,config_json,status,created_by,based_on_policy_id,change_reason,content_sha256)
+ VALUES (#{type},#{version},CAST(#{config} AS JSON),'draft',#{actor},#{base,jdbcType=BIGINT},#{reason},#{hash})</insert>
+ <select id="findId" resultType="long">SELECT id FROM detection_policy WHERE policy_type=#{type} AND version=#{version}</select>
+ <update id="submit">UPDATE detection_policy SET status='pending',submitted_at=UTC_TIMESTAMP(3) WHERE id=#{id} AND status='draft'</update>
+ <update id="decide">UPDATE detection_policy SET status=#{status},reviewed_by=#{actor},reviewed_at=UTC_TIMESTAMP(3),decision_reason=#{reason}
+ WHERE id=#{id} AND status='pending' AND created_by&lt;&gt;#{actor}</update>
+ <update id="retire">UPDATE detection_policy SET status='retired',retired_by=#{actor},retired_at=UTC_TIMESTAMP(3)
+ WHERE id=#{id} AND status IN ('draft','pending','active')</update>
+ <insert id="audit">INSERT INTO audit_log (occurred_at,actor_type,actor_id,action,resource_type,resource_id,request_id,outcome,reason,after_hash)
+ VALUES (UTC_TIMESTAMP(3),'human',#{actor},#{action},'detection_policy',#{id},#{requestId},'success',#{reason},#{hash})</insert>
+</mapper>

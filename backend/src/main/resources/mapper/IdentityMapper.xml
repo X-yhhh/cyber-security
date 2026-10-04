@@ -1,0 +1,290 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.xyh.cybersecurity.identity.IdentityMapper">
+    <resultMap id="principalRow" type="com.xyh.cybersecurity.identity.IdentityMapper$PrincipalRow">
+        <constructor>
+            <idArg column="id" javaType="_long"/><arg column="user_key" javaType="string"/>
+            <arg column="username" javaType="string"/><arg column="display_name" javaType="string"/>
+            <arg column="password_hash" javaType="string"/><arg column="status" javaType="string"/>
+        </constructor>
+    </resultMap>
+    <resultMap id="adminRow" type="com.xyh.cybersecurity.identity.IdentityMapper$AdminRow">
+        <constructor><idArg column="id" javaType="_long"/><arg column="password_hash" javaType="string"/></constructor>
+    </resultMap>
+    <resultMap id="machineClientRow" type="com.xyh.cybersecurity.identity.IdentityMapper$MachineClientRow">
+        <constructor><arg column="client_key" javaType="string"/><arg column="client_type" javaType="string"/>
+            <arg column="credential_sha256" javaType="string"/></constructor>
+    </resultMap>
+
+    <select id="findPrincipalByUsername" resultMap="principalRow">
+        SELECT id,user_key,username,display_name,password_hash,status FROM sys_user WHERE username=#{username}
+    </select>
+    <select id="listUserRoles" resultType="string">
+        SELECT DISTINCT r.role_key FROM sys_user_role ur JOIN sys_role r ON r.id=ur.role_id
+        WHERE ur.user_id=#{userId} AND r.status='active' ORDER BY r.role_key
+    </select>
+    <select id="listUserPermissions" resultType="string">
+        SELECT DISTINCT p.permission_key FROM sys_user_role ur JOIN sys_role r ON r.id=ur.role_id
+        JOIN sys_role_permission rp ON rp.role_id=r.id JOIN sys_permission p ON p.id=rp.permission_id
+        WHERE ur.user_id=#{userId} AND r.status='active' AND p.status='active' ORDER BY p.permission_key
+    </select>
+    <select id="findAdmin" resultMap="adminRow">
+        SELECT id,password_hash FROM sys_user WHERE username='admin'
+    </select>
+    <insert id="insertAdmin">
+        INSERT INTO sys_user (user_key,username,display_name,status,password_hash)
+        VALUES (#{userKey},'admin',#{displayName},'active',#{passwordHash})
+    </insert>
+    <select id="findUserIdByUsername" resultType="long">SELECT id FROM sys_user WHERE username=#{username}</select>
+    <select id="findPlatformAdminRoleId" resultType="long">
+        SELECT id FROM sys_role WHERE role_key='platform_admin' AND status='active'
+    </select>
+    <insert id="ensureGlobalPlatformAdminBinding">
+        INSERT INTO sys_user_role (user_id,role_id,scope_type,scope_id)
+        SELECT #{userId},#{roleId},'global','*' WHERE NOT EXISTS
+        (SELECT 1 FROM sys_user_role WHERE user_id=#{userId} AND role_id=#{roleId}
+         AND scope_type='global' AND scope_id='*')
+    </insert>
+    <update id="updateLastLogin">UPDATE sys_user SET last_login_at=#{loggedAt} WHERE id=#{userId}</update>
+    <delete id="deleteSession">DELETE FROM SPRING_SESSION WHERE PRINCIPAL_NAME=#{username}</delete>
+    <select id="countBlockedThrottle" resultType="int">
+        SELECT COUNT(*) FROM auth_login_throttle WHERE principal_key_hash=#{keyHash} AND blocked_until &gt; #{now}
+    </select>
+    <insert id="upsertThrottleFailure">
+        INSERT INTO auth_login_throttle (principal_key_hash,window_started_at,failed_attempts,blocked_until)
+        VALUES (#{keyHash},#{now},1,NULL)
+        ON DUPLICATE KEY UPDATE
+          failed_attempts=IF(window_started_at &lt; DATE_SUB(VALUES(window_started_at),INTERVAL 15 MINUTE),1,LEAST(failed_attempts+1,5)),
+          blocked_until=IF(failed_attempts &gt;= 5,DATE_ADD(VALUES(window_started_at),INTERVAL 15 MINUTE),blocked_until),
+          window_started_at=IF(window_started_at &lt; DATE_SUB(VALUES(window_started_at),INTERVAL 15 MINUTE),VALUES(window_started_at),window_started_at)
+    </insert>
+    <delete id="clearThrottle">DELETE FROM auth_login_throttle WHERE principal_key_hash=#{keyHash}</delete>
+    <insert id="insertUser">
+        INSERT INTO sys_user (user_key,username,display_name,status,password_hash)
+        VALUES (#{userKey},#{username},#{displayName},'active',#{passwordHash})
+    </insert>
+    <select id="findUserIdByKey" resultType="long">SELECT id FROM sys_user WHERE user_key=#{userKey}</select>
+    <delete id="deleteUserRoles">DELETE FROM sys_user_role WHERE user_id=#{userId}</delete>
+    <insert id="insertUserRole">
+        INSERT INTO sys_user_role (user_id,role_id,scope_type,scope_id)
+        VALUES (#{userId},#{roleId},#{scopeType},#{scopeId})
+    </insert>
+    <select id="hasGlobalConfigAdmin" resultType="boolean">
+        SELECT EXISTS (SELECT 1 FROM sys_user_role ur JOIN sys_role r ON r.id=ur.role_id AND r.status='active'
+          JOIN sys_role_permission rp ON rp.role_id=r.id JOIN sys_permission p ON p.id=rp.permission_id AND p.status='active'
+          WHERE ur.user_id=#{userId} AND r.role_key='platform_admin' AND p.permission_key='system.config.update'
+            AND ur.scope_type='global' AND ur.scope_id='*')
+    </select>
+    <insert id="insertMachineClient">
+        INSERT INTO api_client (client_key,client_type,secret_ref,credential_sha256,scope_json,status)
+        VALUES (#{clientKey},'connector','database-sha256-verifier',#{credentialSha256},#{scopeJson},'active')
+    </insert>
+    <select id="findMachineClientId" resultType="long">SELECT id FROM api_client WHERE client_key=#{clientKey}</select>
+    <insert id="insertClientScope">
+        INSERT INTO api_client_scope (client_id,scope_type,scope_id) VALUES (#{clientId},#{scopeType},#{scopeId})
+    </insert>
+    <insert id="insertClientBinding">
+        INSERT INTO api_client_source_asset_scope (client_id,data_source_id,asset_id)
+        VALUES (#{clientId},#{dataSourceId},#{assetId})
+    </insert>
+    <insert id="grantMachineIngestPermission">
+        INSERT INTO api_client_permission (client_id,permission_id)
+        SELECT #{clientId},id FROM sys_permission
+        WHERE permission_key='machine.ingest.submit' AND status='active'
+    </insert>
+    <select id="activeSourceAssetPair" resultType="boolean">
+        SELECT EXISTS (SELECT 1 FROM data_source ds JOIN asset a ON a.id=#{assetId} AND a.status='active'
+          WHERE ds.id=#{dataSourceId} AND ds.status='active')
+    </select>
+    <select id="findActiveMachineClient" resultMap="machineClientRow">
+        SELECT client_key,client_type,credential_sha256 FROM api_client
+        WHERE id=#{clientId} AND status='active' AND (expires_at IS NULL OR expires_at&gt;UTC_TIMESTAMP(3))
+    </select>
+    <select id="listMachinePermissions" resultType="string">
+        SELECT p.permission_key FROM api_client_permission cp JOIN sys_permission p ON p.id=cp.permission_id
+        AND p.status='active' WHERE cp.client_id=#{clientId} ORDER BY p.permission_key
+    </select>
+    <resultMap id="userView" type="com.xyh.cybersecurity.identity.IdentityMapper$UserView">
+        <constructor>
+            <idArg column="id" javaType="_long"/>
+            <arg column="user_key" javaType="string"/>
+            <arg column="username" javaType="string"/>
+            <arg column="display_name" javaType="string"/>
+            <arg column="status" javaType="string"/>
+        </constructor>
+    </resultMap>
+    <resultMap id="roleView" type="com.xyh.cybersecurity.identity.IdentityMapper$RoleView">
+        <constructor>
+            <idArg column="id" javaType="_long"/>
+            <arg column="role_key" javaType="string"/>
+            <arg column="name" javaType="string"/>
+            <arg column="description" javaType="string"/>
+        </constructor>
+    </resultMap>
+    <resultMap id="roleBinding" type="com.xyh.cybersecurity.identity.IdentityMapper$RoleBinding">
+        <constructor>
+            <arg column="role_key" javaType="string"/>
+            <arg column="scope_type" javaType="string"/>
+            <arg column="scope_id" javaType="string"/>
+        </constructor>
+    </resultMap>
+
+    <select id="countUsers" resultType="long">
+        SELECT COUNT(*) FROM sys_user
+    </select>
+
+    <select id="listUsers" resultMap="userView">
+        SELECT id, user_key, username, display_name, status
+        FROM sys_user
+        ORDER BY id
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="findUser" resultMap="userView">
+        SELECT id, user_key, username, display_name, status
+        FROM sys_user
+        WHERE id = #{id}
+    </select>
+
+    <select id="listRoles" resultMap="roleView">
+        SELECT id, role_key, name, description
+        FROM sys_role
+        WHERE is_builtin = 1 AND status = 'active'
+        ORDER BY role_key
+    </select>
+
+    <select id="listRolePermissions" resultType="string">
+        SELECT p.permission_key
+        FROM sys_role_permission rp
+        JOIN sys_permission p ON p.id = rp.permission_id AND p.status = 'active'
+        WHERE rp.role_id = #{roleId}
+        ORDER BY p.permission_key
+    </select>
+
+    <select id="findActiveBuiltinRoleId" resultType="long">
+        SELECT id FROM sys_role
+        WHERE role_key = #{roleKey} AND is_builtin = 1 AND status = 'active'
+    </select>
+
+    <select id="existsScope" resultType="boolean">
+        <choose>
+            <when test="scopeType.equals('asset')">
+                SELECT EXISTS(SELECT 1 FROM asset WHERE id = CAST(#{scopeId} AS UNSIGNED))
+            </when>
+            <when test="scopeType.equals('data_source')">
+                SELECT EXISTS(SELECT 1 FROM data_source WHERE id = CAST(#{scopeId} AS UNSIGNED))
+            </when>
+            <when test="scopeType.equals('model_registry')">
+                SELECT EXISTS(SELECT 1 FROM model_version WHERE model_key = #{scopeId})
+            </when>
+            <otherwise>SELECT FALSE</otherwise>
+        </choose>
+    </select>
+
+    <select id="lockActiveGlobalPlatformAdministratorIds" resultType="long">
+        SELECT u.id
+        FROM sys_user u
+        JOIN sys_user_role ur ON ur.user_id = u.id
+        JOIN sys_role r ON r.id = ur.role_id
+        WHERE u.status = 'active' AND r.status = 'active' AND r.role_key = 'platform_admin'
+          AND ur.scope_type = 'global' AND ur.scope_id = '*'
+        ORDER BY u.id
+        FOR UPDATE
+    </select>
+
+    <select id="lockPlatformAdminRole" resultType="long">
+        SELECT id FROM sys_role WHERE role_key = 'platform_admin' FOR UPDATE
+    </select>
+
+    <select id="listRoleBindings" resultMap="roleBinding">
+        SELECT r.role_key, ur.scope_type, ur.scope_id
+        FROM sys_user_role ur
+        JOIN sys_role r ON r.id = ur.role_id
+        WHERE ur.user_id = #{userId} AND r.status = 'active'
+        ORDER BY r.role_key, ur.scope_type, ur.scope_id
+    </select>
+
+    <resultMap id="machineClientView" type="com.xyh.cybersecurity.identity.IdentityMapper$MachineClientView">
+        <constructor>
+            <idArg column="id" javaType="_long"/>
+            <arg column="client_key" javaType="string"/>
+            <arg column="client_type" javaType="string"/>
+            <arg column="sensor_id" javaType="java.lang.Long"/>
+            <arg column="status" javaType="string"/>
+            <arg column="expires_at" javaType="java.time.Instant"/>
+            <arg column="rotated_at" javaType="java.time.Instant"/>
+            <arg column="revoked_at" javaType="java.time.Instant"/>
+            <arg column="revoke_reason" javaType="string"/>
+            <arg column="created_at" javaType="java.time.Instant"/>
+        </constructor>
+    </resultMap>
+
+    <sql id="machineClientColumns">
+        id, client_key, client_type, sensor_id, status, expires_at, rotated_at, revoked_at, revoke_reason, created_at
+    </sql>
+
+    <select id="countMachineClients" resultType="long">SELECT COUNT(*) FROM api_client</select>
+
+    <select id="listMachineClients" resultMap="machineClientView">
+        SELECT <include refid="machineClientColumns"/> FROM api_client ORDER BY id LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="lockMachineClient" resultMap="machineClientView">
+        SELECT <include refid="machineClientColumns"/> FROM api_client WHERE id = #{clientId} FOR UPDATE
+    </select>
+
+    <update id="revokeMachineClient">
+        UPDATE api_client SET status = 'revoked', revoked_by = #{revokedBy}, revoked_at = UTC_TIMESTAMP(3),
+          revoke_reason = #{reason}, updated_at = UTC_TIMESTAMP(3)
+        WHERE id = #{clientId} AND status IN ('active', 'disabled')
+    </update>
+
+    <resultMap id="userDetail" type="com.xyh.cybersecurity.identity.IdentityMapper$UserDetail">
+        <constructor>
+            <idArg column="id" javaType="_long"/>
+            <arg column="user_key" javaType="string"/>
+            <arg column="username" javaType="string"/>
+            <arg column="display_name" javaType="string"/>
+            <arg column="status" javaType="string"/>
+            <arg column="last_login_at" javaType="java.time.Instant"/>
+            <arg column="password_changed_at" javaType="java.time.Instant"/>
+            <arg column="created_at" javaType="java.time.Instant"/>
+            <arg column="updated_at" javaType="java.time.Instant"/>
+        </constructor>
+    </resultMap>
+
+    <select id="findUserDetail" resultMap="userDetail">
+        SELECT id, user_key, username, display_name, status, last_login_at, password_changed_at, created_at, updated_at
+        FROM sys_user WHERE id = #{id}
+    </select>
+
+    <select id="lockUser" resultMap="userView">
+        SELECT id, user_key, username, display_name, status FROM sys_user WHERE id = #{id} FOR UPDATE
+    </select>
+
+    <update id="updateDisplayName">
+        UPDATE sys_user SET display_name = #{displayName}, updated_at = UTC_TIMESTAMP(3) WHERE id = #{id}
+    </update>
+
+    <update id="transitionUserStatus">
+        UPDATE sys_user SET status = #{toStatus}, updated_at = UTC_TIMESTAMP(3)
+        WHERE id = #{id} AND status IN
+        <foreach collection="fromStatuses" item="value" open="(" separator="," close=")">#{value}</foreach>
+    </update>
+
+    <select id="findPasswordHash" resultType="string">
+        SELECT password_hash FROM sys_user WHERE id = #{id}
+    </select>
+
+    <update id="updatePasswordHash">
+        UPDATE sys_user SET password_hash = #{passwordHash}, password_changed_at = UTC_TIMESTAMP(3),
+          updated_at = UTC_TIMESTAMP(3)
+        WHERE id = #{id}
+    </update>
+
+    <select id="isGlobalPlatformAdmin" resultType="boolean">
+        SELECT EXISTS (SELECT 1 FROM sys_user_role ur JOIN sys_role r ON r.id = ur.role_id AND r.status = 'active'
+          JOIN sys_user u ON u.id = ur.user_id AND u.status = 'active'
+          WHERE ur.user_id = #{userId} AND r.role_key = 'platform_admin' AND ur.scope_type = 'global' AND ur.scope_id = '*')
+    </select>
+</mapper>

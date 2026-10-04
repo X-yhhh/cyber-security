@@ -1,0 +1,336 @@
+{
+  "version": "p1-p3-resolution-research-20261004-v1",
+  "date": "2026-10-04",
+  "scope": "source qualification research and solution design, not dataset or model acceptance",
+  "applicationHead": "58d30c9",
+  "sourceMetadata": [
+    {
+      "record": 15612669,
+      "url": "https://zenodo.org/records/15612669",
+      "title": "TAARA-Based Network Forensics Approach for Detecting Slowloris Application-Layer DoS Attack",
+      "license": "cc-by-4.0",
+      "creators": [
+        "Raihan Diva Ramadhan",
+        "Mochamad Aufa"
+      ],
+      "publicationDate": "2025-06-07",
+      "metadataSha256": "10d5ac2d807add2b796cc2ffd233e19cb0ad658323a17ecde468677643842d85"
+    },
+    {
+      "record": 8316038,
+      "url": "https://zenodo.org/records/8316038",
+      "title": "Detection of Slowloris Attacks using Machine Learning Algorithms",
+      "license": "cc-by-4.0",
+      "creators": [
+        "Vinícius de Miranda Rios",
+        "Pedro R. M. Inácio",
+        "Damien Magoni",
+        "Mário Marques Freire"
+      ],
+      "publicationDate": "2023-09-04",
+      "metadataSha256": "e659f3d5d2c5a1afc6a8b5e0ab53ea94a796be385dbf75aa53f7503de8a15486"
+    }
+  ],
+  "rawArchivesDownloadedBytes": 770913595,
+  "rawArchiveBudgetBytes": 2147483648,
+  "taara": {
+    "archive": "https://zenodo.org/api/records/15612669/files/Acquire.zip/content",
+    "bytes": 44087589,
+    "md5": "26540eda47698f078efd82a1445b2326",
+    "sha256": "7e3556fc0166a5c863b0f0814079a34f0cabf5360a5419be5d8e0ba55469258a",
+    "publisherChecksumMatched": true,
+    "pcapMembers": 15,
+    "completeContainers": 14,
+    "captureLinkType": "Ethernet",
+    "wholeCaptureHashesDistinct": 15,
+    "captureDatesUtc": [
+      "2025-05-20",
+      "2025-05-21"
+    ],
+    "paperDateDiscrepancy": "Paper Table VI says June. All 15 capture groups and their Apache access logs consistently use May 20/21, with log timezones converted to UTC. At least one PCAP SHA256 matches the paper. No source bytes or timestamps changed; per-connection labels remain unqualified.",
+    "paperMatchedCaptureSha256": "255b50c749f596f39496059b765edb121fc2cf56a3ecc44c4c1bb4f9e27a4fbf",
+    "damagedMember": {
+      "name": "Acquire/Skenario Ringan 3/capture-skenario-ringan-2.pcap",
+      "originalBytes": 1941504,
+      "lastCompleteRecordEndOffset": 1941450,
+      "lastRecordPayloadMissingBytes": 28,
+      "proposedDerivativeTailRemovalBytes": 54,
+      "derivativeCreated": false
+    },
+    "containerAudit": [
+      {
+        "member": "Acquire/Skenario Berat 1/capture-skenario-berat (1).pcap",
+        "sha256": "534414daa52e7ebfaf1c5e579a620fcef5afb4b060bde559266acaba69e323f9",
+        "bytes": 9243346,
+        "format": "classic_pcap",
+        "link": 1,
+        "frames": 72851,
+        "containerComplete": true,
+        "shortCapturedFrames": 0,
+        "startUtc": "2025-05-20T08:06:59.629270+00:00",
+        "endUtc": "2025-05-20T08:18:01.747373+00:00",
+        "durationSeconds": 662.118
+      },
+      {
+        "member": "Acquire/Skenario Berat 2/capture-skenario-berat-1.pcap",
+        "sha256": "0d153a2ce48f0def1b48f2f685e9f63187890c221056db79d675faa385481978",
+        "bytes": 9252598,
+        "format": "classic_pcap",
+        "link": 1,
+        "frames": 73752,
+        "containerComplete": true,
+        "shortCapturedFrames": 0,
+        "startUtc": "2025-05-21T00:48:32.086389+00:00",
+        "endUtc": "2025-05-21T01:00:46.416700+00:00",
+        "durationSeconds": 734.33
+      },
+      {
+        "member": "Acquire/Skenario Berat 3/capture-skenario-berat-2.pcap",
+        "sha256": "89297e780d1aa1c765eb644ce120543d6c7f67802293463b9ac554c1940c2d09",
+        "bytes": 9223129,
+        "format": "classic_pcap",
+        "link": 1,
+        "frames": 73372,
+        "containerComplete": true,
+        "shortCapturedFrames": 0,
+        "startUtc": "2025-05-21T01:01:29.198207+00:00",
+        "endUtc": "2025-05-21T01:11:58.557062+00:00",
+        "durationSeconds": 629.359
+      },
+      {
+        "member": "Acquire/Skenario Menengah 1/capture-skenario-menengah (1).pcap",
+        "sha256": "6c29d95b752df79be20cc349d17cc08f08678000ff613a9b858e518784a4e855",
+        "bytes": 3214436,
+        "format": "classic_pcap",
+        "link": 1,
+        "frames": 26576,
+        "containerComplete": true,
+        "shortCapturedFrames": 0,
+        "startUtc": "2025-05-20T07:36:41.818963+00:00",
+        "endUtc": "2025-05-20T07:42:56.297122+00:00",
+        "durationSeconds": 374.478
+      },
+      {
+        "member": "Acquire/Skenario Menengah 2/capture-skenario-menengah-1.pcap",
+        "sha256": "6667ca6200783d18a7a134710b984bf4dcbc5499f2b2d8ebcd5004eb346acb60",
+        "bytes": 3178573,
+        "format": "classic_pcap",
+        "link": 1,
+        "frames": 26336,
+        "containerComplete": true,
+        "shortCapturedFrames": 0,
+        "startUtc": "2025-05-21T00:30:17.739825+00:00",
+        "endUtc": "2025-05-21T00:35:45.837074+00:00",
+        "durationSeconds": 328.097
+      },
+      {
+        "member": "Acquire/Skenario Menengah 3/capture-skenario-menengah-2.pcap",
+        "sha256": "ff4c3f6809b78225d24e0f15a6b94fcc2db81746b8d4ec88234994a24f96c423",
+        "bytes": 3484116,
+        "format": "classic_pcap",
+        "link": 1,
+        "frames": 28446,
+        "containerComplete": true,
+        "shortCapturedFrames": 0,
+        "startUtc": "2025-05-21T00:37:48.029171+00:00",
+        "endUtc": "2025-05-21T00:45:58.076733+00:00",
+        "durationSeconds": 490.048
+      },
+      {
+        "member": "Acquire/Skenario Repetitif 1/capture-skenario-repetitif (1).pcap",
+        "sha256": "18642250b71851d4d2fc0b2895ce189fd0e795fd1c57a0dd50a0e11663331644",
+        "bytes": 9965058,
+        "format": "classic_pcap",
+        "link": 1,
+        "frames": 82176,
+        "containerComplete": true,
+        "shortCapturedFrames": 0,
+        "startUtc": "2025-05-20T09:29:06.041958+00:00",
+        "endUtc": "2025-05-20T09:56:19.758383+00:00",
+        "durationSeconds": 1633.716
+      },
+      {
+        "member": "Acquire/Skenario Repetitif 2/capture-skenario-repetitif-1.pcap",
+        "sha256": "46241c50e15a01c03debc896898cb2440122ea3fc87b71440fa2687f0077257e",
+        "bytes": 26225506,
+        "format": "classic_pcap",
+        "link": 1,
+        "frames": 82342,
+        "containerComplete": true,
+        "shortCapturedFrames": 0,
+        "startUtc": "2025-05-21T01:15:34.473465+00:00",
+        "endUtc": "2025-05-21T01:43:08.515510+00:00",
+        "durationSeconds": 1654.042
+      },
+      {
+        "member": "Acquire/Skenario Repetitif 3/capture-skenario-repetitif-2.pcap",
+        "sha256": "094883c686c76160843f47749fa8d2c19c25b85e734840f80d45c505730c52cf",
+        "bytes": 10348686,
+        "format": "classic_pcap",
+        "link": 1,
+        "frames": 77696,
+        "containerComplete": true,
+        "shortCapturedFrames": 0,
+        "startUtc": "2025-05-21T01:44:06.530043+00:00",
+        "endUtc": "2025-05-21T02:06:57.575396+00:00",
+        "durationSeconds": 1371.045
+      },
+      {
+        "member": "Acquire/Skenario Ringan 1/capture-skenario-ringan (1).pcap",
+        "sha256": "37ad98463badd00210c08eb571dbeb4878f9c479a450badb81fe22bcb43a9dde",
+        "bytes": 1416070,
+        "format": "classic_pcap",
+        "link": 1,
+        "frames": 13114,
+        "containerComplete": true,
+        "shortCapturedFrames": 0,
+        "startUtc": "2025-05-20T07:27:41.446256+00:00",
+        "endUtc": "2025-05-20T07:32:07.421880+00:00",
+        "durationSeconds": 265.976
+      },
+      {
+        "member": "Acquire/Skenario Ringan 2/capture-skenario-ringan-1.pcap",
+        "sha256": "0e2bdddd37784ac0a9f468a0f643ea34ea172ff64e6e8c025b7212aa3936c378",
+        "bytes": 1452565,
+        "format": "classic_pcap",
+        "link": 1,
+        "frames": 13414,
+        "containerComplete": true,
+        "shortCapturedFrames": 0,
+        "startUtc": "2025-05-21T00:10:09.400161+00:00",
+        "endUtc": "2025-05-21T00:20:02.047570+00:00",
+        "durationSeconds": 592.647
+      },
+      {
+        "member": "Acquire/Skenario Ringan 3/capture-skenario-ringan-2.pcap",
+        "sha256": "775eaff5596cd0702227ead3d1ed376f1e411eefe7126b24b19d878d02e78f30",
+        "bytes": 1941504,
+        "format": "classic_pcap",
+        "link": 1,
+        "frames": 18341,
+        "containerComplete": false,
+        "shortCapturedFrames": 0,
+        "startUtc": "2025-05-21T02:23:30.564254+00:00",
+        "endUtc": "2025-05-21T02:28:18.242886+00:00",
+        "durationSeconds": 287.679
+      },
+      {
+        "member": "Acquire/Skenario User Agent 1/capture-skenario-user-agents-1.pcap",
+        "sha256": "0532efa835abdc71b5a671119065db30a554f24942edb1f7cc1e32099429b3d4",
+        "bytes": 3151038,
+        "format": "classic_pcap",
+        "link": 1,
+        "frames": 26180,
+        "containerComplete": true,
+        "shortCapturedFrames": 0,
+        "startUtc": "2025-05-21T02:08:16.348473+00:00",
+        "endUtc": "2025-05-21T02:15:24.855009+00:00",
+        "durationSeconds": 428.507
+      },
+      {
+        "member": "Acquire/Skenario User Agent 2/capture-skenario-user-agents (1).pcap",
+        "sha256": "255b50c749f596f39496059b765edb121fc2cf56a3ecc44c4c1bb4f9e27a4fbf",
+        "bytes": 2065744,
+        "format": "classic_pcap",
+        "link": 1,
+        "frames": 16845,
+        "containerComplete": true,
+        "shortCapturedFrames": 0,
+        "startUtc": "2025-05-20T10:52:34.758852+00:00",
+        "endUtc": "2025-05-20T11:00:42.402205+00:00",
+        "durationSeconds": 487.643
+      },
+      {
+        "member": "Acquire/Skenario User Agent 3/capture-skenario-user-agents-2.pcap",
+        "sha256": "6f00a49cf9d8b5bdc88dcde96556fe7cb11c1bd107ec6d80753d09deaaa29fb7",
+        "bytes": 3441745,
+        "format": "classic_pcap",
+        "link": 1,
+        "frames": 28563,
+        "containerComplete": true,
+        "shortCapturedFrames": 0,
+        "startUtc": "2025-05-21T02:16:12.877592+00:00",
+        "endUtc": "2025-05-21T02:22:17.441235+00:00",
+        "durationSeconds": 364.564
+      }
+    ],
+    "labelsQualified": false,
+    "independentActivityCountEstablished": false,
+    "logTimestampAudit": {
+      "logGroups": 15,
+      "groupsWithDates": 15,
+      "allLogDatesUtc": [
+        "2025-05-20",
+        "2025-05-21"
+      ],
+      "captureDatesUtc": [
+        "2025-05-20",
+        "2025-05-21"
+      ]
+    }
+  },
+  "rios": {
+    "archive": "https://zenodo.org/api/records/8316038/files/datasets.rar/content",
+    "bytes": 726826006,
+    "md5": "690c7a1f1bf146ca92222ce8615d60ef",
+    "sha256": "9aae25f0fbd684de72bd54ef318b296e3801c3e0d4513caf167321465b48c02f",
+    "publisherChecksumMatched": true,
+    "archiveMembers": [
+      {
+        "name": "man_pal.pcap",
+        "bytes": 710535262
+      },
+      {
+        "name": "man_if.pcap",
+        "bytes": 169488116
+      },
+      {
+        "name": "emulated.pcap",
+        "bytes": 41607168
+      },
+      {
+        "name": "lan.pcap",
+        "bytes": 1023619072
+      }
+    ],
+    "archiveListedSuccessfully": true,
+    "pcapMembersExtracted": false,
+    "containerOrLabelAuditPerformed": false,
+    "publisherStatesPositiveAndBenignPerEnvironment": true,
+    "independentActivityCountEstablished": false
+  },
+  "otherResearch": {
+    "cicDos2017": "Official page still says unavailable. No new raw download.",
+    "cicIoT2023": "Official page confirms SlowLoris and raw PCAP; download entry is a registration form; no raw download.",
+    "zenodo18110622": "ZIP central directory inspected by 65536-byte range; entries are experiment logs/configuration, not a qualified PCAP source. Not selected."
+  },
+  "existingCodeVerification": {
+    "evaluationManifest": "docs/p3/continuation/evaluation-code-manifest.json",
+    "filesMatched": 9,
+    "collectionSha256": "99e71bc85bc861fa148425de28ff6d39d31dda17b0778ad291c3b0526c59e3eb",
+    "remoteCurrentWorkspaceInspected": false
+  },
+  "ttlBudgetReproduction": {
+    "kind": "one_off_existing_code_reproduction",
+    "candidateActions": 6,
+    "totalBlockedSeconds": 180.0,
+    "interLeaseGapMilliseconds": 2,
+    "configuredContinuousLimitSeconds": 120,
+    "observationsSynthetic": true,
+    "modelFitted": false,
+    "osActions": 0
+  },
+  "boundaries": {
+    "newModelFits": 0,
+    "newTestFiles": 0,
+    "attackToolsExecuted": false,
+    "captureStarted": false,
+    "firewallChanged": false,
+    "hostRebooted": false,
+    "modelScoresReadFromNewSources": false,
+    "finalTestAllocated": false,
+    "modelOrDataAccepted": false,
+    "gitCommitted": false,
+    "gitPushed": false
+  }
+}

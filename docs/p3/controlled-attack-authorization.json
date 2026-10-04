@@ -1,0 +1,70 @@
+{
+  "version": "p3-controlled-attack-auth-20261005-v1",
+  "date": "2026-10-05",
+  "authorizedBy": "用户明确授权，方案3：在 win-dev 自建受控扫描活动",
+  "purpose": "取得至少6个独立攻击活动组（Slowloris×3、Slowhttptest×3），满足P3独立开发评估的最低5组要求",
+  "decisionRef": "docs/p3/bounded-diagnostic-decision.md",
+
+  "scope": {
+    "host": "win-dev",
+    "interface": "\\Device\\NPF_Loopback",
+    "local": "127.0.0.1",
+    "peer": "127.0.0.2",
+    "port": 80,
+    "protocol": "IPv4/TCP",
+    "maxConcurrentConnections": 4,
+    "maxActivityDurationSeconds": 120,
+    "isolationBetweenGroupsSeconds": 155,
+    "totalActivities": 6,
+    "scenarios": [
+      {"id": "controlled_slowloris_g1", "mode": "slowloris", "groupOrdinal": 1},
+      {"id": "controlled_slowloris_g2", "mode": "slowloris", "groupOrdinal": 2},
+      {"id": "controlled_slowloris_g3", "mode": "slowloris", "groupOrdinal": 3},
+      {"id": "controlled_slowhttptest_g1", "mode": "slowhttptest", "groupOrdinal": 1},
+      {"id": "controlled_slowhttptest_g2", "mode": "slowhttptest", "groupOrdinal": 2},
+      {"id": "controlled_slowhttptest_g3", "mode": "slowhttptest", "groupOrdinal": 3}
+    ]
+  },
+
+  "attackParameters": {
+    "slowloris": {
+      "description": "发送不完整HTTP头，每隔数秒追加一个头字段，维持连接不关闭",
+      "initialHeaders": ["GET / HTTP/1.1", "Host: 127.0.0.1", "User-Agent: test"],
+      "keepAliveIntervalSeconds": 10,
+      "maxConnectionsPerGroup": 4,
+      "targetActivityDurationSeconds": 90
+    },
+    "slowhttptest": {
+      "description": "发送带 Content-Length 的 POST，以极低速率分片发送请求体",
+      "bodyTotalBytes": 8192,
+      "bytesSentPerInterval": 1,
+      "intervalSeconds": 5,
+      "maxConnectionsPerGroup": 4,
+      "targetActivityDurationSeconds": 90
+    }
+  },
+
+  "captureRequirements": {
+    "format": "原生 DLT_NULL PCAP via Npcap",
+    "zeroDrop": true,
+    "includeFullPayload": true,
+    "perGroupIsolation": true,
+    "engineResetBetweenGroups": true
+  },
+
+  "constraints": [
+    "仅限登记的回环接口，仅 127.0.0.1:80，仅 IPv4/TCP",
+    "不改防火墙规则，不改系统配置",
+    "活动结束后立即停止攻击连接、释放监听和捕获进程",
+    "每组独立引擎、独立 boot/capture、独立输出目录",
+    "捕获文件原生保存，不生成去 AF 头副本",
+    "trainingAllowed 保持 false 直到分区与冻结完成",
+    "不读取 P6 封存特征/标签/分数",
+    "活动结束后清理所有临时进程，恢复干净状态"
+  ],
+
+  "outputDirectory": "artifacts/p3/controlled-attack-20261005/",
+  "publicSummaryDirectory": "docs/p3/controlled-attack/",
+  "gitCommitted": false,
+  "gitPushed": false
+}

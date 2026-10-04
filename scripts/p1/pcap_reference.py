@@ -156,6 +156,7 @@ def tcp(ts,data,wire,link,quality):
     prefix=data[off+thl:off+thl+16]
     a,b=(src,sport),(dst,dport)
     return {'ts':ts,'key':tuple(sorted((a,b))),'src':a,'dst':b,'flags':flags,'seq':seq,'ack':ack,
+            'tcpWindow':struct.unpack_from('!H',data,off+14)[0],
             'payloadBytes':payload,'ipBytes':total,'httpRequestStart':prefix.startswith((b'GET ',b'POST ',b'HEAD ')),
             'payloadOffset':off+thl,
             'offloadSized':total>1500,'payloadFullyCaptured':len(data)>=offset+total}

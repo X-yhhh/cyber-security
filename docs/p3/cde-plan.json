@@ -1,0 +1,78 @@
+{
+  "version": "p3-prefix-cde-20261004-v1",
+  "status": "registered_before_new_collection_or_fit",
+  "authorization": "用户要求参考图片和当前代码完成P3-C/D/E，并明确继续核查公开来源",
+  "candidateOnly": true,
+  "finalTestRead": false,
+  "profile": "flow-prefix-v1",
+  "contractVersion": "host-guard/5.0.0-rc.2",
+  "sources": {
+    "maximumQualifiedNewSources": 2,
+    "maximumRawDownloadBytes": 2147483648,
+    "selected": ["usb-ids", "dos-and-slowrate-dos-detection-dataset"],
+    "requirements": ["原始PCAP及许可", "可对应的活动、端点、起点", "完整parent与近重复隔离"],
+    "flowTablesArePrefixEvidence": false
+  },
+  "benignCollection": {
+    "host": "win-dev",
+    "server": "127.0.0.1:80",
+    "client": "127.0.0.2",
+    "interface": "\\Device\\NPF_Loopback",
+    "maximumBatches": 8,
+    "maximumSeconds": 1800,
+    "maximumConcurrency": 4,
+    "contextIsolationSeconds": 155,
+    "roles": ["train", "validation_selection", "validation_calibration", "independent_development", "independent_development", "independent_development", "independent_development", "independent_development"],
+    "kinds": ["paced_download", "bounded_complete_upload", "long_poll", "retry_and_range_resume"],
+    "acceptance": ["实际报文时长", "完整业务内容哈希", "捕获零丢包", "实际新SYN和parent", "整连接近重复审查", "监听释放"],
+    "taskProfiles": "每批预登记不同的业务大小、节奏与时长；同一主机域局限另报，不把变化身份当独立性",
+    "firewallChanges": false
+  },
+  "admission": {
+    "independentDevelopmentMinimumAttackGroups": 5,
+    "independentDevelopmentMinimumBenignGroups": 5,
+    "allDeclaredScenariosInAllDevelopmentRoles": true,
+    "recomputeFromActualFiles": true,
+    "rejectWithoutQualifiedAttackGroups": false,
+    "boundedDiagnosticMode": true,
+    "boundedDiagnosticRationale": "用户明确选择方案1：现有3个攻击活动组（train/selection/calibration）加12000余正常机会已足以支撑P3可行性诊断；独立开发评估组不足（实际0个独立开发组，攻击活动总计3组，低于计划5组）导致聚类区间不可靠，须在诊断报告中明确标注unreliable_ci；P3仅证明可行性，P6正式验收强制使用另一批未暴露数据，本次放行不污染P6统计门槛。INSUFFICIENT_INDEPENDENT_ATTACK_ACTIVITIES仍写入stage-exit blockingReasons，不从裁决记录中移除。",
+    "boundedDiagnosticConstraints": [
+      "诊断报告必须标注independentDevelopmentAttackGroups=0，independentAttackActivitiesTotal=3，低于minimumPlanned=5",
+      "聚类区间标注unreliable_ci=true，不得报告精确率点估计",
+      "INSUFFICIENT_INDEPENDENT_ATTACK_ACTIVITIES保留在blockingReasons中",
+      "trainingAllowed保持false，本次诊断不授权新拟合",
+      "不移除任何已有停止条件，不改写历史裁决",
+      "有界诊断结果不用于替代P6正式独立评估"
+    ],
+    "boundedDiagnosticAuthorizedDate": "2026-10-05"
+  },
+  "training": {
+    "host": "win-dev",
+    "branch": "training/windows-cuda",
+    "algorithms": ["lightgbm", "xgboost"],
+    "featureSets": ["base", "peer_context"],
+    "maximumFullFits": 10,
+    "maximumSmokeFits": 3,
+    "maximumSecondsPerFit": 300,
+    "maximumTotalSeconds": 14400,
+    "maximumGpuSeconds": 14400,
+    "winnerSeed": 42,
+    "varianceSeeds": [43, 44],
+    "calibrationAfterSelectionLock": true,
+    "independentEvaluationAfterPipelineLock": true
+  },
+  "evaluation": {
+    "unit": "qualified_label_timeline_target_30s_bucket",
+    "minimumScenarioCoverage": 0.8,
+    "falseBenignOpportunityBudget": 0,
+    "incorrectCandidateActionBudget": 0,
+    "onsetToCandidateLimitMs": 10000,
+    "clusterBootstrapReplicates": 2000,
+    "clusterBootstrapSeed": 20261004,
+    "compare": ["rules", "model", "model_and_policy"],
+    "maximumOnnxScoreDifference": 0.0001,
+    "maximumThresholdFlips": 0,
+    "realOsActionTimingMeasured": false
+  },
+  "stop": ["缺少合格独立攻击组时不拟合", "来源只提供final流表时不得冒充因果prefix", "不读取P6封存特征标签分数", "两轮有界修正无净收益时停止", "到期或业务/捕获失败立即停止采集"]
+}

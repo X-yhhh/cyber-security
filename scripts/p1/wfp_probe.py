@@ -166,6 +166,9 @@ def owner(base, manifest, channel, fault):
                 raise RuntimeError('WATCHDOG_LOST')
             channel.send({'event': 'heartbeat'})
             command_path = base / 'command.json'
+            if not ids and (base/'close-session').exists():
+                audit(base,'owner','closed_before_command',newCommandsAccepted=False)
+                return
             if not command_seen and command_path.exists():
                 command_seen = True
                 c = json.loads(command_path.read_text())
@@ -219,7 +222,7 @@ def owner(base, manifest, channel, fault):
         channel.close()
 
 
-def supervise(manifest, base, fault):
+def supervise(manifest, base, fault, stop_event=None):
     """持有子进程对象，避免PID复用误杀；30秒正常期限+1秒核验门槛始终不放宽。"""
     base.mkdir(parents=True, exist_ok=False)
     ctx = mp.get_context('spawn'); parent, child = ctx.Pipe()
@@ -231,6 +234,9 @@ def supervise(manifest, base, fault):
         with Engine() as observer:
             while proc.is_alive():
                 now = time.monotonic()
+                if stop_event is not None and stop_event.is_set():
+                    # SCM STOP/PRESHUTDOWN 只停止本探针；所有者撤销，独立 observer 再核验。
+                    (base/'close-session').touch(exist_ok=True)
                 while True:
                     try:
                         if not parent.poll():
@@ -275,6 +281,10 @@ def supervise(manifest, base, fault):
                      'verifiedUtc': utc(), 'deadlineMonotonic': deadline,
                      'delaySeconds': None if deadline is None else time.monotonic()-deadline,
                      'strictRebootTtlPassed': False, 'productionAutoSupported': False}
+            if stop_event is not None and stop_event.is_set():
+                final['closedBeforeShutdown']=not inventory['filters'] and not inventory['sublayerPresent']
+                audit(base,'watchdog','closed_before_shutdown' if final['closedBeforeShutdown'] else 'shutdown_cleanup_failed',
+                      inventory=inventory,deadlineMonotonic=deadline,delaySeconds=final['delaySeconds'])
             write_new(base / 'final.json', final); audit(base, 'watchdog', 'final', **final)
     finally:
         if proc.is_alive():

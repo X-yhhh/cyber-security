@@ -18,10 +18,35 @@ from wfp_native import Engine
 from wfp_probe import audit, boot_id, write_new, assert_isolation, validate_scope
 
 
+def initial_inventory(base, attempts=30):
+    """BFE 暂未就绪可重试；异常不换成空枚举，首次成功/全部失败均留证。
+
+    日志由外层启动器在任何 Python 导入之前创建。ready 只能在真实清零枚举后发布。
+    """
+    for attempt in range(attempts):
+        try:
+            with Engine() as observer:
+                inventory=observer.inventory()
+            audit(base,'boot-observer','inventory_observed',attempt=attempt,inventory=inventory,bootId=boot_id())
+            return inventory
+        except OSError as error:
+            audit(base,'boot-observer','bfe_unavailable',attempt=attempt,winerror=getattr(error,'winerror',None))
+            if attempt+1==attempts:raise
+            time.sleep(.2)
+
+
 def main():
     p=argparse.ArgumentParser(description=__doc__)
-    p.add_argument('mode',choices=('watch','boot'));p.add_argument('--case-dir',type=Path,required=True)
-    p.add_argument('--manifest',type=Path,required=True);a=p.parse_args();base=a.case_dir
+    p.add_argument('mode',choices=('watch','boot','preflight'));p.add_argument('--case-dir',type=Path,required=True)
+    p.add_argument('--manifest',type=Path);a=p.parse_args();base=a.case_dir
+    if a.mode=='boot' and a.manifest is None:p.error('boot requires manifest')
+    if a.mode=='preflight':
+        inventory=initial_inventory(base)
+        result={'inventory':inventory,'bootId':boot_id(),'observedUtc':dt.datetime.now(dt.timezone.utc).isoformat(),
+                'ready':inventory=={'sublayerPresent':False,'filters':[]},'newCommandsAccepted':False}
+        write_new(base/'preflight.json',result)
+        if not result['ready']:raise RuntimeError('RECOVERY_INCOMPLETE')
+        return
     if a.mode=='watch':
         # 观察器在普通应用之后退出，尽力记录所有者终止后的真实BFE状态；无证据不判通过。
         kernel=ctypes.WinDLL('kernel32',use_last_error=True)
@@ -52,8 +77,7 @@ def main():
                 time.sleep(0.01)
     else:
         audit(base,'boot-observer','started',pid=os.getpid(),bootId=boot_id())
-        with Engine() as observer:
-            inventory=observer.inventory()
+        inventory=initial_inventory(base)
         result={'observedUtc':dt.datetime.now(dt.timezone.utc).isoformat(),'bootId':boot_id(),
                 'inventory':inventory,'newCommandsAccepted':False,'canaryPids':[]}
         # 即便网络尚未就绪或隔离检查失败，也先保留启动初次枚举，绝不靠重新清理制造空结果。

@@ -6,8 +6,8 @@
   "status": "authorized_pending_time_window",
   "executionAuthorized": true,
   "authorizationId": "xyh-1005",
-  "validFrom": null,
-  "validUntil": null,
+  "validFrom": "2026-10-06T02:44:00+08:00",
+  "validUntil": "2026-10-06T04:44:00+08:00",
   "purpose": "为两种HTTP慢行为补齐四个开发角色；八个候选活动的数量以真实独立性审核为准",
   "decisionRef": "README.md",
   "versions": {

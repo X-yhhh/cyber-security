@@ -19,6 +19,7 @@ def main():
     p.add_argument('--module-dir',type=Path,required=True);p.add_argument('--logs',type=Path,required=True)
     p.add_argument('--mode',choices=['preflight','boot','service'],default='preflight')
     p.add_argument('--manifest',type=Path);p.add_argument('--service-name')
+    p.add_argument('--case-dir',type=Path)
     a=p.parse_args()
     if not a.logs.is_absolute() or not a.module_dir.is_absolute():p.error('须使用绝对路径')
     base=a.logs/(datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%dT%H%M%S')+'-'+uuid.uuid4().hex)
@@ -53,7 +54,9 @@ def main():
             if a.manifest is None or not a.service_name or not a.service_name.startswith('HostGuard.P1.'):
                 raise ValueError('SERVICE_SCOPE_REQUIRED')
             from wfp_service import serve
-            serve(a.service_name,a.manifest,base/'case')
+            if a.case_dir is not None and not a.case_dir.is_absolute():
+                raise ValueError('ABSOLUTE_CASE_DIRECTORY_REQUIRED')
+            serve(a.service_name,a.manifest,a.case_dir or base/'case')
         code=0
     except BaseException as e:
         record('launcher_failed',type=type(e).__name__,traceback=traceback.format_exc())

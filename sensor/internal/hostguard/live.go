@@ -1,4 +1,4 @@
-//go:build cgo
+//go:build cgo || windows
 
 package hostguard
 
@@ -52,7 +52,13 @@ func (s *PCAPLive) Close() { s.h.Close() }
 
 // Scope 从本机/对端及服务登记生成双向窄过滤器；不接受任意 BPF 或通配地址。
 func (s *PCAPLive) Scope(local, peers []netip.Addr, port uint16) error {
-	filter, err := scopeFilter(local, peers, port)
+	return s.ScopeService(local, peers, port, "local")
+}
+
+// ScopeService 显式登记服务在哪一端，允许对同一授权服务做客户端物理接口验收。
+// 空值保持旧的本机服务语义；未知值拒绝，不能把端口扩大成两端任意服务。
+func (s *PCAPLive) ScopeService(local, peers []netip.Addr, port uint16, endpoint string) error {
+	filter, err := serviceScopeFilter(local, peers, port, endpoint)
 	if err != nil {
 		return err
 	}
@@ -68,6 +74,13 @@ func (s *PCAPLive) Scope(local, peers []netip.Addr, port uint16) error {
 }
 
 func scopeFilter(local, peers []netip.Addr, port uint16) (string, error) {
+	return serviceScopeFilter(local, peers, port, "local")
+}
+
+func serviceScopeFilter(local, peers []netip.Addr, port uint16, endpoint string) (string, error) {
+	if endpoint != "" && endpoint != "local" && endpoint != "peer" {
+		return "", fmt.Errorf("服务端点必须为 local 或 peer")
+	}
 	if len(local) == 0 || len(peers) == 0 || port == 0 {
 		return "", fmt.Errorf("缺少授权本机/对端/服务")
 	}
@@ -82,7 +95,11 @@ func scopeFilter(local, peers []netip.Addr, port uint16) (string, error) {
 			if l == p || l.Is4() != p.Is4() {
 				return "", fmt.Errorf("本机/对端范围不明确")
 			}
-			parts = append(parts, fmt.Sprintf("(src host %s and src port %d and dst host %s) or (src host %s and dst host %s and dst port %d)", l, port, p, p, l, port))
+			server, client := l, p
+			if endpoint == "peer" {
+				server, client = p, l
+			}
+			parts = append(parts, fmt.Sprintf("(src host %s and src port %d and dst host %s) or (src host %s and dst host %s and dst port %d)", server, port, client, client, server, port))
 		}
 	}
 	return "tcp and (" + strings.Join(parts, " or ") + ")", nil

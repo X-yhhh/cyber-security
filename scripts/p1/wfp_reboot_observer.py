@@ -27,7 +27,8 @@ def initial_inventory(base, attempts=30):
         try:
             with Engine() as observer:
                 inventory=observer.inventory()
-            audit(base,'boot-observer','inventory_observed',attempt=attempt,inventory=inventory,bootId=boot_id())
+            # 先同步保存内核枚举；身份/网络元数据失败不能抹去已经取得的清零证据。
+            audit(base,'boot-observer','inventory_observed',attempt=attempt,inventory=inventory)
             return inventory
         except OSError as error:
             audit(base,'boot-observer','bfe_unavailable',attempt=attempt,winerror=getattr(error,'winerror',None))

@@ -22,6 +22,7 @@ type config struct {
 	LocalAddresses    []netip.Addr `json:"localAddresses"`
 	PeerAddresses     []netip.Addr `json:"peerAddresses"`
 	ServicePort       uint16       `json:"servicePort"`
+	ServiceEndpoint   string       `json:"serviceEndpoint"`
 	SecretFile        string       `json:"secretFile"`
 	KeyEpoch          int          `json:"keyEpoch"`
 	Interface         string       `json:"interface"`

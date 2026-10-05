@@ -57,13 +57,42 @@ def await_file(host, path, seconds):
 
 def write_remote(host, path, value):
     content = base64.b64encode(json.dumps(value).encode()).decode()
-    remote(host, f"$b=[Convert]::FromBase64String('{content}');$f=[IO.File]::Open({quote(path+'.pending')},[IO.FileMode]::CreateNew);try{{$f.Write($b,0,$b.Length);$f.Flush($true)}}finally{{$f.Dispose()}};[IO.File]::Move({quote(path+'.pending')},{quote(path)})")
+    # 目标已存在时 [IO.File]::Move 会失败；先删除再移动，使重跑幂等。
+    remote(host, f"$b=[Convert]::FromBase64String('{content}');"
+                 f"$f=[IO.File]::Open({quote(path+'.pending')},[IO.FileMode]::CreateNew);"
+                 f"try{{$f.Write($b,0,$b.Length);$f.Flush($true)}}finally{{$f.Dispose()}};"
+                 f"if(Test-Path -LiteralPath {quote(path)}){{Remove-Item -LiteralPath {quote(path)} -Force}};"
+                 f"[IO.File]::Move({quote(path+'.pending')},{quote(path)})")
+
+
+def gitbash_to_windows(path):
+    """Convert /e/Workspace/... Git Bash paths to E:\\Workspace\\... Windows paths."""
+    import re
+    m = re.match(r'^/([a-zA-Z])(/.*)?$', path)
+    if m:
+        drive = m.group(1).upper()
+        rest = (m.group(2) or '').replace('/', '\\')
+        return drive + ':' + rest
+    return path
 
 
 def launch(host, executable, arguments, directory):
-    """WMI 创建独立进程，防止继承 SSH stdin 令控制命令等待整个租期才返回。"""
-    command = '"' + executable + '" ' + arguments
-    code = f"$r=Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{{CommandLine={quote(command)};CurrentDirectory={quote(directory)}}};if($r.ReturnValue -ne 0){{throw 'PROCESS_CREATE_FAILED'}};$r.ProcessId"
+    """用 Start-Process 创建独立后台进程。
+    原 Win32_Process.Create WMI 路径在 SSH 非交互式会话（无桌面令牌）下始终报 PROCESS_CREATE_FAILED；
+    Start-Process -WindowStyle Hidden 在同一 SSH 会话里可以创建独立进程且不继承 stdin。
+    Git Bash 风格路径 /e/... 需转为 Windows 路径 E:\\... 才能被 PowerShell 识别。
+    """
+    exe_win = gitbash_to_windows(executable)
+    dir_win = gitbash_to_windows(directory)
+    # arguments 是字符串，里面的路径也需要转换
+    import re
+    args_win = re.sub(r'/([a-zA-Z])(/[^\s\'\"]*)', lambda m: m.group(1).upper() + ':' + m.group(2).replace('/', '\\'), arguments)
+    code = (f"$p=Start-Process -FilePath {quote(exe_win)} "
+            f"-ArgumentList {quote(args_win)} "
+            f"-WorkingDirectory {quote(dir_win)} "
+            f"-WindowStyle Hidden -PassThru;"
+            f"if(-not $p){{throw 'PROCESS_CREATE_FAILED'}};"
+            f"$p.Id")
     return int(remote(host, code))
 
 

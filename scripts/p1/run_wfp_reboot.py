@@ -11,7 +11,7 @@ from pathlib import Path
 import time
 
 from connection_probe import connection, echo, fresh
-from run_wfp_probe import await_file, launch, quote, remote
+from run_wfp_probe import await_file, launch, quote, remote, gitbash_to_windows
 
 
 def main():
@@ -29,9 +29,11 @@ def main():
         r['watcherPid']=launch(a.host,a.python,f'{root}\\wfp_reboot_observer.py watch --manifest {manifest} --case-dir {case}',root)
         remote(a.host,f"$end=[DateTime]::UtcNow.AddSeconds(10);while(-not(Test-Path {quote(case+'\\reboot-watch.jsonl')})){{if([DateTime]::UtcNow -ge $end){{throw 'WATCHER_NOT_READY'}};Start-Sleep -Milliseconds 100}}")
         code=[]
+        binary_win = gitbash_to_windows(m['binary'])
+        root_win = gitbash_to_windows(root)
         for port in (m['port'],m['controlPort'],m['controlPort']+1):
-            command=f'"{m["binary"]}" --listen {m["local"]}:{port} --peer {m["peer"]} --duration 180s'
-            code.append(f"$x=Invoke-CimMethod Win32_Process -MethodName Create -Arguments @{{CommandLine={quote(command)};CurrentDirectory={quote(root)}}};if($x.ReturnValue -ne 0){{throw 'CANARY_FAILED'}};$x.ProcessId")
+            args = f'--listen {m["local"]}:{port} --peer {m["peer"]} --duration 180s'
+            code.append(f"$x=Start-Process -FilePath {quote(binary_win)} -ArgumentList {quote(args)} -WorkingDirectory {quote(root_win)} -WindowStyle Hidden -PassThru;if(-not $x){{throw 'CANARY_FAILED'}};$x.Id")
         r['canaryPids']=[int(x) for x in remote(a.host,';'.join(code)).splitlines()]
         time.sleep(.5)
         r['isolationDeniedPort']=fresh(m['local'],m['controlPort']+1)

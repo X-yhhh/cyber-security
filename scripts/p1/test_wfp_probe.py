@@ -106,7 +106,9 @@ class LeaseTests(unittest.TestCase):
                 engine=MagicMock(); engine.return_value.__enter__.return_value.inventory.return_value=inventory
                 with patch('wfp_probe.Engine',engine), patch('wfp_probe.time.time',return_value=self.now), \
                      patch('wfp_probe.assert_isolation',return_value={}), patch('wfp_probe.boot_id',return_value='boot'):
-                    owner(base,manifest,MagicMock(),'none')
+                    with self.assertRaises(SystemExit) as rejected:
+                        owner(base,manifest,MagicMock(),'none')
+                    self.assertEqual(1,rejected.exception.code)
                 self.assertFalse((base/'ready.json').exists())
                 self.assertFalse((base/'applied.json').exists())
                 self.assertIn('RECOVERY_INCOMPLETE',(base/'owner.jsonl').read_text())
@@ -124,6 +126,17 @@ class LeaseTests(unittest.TestCase):
             with patch('wfp_probe.mp.get_context',return_value=context),patch('wfp_probe.Engine',engine):
                 supervise(Path(directory)/'manifest.json',base,'none')
             self.assertEqual(json.loads((base/'final.json').read_text())['inventory'],inventory)
+
+    def test_initial_inventory_does_not_depend_on_boot_metadata(self):
+        # 真实开机失败源于辅助时间查询；内核清零事实必须先独立落盘。
+        from wfp_reboot_observer import initial_inventory
+        with tempfile.TemporaryDirectory() as directory:
+            engine=MagicMock();inventory={'filters':[],'sublayerPresent':False}
+            engine.return_value.__enter__.return_value.inventory.return_value=inventory
+            with patch('wfp_reboot_observer.Engine',engine), \
+                 patch('wfp_reboot_observer.boot_id',side_effect=TimeoutError('early boot')):
+                self.assertEqual(initial_inventory(Path(directory)),inventory)
+            self.assertIn('inventory_observed',(Path(directory)/'boot-observer.jsonl').read_text())
 
 
 if __name__ == '__main__':

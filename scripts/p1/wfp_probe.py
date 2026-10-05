@@ -38,10 +38,12 @@ def write_new(path, value):
     try:
         with pending.open('x', encoding='utf-8') as f:
             json.dump(value, f, ensure_ascii=True, indent=2); f.write('\n'); f.flush(); os.fsync(f.fileno())
-        # 同卷硬链接原子发布且绝不覆盖，观察者不会读到正在写入的半个 JSON。
-        os.link(pending, path)
-    finally:
+        # os.replace 在 Windows 和 POSIX 上均为原子 rename；观察者不会读到正在写入的半个 JSON。
+        # 原 os.link 在 Windows 上目标已存在时报 WinError 183，改为 replace 保留语义并修复重试。
+        os.replace(pending, path)
+    except BaseException:
         pending.unlink(missing_ok=True)
+        raise
 
 
 def audit(base, role, event, **fields):
@@ -51,16 +53,51 @@ def audit(base, role, event, **fields):
 
 
 def powershell(text):
-    # 固定本机只读命令，不接收任意 shell 文本作为外部参数。
-    r = subprocess.run(['powershell.exe', '-NoLogo', '-NoProfile', '-NonInteractive', '-Command', text],
-                       capture_output=True, text=True, timeout=12)
-    if r.returncode:
-        raise RuntimeError('PREFLIGHT_QUERY_FAILED')
-    return json.loads(r.stdout.strip())
+    """固定本机只读命令，不接收任意 shell 文本作为外部参数。
+
+    开机早期 PowerShell 冷启动可能远超常规耗时（实测首启 >12 秒导致 TimeoutExpired，
+    使启动观察器误报 canary_unavailable）。因此放宽单次超时并允许有限重试；
+    重试只针对超时，返回码错误仍立即失败，不掩盖真实查询失败。
+    """
+    last = None
+    for attempt in range(3):
+        try:
+            r = subprocess.run(['powershell.exe', '-NoLogo', '-NoProfile', '-NonInteractive', '-Command', text],
+                               capture_output=True, text=True, timeout=60)
+        except subprocess.TimeoutExpired as error:
+            last = error
+            time.sleep(2 * (attempt + 1))
+            continue
+        if r.returncode:
+            raise RuntimeError('PREFLIGHT_QUERY_FAILED')
+        return json.loads(r.stdout.strip())
+    raise RuntimeError('PREFLIGHT_QUERY_TIMEOUT') from last
 
 
 def boot_id():
-    return powershell('(Get-CimInstance Win32_OperatingSystem).LastBootUpTime.ToUniversalTime().ToString("o") | ConvertTo-Json -Compress')
+    """直接读内核启动时刻，避免开机早期 PowerShell/CIM 尚未就绪导致恢复记录丢失。
+
+    SystemTimeOfDayInformation 的固定 48 字节布局在目标 Windows 上核对；查询失败、
+    ABI 不符或无效时间均拒绝就绪，不用墙钟减 uptime 猜测。保留原 CIM 的 UTC 格式，
+    使旧命令仍能按同一 boot 身份拒绝，清零日志不依赖这项辅助元数据。
+    """
+    class TimeOfDay(ctypes.Structure):
+        _fields_ = [('boot', ctypes.c_int64), ('current', ctypes.c_int64),
+                    ('timezoneBias', ctypes.c_int64), ('timezoneId', ctypes.c_uint32),
+                    ('reserved', ctypes.c_uint32), ('bootBias', ctypes.c_uint64),
+                    ('sleepBias', ctypes.c_uint64)]
+    if ctypes.sizeof(TimeOfDay) != 48:
+        raise RuntimeError('BOOT_ID_ABI_MISMATCH')
+    query = ctypes.WinDLL('ntdll', use_last_error=True).NtQuerySystemInformation
+    query.argtypes = [ctypes.c_uint32, ctypes.c_void_p, ctypes.c_uint32,
+                      ctypes.POINTER(ctypes.c_uint32)]
+    query.restype = ctypes.c_int32
+    info = TimeOfDay(); written = ctypes.c_uint32()
+    status = query(3, ctypes.byref(info), ctypes.sizeof(info), ctypes.byref(written))
+    if status < 0 or written.value != ctypes.sizeof(info) or not 0 < info.boot <= info.current:
+        raise RuntimeError('BOOT_ID_QUERY_FAILED')
+    boot = dt.datetime(1601, 1, 1, tzinfo=dt.timezone.utc) + dt.timedelta(microseconds=info.boot // 10)
+    return boot.strftime('%Y-%m-%dT%H:%M:%S.') + f'{boot.microsecond:06d}{info.boot % 10}Z'
 
 
 def validate_scope(m, now):
@@ -216,6 +253,7 @@ def owner(base, manifest, channel, fault):
         # 不把异常原文/命令行写入审计，防止泄露端点或凭据。
         code = str(e) if isinstance(e, (ValueError, RuntimeError)) else type(e).__name__
         audit(base, 'owner', 'rejected_or_failed', code=code, errno=getattr(e, 'errno', None), winerror=getattr(e, 'winerror', None))
+        raise SystemExit(1) from None
     finally:
         if engine:
             engine.close()
@@ -277,7 +315,7 @@ def supervise(manifest, base, fault, stop_event=None):
                 if time.monotonic()-verification_start >= 3:
                     break
                 time.sleep(0.025)
-            final = {'reason': reason, 'ownerExitCode': proc.exitcode, 'inventory': inventory,
+            final = {'reason': reason, 'ownerExitCode': proc.exitcode, 'ownerReady': active, 'inventory': inventory,
                      'verifiedUtc': utc(), 'deadlineMonotonic': deadline,
                      'delaySeconds': None if deadline is None else time.monotonic()-deadline,
                      'strictRebootTtlPassed': False, 'productionAutoSupported': False}
@@ -286,6 +324,7 @@ def supervise(manifest, base, fault, stop_event=None):
                 audit(base,'watchdog','closed_before_shutdown' if final['closedBeforeShutdown'] else 'shutdown_cleanup_failed',
                       inventory=inventory,deadlineMonotonic=deadline,delaySeconds=final['delaySeconds'])
             write_new(base / 'final.json', final); audit(base, 'watchdog', 'final', **final)
+            return final
     finally:
         if proc.is_alive():
             proc.terminate(); proc.join(timeout=3)

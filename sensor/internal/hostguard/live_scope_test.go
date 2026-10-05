@@ -1,4 +1,4 @@
-//go:build cgo
+//go:build cgo || windows
 
 package hostguard
 
@@ -35,6 +35,24 @@ func TestLiveScopeMatchesOnlyRegisteredService(t *testing.T) {
 		if bpf.Matches(gopacket.CaptureInfo{CaptureLength: len(frame.Data), Length: frame.WireLen}, frame.Data) != tc.allowed {
 			t.Fatal("授权 BPF 范围错误")
 		}
+	}
+	// 同一报文在客户端抓包时，服务必须明确登记为 peer；不得放行本机同号服务。
+	filter, err = serviceScopeFilter([]netip.Addr{p}, []netip.Addr{l}, 80, "peer")
+	if err != nil {
+		t.Fatal(err)
+	}
+	peerBPF, err := pcap.NewBPF(layers.LinkTypeEthernet, 65535, filter)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, ports := range [][3]uint16{{40000, 80, 1}, {80, 40000, 0}, {40000, 81, 0}} {
+		frame := synth.Build(synth.Spec{TS: epoch, Src: p, Dst: l, SPort: ports[0], DPort: ports[1], Proto: 6, Flags: synth.SYN}, 65535)
+		if peerBPF.Matches(gopacket.CaptureInfo{CaptureLength: len(frame.Data), Length: frame.WireLen}, frame.Data) != (ports[2] == 1) {
+			t.Fatal("peer 服务授权 BPF 范围错误")
+		}
+	}
+	if _, err = serviceScopeFilter([]netip.Addr{l}, []netip.Addr{p}, 80, "any"); err == nil {
+		t.Fatal("服务端点不明确未拒绝")
 	}
 	for _, tc := range []struct {
 		locals, peers []netip.Addr

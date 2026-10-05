@@ -10,6 +10,9 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from verify_prefix_corpus import read, sha, verify
+from build_qualified_prefix import target_key
+from freeze_prefix_corpus import health_binding
+import capture_health_observer as health_observer
 
 
 class SourceGroupingTest(unittest.TestCase):
@@ -65,6 +68,74 @@ class SourceGroupingTest(unittest.TestCase):
                 self.assertFalse(verified['trainingAllowed'])
                 self.assertEqual(verified['groupingSummary']['byScenario']['controlled_slowloris']['sourceGroups'], 2)
                 self.assertEqual(verified['roleClassGroups']['independent_development']['1'], count)
+
+
+class HealthBindingTest(unittest.TestCase):
+    def test_controlled_target_requires_matching_authorization_and_health_chain(self):
+        class Clock:
+            now = 1_791_230_000.0
+
+            def read(self):
+                return self.now
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td); health = root / 'health'; clock = Clock()
+            asset = '00000000-0000-4000-8000-000000000001'
+            sensor = '00000000-0000-4000-8000-000000000002'
+            started = clock.now
+            authorized_until = health_observer.iso((started + 500) * 1000)
+            config = dict(interface=health_observer.INTERFACE, filter=health_observer.FILTER)
+            observer = health_observer.open_session(
+                health, asset_id=asset, sensor_id=sensor, authorization_id='test-auth',
+                authorized_until=authorized_until,
+                stats=lambda: dict(packetsSeen=1, kernelDrops=0, capacityDrops=0),
+                config=config, build_sha256=sha(Path(__file__).with_name('capture_health_observer.py')),
+                monotonic=clock.read, wall=clock.read)
+            for _ in range(46):
+                clock.now += 4.9
+                observer.tick()
+            health_observer.finalize(health, 'stop_file')
+            registry_path = health / 'health-registry.json'
+            registry = read(registry_path)
+            registry['stoppedAt'] = health_observer.iso(clock.now * 1000)
+            registry_path.write_text(json.dumps(registry), encoding='utf-8')
+            auth_path = root / 'authorization.json'
+            authorization = dict(status='authorized_active', executionAuthorized=True,
+                authorizationId='test-auth', validFrom=health_observer.iso((started - 10) * 1000),
+                validUntil=authorized_until,
+                scope=dict(host='win-dev', environment='isolated_loopback_research',
+                    interface=health_observer.INTERFACE, local='127.0.0.1', peer='127.0.0.2',
+                    servicePort=80, maxConcurrentConnections=4, firewallChanges=False,
+                    externalTrafficAllowed=False))
+            auth_path.write_text(json.dumps(authorization), encoding='utf-8')
+            target = target_key(asset, '127.0.0.1:80', '127.0.0.2:0')
+            rows = [dict(activityId=activity, sourceDomainId='controlled_windows_http_cde',
+                         budgetTargetId=target, split='train', label=label,
+                         firstSeenAt=health_observer.iso((started + begin) * 1000),
+                         asOf=health_observer.iso((started + end) * 1000))
+                    for activity, label, begin, end in [('attack', 1, 10, 15), ('benign', 0, 25, 30)]]
+            rows.append(dict(sourceDomainId='public', budgetTargetId='public-target'))
+            timelines = [dict(activityId=activity, targetId=target,
+                              startMs=(started + begin) * 1000, endMs=(started + end) * 1000)
+                         for activity, begin, end in [('attack', 10, 15), ('benign', 25, 30)]]
+            (health / 'activity-ledger.jsonl').write_text(''.join(json.dumps(entry) + '\n' for entry in [
+                dict(activityId='attack', kind='attack', plannedRole='train', success=True, endedAt=started + 20),
+                dict(activityId='benign', kind='benign', plannedRole='train', success=True, endedAt=started + 40),
+            ]), encoding='utf-8')
+            derived, records, binding, ledger = health_binding(registry_path, auth_path, rows, timelines)
+            self.assertEqual(set(derived['targetBindings']), {target})
+            self.assertEqual(derived['sourceRegistrySha256'], sha(registry_path))
+            self.assertEqual([p.name for p in (records, binding, ledger)],
+                             ['health-records.jsonl', 'observer-binding.json', 'activity-ledger.jsonl'])
+            authorization['validUntil'] = health_observer.iso((started + 501) * 1000)
+            auth_path.write_text(json.dumps(authorization), encoding='utf-8')
+            with self.assertRaisesRegex(ValueError, '授权'):
+                health_binding(registry_path, auth_path, rows, timelines)
+            auth_path.write_text(json.dumps(dict(authorization, validUntil=authorized_until)), encoding='utf-8')
+            registry['recordsSha256'] = '0' * 64
+            registry_path.write_text(json.dumps(registry), encoding='utf-8')
+            with self.assertRaisesRegex(ValueError, '哈希'):
+                health_binding(registry_path, auth_path, rows, timelines)
 
 
 if __name__ == '__main__':

@@ -1,13 +1,13 @@
 {
   "version": "p3-controlled-collection-design-20261005-v5",
-  "documentKind": "execution_authorization_pending_time_window",
-  "updatedAt": "2026-10-05",
+  "documentKind": "execution_authorization",
+  "updatedAt": "2026-10-06",
   "planVersion": "p3-prefix-cde-20261005-v4",
-  "status": "authorized_pending_time_window",
+  "status": "authorized_active",
   "executionAuthorized": true,
   "authorizationId": "xyh-1005",
-  "validFrom": "2026-10-06T02:44:00+08:00",
-  "validUntil": "2026-10-06T04:44:00+08:00",
+  "validFrom": "2026-10-06T05:34:00+08:00",
+  "validUntil": "2026-10-06T07:34:00+08:00",
   "purpose": "为两种HTTP慢行为补齐四个开发角色；八个候选活动的数量以真实独立性审核为准",
   "decisionRef": "README.md",
   "versions": {
@@ -59,11 +59,11 @@
       "activitySeconds": 65,
       "trajectorySpec": {
         "intervalSeconds": 5,
-        "chunkBytes": 3,
+        "chunkBytes": 96,
         "connections": 4,
         "activitySeconds": 65
       },
-      "trajectorySpecSha256": "a523fa809ed15a8ffb2a639453d37e04666dcbd9d2552fbf44384205fc8db766",
+      "trajectorySpecSha256": "db569c42155d98f63246ecee604493c088dec2a02ad6f824d08066194eec0d24",
       "registrationComplete": true
     },
     {
@@ -89,11 +89,11 @@
       "activitySeconds": 90,
       "trajectorySpec": {
         "intervalSeconds": 8,
-        "chunkBytes": 24,
+        "chunkBytes": 192,
         "connections": 3,
         "activitySeconds": 90
       },
-      "trajectorySpecSha256": "2104600813588f0ac070256ccddfcfd8b01e8024447d3b4305a84aa96c24ab83",
+      "trajectorySpecSha256": "eb1e134726bd2f8e65d3cf177b6404dffde650561be0061ca7aebc111df1e1ed",
       "registrationComplete": true
     },
     {
@@ -120,10 +120,10 @@
       "trajectorySpec": {
         "intervalSeconds": 13,
         "chunkBytes": 120,
-        "connections": 5,
+        "connections": 4,
         "activitySeconds": 110
       },
-      "trajectorySpecSha256": "c0a138329718ad7bb65df05a20eb7cb9b2eedd184db4e057eb15b6acab38088f",
+      "trajectorySpecSha256": "52cce6700f2bb75d6726e46b2d9385cdd9450b5f7bc2dd8fd0ce9984c37ac298",
       "registrationComplete": true
     },
     {
@@ -134,11 +134,11 @@
       "activitySeconds": 75,
       "trajectorySpec": {
         "intervalSeconds": 6,
-        "chunkBytes": 9,
+        "chunkBytes": 320,
         "connections": 4,
         "activitySeconds": 75
       },
-      "trajectorySpecSha256": "a853f42827226596cd75abbd3a4cfba0297eadc486867f69d1458aaac90d04f0",
+      "trajectorySpecSha256": "87234cd87220bc60a4154239ad017c675947bed13541e5b31912c25a3d73e55d",
       "registrationComplete": true
     },
     {
@@ -149,11 +149,11 @@
       "activitySeconds": 105,
       "trajectorySpec": {
         "intervalSeconds": 12,
-        "chunkBytes": 48,
-        "connections": 5,
+        "chunkBytes": 512,
+        "connections": 4,
         "activitySeconds": 105
       },
-      "trajectorySpecSha256": "c477dfb4ab9ae0dac9c0442b2da5dd8f57eaad0040d9873996ad2e2f50312246",
+      "trajectorySpecSha256": "5d69bf09c7451be01e506037a3d3102927d5122792af66cb166a2669c5dbc325",
       "registrationComplete": true
     }
   ],

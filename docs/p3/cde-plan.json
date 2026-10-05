@@ -246,10 +246,10 @@
         "behavior": "slowhttptest",
         "plannedRole": "validation_selection",
         "intervalSeconds": 5,
-        "chunkBytes": 3,
+        "chunkBytes": 96,
         "connections": 4,
         "activitySeconds": 65,
-        "differentia": "intervalSeconds=5，最小分片 3B，慢请求体早期增量序列最慢"
+        "differentia": "5秒间隔、96B分片，前10秒即出现请求体字节增量；活动期间请求体不完成"
       },
       {
         "id": "controlled_slowloris_g2",
@@ -266,10 +266,10 @@
         "behavior": "slowhttptest",
         "plannedRole": "validation_calibration",
         "intervalSeconds": 8,
-        "chunkBytes": 24,
+        "chunkBytes": 192,
         "connections": 3,
         "activitySeconds": 90,
-        "differentia": "intervalSeconds=8 connections=3，字节增量适中"
+        "differentia": "8秒间隔、192B分片；早期请求体字节增量区别于选型组"
       },
       {
         "id": "controlled_slowloris_g3",
@@ -287,32 +287,32 @@
         "plannedRole": "independent_development",
         "intervalSeconds": 13,
         "chunkBytes": 120,
-        "connections": 5,
+        "connections": 4,
         "activitySeconds": 110,
-        "differentia": "最高并发（5连接）chunkBytes=120；最长活动，覆盖额度上限边缘"
+        "differentia": "最高授权并发（4连接）chunkBytes=120；最长活动，覆盖额度上限边缘"
       },
       {
         "id": "controlled_slowhttptest_g3",
         "behavior": "slowhttptest",
         "plannedRole": "independent_development",
         "intervalSeconds": 6,
-        "chunkBytes": 9,
+        "chunkBytes": 320,
         "connections": 4,
         "activitySeconds": 75,
-        "differentia": "intervalSeconds=6 chunkBytes=9；早期字节增量区别于 g4"
+        "differentia": "6秒间隔、320B分片；早期请求体字节增量区别于选型和校准组"
       },
       {
         "id": "controlled_slowhttptest_g4",
         "behavior": "slowhttptest",
         "plannedRole": "independent_development",
         "intervalSeconds": 12,
-        "chunkBytes": 48,
-        "connections": 5,
+        "chunkBytes": 512,
+        "connections": 4,
         "activitySeconds": 105,
-        "differentia": "最高并发（5连接）intervalSeconds=12；最长慢请求体活动"
+        "differentia": "12秒间隔、512B分片；最高授权并发（4连接），最长慢请求体活动"
       }
     ],
-    "attackActivityNote": "八组 intervalSeconds 两两不同（5/6/7/8/9/11/12/13），量化早期轨迹两两可分；冻结器近重复与共同早期窗口审查不会将其并组。不保证自动取得八个独立组：复用旧组、近重复归并或改为仅诊断来源后须在冻结前重算配额。"
+    "attackActivityNote": "八组 intervalSeconds 两两不同（5/6/7/8/9/11/12/13）。慢请求体分片调整为96/192/320/512B，以产生业务字节增量差异；量化轨迹及独立性须在新PCAP提取后复核，重复则合组，不能按采集次数报独立组。"
   },
   "preFitDiagnostics": {
     "fitCount": 0,

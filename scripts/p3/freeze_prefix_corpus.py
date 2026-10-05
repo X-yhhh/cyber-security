@@ -11,15 +11,17 @@ import hashlib
 import json
 from pathlib import Path
 
-from build_qualified_prefix import sha,lines,us
+from build_qualified_prefix import sha,lines,us,target_key
 from verify_prefix_corpus import context_sources, group_admission, grouping_summary
 from prefix_contract import metadata, early_edges, sole_role, MAPPING_VERSION, EARLY_WINDOWS
+from capture_health import HealthChain, IDENTITY, VERSION as HEALTH_VERSION, stamp
 
 VERSION='prefix-corpus-partition-v5'
 # 增加谱系和诊断不重洗既有分区；固定原来的排序种子及组 ID 算法。
 ASSIGNMENT_SEED_VERSION='prefix-corpus-partition-v3'
 ADMISSION_VERSION='prefix-independent-development-v1'
 ROLES=('train','validation_selection','validation_calibration','independent_development')
+CONTROLLED_DOMAIN='controlled_windows_http_cde'
 
 
 def digest(value):
@@ -38,6 +40,89 @@ def near_vector(features):
     return [None if features[k] is None else round(features[k]/bucket) for k,bucket in fields]+[features['handshakeSeen']]
 
 
+def health_binding(registry_path, authorization_path, rows, timelines):
+    """仅为本轮真实受控目标生成可信绑定；公共来源不能继承回环健康旁证。"""
+    registry_path=Path(registry_path)
+    root=registry_path.parent
+    registry=json.loads(registry_path.read_text(encoding='utf-8'))
+    binding_path=root/'observer-binding.json'
+    records_path=root/'health-records.jsonl'
+    ledger_path=root/'activity-ledger.jsonl'
+    binding_doc=json.loads(binding_path.read_text(encoding='utf-8'))
+    authorization=json.loads(Path(authorization_path).read_text(encoding='utf-8'))
+    binding=binding_doc['binding']
+    if registry_path.name!='health-registry.json' or registry.get('version')!='p3-capture-health-registry-v1' or registry.get('modelFits')!=0:
+        raise ValueError('健康登记版本或拟合状态不符')
+    if (registry.get('healthVersion')!=HEALTH_VERSION or binding_doc.get('healthVersion')!=HEALTH_VERSION
+            or registry.get('recordsFile')!=records_path.name or registry.get('recordsSha256')!=sha(records_path)
+            or registry.get('records')!=sum(1 for _ in lines(records_path))
+            or registry.get('bindingSha256')!=sha(binding_path)
+            or registry.get('observerBindings')!=[binding] or registry.get('targetBindings')!={}):
+        raise ValueError('观察器绑定、原始记录或哈希不符')
+    config_sha=hashlib.sha256(json.dumps(binding_doc['config'],sort_keys=True,separators=(',',':')).encode()).hexdigest()
+    if (binding.get('configSha256')!=config_sha
+            or binding.get('buildSha256')!=sha(Path(__file__).with_name('capture_health_observer.py'))):
+        raise ValueError('观察器配置或采集代码身份不符')
+    if (authorization.get('status')!='authorized_active' or authorization.get('executionAuthorized') is not True
+            or binding_doc.get('authorizationId')!=authorization.get('authorizationId')
+            or binding_doc.get('authorizedUntil')!=authorization.get('validUntil')
+            or registry.get('authenticatedCollectionRef')!=authorization['authorizationId']+':'+sha(binding_path)):
+        raise ValueError('受控采集授权与观察器登记不符')
+    scope=authorization['scope'];config=binding_doc['config']
+    if (scope.get('host')!='win-dev' or scope.get('environment')!='isolated_loopback_research'
+            or scope.get('interface')!=config.get('interface') or scope.get('local')!='127.0.0.1'
+            or scope.get('peer')!='127.0.0.2' or scope.get('servicePort')!=80
+            or scope.get('maxConcurrentConnections',0)>4 or scope.get('firewallChanges') is not False
+            or scope.get('externalTrafficAllowed') is not False
+            or config.get('filter')!='ip and tcp and host 127.0.0.1 and host 127.0.0.2 and port 80'):
+        raise ValueError('观察器配置超出登记回环范围')
+    valid_from=stamp(authorization['validFrom']);valid_until=stamp(authorization['validUntil'])
+    if not valid_from<=stamp(binding_doc['startedAt'])<valid_until or stamp(registry['stoppedAt'])>valid_until+5000:
+        raise ValueError('观察器会话不在授权时段')
+    if registry.get('stopReason') not in ('stop_file','authorization_expired'):
+        raise ValueError('健康观察器异常停止')
+    controlled=[r for r in rows if r['sourceDomainId']==CONTROLLED_DOMAIN]
+    if not controlled:
+        raise ValueError('本轮没有可绑定的受控活动')
+    activities={r['activityId'] for r in controlled}
+    public_targets={r['budgetTargetId'] for r in rows if r['sourceDomainId']!=CONTROLLED_DOMAIN}
+    targets={r['budgetTargetId'] for r in controlled}
+    expected_target=target_key(binding['assetId'],'127.0.0.1:80','127.0.0.2:0')
+    if targets!={expected_target} or targets & public_targets:
+        raise ValueError('受控稳定目标缺失、与公共来源冲突或跨目标')
+    ledger=list(lines(ledger_path))
+    by_activity={r['activityId']:r for r in ledger}
+    if len(by_activity)!=len(ledger) or set(by_activity)!=activities:
+        raise ValueError('受控活动与完成账本不一致')
+    chain=HealthChain([binding]);last=None
+    for record in lines(records_path):
+        last=chain.accept(record)
+        if last['reason'] is not None:
+            raise ValueError('健康链存在不合格区间: '+last['reason'])
+    if last is None:
+        raise ValueError('健康链为空')
+    for row in controlled:
+        entry=by_activity[row['activityId']]
+        if (entry.get('success') is not True or entry.get('plannedRole')!=row['split']
+                or entry.get('kind')!=('attack' if row['label']==1 else 'benign')
+                or not valid_from<=stamp(row['firstSeenAt'])<=stamp(row['asOf'])<=entry['endedAt']*1000<=valid_until):
+            raise ValueError('受控观察与授权、角色或完成账本冲突')
+    controlled_timeline=[r for r in timelines if r['activityId'] in activities]
+    if {r['activityId'] for r in controlled_timeline}!=activities:
+        raise ValueError('受控活动标签时间线缺失')
+    for episode in controlled_timeline:
+        if (episode['targetId'] not in targets or not valid_from<=episode['startMs']<episode['endMs']<=valid_until
+                or episode['endMs']>by_activity[episode['activityId']]['endedAt']*1000
+                or chain.proof(binding,episode['startMs'],episode['endMs']) is None):
+            raise ValueError('受控活动时间线缺少授权范围内的连续健康证明')
+    if last['end']<max(r['endMs'] for r in controlled_timeline)+180000:
+        raise ValueError('最后活动后缺少规则到期及冷却旁证')
+    derived=dict(registry, targetBindings={target:{k:binding[k] for k in IDENTITY} for target in targets},
+                 sourceRegistrySha256=sha(registry_path),authorizationSha256=sha(authorization_path),
+                 activityLedgerSha256=sha(ledger_path))
+    return derived,records_path,binding_path,ledger_path
+
+
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--qualified',type=Path,action='append',required=True)
@@ -45,7 +130,9 @@ def main():
     p.add_argument('--health-registry',type=Path,default=None,
                    help='capture_health_observer 产出的 health-registry.json；'
                         '提供后将受控活动的 budgetTargetId 绑定到观察器会话，'
-                        '写入冻结输出的 targetBindings。不提供则跳过绑定。')
+                        '原始记录及派生登记写入冻结输出。不提供则跳过绑定。')
+    p.add_argument('--authorization',type=Path,
+                   help='本轮受控回环执行授权；指定健康登记时必填')
     for name in ['qualification','reservation','output']:p.add_argument('--'+name,type=Path,required=True)
     a=p.parse_args();q=json.loads(a.qualification.read_text());reservation=json.loads(a.reservation.read_text())
     if q['reservationSha256']!=sha(a.reservation) or reservation['modelScoresRead'] or reservation['finalFeaturesRead']:
@@ -182,30 +269,11 @@ def main():
             raise ValueError('标签时间线 plannedRole 与冻结组冲突')
         if ep['endMs']<=ep['startMs']:raise ValueError('非法标签时间线')
         qualified_timeline.append(dict(ep,leakageGroupId=group,split=role))
-    # 从健康登记推导受控活动的 targetBindings（budgetTargetId → 观察器会话绑定）。
-    # 只绑定实际出现在当前语料中的受控活动，多余的登记跳过，缺失的不报错。
-    target_bindings={}
-    health_registry_sha=None
+    if bool(a.health_registry)!=bool(a.authorization):
+        raise ValueError('健康登记与执行授权必须同时提供')
+    health=None
     if a.health_registry:
-        registry=json.loads(a.health_registry.read_text())
-        if registry.get('modelFits',0)!=0:
-            raise ValueError('健康登记 modelFits 不为 0，拒绝绑定')
-        health_registry_sha=sha(a.health_registry)
-        bindings_by_observer={b['observerSessionId']:b for b in registry.get('observerBindings',[])}
-        corpus_target_ids={r.get('budgetTargetId') for r in rows if r.get('budgetTargetId')}
-        for tid in corpus_target_ids:
-            # targetBindings 格式：targetId → {observerSessionId, captureScopeId, authRef}
-            for obs_id,binding in bindings_by_observer.items():
-                # 同一稳定目标的 assetId 与 binding 中的 assetId 对应
-                auth_ref=registry.get('authenticatedCollectionRef','')
-                target_bindings[tid]=dict(
-                    observerSessionId=binding['observerSessionId'],
-                    captureScopeId=binding.get('captureScopeId',''),
-                    healthVersion=binding.get('healthVersion',''),
-                    authenticatedCollectionRef=auth_ref,
-                    registrySha256=health_registry_sha,
-                )
-                break  # 当前设计一次采集只有一个观察器会话
+        health=health_binding(a.health_registry,a.authorization,rows,qualified_timeline)
 
     # 独立开发最少组数是下限；真实训练入口仍须使用完整实验计划，不由此脚本放宽。
     a.output.mkdir(parents=True,exist_ok=False,mode=0o700)
@@ -224,13 +292,14 @@ def main():
               captures=sealed_rows,
               reason='immutable reservation only; final provenance and candidate admission must be reviewed separately')
     (a.output/'p6-sealed-manifest.json').write_text(json.dumps(seal,indent=2)+'\n')
-    if target_bindings:
-        (a.output/'health-targetbindings.json').write_text(json.dumps(
-            dict(version='p3-health-targetbindings-v1',
-                 registrySha256=health_registry_sha,
-                 targetBindings=target_bindings,
-                 modelFits=0),
-            ensure_ascii=False,indent=2)+'\n')
+    health_outputs=[]
+    if health:
+        registry,records_path,binding_path,ledger_path=health
+        for path in (records_path,binding_path,ledger_path):
+            (a.output/path.name).write_bytes(path.read_bytes())
+            health_outputs.append(path.name)
+        (a.output/'health-registry.json').write_text(json.dumps(registry,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+        health_outputs.append('health-registry.json')
     partition=dict(version=VERSION,assignment='explicit plannedRole; merged role conflict rejected before output',
                    assignmentSeedVersion=ASSIGNMENT_SEED_VERSION,
                    scenarioMappingVersion=MAPPING_VERSION,earlyTrajectoryWindowsSeconds=list(EARLY_WINDOWS),
@@ -248,7 +317,7 @@ def main():
         nearDuplicateMatches=near_matches,rolesFrozen=True,finalReservationFrozen=True,sealedCaptures=len(sealed),
         finalRead=False,p6Ready=False,trainingAllowed=not blockers,modelFits=0,blockers=blockers,
         inputs=files,inputHashes=input_hashes,scriptSha256=sha(Path(__file__)),
-        outputHashes={name:sha(a.output/name) for name in ['index.jsonl','observations.jsonl','label-timeline.jsonl','partitions.json','p6-sealed-manifest.json']})
+        outputHashes={name:sha(a.output/name) for name in ['index.jsonl','observations.jsonl','label-timeline.jsonl','partitions.json','p6-sealed-manifest.json',*health_outputs]})
     (a.output/'readiness.json').write_text(json.dumps(report,indent=2)+'\n')
     print(json.dumps({k:v for k,v in report.items() if k not in ('inputHashes','inputs')}))
 

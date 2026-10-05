@@ -30,27 +30,26 @@ from capture_health_observer import ROLE_ORDER, ledger_append, ledger_check, led
 # 每组是一个真实不同的慢速画像，不是同一轨迹改时长或抖动：
 #  - intervalSeconds  追加头/请求体分片的发送间隔（决定早期窗口内的包计数序列）
 #  - chunkBytes       每次发送的字节数（决定 bytesInbound 增量）
-#  - connections      并发连接数（真实 parent 数量，2—5）
+#  - connections      并发连接数（真实 parent 数量，2—4）
 #  - activitySeconds  活动时长（多数短于 120 秒自动额度，落在处置期）
-# 八组 intervalSeconds 两两不同（5/6/7/8/9/11/12/13），量化早期轨迹两两可分，
-# 冻结器的近重复与共同早期窗口审查不会把它们并成同一防泄漏组。
+# 分片大小在不同角色中产生实际请求体字节增量；独立性仍以采集后的量化轨迹审查为准。
 SCENARIOS = [
     dict(id='controlled_slowloris_g1', mode='slowloris', groupOrdinal=1, plannedRole='train',
          intervalSeconds=7, chunkBytes=40, connections=3, activitySeconds=70),
     dict(id='controlled_slowhttptest_g1', mode='slowhttptest', groupOrdinal=1, plannedRole='validation_selection',
-         intervalSeconds=5, chunkBytes=3, connections=4, activitySeconds=65),
+         intervalSeconds=5, chunkBytes=96, connections=4, activitySeconds=65),
     dict(id='controlled_slowloris_g2', mode='slowloris', groupOrdinal=2, plannedRole='validation_calibration',
          intervalSeconds=11, chunkBytes=88, connections=4, activitySeconds=95),
     dict(id='controlled_slowhttptest_g2', mode='slowhttptest', groupOrdinal=2, plannedRole='validation_calibration',
-         intervalSeconds=8, chunkBytes=24, connections=3, activitySeconds=90),
+         intervalSeconds=8, chunkBytes=192, connections=3, activitySeconds=90),
     dict(id='controlled_slowloris_g3', mode='slowloris', groupOrdinal=3, plannedRole='independent_development',
          intervalSeconds=9, chunkBytes=56, connections=3, activitySeconds=80),
     dict(id='controlled_slowloris_g4', mode='slowloris', groupOrdinal=4, plannedRole='independent_development',
-         intervalSeconds=13, chunkBytes=120, connections=5, activitySeconds=110),
+         intervalSeconds=13, chunkBytes=120, connections=4, activitySeconds=110),
     dict(id='controlled_slowhttptest_g3', mode='slowhttptest', groupOrdinal=3, plannedRole='independent_development',
-         intervalSeconds=6, chunkBytes=9, connections=4, activitySeconds=75),
+         intervalSeconds=6, chunkBytes=320, connections=4, activitySeconds=75),
     dict(id='controlled_slowhttptest_g4', mode='slowhttptest', groupOrdinal=4, plannedRole='independent_development',
-         intervalSeconds=12, chunkBytes=48, connections=5, activitySeconds=105),
+         intervalSeconds=12, chunkBytes=512, connections=4, activitySeconds=105),
 ]
 
 ISOLATION_SECONDS   = 155
@@ -58,7 +57,7 @@ ISOLATION_SECONDS   = 155
 # 固定等待本身不是恢复证据，离线恢复仍须认证健康链证明。
 INTER_ACTIVITY_SECONDS = max(ISOLATION_SECONDS, 120 + 60 + 10)
 ACTIVITY_SECONDS    = 90     # 仅作缺省；实际时长取每组 activitySeconds
-MAX_CONNECTIONS     = 5      # 每资产并发上限，单组实际连接数由 connections 指定
+MAX_CONNECTIONS     = 4      # 授权登记的每资产并发上限，单组实际连接数由 connections 指定
 LOCAL               = '127.0.0.1'
 PEER                = '127.0.0.2'
 PORT                = 80

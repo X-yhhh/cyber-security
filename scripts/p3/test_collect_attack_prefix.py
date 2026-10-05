@@ -198,7 +198,7 @@ class TestConstants(unittest.TestCase):
         self.assertLessEqual(cap.ACTIVITY_SECONDS, 120)
 
     def test_max_connections(self):
-        self.assertEqual(cap.MAX_CONNECTIONS, 5)
+        self.assertEqual(cap.MAX_CONNECTIONS, 4)
 
     def test_each_group_has_distinct_profile(self):
         profiles = [(s['intervalSeconds'], s['chunkBytes'], s['connections']) for s in cap.SCENARIOS]

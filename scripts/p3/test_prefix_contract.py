@@ -73,6 +73,14 @@ class PrefixContractTest(unittest.TestCase):
         self.assertTrue(any(left=='a' and right=='b' for left,right,_ in edges))
         self.assertFalse(any('c' in (left,right) for left,right,_ in edges))
 
+    def test_repeated_same_second_snapshots_are_not_an_early_trajectory(self):
+        vectors={'repeated':[(1,[1,2]),(1,[1,2])],
+                 'progressed':[(1,[1,2]),(1,[1,2]),(10,[10,4])],
+                 'other':[(1,[1,2]),(10,[10,4])]}
+        edges=early_edges(vectors,dict(repeated='a',progressed='b',other='c'))
+        self.assertFalse(any('a' in (left,right) for left,right,_ in edges))
+        self.assertTrue(any(left=='b' and right=='c' for left,right,_ in edges))
+
     def test_short_common_trajectory_merges_all_previously_seen_branches(self):
         sequences={'a':[(1,[1,2]),(5,[5,4]),(10,[10,10])],
                    'b':[(1,[1,2]),(5,[5,4]),(10,[10,20])],

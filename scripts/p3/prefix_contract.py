@@ -68,16 +68,22 @@ def early_edges(parent_rows, parent_cohorts):
     """在共有的早期前缀上建立保守相关边；短序列与长序列的相同开头也归并。
 
     输入为已去身份的量化向量，第一项是 elapsedMs 的秒分箱。前缀树避免
-    全部 parent 两两比较。每个窗口至少两条观察，尾部延长不会消除既有边。
+    全部 parent 两两比较。每个窗口至少跨两个相对时间分箱；同一秒重复
+    发出的快照不构成时间轨迹，尾部延长不会消除既有边。
     返回 cohort 边而非独立组数；调用方还须合并活动、完整 parent 和上下文。
     """
     edges = set()
     for window in EARLY_WINDOWS:
         tree = {}
         for parent, sequence in sorted(parent_rows.items()):
-            vectors = [tuple(v) for _, v in sorted(sequence, key=lambda item: item[0])
-                       if v[0] is not None and v[0] <= window]
-            if len(vectors) < 2:
+            vectors = []
+            for _, value in sorted(sequence, key=lambda item: item[0]):
+                if value[0] is None or value[0] > window:
+                    continue
+                vector = tuple(value)
+                if not vectors or vectors[-1] != vector:
+                    vectors.append(vector)
+            if len(vectors) < 2 or len({vector[0] for vector in vectors}) < 2:
                 continue
             cohort = parent_cohorts[parent]
             node = tree

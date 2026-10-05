@@ -40,10 +40,10 @@ class SourceGroupingTest(unittest.TestCase):
                                 ('captureGap', 'latePacket', 'truncated', 'offloadSuspected', 'capacityDrop')}))
                         rows.append(dict(observationId=ident, parentConnectionId=parent, activityId=activity,
                             sourceId=f'controlled_slowloris_g{group+1}', contextSourceId='controlled_windows_http_cde',
-                            scenario='controlled_slowloris', split='independent_development', label=1,
+                            scenario='controlled_slowloris', plannedRole='independent_development', split='independent_development', label=1,
                             firstSeenAt=stamp(0), asOf=stamp(seconds), budgetTargetId='controlled-target'))
                     timeline.append(dict(episodeId=activity, activityId=activity, scenario='controlled_slowloris',
-                                         label=1, targetId='controlled-target', startMs=first.timestamp()*1000,
+                                         label=1, plannedRole='independent_development', sourceId=f'controlled_slowloris_g{group+1}', targetId='controlled-target', startMs=first.timestamp()*1000,
                                          endMs=(first.timestamp()+6)*1000))
                 for name, values in [('index.jsonl', rows), ('observations.jsonl', observations), ('label-timeline.jsonl', timeline)]:
                     (source/name).write_text(''.join(json.dumps(row)+'\n' for row in values), encoding='utf-8')

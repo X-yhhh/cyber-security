@@ -48,6 +48,7 @@ class MigrationIntegrationTest {
         Flyway.configure()
                 .dataSource(schemaUrl(EMPTY_SCHEMA), username, password)
                 .locations("classpath:db/migration")
+                .target("18") // 历史基线断言；v5 升级由 GuardMigrationIntegrationTest 验证。
                 .baselineOnMigrate(false)
                 .load()
                 .migrate();
@@ -182,6 +183,7 @@ class MigrationIntegrationTest {
         assertThatThrownBy(() -> Flyway.configure()
                 .dataSource(schemaUrl(OCCUPIED_SCHEMA), username, password)
                 .locations("classpath:db/migration")
+                .target("18") // 历史基线断言；v5 升级由 GuardMigrationIntegrationTest 验证。
                 .baselineOnMigrate(false)
                 .load()
                 .migrate())

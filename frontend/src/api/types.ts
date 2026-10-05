@@ -237,3 +237,162 @@ export function fmtTime(v: string | null | undefined, withDate = true) {
   const t = `${p(d.getHours())}:${p(d.getMinutes())}`
   return withDate ? `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${t}` : t
 }
+
+/* ------------------------------------------------------------------ *
+ * host-guard v5 控制面（/api/v2，P4）视图类型。
+ *
+ * 字段名与后端 GuardQueries.view 的投影一致：外部主键统一为 `id`（UUID 字符串），
+ * 外键列返回目标行的 public_id，`*_json` 列去掉后缀并已递归脱敏
+ * （stableTargetToken / scopeDigest / credential / privateKey 永不返回），
+ * 时间为带 Z 的 Instant 字符串。创建人/审批人 ID 属 HIDDEN，前端拿不到。
+ * ------------------------------------------------------------------ */
+
+/** 采集身份（sensor）与执行身份（executor）的绑定资产。 */
+export interface GuardAsset {
+  id: string; assetKey: string; assetType: string; environment: string; criticality: string; owner: string
+  status: string; labels: unknown; revision: number; createdAt: string; updatedAt: string
+}
+export interface GuardSensor {
+  id: string; assetId: string; agentKey: string; platform: string; agentVersion: string; capabilities: unknown
+  status: string; registeredAt: string; lastHeartbeatAt: string | null; revision: number; guardBootId: string | null; createdAt: string
+}
+export interface GuardExecutor {
+  id: string; assetId: string; platform: string; adapterVersion: string; capabilityHash: string; bootId: string | null
+  status: string; lastHeartbeat: string | null; health: string | null; revision: number
+}
+/** 登记机器身份后的唯一一次凭据交付；重放同一幂等键会得到 409 CREDENTIAL_ALREADY_ISSUED。 */
+export interface GuardMachineCredential { id: string; clientId: string; credential: string; status: string }
+
+export interface GuardModel {
+  id: string; modelKey: string; version: string; manifestRef: string; manifestSha256: string; artifactSha256: string
+  contractId: string | null; manifest: unknown; validationStatus: string | null; validation: unknown; createdAt: string
+}
+export interface GuardDataset { id: string; datasetKey: string; version: string; manifestRef: string; manifestSha256: string; payload: unknown; createdAt: string }
+export interface GuardEvaluationPlan { id: string; planKey: string; version: string; planSha256: string; payload: unknown; createdAt: string }
+/** runKind 为 development / final / replay / canary / platform；报告只登记引用与哈希，不抓取任意 URL。 */
+export interface GuardEvaluation {
+  id: string; planId: string; bundleId: string | null; runKind: string; runnerIdentity: string; status: string
+  reportRef: string | null; reportSha256: string | null; payload: unknown; createdAt: string
+}
+/** 决策策略：draft → reviewed → retired；draft 不能进入活动发布组合。 */
+export interface GuardDecisionPolicy {
+  id: string; policyKey: string; version: string; modelId: string | null; planId: string | null
+  definition: unknown; definitionSha256: string; status: string; revision: number; createdAt: string
+}
+/** 发布组合：candidate → evaluated → approved → active → suspended/retired，审批与激活分开。 */
+export interface GuardReleaseBundle {
+  id: string; bundleKey: string; version: string; modelId: string; policyId: string; contractId: string | null
+  planId: string | null; environment: string; subjectSha256: string; subject: unknown
+  sealedManifestSha256: string | null; sealedManifest: unknown; status: string; revision: number; createdAt: string
+}
+/** 能力登记：research / alert_only / lab_auto / authorized_auto。 */
+export interface GuardCapability {
+  id: string; capabilityKey: string; version: string; platform: string; level: string; payload: unknown; createdAt: string
+}
+
+/** 观察批次：202 只表示持久化受理，不代表检测或阻断已完成。 */
+export interface GuardObservationBatch {
+  id: string; sensorId: string; assetId: string; bootId: string; sequenceNo: number; configId: string | null
+  requestSha256: string; result: unknown; createdAt: string
+}
+export interface GuardObservation {
+  id: string; batchId: string; sensorId: string; assetId: string; bootId: string; captureScopeId: string | null
+  flowId: string; parentConnectionId: string | null; snapshotIndex: number | null; profile: string | null
+  asOf: string | null; lastPacketAt: string | null; peerKey: string | null; keyEpoch: string | null
+  direction: string | null; transport: string | null; servicePort: number | null; environment: string | null
+  payload: unknown; contentSha256: string; createdAt: string
+}
+/** 推理结论；不成功的推理不带攻击概率（score 为 null）。 */
+export interface GuardDetection {
+  id: string; observationId: string; assetId: string; modelId: string | null; status: string; score: number | null
+  family: string | null; applicability: string | null; manifestSha256: string | null; completedAt: string | null
+  errorCode: string | null; createdAt: string
+}
+/** 证据迹（episode）：按 parent 去重，30 秒桶归并；同主机其他 peer 不升级本 episode。 */
+export interface GuardEpisode {
+  id: string; assetId: string; sensorId: string; bootId: string; peerKey: string; keyEpoch: string | null
+  direction: string; transport: string; servicePort: number; family: string | null; bundleId: string | null
+  bucketStart: string; revision: number; createdAt: string
+}
+export interface GuardEpisodeEvidence {
+  id: string; episodeId: string; parentConnectionId: string | null; observationId: string
+  inferenceId: string | null; score: number | null; asOf: string | null; createdAt: string
+}
+/** 决策事实：observe / alert / block_candidate；reasonCode 与展示风险分开。 */
+export interface GuardDecision {
+  id: string; episodeId: string; assetId: string; bundleId: string | null; decisionRevision: number
+  decisionContractVersion: string | null; decision: string; reasonCode: string; budgetTargetId: string | null
+  budgetRevision: number | null; evidenceSha256: string | null; evidence: unknown; decidedAt: string | null; createdAt: string
+}
+export interface GuardAction {
+  id: string; decisionId: string | null; assetId: string; executorId: string | null; budgetTargetId: string | null
+  budgetRevision: number | null; bundleId: string | null; authorizationId: string | null; authorizationRevision: number | null
+  mode: string; desiredState: string; desiredRevision: number; observedState: string; idempotencyKey: string | null
+  targetSnapshot: unknown; blockUntil: string | null; revision: number; createdAt: string
+}
+export interface GuardActionReceipt {
+  id: string; commandId: string; executorId: string; assetId: string; revocationId: string | null; status: string
+  observedAt: string; stateDigest: string; contentSha256: string; payload: unknown; projected: boolean; createdAt: string
+}
+/**
+ * 稳定目标预算。列表项与详情字段不同：
+ * 详情读 guard_target_budget，返回 chargedMs / cycleStartedAt 等账本事实，且不返回 token 与真实端点。
+ */
+export interface GuardBudgetTarget {
+  id: string; assetId: string; environment: string | null; resolverExecutorId: string | null
+  identityStatus: string | null; createdAt: string
+}
+export interface GuardBudgetLedger {
+  id: string; chargedMs: number | null; lastBlockEndAt: string | null; lastEvidenceAt: string | null
+  healthProofSha256: string | null; cycleStartedAt: string | null; revision: number; createdAt: string
+}
+export interface GuardGuardEvent {
+  id: string; guardAssetId: string | null; revision: number; eventKey: string; title: string; category: string
+  severity: Severity; status: string; riskScore: number | null; riskRuleVersion: string | null
+  firstSeenAt: string | null; lastSeenAt: string | null; createdAt: string; closedAt: string | null
+}
+export interface GuardTimelineEntry {
+  id: string; eventId: string; occurredAt: string; entryType: string; actorType: string; actorId: string | null
+  summary: string; evidenceRef: string | null; details: unknown; createdAt: string
+}
+export interface GuardFeedback {
+  id: string; createdAt: string; assetId: string | null; observationId: string; label: string; evidenceRef: string
+  status: string; reviewReason: string | null; revision: number
+}
+
+/** 机器身份台账（GET /machine-clients）。 */
+export interface GuardMachineClient {
+  id: string; clientKey: string; clientType: string; sensorId: string | null; executorId: string | null
+  status: string; expiresAt: string | null; revokedAt: string | null; createdAt: string
+}
+
+/** v2 状态显示标签。未知值一律原样显示，不猜测语义。 */
+export const guardAssetEnvLabel: Record<string, string> = { research: '研究', lab: '靶场', authorized: '授权' }
+export const guardCapabilityLevelLabel: Record<string, string> = {
+  research: '研究', alert_only: '仅告警', lab_auto: '靶场自动', authorized_auto: '授权自动', suspended: '已暂停',
+}
+export const guardDecisionLabel: Record<string, string> = { observe: '观察', alert: '告警', block_candidate: '阻断候选' }
+/** 决策主原因码（契约 T1—T9 次序），细分诊断另附 detailCode。 */
+export const guardReasonLabel: Record<string, string> = {
+  CAPABILITY_NOT_SUPPORTED: '能力不支持', QUALITY_UNSUPPORTED: '质量不达标', CLOCK_UNTRUSTED: '时钟不可信',
+  TARGET_REF_STALE: '目标引用过期', EVIDENCE_STALE: '证据过期', SCORE_BELOW_AUTO: '分数低于自动阈值',
+  EVIDENCE_INSUFFICIENT: '证据不足', CONTEXT_CONDITION_UNMET: '上下文条件未满足',
+  AUTHORIZATION_INACTIVE: '授权失效', PROTECTION_OR_BUDGET_BLOCKED: '保护范围或预算受限',
+}
+export const guardBudgetDetailLabel: Record<string, string> = {
+  PROTECTED_TARGET: '受保护目标', PROTECTED_SERVICE: '受保护服务', PROTECTION_SET_UNVERIFIED: '保护集未核验',
+  TTL_OR_UNCERTAIN_DEDUP: 'TTL 或不确定态去重', TARGET_CONTINUOUS_BUDGET: '目标连续预算',
+  ASSET_CONCURRENT_LIMIT: '资产并发上限', ASSET_RATE_LIMIT: '资产速率上限',
+}
+export const guardInferenceStatusLabel: Record<string, string> = {
+  succeeded: '推理成功', not_applicable: '不适用', rejected: '已拒绝', failed: '失败', expired: '已过期',
+}
+export const guardBundleStatusLabel: Record<string, string> = {
+  candidate: '候选', evaluated: '已评价', approved: '已批准', active: '已激活', suspended: '已暂停', retired: '已退役', rejected: '已驳回',
+}
+export const guardIdentityStatusLabel: Record<string, string> = {
+  verified: '已核验', unverified: '未核验', rotated: '已轮换', conflict: '标识冲突',
+}
+export const guardMachineClientTypeLabel: Record<string, string> = { sensor: '采集身份', executor: '执行身份' }
+/** feedback：未复核的标注不自动成为训练真值。 */
+export const guardFeedbackLabel: Record<string, string> = { benign: '正常', attack: '攻击', ambiguous: '存疑' }

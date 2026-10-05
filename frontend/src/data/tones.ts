@@ -17,3 +17,45 @@ export const criterionTone = map({ pass: 'ok', fail: 'threat', pending: 'signal'
 export const verdictTone = map({ pass: 'ok', fail: 'threat', incomplete: 'warn' })
 export const driftTone = map({ computed: 'ok', insufficient_samples: 'warn', baseline_unavailable: 'warn', mixed_artifacts: 'warn', no_samples: 'mute' })
 export const statusTone = map({ active: 'ok', approved: 'ok', completed: 'ok', succeeded: 'ok', pending: 'signal', running: 'signal', queued: 'mute', draft: 'mute', offline: 'warn', failed: 'threat', expired: 'mute', revoked: 'threat', disabled: 'mute', retired: 'mute', rejected: 'threat' })
+
+/* ------------------------------------------------------------------ *
+ * host-guard v5（P4）状态语义色。
+ *
+ * 新增集合一律在此集中映射，页面不各自判色；未知值经 Proxy 回退为 mute。
+ * signal 仍表示「进行中/需关注但非威胁」，不代表安全。
+ * ------------------------------------------------------------------ */
+
+/** 观察/推理：接收成功不等于推理成功，两者分别着色。 */
+export const observationTone = map({ accepted: 'ok', rejected: 'threat', duplicate: 'mute' })
+export const inferenceTone = map({ succeeded: 'ok', not_applicable: 'mute', rejected: 'threat', failed: 'threat', expired: 'mute' })
+
+/** 决策结论：observe 为中性，alert 与 block_candidate 分别对应告警与阻断候选。 */
+export const decisionTone = map({ observe: 'mute', alert: 'warn', block_candidate: 'threat' })
+
+/** 动作终态：desiredState 与 observedState 分开显示，未核实的执行不记为已生效。 */
+export const actionStateTone = map({
+  pending: 'signal', active: 'signal', revoked: 'mute',
+  applied: 'ok', cleared: 'mute', failed: 'threat', rejected: 'mute',
+  uncertain: 'warn', recovery_failed: 'threat', expired: 'mute',
+})
+
+/** 发布组合：candidate → evaluated → approved → active。 */
+export const bundleTone = map({ candidate: 'mute', evaluated: 'signal', approved: 'ok', active: 'ok', suspended: 'warn', retired: 'mute', rejected: 'threat' })
+
+/** 决策策略：draft → reviewed → retired。 */
+export const policyReviewTone = map({ draft: 'mute', reviewed: 'ok', retired: 'mute', rejected: 'threat' })
+
+/** 能力等级：越高越需要独立证据，研究级不冒充已验证。 */
+export const capabilityTone = map({ research: 'mute', alert_only: 'signal', lab_auto: 'warn', authorized_auto: 'ok', suspended: 'threat' })
+
+/** 目标预算标识核验状态。 */
+export const identityTone = map({ verified: 'ok', unverified: 'warn', rotated: 'warn', conflict: 'threat' })
+
+/** 采集健康窗口核验结果。 */
+export const healthTone = map({ healthy: 'ok', degraded: 'warn', gap: 'threat', unknown: 'mute', incomplete: 'warn' })
+
+/** 机器身份生命周期。 */
+export const machineClientTone = map({ active: 'ok', revoked: 'mute', expired: 'mute', pending: 'signal' })
+
+/** 推理适用性。 */
+export const applicabilityTone = map({ applicable: 'ok', not_applicable: 'mute', unsupported: 'warn' })

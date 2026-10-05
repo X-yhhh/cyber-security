@@ -180,6 +180,25 @@ func (r *TargetRegistry) resolve(ref string, b TargetBinding) (Endpoints, error)
 	return v.endpoints, nil
 }
 
+// resolveLease 为 P5 返回新鲜度上界；旧 resolve 响应保持兼容。
+// lastPacketAt 不随解析请求刷新，执行器必须同时核验10秒证据期限与15秒引用期限。
+func (r *TargetRegistry) resolveLease(ref string, b TargetBinding) (any, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, err := r.clock(); err != nil {
+		return nil, err
+	}
+	v, ok := r.entries[ref]
+	if !ok || !r.valid(b) || v.binding != b {
+		return nil, ErrTarget
+	}
+	return struct {
+		Endpoints    Endpoints `json:"endpoints"`
+		ExpiresAt    time.Time `json:"expiresAt"`
+		LastPacketAt time.Time `json:"lastPacketAt"`
+	}{v.endpoints, v.lease.ExpiresAt, v.last}, nil
+}
+
 // Invalidate 在地址、接口或身份变更时立即撤销所有引用；只能创建新 registry 恢复服务。
 func (r *TargetRegistry) Invalidate() {
 	r.mu.Lock()
@@ -236,7 +255,7 @@ func (r *TargetRegistry) ServeHTTP(w http.ResponseWriter, q *http.Request) {
 			return
 		}
 		_ = json.NewEncoder(w).Encode(lease)
-	case "/v1/targets/resolve":
+	case "/v1/targets/resolve", "/v1/targets/resolve-lease":
 		if fingerprint != r.scope.ExecutorCertSHA256 {
 			deny()
 			return
@@ -249,7 +268,12 @@ func (r *TargetRegistry) ServeHTTP(w http.ResponseWriter, q *http.Request) {
 			deny()
 			return
 		}
-		end, err := r.resolve(v.Ref, v.Binding)
+		var end any
+		if q.URL.Path == "/v1/targets/resolve-lease" {
+			end, err = r.resolveLease(v.Ref, v.Binding)
+		} else {
+			end, err = r.resolve(v.Ref, v.Binding)
+		}
 		if err != nil {
 			deny()
 			return

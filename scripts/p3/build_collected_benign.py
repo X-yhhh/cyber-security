@@ -20,6 +20,7 @@ from pcap_reference import tcp
 from verify_benign_long import reassemble
 from verify_prefix_corpus import lines, read, sha, time_ms
 from build_qualified_prefix import target_key
+from prefix_contract import planned_role, metadata
 
 
 def audit(batch):
@@ -90,14 +91,17 @@ def main():
     p = argparse.ArgumentParser(description=__doc__)
     for name in ('root', 'extractor', 'output'): p.add_argument('--' + name, type=Path, required=True)
     args = p.parse_args(); registration = read(args.root / 'registration.json')
-    if read(args.root / 'complete.json')['status'] != 'completed': raise ValueError('整轮任务未完成')
+    complete = read(args.root / 'complete.json')
+    if complete['status'] != 'completed': raise ValueError('整轮任务未完成')
+    completion = {r['activityId']: r for r in complete['results']}
     args.output.mkdir(parents=True, exist_ok=False, mode=0o700)
     secret = args.output / 'peer-key.bin'; secret.write_bytes(os.urandom(32)); secret.chmod(0o600)
-    identity = dict(assetId=str(uuid.uuid4()), sensorId=str(uuid.uuid4()), secretFile=str(secret.resolve()), keyEpoch=1)
+    identity = dict(assetId=str(uuid.UUID(registration['assetId'])), sensorId=str(uuid.UUID(registration['sensorId'])), secretFile=str(secret.resolve()), keyEpoch=1)
     rows = []; observations = []; timelines = []; audits = []; previous_end = None
     for profile in registration['profiles']:
         batch = args.root / f"batch-{profile['batch']:02}"
         task, connections, maximum = audit(batch)
+        if planned_role(task) != planned_role(profile) or planned_role(completion.get(task['activityId'], {})) != planned_role(task): raise ValueError('正常任务 plannedRole 链不完整')
         if task['profile'] != profile or task['role'] != profile['role']: raise ValueError('任务预登记不符')
         start = min(c['firstUs'] for c in connections); end = max(c['lastUs'] for c in connections)
         if previous_end is not None and start - previous_end < 150000000: raise ValueError('批次上下文隔离不足')
@@ -124,19 +128,21 @@ def main():
             if any(obs['quality'][k] for k in ('captureGap', 'latePacket', 'truncated', 'offloadSuspected', 'capacityDrop')) or obs['profile'] != 'flow-prefix-v1': continue
             rows.append(dict(observationId=obs['observationId'], parentConnectionId=parent,
                  activityId=task['activityId'], associationGroup=task['activityId'], sourceId='controlled_windows_http_cde',
-                 scenario='controlled_benign', split=task['role'], label=0, family='benign',
+                 scenario='controlled_benign', plannedRole=planned_role(task), split=planned_role(task), label=0, family='benign',
                  evidenceTier='controlled_task', taskKind=c['kind'], labelRuleVersion='p3-cde-verified-complete-task-v1',
                  captureSha256=ex['pcapSha256'], firstSeenAt=obs['firstSeenAt'], asOf=obs['asOf'], budgetTargetId=target))
             observations.append(obs); kept[c['kind']] += 1
         for parent, c in parents.items():
             timelines.append(dict(episodeId=hashlib.sha256((task['activityId'] + parent).encode()).hexdigest(),
-                 parentConnectionId=parent, activityId=task['activityId'], scenario='controlled_benign', label=0,
+                 parentConnectionId=parent, activityId=task['activityId'], scenario='controlled_benign', plannedRole=planned_role(task), sourceId='controlled_windows_http_cde', label=0,
                  targetId=target, startMs=c['firstUs'] / 1000, endMs=c['lastUs'] / 1000,
                  hasObservation=any(r['parentConnectionId'] == parent for r in rows), basis='pre_registered_controlled_task_and_verified_content'))
         audits.append(dict(batch=batch.name, activityId=task['activityId'], role=task['role'],
             actualConnectionSeconds=[c['durationSeconds'] for c in connections], connections=len(connections),
             maxConcurrent=maximum, captureDrops=task['capture']['stats']['dropped'], keptByKind=dict(kept),
             captureSha256=ex['pcapSha256'], taskSha256=sha(batch / 'task.json'), extractionSha256=sha(work / 'extraction.json')))
+    rows=[metadata(r) for r in rows]
+    timelines=[metadata(r) for r in timelines]
     for name, values in [('index.jsonl', rows), ('observations.jsonl', observations), ('label-timeline.jsonl', timelines)]:
         with (args.output / name).open('x', encoding='utf-8') as stream:
             for value in values: stream.write(json.dumps(value) + '\n')

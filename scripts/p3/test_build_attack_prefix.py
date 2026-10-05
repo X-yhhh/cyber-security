@@ -135,7 +135,7 @@ class TestAuditGroup(unittest.TestCase):
 
     def _write_activity(self, td, success=True, dropped=0, frames=10):
         activity = dict(
-            activityId='test-activity-001',
+            activityId='test-activity-001', plannedRole='train',
             scenarioId='controlled_slowloris_g1',
             mode='slowloris',
             groupOrdinal=1,
@@ -194,7 +194,7 @@ class TestAuditGroup(unittest.TestCase):
 
     def _registration(self, activity):
         registration = {'scenarios': [dict(id=activity['scenarioId'], mode=activity['mode'],
-                                            groupOrdinal=activity['groupOrdinal'])]}
+                                            groupOrdinal=activity['groupOrdinal'],plannedRole=activity['plannedRole'])]}
         complete = dict(status='completed', groups=1, results=[dict(activity)])
         return registration, complete
 
@@ -210,12 +210,24 @@ class TestAuditGroup(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, '未登记、错配或重复'):
                 bap.registered_groups(Path(td), registration, complete)
 
+    def test_registered_role_must_reach_activity_and_completion(self):
+        with tempfile.TemporaryDirectory() as td:
+            folder=self._write_activity(td)
+            activity=json.loads((folder/'activity.json').read_text())
+            registration,complete=self._registration(activity)
+            complete['results'][0]['plannedRole']='validation_calibration'
+            with self.assertRaisesRegex(ValueError, 'plannedRole 冲突'):
+                bap.registered_groups(Path(td),registration,complete)
+            del complete['results'][0]['plannedRole']
+            with self.assertRaisesRegex(ValueError, 'plannedRole 缺失'):
+                bap.registered_groups(Path(td),registration,complete)
+
     def test_missing_registered_group_cannot_be_silently_skipped(self):
         with tempfile.TemporaryDirectory() as td:
             folder = self._write_activity(td)
             activity = json.loads((folder / 'activity.json').read_text())
             registration, complete = self._registration(activity)
-            registration['scenarios'].append(dict(id='controlled_slowloris_g2', mode='slowloris', groupOrdinal=2))
+            registration['scenarios'].append(dict(id='controlled_slowloris_g2', mode='slowloris', groupOrdinal=2, plannedRole='train'))
             complete['groups'] = 2
             complete['results'].append(dict(activity, activityId='second', scenarioId='controlled_slowloris_g2', groupOrdinal=2))
             with self.assertRaisesRegex(ValueError, '采集组缺失'):
@@ -230,7 +242,7 @@ class TestAuditGroup(unittest.TestCase):
             other = Path(td) / 'group-02'; other.mkdir()
             (other / 'activity.json').write_text(json.dumps(second))
             (other / 'native.pcap').write_bytes((folder / 'native.pcap').read_bytes())
-            registration['scenarios'].append(dict(id=second['scenarioId'], mode='slowloris', groupOrdinal=2))
+            registration['scenarios'].append(dict(id=second['scenarioId'], mode='slowloris', groupOrdinal=2, plannedRole='train'))
             complete['groups'] = 2; complete['results'].append(second)
             with self.assertRaisesRegex(ValueError, '重复 PCAP'):
                 bap.registered_groups(Path(td), registration, complete)

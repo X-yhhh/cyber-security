@@ -1,32 +1,26 @@
-# host-guard v5 声明式契约
+# host-guard v5 机器契约
 
-状态：`5.0.0-rc.2`，P2 研究候选。独立 Go 提取器已实现观察/特征语义，旧后端运行时保持 v4；模型、策略与动作 Schema 仍为后续实现契约。集合哈希见[P2 冻结清单](../p2/freeze-manifest.json)，实际出口及未验证项见[P2 报告](../p2/README.md)。冻结候选不是正式发布或部署，不自动替换后端旧资源。
+P1/P2 已收口。此目录保留交接的 `host-guard/5.0.0-rc.2` 机器结构：**5 个 Schema、1 个特征 profile、5 个结构示例**。P3—P8 的业务规则统一见 [检测与处置契约](../检测与处置契约.md)，不再维护独立澄清附录。
 
 | 文件 | 规范 |
 |---|---|
-| [observation.schema.json](observation.schema.json) | 观察快照、质量、上下文、目标引用 |
-| [feature-profile.json](feature-profile.json) | 43个数值输入（含布尔编码）和3个类别输入的顺序 |
-| [model-manifest.schema.json](model-manifest.schema.json) | 候选模型及数据/校准/运行时绑定 |
-| [decision-policy.schema.json](decision-policy.schema.json) | 检测证据与自动资格参数 |
-| [action-command.schema.json](action-command.schema.json) | 签名包，内含不可变payload |
-| [action-receipt.schema.json](action-receipt.schema.json) | 执行及恢复回执 |
+| [observation.schema.json](observation.schema.json) | 因果快照、质量、上下文与目标引用 |
+| [feature-profile.json](feature-profile.json) | 43 个数值输入和 3 个类别输入的顺序 |
+| [model-manifest.schema.json](model-manifest.schema.json) | 候选模型、数据、校准与运行时绑定 |
+| [decision-policy.schema.json](decision-policy.schema.json) | 版本化策略的结构与参数硬上限 |
+| [action-command.schema.json](action-command.schema.json) | 不可变 payload 及签名封装 |
+| [action-receipt.schema.json](action-receipt.schema.json) | 执行、拒绝、核对与恢复回执 |
 
-[业务契约](../检测与处置契约.md)与Schema必须同时满足：Schema不能证明时间顺序、公式、身份、签名、目标授权、去重或OS规则效果。profile里的`contexts.5.*`表示windowSeconds=5的对象，而不是数组第五项。
+结构版本与决策/评价版本分别绑定。当前 `host-guard-decision/2026-10-05.2`、`host-guard-evaluation/2026-10-05.2` 和 `host-guard-capture-health/1.0.0` 规定 P3 及后续工程的新增规则，由计划、policyVersion 和发布组合绑定；不向旧 Schema 静默增加字段，也不声称旧执行程序已实现这些规则。
 
-rc.2 正文未写明的判定基准、检查次序与口径归属（时钟偏差基准、自动候选拒绝代码次序、动作预算口径、策略与能力绑定落点、续段快照口径、版本递增判定）见[rc.2 契约澄清](clarifications-rc2.md)。该文件不在冻结清单内，不改变上述任何文件的字节；实现与验收按"正文 + 澄清"同时满足执行，下次语义变更升版本时并入正文。
+Schema 只能证明结构，不能证明时间先后、算术、归属、授权、签名、预算或实际 OS 效果。`contexts.5.*` 指 `windowSeconds=5` 的对象，不是数组第五项。正文和结构必须同时满足。
 
 ## 结构示例
 
-- [观察](examples/observation.json)
-- [模型manifest](examples/model-manifest.json)
-- [策略](examples/decision-policy.json)
-- [命令](examples/action-command.json)
-- [回执](examples/action-receipt.json)
+[观察](examples/observation.json)、[模型 manifest](examples/model-manifest.json)、[策略](examples/decision-policy.json)、[命令](examples/action-command.json)、[回执](examples/action-receipt.json) 均为合成结构样例。零哈希、固定时间和故意无效的签名不构成真实制品或执行资格；阈值也不是新 P3 的选型结果。
 
-所有示例使用人工构造UUID、零哈希及固定时间，仅验证结构。策略阈值不是选型结果；示例签名是故意无效的占位字节，没有真实密钥，真实执行器必须拒绝。模型示例没有真实权重、验收报告或可激活资格。Schema的`.invalid`标识是规范命名空间，不需要联网解析。
+## 验证与版本
 
-## 验证与冻结
+使用 JSON Schema Draft 2020-12 和实际可用的 date-time/UUID format checker；未知字段必须拒绝。现有检查入口为 `python3 -B scripts/p2/validate_contracts.py`。命令签名采用 RFC8785 JCS，不用普通 JSON 打印顺序代替。
 
-使用JSON Schema Draft 2020-12及format checker校验Schema和示例；拒绝未知字段。验证环境必须实际注册date-time与uuid检查器，测试无效月份/日期确实被拒绝；仅传入FormatChecker但缺少可选日期依赖可能静默略过日期格式检查。实现还需覆盖以下业务反例：未来数据、mask错误、重复连接累加、签名篡改、boot/目标错配、过期租约、TTL延长及迟到回执逆转终态。
-
-冻结时计算每个契约文件的SHA-256及集合清单，模型与配置分别绑定profile和提取器哈希；不把契约自己的集合哈希写入自身造成循环。任何字段/公式变化发布新版本并重跑样本生成与对拍。正式命令签名使用RFC8785 JCS，不使用普通JSON打印顺序代替规范化。
+本次保留上述 11 个 JSON 文件的原字节。旧 P2 冻结包是独立历史制品，新的 Markdown 不复用其集合哈希。P3 run 与后续 release bundle 绑定当前实际输入的逐文件哈希；字段、公式或状态语义发生不兼容变化时升级对应结构版本并重做相关一致性验证，不能只替换旧清单里的哈希。

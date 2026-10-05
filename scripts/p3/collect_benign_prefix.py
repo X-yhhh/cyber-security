@@ -19,8 +19,14 @@ import uuid
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'p1'))
 from benign_long_tasks import NativeCapture
+from prefix_contract import planned_role, collection_gate
+from capture_health_observer import ROLE_ORDER, ledger_append, ledger_check, ledger_ready_at, require_live
 
-ROLES = ['train', 'validation_selection', 'validation_calibration'] + ['independent_development'] * 5
+ISOLATION_SECONDS = 155
+INTER_ACTIVITY_SECONDS = max(ISOLATION_SECONDS, 120 + 60 + 10)
+MAXIMUM_ACTIVE_SECONDS = 1800
+
+ROLES = ['train'] * 2 + ['validation_selection'] * 2 + ['validation_calibration'] * 2 + ['independent_development'] * 2
 
 
 def save(path, value):
@@ -31,7 +37,7 @@ def save(path, value):
 
 def profiles():
     """确定性业务矩阵；完整内容、时长和分包均改变，局限仍是同一个主机域。"""
-    return [dict(batch=i + 1, role=ROLES[i], durationSeconds=39 + 3 * i,
+    return [dict(batch=i + 1, role=ROLES[i], plannedRole=ROLES[i], durationSeconds=39 + 3 * i,
                  chunks=83 + 7 * i, chunkBytes=337 + 59 * i, uploadChunks=9 + i,
                  uploadIntervalSeconds=2.1 + .21 * i, uploadChunkBytes=211 + 43 * i,
                  pollSeconds=30 + i, rangeBytes=6173 + 863 * i)
@@ -42,10 +48,13 @@ def content(size):
     return (bytes(range(256)) * ((size + 255) // 256))[:size]
 
 
-def run_batch(root, profile, deadline):
+def run_batch(root, profile, deadline, health=None):
     """专有绑定既有端口占用即失败；所有客户端固定源地址，实际返回内容逐条核验。"""
+    planned_role(profile)
     if time.time() + 85 >= deadline:
         raise TimeoutError('剩余授权不足一批')
+    if health: ledger_check(health[0], profile['plannedRole'], INTER_ACTIVITY_SECONDS)
+    before = require_live(*health) if health else None
     root.mkdir(mode=0o700)
     save(root / 'profile.json', profile)
     begin = time.monotonic()
@@ -143,13 +152,26 @@ def run_batch(root, profile, deadline):
         if thread: server.shutdown(); thread.join(3)
         server.server_close()
         captured = capture.close() if capture else None
-        result = dict(activityId=str(uuid.uuid4()), role=profile['role'], batch=profile['batch'],
+        after = continuity = None
+        if health:
+            try:
+                after = require_live(*health)
+                continuity = (after['observerSessionId'] == before['observerSessionId']
+                              and after['healthySinceMs'] == before['healthySinceMs'])
+            except (OSError, ValueError) as exc:
+                error = error or 'HEALTH_OBSERVER: ' + str(exc); continuity = False
+        result = dict(activityId=str(uuid.uuid4()), role=profile['role'], plannedRole=planned_role(profile), batch=profile['batch'],
                       profile=profile, elapsedSeconds=time.monotonic() - begin,
                       records=results, serverRecords=server_records, capture=captured,
+                      captureHealth=dict(before=before, after=after, continuous=continuity),
                       listenerClosed=server.socket.fileno() == -1,
-                      success=error is None and len(results) == 6 and len(server_records) == 6 and captured is not None and captured['passed'],
+                      success=(error is None and len(results) == 6 and len(server_records) == 6 and captured is not None
+                               and captured['passed'] and (health is None or continuity is True)),
                       error=error, modelFits=0)
         save(root / 'task.json', result)
+        if health:
+            ledger_append(health[0], dict(kind='benign', activityId=result['activityId'], plannedRole=result['plannedRole'],
+                                          batch=profile['batch'], endedAt=time.time(), success=result['success']))
     if not result['success']:
         raise RuntimeError('正常任务/采集失败: ' + str(error))
     return result
@@ -158,24 +180,48 @@ def run_batch(root, profile, deadline):
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--output', type=Path, required=True)
+    p.add_argument('--runtime-plan', type=Path, required=True)
+    p.add_argument('--prefit-report', type=Path, required=True)
+    p.add_argument('--asset-id', required=True, help='已登记资产 UUID，跨采集活动复用')
+    p.add_argument('--sensor-id', required=True, help='已登记传感器 UUID')
+    p.add_argument('--authorization-id', required=True, help='本轮实际执行授权 ID')
+    p.add_argument('--authorized-until', required=True, help='本轮授权截止 ISO-8601，最多 2 小时')
+    p.add_argument('--health-observer', type=Path, required=True,
+                   help='已运行的 capture_health_observer 输出目录；须与攻击活动共用同一会话')
+    p.add_argument('--role', required=True, choices=ROLE_ORDER, help='本次只执行该角色的良性批次')
     args = p.parse_args()
+    selected = [profile for profile in profiles() if profile['plannedRole'] == args.role]
+    uuid.UUID(args.asset_id); uuid.UUID(args.sensor_id)
+    collection_gate(args.runtime_plan, args.prefit_report)
     if sys.platform != 'win32': raise RuntimeError('仅登记Windows回环环境')
+    start = time.time(); deadline = datetime.fromisoformat(args.authorized_until).timestamp()
+    if not start < deadline <= start + 7200: raise ValueError('须提供本轮最多 2 小时的有效授权')
+    health = (args.health_observer, args.asset_id, args.sensor_id)
+    observer = require_live(*health)
     args.output.mkdir(parents=True, exist_ok=False, mode=0o700)
-    start = time.time(); deadline = start + 1800
-    save(args.output / 'registration.json', dict(version='p3-cde-benign-v1',
-         authorization='本轮用户要求完成P3-C困难正常流量补齐',
+    save(args.output / 'registration.json', dict(version='p3-cde-benign-v3', assetId=args.asset_id, sensorId=args.sensor_id,
+         authorizationId=args.authorization_id, healthObserver=observer,
          local='127.0.0.1', peer='127.0.0.2', servicePort=80,
          captureInterface='\\Device\\NPF_Loopback', maxConcurrent=4,
-         authorizedUntil=datetime.fromtimestamp(deadline, timezone.utc).isoformat(),
-         maximumSeconds=1800, isolationSeconds=155, profiles=profiles(),
+         authorizedUntil=args.authorized_until, maximumActiveSeconds=MAXIMUM_ACTIVE_SECONDS,
+         isolationSeconds=ISOLATION_SECONDS, interActivitySeconds=INTER_ACTIVITY_SECONDS, role=args.role, profiles=selected,
          sourceDomainCount=1, firewallChanges=False, scriptSha256=hashlib.sha256(Path(__file__).read_bytes()).hexdigest()))
-    for i, profile in enumerate(profiles()):
-        result = run_batch(args.output / f'batch-{i + 1:02}', profile, deadline)
+    ledger_check(args.health_observer, args.role, 0)
+    wait = ledger_ready_at(args.health_observer, INTER_ACTIVITY_SECONDS) - time.time()
+    if wait > 0:
+        if time.time() + wait + 85 >= deadline: raise TimeoutError('等待组间隔后授权不足')
+        time.sleep(wait)
+    results = []; active = 0.0
+    for i, profile in enumerate(selected):
+        if active + 85 > MAXIMUM_ACTIVE_SECONDS: raise TimeoutError('良性活动总时长预算不足')
+        result = run_batch(args.output / f'batch-{profile["batch"]:02}', profile, deadline, health)
+        active += result['elapsedSeconds']
+        results.append({k:result[k] for k in ('activityId','batch','plannedRole','success')})
         print(json.dumps({k: result[k] for k in ('batch', 'success', 'elapsedSeconds', 'listenerClosed')}), flush=True)
-        if i < 7:
-            if time.time() + 155 + 85 >= deadline: raise TimeoutError('整轮授权预算不足')
-            time.sleep(155)
-    save(args.output / 'complete.json', dict(status='completed', batches=8,
+        if i < len(selected) - 1:
+            if time.time() + INTER_ACTIVITY_SECONDS + 85 >= deadline: raise TimeoutError('整轮授权预算不足')
+            time.sleep(INTER_ACTIVITY_SECONDS)
+    save(args.output / 'complete.json', dict(status='completed', role=args.role, batches=len(selected), results=results,
          elapsedSeconds=time.time() - start, listenerReleased=True, modelFits=0))
 
 

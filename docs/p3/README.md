@@ -1,139 +1,138 @@
 # P3 模型与策略可行性
 
-更新：2026-10-05。阶段状态：**blocked**，`trainingAllowed=false`，`p6Ready=false`。
+更新于 2026-10-05。**P1/P2 已完成并收口；P3 进行中。** 本文件是当前 P3 的执行入口；整体依赖见 [开发路线](../开发路线.md)，指标定义以 [验证与验收](../验证与验收.md) 为准。旧 final 候选、阶段裁决和重复修复报告已退出当前 docs。
 
----
+当前计划为 [cde-plan.json](cde-plan.json) 的 `p3-prefix-cde-20261005-v4`（原位替换 v3）。保留 P2 的 `host-guard/5.0.0-rc.2`、`flow-prefix-v1` 和 43+3 输入顺序；决策 `host-guard-decision/2026-10-05.2`、评价 `host-guard-evaluation/2026-10-05.2` 和连续健康规则按 [检测与处置契约](../检测与处置契约.md) 分别版本化。**P3-A 已实施**（见第 4、8 节）；P3-B 采集、P3-C 冻结和拟合均未开始。
 
-## 当前阻塞原因
+## 1. 当前输入与缺口
 
-最新裁决见 [source-repair-verification.json](source-repair-verification.json)。
+当前输入目录为 `artifacts/p3-source-repair-20261005-01/prefix-corpus-v2`。数据完整性已通过现有核验，保留 **50,606 条 prefix、12,751 个 parent、28 个活动、18 个防泄漏组**。实际文件绑定的 readiness 和核验器 SHA-256 见计划 `currentInput`。
 
-| 阻塞码 | 说明 |
-|---|---|
-| `SELECTION_COVERAGE_BELOW_TARGET` | 选型角色完整策略覆盖 4/28（14.3%），目标 ≥80% |
-| `FROZEN_POLICY_SCENARIO_COVERAGE_BELOW_TARGET` | Slowhttptest 场景完整策略 4/28 |
-| `INSUFFICIENT_INDEPENDENT_ATTACK_ACTIVITIES` | `independent_development` 角色内攻击组 3 个，目标 ≥5 |
-| `ROLE_MISSING_CLASS:validation_calibration:1` | 校准角色无攻击样本 |
-| `SCENARIO_NOT_PRESENT_IN_ALL_DEVELOPMENT_ROLES` | 受控场景未覆盖四个角色 |
-| `MISSING_QUALIFIED_ONSET_AND_PREFIX` | Slowhttptest、2018 Slowloris 起点规则未通过 |
-| `MISSING_INDEPENDENT_BENIGN_ACTIVITY_EVALUATION` | 独立开发良性组 0 |
-| `FINAL_TEST_UNALLOCATED` | final_test 未分配，P6 准入未授权 |
+| 开发角色 | 良性 prefix | 攻击 prefix | 良性组 | 攻击组 |
+|---|---:|---:|---:|---:|
+| train | 233 | 1,111 | 3 | 1 |
+| validation_selection | 15 | 8,067 | 1 | 1 |
+| validation_calibration | 17 | 0 | 1 | 0 |
+| independent_development | 241 | 40,922 | 9 | 3 |
 
----
+同一个混合组可能同时贡献正负计数，组数列不能简单相加得到总组数。6 次受控活动仍只有 **2 个**防泄漏组，归并原因是完整 parent 的量化轨迹重复；来源改名不能消除这一事实。当前缺少校准攻击、四角色行为覆盖和足够独立攻击组，`trainingAllowed=false`。按行为统计的攻击组为：慢请求体 train 1、选型 0、校准 0、独立开发 1；慢头部 train 0、选型 1、校准 0、独立开发 2。
 
-## 已完成工作摘要
+可在本仓库核验当前输入：
 
-**首轮实验（2026-10-04）**：10 次完整拟合，LightGBM 优胜（ROC-AUC 0.9978），Mac/Windows ONNX 对拍通过。完整策略在选型角色覆盖 4/28（14.3%），根因：Slowhttptest 是长保持连接，不产生新建连接，480 次观察首先被新连接速率条件拒绝；598 次被证据过期拒绝。
-
-**P3-A/B/C/E（2026-10-04~05）**：代码修复与回归通过；起点审查完成（2017 Slowhttptest 和 2018 Slowloris 起点规则均未建立）；有界诊断收口（方向性可行，无法确证净收益）。
-
-**受控攻击归档与来源修复（2026-10-05）**：6 组受控 PCAP 成功提取 324 条 prefix；`sourceId` 按场景×轮次拆分修复完成；重新冻结 `prefix-corpus-v2`（50,606 条），双平台 26 项回归通过。`independent_development` 攻击组仍为 3，原因见下节。
-
-完整修复过程见 [source-repair-20261005.md](source-repair-20261005.md)。
-
----
-
-## 受控活动仍未满足准入的完整根因
-
-**问题 1：近重复归并（`whole_parent_quantized_sequence`）**
-
-`verify_prefix_corpus.py:108-114` 的 `near_vector()` 对 `elapsedMs`（精度 1000ms）、`bytesInbound`（精度 32）等字段粗粒度量化，6 组受控活动使用相同的 `ACTIVITY_SECONDS=90`（`collect_attack_prefix.py:35`），量化后特征序列完全一致，Slowloris 3 组合并为 1 个防泄漏组，Slowhttptest 3 组合并为 1 个防泄漏组。
-
-→ 修复：各组使用不同连接时长，使 `elapsedMs` 落入不同的 1000ms 分桶，需要修改 `collect_attack_prefix.py:35` 并重新采集。
-
-**问题 2：所有受控攻击数据写死进 `independent_development`**
-
-`build_attack_prefix.py:327,404` 把 `split='independent_development'` 写死。`verify_prefix_corpus.py:94-96` 要求四个角色（`train`、`validation_selection`、`validation_calibration`、`independent_development`）每个都必须有攻击样本；`verify_prefix_corpus.py:100-101` 要求每个声明场景在四个角色里都有覆盖。全部进 `independent_development` 导致其他三个角色没有受控攻击样本，触发 `ROLE_MISSING_CLASS` 和 `SCENARIO_NOT_PRESENT_IN_ALL_DEVELOPMENT_ROLES`。
-
-`freeze_prefix_corpus.py:154-159` 从 `priorPlannedRole`（即输入 row 的 `split`）决定最终角色分配，所以 `build_attack_prefix.py` 的输出直接决定角色。
-
-→ 修复：修改 `build_attack_prefix.py`，从 `activity.json` 的 `plannedRole` 字段读取角色，而非写死。同时 `collect_attack_prefix.py` 的 `SCENARIOS` 列表里每个 scenario 需要带 `plannedRole`。
-
----
-
-## 后续执行路径
-
-### 需要修改的代码（两处）
-
-**1. `scripts/p3/collect_attack_prefix.py`**
-
-- `ACTIVITY_SECONDS = 90`（第 35 行）改为从 scenario 条目读取
-- `SCENARIOS` 列表每个条目增加 `targetActivityDurationSeconds` 和 `plannedRole` 字段
-- `run_group()` 里用 `scenario['targetActivityDurationSeconds']` 替代 `ACTIVITY_SECONDS`
-
-**2. `scripts/p3/build_attack_prefix.py`**
-
-- 第 327 行和第 404 行的 `split='independent_development'` 改为 `split=activity.get('plannedRole', 'independent_development')`
-- `activity.json` 里需要有 `plannedRole` 字段（由采集脚本写入）
-
-### 采集参数（已登记在 [controlled-attack-authorization.json](controlled-attack-authorization.json)）
-
-| 组 | 模式 | 目标时长 | 登记角色 | elapsedMs 分桶 |
-|---|---|---:|---|---:|
-| g1 | Slowloris | 30 秒 | train | 30 |
-| g2 | Slowloris | 60 秒 | validation_calibration | 60 |
-| g3 | Slowloris | 90 秒 | independent_development | 90 |
-| g1 | Slowhttptest | 45 秒 | validation_selection | 45 |
-| g2 | Slowhttptest | 75 秒 | independent_development | 75 |
-| g3 | Slowhttptest | 105 秒 | independent_development | 105 |
-
-每组时长不同，量化后 elapsedMs 分桶互不相同，近重复规则不触发。每个场景覆盖 train、validation_calibration/validation_selection、independent_development 三个角色，满足四角色均有攻击样本的要求。independent_development 里：Slowloris g3（1 组）+ Slowhttptest g2/g3（2 组）+ 现有 CIC2017/CIC2018/TAARA（3 组）= 共 6 组，满足 ≥5 要求。
-
-### 执行顺序
-
-```
-1. 修改 collect_attack_prefix.py（读取 targetActivityDurationSeconds 和 plannedRole）
-2. 修改 build_attack_prefix.py（从 activity.json 读取 plannedRole）
+```sh
+python3 -B scripts/p3/verify_prefix_corpus.py \
+  --dataset artifacts/p3-source-repair-20261005-01/prefix-corpus-v2 \
+  --require-training
 ```
 
-```
-3. 在 win-dev 重新采集 6 组受控 PCAP（按新参数，组间隔 ≥155 秒）
-```
+当前预期为完整性通过、训练准入拒绝（退出码 2）。行为覆盖按 `host-guard-behavior-map/1` 计算，缺字段时显式映射、未知原场景拒绝，不再静默回退为原场景名。旧输入没有 plannedRole 和早期轨迹冻结，仅作诊断；新训练必须用 P3-B/C 的新冻结集重新通过全部准入。
 
-```
-4. 运行 build_attack_prefix.py（复用 DLT_NULL 提取器）
-```
+## 2. 行为、来源与角色
 
-```
-5. 运行 freeze_prefix_corpus.py + verify_prefix_corpus.py --require-training
-   核验：四个角色均有攻击样本、每个场景覆盖四角色、independent_development ≥5 组
-   trainingAllowed=true 后才进入下一步
-```
+主任务为 IPv4/TCP、入站、HTTP/80 的 `connection_abuse`，声明行为为 `slowloris`（慢头部）和 `slowhttptest`（慢请求体）。归一化采用 `host-guard-behavior-map/1`；原场景及 sourceId、sourceDomainId、contextSourceId、cohortId 保留在索引，不进模型。
 
-```
-6. P3-D 有界 prefix 实验（win-dev，training/windows-cuda）
-   ≤10 次完整拟合，≤4 GPU 小时
-   LightGBM 优先 / XGBoost 对照；基础特征 vs 基础+对端上下文
-   E5：仅规则 vs 仅模型 vs 模型+策略（独立评价组）
-   目标：每个声明场景完整策略 ≥80%，独立组有证据
-```
+来源轴用于检查采集域和泛化，不再把“来源×工具名”当五种独立行为。两个行为都要在四个开发角色出现，选型、校准和独立开发评价均逐行为验收。各支持来源另报覆盖、误伤、时效、独立组数；支持来源失败不能由同一行为的其他来源均值抵消。仅用于诊断的来源须在拟合前登记，不能计入对应支持格子的通过证据。
 
-```
-7. P3-E 冻结移交
-   固定模型、预处理、校准、策略；登记未暴露 P6 活动与访问保护
-```
+当前八组方案以“替换旧受控部分、保留三个公共来源组”为前提：CIC2017 慢请求体固定 train，CIC2018 慢头部固定 validation_selection，TAARA 慢头部固定 independent_development。旧六次受控活动保留作谱系/诊断输入，不进入这一替换方案的新候选。
 
-```
-8. P6 一次性独立评估（需单独授权）
-```
+| 新候选活动 | 角色 | 参考时长（秒） |
+|---|---|---:|
+| slowloris_g1 | train | 30 |
+| slowloris_g2 | validation_calibration | 60 |
+| slowloris_g3 | independent_development | 90 |
+| slowloris_g4 | independent_development | 120 |
+| slowhttptest_g1 | validation_selection | 45 |
+| slowhttptest_g2 | validation_calibration | 75 |
+| slowhttptest_g3 | independent_development | 105 |
+| slowhttptest_g4 | independent_development | 135 |
 
-### 停止条件
+仅当这些活动经审查确实独立，且三个公共组仍满足登记用途时，四角色攻击组数才是 **2/2/2/5**；独立开发包含慢头部 3 组、慢请求体 2 组。八组不是通用最少数量，也不是自动取得的八个独立组。复用旧组、近重复归并或将公共来源改为仅诊断后，必须在冻结前重算配额，不拆组凑数。
 
-- `verify_prefix_corpus.py --require-training` 仍报阻塞 → 根据具体阻塞码修正代码或采集参数，不进入 P3-D
-- 两轮有界实验无净覆盖收益 → 停止，返回标签/特征/任务范围审查
-- 不读取 P6 封存特征/标签/分数
+`plannedRole` 必须贯穿登记 → activity.json → 完成账本 → 连接索引/标签时间线 → 冻结分区。缺失、未知或归并后角色冲突一律拒绝；禁止 `get(..., independent_development)` 默认放行，也不能由贪心分配器重新分派已登记的公共组。
 
----
+## 3. 独立性与困难良性
 
-## 文件说明
+完整 parent 有序量化序列仍用于近重复归并，并新增共同早期窗口审查：10/30/45/60/75/90 秒内，比较两条轨迹实际共有的前缀。尾部时长不同可能使全序列哈希不同，却不提供新的早期证据。仅改时长、名称、UUID、地址或无业务意义的抖动，不计独立性。
 
-| 文件 | 用途 |
-|---|---|
-| `source-repair-20261005.md` | 来源修复完整报告，含真实根因和双平台核验结果 |
-| `source-repair-verification.json` | 最新双平台核验记录，当前有效裁决 |
-| `controlled-attack-authorization.json` | 采集授权，含各组时长和角色登记（v2） |
-| `candidate-manifest.json` | 候选模型登记（candidateOnly，alert_only） |
-| `candidate-policy.json` | 候选策略登记 |
-| `candidate-capability.json` | 候选能力研究提案 |
-| `cde-plan.json` | prefix 训练计划 |
-| `requirements-windows.lock` | Windows 训练依赖锁 |
+采集前登记任务大小、请求结构、业务过程、节奏及完成条件，证明差异出现在所声称的决策窗口内；轨迹重复则合组。源捕获域和 150 秒共享上下文检查保留，逻辑引擎重置不豁免真实近重复。
+
+每个角色补同域、同服务的困难良性，包括完整长请求、慢速下载、长轮询、正常并发、重试/断点恢复和连接恢复。现有选型/校准各一组良性不足以证明上述覆盖；不能借用旧 final 的正常机会数。新增良性最多 8 批，默认各角色 2 批、活动总时长不超过 1800 秒，实际独立性与业务完成证据在冻结时核验。
+
+[controlled-attack-authorization.json](controlled-attack-authorization.json) 沿用旧文件名，内容现为**受控采集设计**，executionAuthorized=false，没有有效授权 ID/时间窗。优先预制离线输入或另行批准的有界回环任务；每组轨迹摘要和具体执行范围齐备后才能执行。它不再宣称“改时长规避归并”。
+
+## 4. 时效与预算先验检查
+
+完整策略必须同时满足：新鲜证据不超过 10 秒、目标最近包租约 15 秒、真实 parent 去重、上下文条件、默认 TTL 30 秒/硬上限 60 秒、稳定目标累计 120 秒及资产 10 条/每分钟 5 次预算。具体语义统一在 [契约第 8—9 节](../检测与处置契约.md#8-证据与策略判定)。
+
+当前数据诊断显示：受控慢头部的暖上下文与多 parent 证据约在 15 秒才出现，慢请求体约在 10 秒之后；CIC2017 慢请求体的来源限定证据通常晚于 105 秒。prefix 不是自动满足 10 秒起点时效的保证。先按行为及来源测 evidenceAvailableP50/P95，再冻结研究截止；超出 10 秒的自动能力须单独登记与批准，研究计划本身不授予放宽后的自动资格。
+
+v3 的常数分诊断（`artifacts/p3-implementation-20261005-v3`）表明，原评价把整段攻击的每个 30 秒机会都要求自动阻断覆盖，而契约规定同一目标连续阻断累计≤120 秒且持续攻击中无法恢复额度。因此覆盖上限约为 120 秒除以攻击时长：CIC2018 为 5/84，与实测 5.95% 一致；TAARA 4 个活动共用同一目标，后 3 个无额度。这是评价口径与安全上限的矛盾，补采同类轨迹或训练模型都无法修复。
+
+v4 的处理是不放宽任何上限，只拆开固定分母（定义见 [验收 3.1](../验证与验收.md#31-分母与覆盖)）：
+
+- 自动处置期：[起点, 起点+登记时效+120 秒) 内的机会，要求及时覆盖≥80%。
+- 人工移交期：预算耗尽后，决策器每个 generation 输出一次 `escalate_manual`，其后机会要求阻断仍在或桶内有合格告警，连续性≥80%。
+- 期别只由标签时间线、登记时效和认证健康决定，与分数无关。同一目标的后续活动只有在认证健康证明冷却（间隔≥180 秒）后才重新具备额度。
+- 整段覆盖率仅描述，不设门槛。
+
+P3-A 在同一旧输入上重跑常数分诊断（`artifacts/p3-a-repair-20261005-v4`，Mac 与 Windows 逐字段一致）。CIC2018、TAARA 和受控源的门禁角色处置期覆盖均为 100%，移交连续性 95%—100%；结构/实现类阻断为 0。CIC2017 慢请求体合格证据约 111 秒才出现且很稀疏，但公共角色固定为 train，因此登记为仅 train 诊断来源，不作支持来源。剩余阻断全部属于补采类：校准攻击、行为×角色覆盖、独立组、早期轨迹冻结，以及独立开发慢请求体因缺认证健康无法证明额度恢复。这些都是结构诊断，不是模型成绩。
+
+`budgetTargetId` 跨 boot/capture/keyEpoch/活动/角色/策略保持真实目标连续性。健康旁证从最后规则到期前持续到冷却结束；在 `max(lastBlockEnd,lastEvidenceAt)` 之后至少 120 秒无合格新证据，且已证实没有未终结规则，才可恢复额度。未知丢包计数、停止捕获、空白日志或低模型分数均不证明健康。
+
+活动间最低上下文隔离 155 秒；实际间隔取上下文隔离与经证明的到期后冷却两者较晚者。可重置特征引擎，健康观察器和预算账本持续运行。八组的 660 秒活动 + 7×155 秒 = 1745 秒只是参考下界，未含准备、清理、额外冷却和困难良性；不能承诺约 29 分钟即满足准入。
+
+## 5. P3-A—E 实施顺序
+
+P3-A 诊断为 `blocked` 时，采集门禁要求诊断的 `blockerClasses.structuralOrImplementation` 为空，且全部阻断原因属于补齐攻击/良性角色、共同早期轨迹、时效登记或连续健康旁证，才进入受控登记；处置期可达性、移交连续性和网格上界失败一律拒绝；这不等于 P3-A 通过，也不授权拟合。策略网格不可达、代码/版本/哈希不一致、候选边界错误和其他实现性阻断继续拒绝采集。每次采集仍须由脚本核验当前授权、回环范围、时间窗、监听释放和 `modelFits=0`。
+
+| 子阶段 | 实施内容 | 出口与停止条件 |
+|---|---|---|
+| P3-A 规则与入口对齐 | 修改现有构建器、冻结器和 prefix 评价器：行为映射、角色强校验、稳定预算、连续健康旁证、原始攻击起点和固定机会分母；登记逐行为/来源时效 | 0 次拟合完成可达性诊断；结构上达不到登记目标就停止训练准备并处理根因 |
+| P3-B 补齐真实独立活动 | 核对三个公共组用途；按已登记轨迹补攻击及困难良性；持续健康记录、检查共同早期窗口与上下文 | 仅合格活动进入候选；并组后数量不足则重算，不能按采集次数报完成 |
+| P3-C 冻结与准入 | 绑定数据、来源/行为、角色、parent、标签时间线、健康旁证、时效、代码和实验计划；双端核验 | 四角色都有正负和两行为；独立开发至少 5 攻击组、5 良性组；相关组并组；完整策略可达；当前 run 计划检查通过 |
+| P3-D 单轮有界实验 | 模型选型后固定预处理/算法，再校准和选策略，最后一次查看独立开发组；三臂 E5 各自公平选择参数 | 全部登记回归、误伤、时效、收益及 ONNX 对拍通过；预算耗尽或任何硬门槛失败就不移交 |
+| P3-E 冻结移交 | 输出不可变候选、policy、清单、能力范围和完整报告；登记新鲜 P6 评估计划与访问保护 | candidateOnly=true、alert_only；P6 数据准入单独判断，不把 P3 成绩当最终验收 |
+
+P3-C 的 5+5 是独立开发角色内的最低组数，不是每个行为各 5 组，也不是统计充分证明。任何分组不足都不能通过诊断模式授权拟合。P1/P2 收口不受这一轮 P3 数据缺口影响。
+
+## 6. Windows 训练入口与预算
+
+实际 prefix 模块是 `cyber_training.host_guard.prefix_runner`，命令为 `check` 和 `run`，接收 `--dataset --contracts --plan --output`；它没有 `smoke` 子命令或 `--public` 参数。旧 `host_guard.runner` 及旧 final profile 不是此计划入口。
+
+本地 cde-plan 是设计登记，不能直接假定符合训练程序结构。Windows 训练仓库的 `docs/host-guard-p3/experiment-plan.json` 已原位更新为 `host-guard-p3-prefix-runtime-20261005-v4`，SHA-256 为 `e6116258…74a96a`；新冻结集产生后仍须按实际文件重算哈希与时效登记。实施时原位更新该计划及相关适配代码，或由其生成 run 目录内的运行计划；核对 `budget`、`decision`、`scenarios`、`scope.profile`、maximumPolicyTrials 以及实际数据/契约哈希，再执行 `prefix_runner check`。已有 `--contracts` 包含其独立冻结清单；不能因为当前 docs 已删旧报告就修改包中历史哈希，也不能拿历史包证明当前源代码身份。
+
+本轮只进行一轮 prefix 实验：LightGBM/XGBoost × 基础/对端上下文 4 次拟合，最多 2 次修正/消融、优胜者额外种子 43/44 两次、2 次折内或失败重跑预留，合计 **完整拟合≤10**；每次≤300 秒，小批冒烟≤3，整轮墙钟与 GPU 占用分别≤4 小时。主种子固定 42，不能挑最好种子代替主结果。所有折、种子、失败重试真实计数。
+
+阈值和策略选择总计≤256 次：模型选型 64 次，rules/model/model_and_policy 各 64 次，具体网格在评分前冻结。三臂都受相同目标、新鲜度、时效、保护和预算限制，各自选择参数；不能把只为模型选中的参数强加给规则对照。两次修正包含在本轮十次拟合内，不另开未登记的“第二轮”。MLP、序列模型和新增来源搜索不列默认矩阵。
+
+## 7. 评价与移交
+
+标签活动时间线生成固定 target/30 秒机会，未生成观察、冷启动不足、过期或预算拒绝均保留在分母，并按上述策略无关规则分为自动处置期与人工移交期。原始攻击起点到首次候选/动作，与各机会是否被有效区间覆盖分别报告；桶开始不重置攻击起点。离线候选截止为登记动作截止减2000ms执行预留，实际OS延迟由P7验证；评价器必须读取冻结计划，单改JSON不算完成。
+
+train 只诊断；选型、校准和独立开发分别对两个行为要求完整策略自动处置期及时覆盖≥80%、人工移交连续性≥80%，登记困难良性零错误机会/错误候选。声明支持的来源分别核验，不用总体均值掩盖失败。评估先按连续目标预算域回放，再分角色/来源汇总，不能每组建立空预算。
+
+E5 在同一独立防泄漏组上做配对 bootstrap（2000 次，seed=20261004），主收益固定为攻击组等权的自动处置期及时覆盖率差（模型+策略减仅规则），95% 区间下界须大于0，才能声称模型贡献；时效为次指标，不能临时替换主指标。组数小或区间不支持时记“未证明”。选型/校准使用过的数据不称无偏；独立开发结果若被用于修正，标记暴露并补新的独立组。
+
+ONNX 与训练框架最大分差≤1e-4、阈值翻转 0。全部报告与候选写入受控 run 输出目录，不回填历史分数，也不在 docs 新建一批报告。P6 使用未暴露新活动，对完整冻结组合做一次评估；最终样本量、真实 OS 时效和恢复按 [验收](../验证与验收.md) 分别由 P6/P7 完成。
+
+## 8. 当前待实现边界
+
+P3-A 已实施，Windows 训练分支以哈希核对补丁部署，未提交：
+
+- 决策器在连续预算耗尽时输出 `escalate_manual`。
+- 评价器拆分处置期与移交期，E5 按处置期配对。
+- 行为映射 fail-closed。
+- 诊断按门禁角色判定，并把阻断分为结构/实现类与补采类。
+- 采集门禁要求结构类为空。
+- 运行计划绑定 v2 版本与代码哈希。
+- 新增独立健康观察器 `scripts/p3/capture_health_observer.py`。攻击与良性采集脚本每组前后核验观察器实时且处于同一健康段，组间隔 190 秒；良性脚本必须带实际授权 ID 与截止时间。
+- 所有受控活动共用同一稳定目标（对端 127.0.0.2），`prefix_runner check` 会以 `ROLE_ACCESS_ORDER_BREAKS_CONTINUOUS_BUDGET` 拒绝角色交错。两个采集脚本因此改为每次 `--role` 只执行一个角色，经观察器目录内的共享 `activity-ledger.jsonl` 强制 train→选型→校准→独立开发顺序和 190 秒间隔。运行顺序为每个角色先攻击、后良性。
+
+尚未完成的边界：
+
+- 8 组攻击的业务轨迹规格与参考时长尚未登记，采集脚本仍为统一 90 秒。
+- 冻结器尚需把健康登记的 `targetBindings` 与新语料的 budgetTargetId 绑定。
+- `prefix_runner check` 的诊断文件哈希仍为 null，须在新冻结集上重新绑定。
+- 受控采集须另行授权（executionAuthorized=false）。
+
+当前没有新拟合、新采集、新候选激活或 P6 数据读取。

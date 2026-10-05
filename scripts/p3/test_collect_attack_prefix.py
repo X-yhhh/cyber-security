@@ -72,21 +72,21 @@ class TestValidateScope(unittest.TestCase):
 
 class TestScenarios(unittest.TestCase):
 
-    def test_six_scenarios_defined(self):
-        self.assertEqual(len(cap.SCENARIOS), 6)
+    def test_eight_scenarios_defined(self):
+        self.assertEqual(len(cap.SCENARIOS), 8)
 
-    def test_three_slowloris(self):
+    def test_four_slowloris(self):
         sl = [s for s in cap.SCENARIOS if s['mode'] == 'slowloris']
-        self.assertEqual(len(sl), 3)
+        self.assertEqual(len(sl), 4)
 
-    def test_three_slowhttptest(self):
+    def test_four_slowhttptest(self):
         sh = [s for s in cap.SCENARIOS if s['mode'] == 'slowhttptest']
-        self.assertEqual(len(sh), 3)
+        self.assertEqual(len(sh), 4)
 
     def test_group_ordinals_per_mode(self):
         for mode in ('slowloris', 'slowhttptest'):
             ordinals = sorted(s['groupOrdinal'] for s in cap.SCENARIOS if s['mode'] == mode)
-            self.assertEqual(ordinals, [1, 2, 3])
+            self.assertEqual(ordinals, [1, 2, 3, 4])
 
     def test_all_ids_unique(self):
         ids = [s['id'] for s in cap.SCENARIOS]
@@ -118,12 +118,7 @@ class TestRunGroupStructure(unittest.TestCase):
                   patch('collect_attack_prefix._slowloris_worker'),
                   patch('time.sleep')):
                 # 把活动时长压到 0
-                orig = cap.ACTIVITY_SECONDS
-                cap.ACTIVITY_SECONDS = 0
-                try:
-                    result = cap.run_group(root, scenario, time.time() + 3600)
-                finally:
-                    cap.ACTIVITY_SECONDS = orig
+                result = cap.run_group(root, dict(scenario, activitySeconds=0), time.time() + 3600)
 
             self.assertTrue((root / 'activity.json').exists())
             data = json.loads((root / 'activity.json').read_text())
@@ -150,13 +145,46 @@ class TestRunGroupStructure(unittest.TestCase):
                   patch('collect_attack_prefix._target_server', return_value=True),
                   patch('collect_attack_prefix._slowloris_worker'),
                   patch('time.sleep')):
-                orig = cap.ACTIVITY_SECONDS
-                cap.ACTIVITY_SECONDS = 0
-                try:
-                    result = cap.run_group(root, scenario, time.time() + 3600)
-                finally:
-                    cap.ACTIVITY_SECONDS = orig
+                result = cap.run_group(root, dict(scenario, activitySeconds=0), time.time() + 3600)
             self.assertFalse(result['trainingAllowed'])
+
+
+class TestHealthContinuity(unittest.TestCase):
+    def _run(self, live):
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / 'group-01'
+            capture = TestRunGroupStructure._make_capture_mock(None)
+            with (patch('collect_attack_prefix.NativeCapture', return_value=capture),
+                  patch('collect_attack_prefix._target_server', return_value=True),
+                  patch('collect_attack_prefix._slowloris_worker'),
+                  patch('collect_attack_prefix.require_live', side_effect=live),
+                  patch('collect_attack_prefix.ledger_check'), patch('collect_attack_prefix.ledger_append'),
+                  patch('time.sleep')):
+                return cap.run_group(root, dict(cap.SCENARIOS[0], activitySeconds=0), time.time() + 3600, ('observer', 'a', 's'))
+
+    def test_observer_must_be_live_before_activity(self):
+        with self.assertRaises(ValueError):
+            self._run([ValueError('健康观察器记录不实时')])
+
+    def test_health_break_during_activity_fails_group(self):
+        before = dict(observerSessionId='o', healthySinceMs=1.0)
+        after = dict(observerSessionId='o', healthySinceMs=2.0)
+        with self.assertRaisesRegex(RuntimeError, '失败'):
+            self._run([before, after])
+
+    def test_continuous_health_is_recorded(self):
+        state = dict(observerSessionId='o', healthySinceMs=1.0)
+        result = self._run([state, dict(state)])
+        self.assertTrue(result['captureHealth']['continuous'])
+
+    def test_scenarios_are_in_role_time_order(self):
+        order = [cap.ROLE_ORDER.index(s['plannedRole']) for s in cap.SCENARIOS]
+        self.assertEqual(order, sorted(order))
+
+    def test_inter_activity_gap_covers_cooldown_and_ttl(self):
+        self.assertGreaterEqual(cap.INTER_ACTIVITY_SECONDS, 120 + 60)
+        self.assertGreaterEqual(cap.INTER_ACTIVITY_SECONDS, cap.ISOLATION_SECONDS)
 
 
 class TestConstants(unittest.TestCase):
@@ -170,7 +198,15 @@ class TestConstants(unittest.TestCase):
         self.assertLessEqual(cap.ACTIVITY_SECONDS, 120)
 
     def test_max_connections(self):
-        self.assertEqual(cap.MAX_CONNECTIONS, 4)
+        self.assertEqual(cap.MAX_CONNECTIONS, 5)
+
+    def test_each_group_has_distinct_profile(self):
+        profiles = [(s['intervalSeconds'], s['chunkBytes'], s['connections']) for s in cap.SCENARIOS]
+        self.assertEqual(len(set(profiles)), len(cap.SCENARIOS))
+        self.assertTrue(all(s['activitySeconds'] <= 120 for s in cap.SCENARIOS))
+        self.assertTrue(all(2 <= s['connections'] <= cap.MAX_CONNECTIONS for s in cap.SCENARIOS))
+        intervals = [s['intervalSeconds'] for s in cap.SCENARIOS]
+        self.assertEqual(len(set(intervals)), len(intervals))
 
     def test_addresses(self):
         self.assertEqual(cap.LOCAL, '127.0.0.1')

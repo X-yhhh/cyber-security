@@ -32,7 +32,9 @@ public class MachineRequestSizeFilter extends OncePerRequestFilter {
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
-        return !request.getRequestURI().startsWith("/api/v1/machine/ingest/");
+        String contextPath = request.getContextPath();
+        return !request.getRequestURI().startsWith(contextPath + "/api/v1/machine/ingest/")
+                && !request.getRequestURI().startsWith(contextPath + "/api/v2/machine/");
     }
 
     @Override

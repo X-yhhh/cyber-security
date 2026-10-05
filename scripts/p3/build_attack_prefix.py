@@ -24,6 +24,7 @@ for _p in (_here, _p1):
         sys.path.insert(0, _p)
 from verify_prefix_corpus import lines, read, sha, time_ms
 from build_qualified_prefix import target_key
+from prefix_contract import planned_role, metadata
 
 # 场景 → (分组 sourceId 模板, family, labelRuleVersion)。来源组不等于独立评价组；
 # 后续仍按原捕获域、活动、完整 parent 和近重复审查，不能凭新名称拆开重复数据。
@@ -70,6 +71,7 @@ def registered_groups(root, registration, complete):
         raise ValueError('整轮采集未完成')
     expected = {}
     for entry in registration['scenarios']:
+        planned_role(entry)
         _, source_id, _, _ = source_identity(entry['mode'], entry['groupOrdinal'])
         if entry['id'] != source_id or source_id in expected:
             raise ValueError('场景登记身份错配或重复')
@@ -91,6 +93,9 @@ def registered_groups(root, registration, complete):
                 or source_id in seen_sources or activity_id in seen_activities):
             raise ValueError('活动来源组未登记、错配或重复')
         result = completed.get(activity_id, {})
+        role = planned_role(activity)
+        if role != planned_role(expected[source_id]) or role != planned_role(result):
+            raise ValueError('登记、活动与完成账本 plannedRole 冲突')
         if any(result.get(k) != activity[k] for k in ('scenarioId', 'mode', 'groupOrdinal', 'success')):
             raise ValueError('活动与完成账本不符')
         capture_sha = sha(folder / 'native.pcap')
@@ -227,8 +232,8 @@ def main():
     secret.write_bytes(os.urandom(32))
     secret.chmod(0o600)
     identity = dict(
-        assetId=str(uuid.uuid4()),
-        sensorId=str(uuid.uuid4()),
+        assetId=str(uuid.UUID(registration['assetId'])),
+        sensorId=str(uuid.UUID(registration['sensorId'])),
         secretFile=str(secret.resolve()),
         keyEpoch=1,
     )
@@ -324,7 +329,8 @@ def main():
                 sourceDomainId=SOURCE_DOMAIN_ID,
                 contextSourceId=SOURCE_DOMAIN_ID,
                 scenario=scenario,
-                split='independent_development',
+                split=planned_role(activity),
+                plannedRole=planned_role(activity),
                 label=1,
                 family=family,
                 evidenceTier='controlled_attack',
@@ -348,6 +354,10 @@ def main():
                 parentConnectionId=parent,
                 activityId=activity_id,
                 scenario=scenario,
+                plannedRole=planned_role(activity),
+                sourceId=source_id,
+                sourceDomainId=SOURCE_DOMAIN_ID,
+                contextSourceId=SOURCE_DOMAIN_ID,
                 label=1,
                 targetId=target,
                 startMs=c['firstUs']  / 1000,
@@ -381,6 +391,8 @@ def main():
                           ('group', 'scenario', 'groupOrdinal',
                            'connections', 'keptObservations')}), flush=True)
 
+    rows = [metadata(r) for r in rows]
+    timelines = [metadata(r) for r in timelines]
     # 输出三份 JSONL + readiness.json
     for name, values in [
         ('index.jsonl',          rows),
@@ -401,7 +413,7 @@ def main():
         sourceDomainCount=1,
         sourceGroupCount=len({r['sourceId'] for r in rows}),
         sourceIdentityRule='scenario_and_registered_group_ordinal; independent_admission_requires_corpus_verification',
-        split='independent_development',
+        roles=sorted({r['plannedRole'] for r in rows}),
         trainingAllowed=False,
         rolesFrozen=False,
         finalRead=False,

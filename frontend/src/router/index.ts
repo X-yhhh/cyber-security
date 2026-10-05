@@ -15,6 +15,10 @@ export const modules = [
   { path: 'sources', name: 'sources', title: '数据源与回放', en: 'Sources', component: () => import('@/views/console/SourcesView.vue') },
   { path: 'audit', name: 'audit', title: '审计', en: 'Audit', component: () => import('@/views/console/AuditView.vue') },
   { path: 'iam', name: 'iam', title: '身份与角色', en: 'Identity', component: () => import('@/views/console/IamView.vue') },
+  // host-guard v5（P4）新增：观测与推理、策略与发布、执行与预算三条 v2 链路。
+  { path: 'observation', name: 'observation', title: '观测与目标', en: 'Observation', component: () => import('@/views/console/ObservationView.vue') },
+  { path: 'release', name: 'release', title: '策略与发布', en: 'Release', component: () => import('@/views/console/ReleaseView.vue') },
+  { path: 'execution', name: 'execution', title: '执行与预算', en: 'Execution', component: () => import('@/views/console/ExecutionView.vue') },
 ] as const
 
 const routes: RouteRecordRaw[] = [

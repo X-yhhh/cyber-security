@@ -5,6 +5,7 @@
 证据出现前的 prefix 不进入模型材料；完整来源连接仍作为时间线分母。
 """
 import argparse
+from prefix_contract import metadata
 from collections import Counter,defaultdict
 import ipaddress
 import json
@@ -86,6 +87,8 @@ def main():
             observations.append(o);kept[str(r['label'])]+=1
         runs.append(dict(captureSha256=digest,associationGroup=meta['associationGroup'],sourceDayCluster=meta['cluster'],
                          extractionSha256=sha(work/'extraction.json'),prefixCounts=dict(kept)))
+    indices=[metadata(dict(r,plannedRole='independent_development')) for r in indices]
+    timeline=[metadata(dict(r,plannedRole='independent_development',scenario='taara_slowloris',sourceId='taara_publisher')) for r in timeline]
     for name,rows in [('index.jsonl',indices),('observations.jsonl',observations),('label-connection-timeline.jsonl',timeline)]:
         with (a.output/name).open('x') as f:
             for r in rows:f.write(json.dumps(r)+'\n')

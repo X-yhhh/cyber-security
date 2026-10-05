@@ -12,6 +12,8 @@ import json
 import math
 from pathlib import Path
 
+from prefix_contract import BEHAVIORS, metadata, early_edges
+
 ROLES = ('train', 'validation_selection', 'validation_calibration', 'independent_development')
 CONTRACT = 'host-guard/5.0.0-rc.2'
 PROFILE = 'flow-prefix-v1'
@@ -71,6 +73,16 @@ def grouping_summary(rows, partition):
     )
 
 
+def behavior(row):
+    """按登记映射取行为；旧索引缺字段时显式映射，未知原场景拒绝而非静默回退。"""
+    original = row.get('originalScenario', row.get('scenario'))
+    if original not in BEHAVIORS:
+        raise ValueError('未登记的行为映射: ' + str(original))
+    if row.get('behaviorScenario', BEHAVIORS[original]) != BEHAVIORS[original]:
+        raise ValueError('behaviorScenario 与原场景不符')
+    return BEHAVIORS[original]
+
+
 def group_admission(rows, scenarios=None):
     """类/角色/场景组数取实际索引，独立开发的五组必须在该角色内满足。"""
     counts = Counter()
@@ -83,7 +95,7 @@ def group_admission(rows, scenarios=None):
         counts[(role, label)] += 1
         groups[(role, label)].add(group)
         if label == '1':
-            scenes[(row['scenario'], role)].add(group)
+            scenes[(behavior(row), role)].add(group)
     scenarios = sorted(scenarios if scenarios is not None else {s for s, _ in scenes})
     blockers = []
     for label, kind in [('0', 'BENIGN'), ('1', 'ATTACK')]:
@@ -132,6 +144,7 @@ def verify(root, scenarios=None):
         raise ValueError('P6封存边界不符')
     sealed_hashes = {r['sha256'] for r in sealed['captures']}
     partition = read(root / 'partitions.json')
+    revised = partition['version'] == 'prefix-corpus-partition-v5'
     bindings = {}
     activities = {}
     for group in partition['groups']:
@@ -165,6 +178,10 @@ def verify(root, scenarios=None):
         if row['firstSeenAt'] != obs['firstSeenAt'] or row['asOf'] != obs['asOf']:
             raise ValueError('索引时刻不符')
         group = row['leakageGroupId']
+        if revised:
+            normalized = metadata(row)
+            if any(row.get(k) != normalized[k] for k in ('plannedRole', 'behaviorScenario', 'originalScenario', 'scenarioMappingVersion', 'sourceDomainId', 'contextSourceId')):
+                raise ValueError('新版旁路字段缺失或行为映射不符')
         if bindings.get(group) != row['split'] or activities.get(row['activityId']) != group:
             raise ValueError('分区或活动被修改')
         binding = (group, row['split'], row['activityId'], row['cohortId'], row['label'], row['budgetTargetId'])
@@ -188,6 +205,10 @@ def verify(root, scenarios=None):
         if signatures.setdefault(digest, group) != group:
             raise ValueError('跨组整parent近重复')
     values = list(cohorts.values())
+    if revised:
+        for left, right, window in early_edges(sequences, {p: binding[0] for p, binding in parents.items()}):
+            if left != right:
+                raise ValueError('跨组共同早期轨迹: ' + str(window))
     for i, c in enumerate(values):
         if len(c[3]) != 1:
             raise ValueError('来源日/cohort被拆组')
@@ -197,6 +218,8 @@ def verify(root, scenarios=None):
     if len(rows) != report['observations'] or len(parents) != report['parents']:
         raise ValueError('冻结分母不符')
     admission = group_admission(rows, scenarios)
+    if not revised:
+        admission['blockers'].append('P3_A_ROLE_BEHAVIOR_EARLY_TRAJECTORY_NOT_FROZEN')
     if admission['roleCounts'] != report['roleCounts'] or admission['roleClassGroups'] != report['roleClassGroups']:
         raise ValueError('声明的角色计数不符')
     timeline_path = root / 'label-timeline.jsonl'
@@ -211,6 +234,8 @@ def verify(root, scenarios=None):
             ids.add(ep['episodeId'])
             if activities.get(ep['activityId']) != ep['leakageGroupId'] or bindings.get(ep['leakageGroupId']) != ep['split']:
                 raise ValueError('时间线跨角色或活动')
+            if revised and (metadata(ep)['plannedRole'] != ep['split'] or ep.get('behaviorScenario') != metadata(ep)['behaviorScenario']):
+                raise ValueError('标签时间线 plannedRole 或行为映射不符')
             timeline[(ep['activityId'],ep['targetId'],ep['label'])].append((ep['startMs'],ep['endMs']))
         for row in rows:
             at = time_ms(row['asOf'])

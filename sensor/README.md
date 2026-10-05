@@ -2,14 +2,14 @@
 
 现有 `cmd/sensor` 运行路径仍实现 `unsw-nb15-flow-v4`；P2 已新增独立 host-guard v5 研究引擎和 CLI，入口见本文末节。目标输入、prefix与时间窗、目标引用及质量规则见 [检测与处置契约](../docs/检测与处置契约.md)，实施顺序见 [开发路线](../docs/开发路线.md)。
 
-独立 [P1 探针](../docs/p1/README.md)提供 `cmd/p1audit` 的公开标签/PCAP 关联审查、`cmd/p1canary` 的有界 TCP 回显和 `cmd/p1httpcanary` 的固定内存 HTTP 下载。Go canary 不操作防火墙；动作由独立授权探针管理。[最新实机结果](../docs/p1-p3-completion/README.md)已验证 Windows STOP/PRESHUTDOWN 截止前清零及 Mac 回环 PF 恢复；自动启动首次枚举修复后未再重启验证。任务规则/服务均已清理，P1 工具不走 v4 上报。
+**P1/P2 已完成并收口**，范围见 [P1 交接](../docs/p1/README.md)及 [P2 交接](../docs/p2/README.md)。独立探针提供 `cmd/p1audit` 的公开标签/PCAP 关联审查、`cmd/p1canary` 的有界 TCP 回显和 `cmd/p1httpcanary` 的固定内存 HTTP 下载；Go canary 不操作防火墙，不走 v4 上报。后续从 [P3](../docs/p3/README.md) 的 prefix 计划接续，生产执行与恢复属于 P5。
 
 ## v4 当前能力与限制
 
 - 被动读取授权接口或离线PCAP/PCAPNG，组流、计算v4特征；在线上报 `/api/v1/machine/sensors/{id}`。
 - 旧算法使用100条已完成流窗口及61秒重排序等待，规范记录不携带可执行目标引用；不能满足新方案早期检测和目标级阻断契约。
 - 旧模型适用范围不能按新文档扩大；现有传感器没有防火墙执行权限。
-- 实时采集依赖cgo/libpcap及系统权限。Windows纯Go交叉编译不等于现场可用，凭据、采集和权限链路必须按P1实机核验。
+- 此旧v4实时路径依赖cgo/libpcap及系统权限。编译通过不等于现场可用，新构建仍按实际运行路径验证；独立v5的Windows路径见下文。
 - [旧v4规格](../docs/特征规格-unsw-nb15-flow-v4.md)因现有测试哈希引用暂时保留；v5实现时新建版本，不能原位改旧语义。
 
 ## 构建与离线提取
@@ -39,7 +39,7 @@ extract按文件魔数识别PCAP/PCAPNG，当前仅支持Ethernet。容器截断
 迁移差距及兼容文件退役条件见 [现状与迁移](../docs/现状与迁移.md)。
 ## v5 P2 独立研究提取器
 
-`cmd/guardextract`、`internal/hostguard` 为 `host-guard/5.0.0-rc.2` 独立路径；原有 v4 命令、资源和上传流程保留。P2 不启动网卡、不上传、不执行防火墙动作。详细语义、验收及范围见[阶段报告](../docs/p2/README.md)。
+`cmd/guardextract`、`internal/hostguard` 为 `host-guard/5.0.0-rc.2` 独立路径；原有 v4 命令、资源和上传流程保留。研究提取CLI离线读取，不上传或执行防火墙动作；详细语义与范围见[P2交接](../docs/p2/README.md)。
 
 ```sh
 CGO_ENABLED=0 go test ./...
@@ -50,7 +50,7 @@ CGO_ENABLED=0 go build -o bin/guardextract ./cmd/guardextract
 
 `guardextract -config <受控配置> -pcap <完整捕获> -out <新JSONL> -ledger <本机旁路> -report <新摘要>` 只支持 research；用 `-start`/`-end` 指定隔离分区，每个独立分区必须使用新 bootId 和新引擎。配置包含 UUID 身份、`localAddresses`、`secretFile`、`keyEpoch`；密钥为至少32字节随机值，原始地址/密钥/配置/旁路和特征输出均放忽略的受控目录。重试保留身份与密钥，不能覆盖已有输出；只有完整输入通过后才生成完成摘要。
 
-`guardjoin` 消费离线规范标签，核对全部连接计数及受控起点旁路；不把载荷、标签或地址送入模型。`guardgolden` 默认生成小型合成夹具，日常使用 `-check` 防止改写冻结期望。P2原验收只验证输入夹具；后续真实输入由下列独立入口完成。
+`guardjoin` 消费离线规范标签，核对全部连接计数及受控起点旁路；不把载荷、标签或地址送入模型。`guardgolden` 默认生成小型合成夹具，日常使用 `-check` 防止改写冻结期望。共享因果引擎已按P2交接，实际采集使用下列独立入口。
 
 ## v5 有期限的实时采集
 
@@ -63,4 +63,10 @@ GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -o bin/guardlive.exe ./cmd/guar
 
 配置除v5身份、密钥和本机地址外，还需 `interface`、`allowedInterfaces`、`peerAddresses`、`servicePort`、`authorizedUntil`；`serviceEndpoint` 可为 `local` 或 `peer`。默认/空值为本机服务，客户端访问已登记对端服务时指定 `peer`；未知值拒绝。BPF同时绑定接口、本机/对端和服务端口，登记期限不能由命令行采集时长延长。原始端点和私有轨迹留在受控忽略目录。
 
-2026-10-04已在Mac/Windows回环和物理接口实际运行：四次均零丢包、三个parent，实时与同轨迹复算逐字节一致；物理接口为每端三条正常HTTPS连接/九个GET。[验收报告](../docs/p1-p3-completion/README.md)绑定程序及运行时加载的Npcap DLL哈希。Windows未签名程序在SAC=On下通过，满足该构建在目标机的自用运行核验；不要求另做签名或安装包。[制品入口](../scripts/p1/finalize_windows_artifact.py)中的正式签名模式保留为可选工具，不属于本次交付条件。该证据仅覆盖实测IPv4/TCP范围，不授予模型或自动处置资格。
+Mac/Windows回环和物理接口的实时输入与同轨迹逐字节复算已作为P1/P2基线收口。Windows未签名程序在目标机既有系统策略下的自用运行已交接，不增加发行签名或安装包任务。该基线仅覆盖实测范围；新构建绑定自己的文件/依赖哈希，不授予模型或自动处置资格。
+
+P3新增的连续健康旁证、plannedRole传递、共同早期轨迹检查和稳定预算恢复仍需按新计划实施。现有guardlive的单次轨迹复算不能替代跨活动连续健康证明；逻辑特征引擎可重置，健康观察器和真实目标预算必须连续。闭阶段报告工具如需旧输入，恢复相应Git基线或备份，不在当前docs重建旧报告。
+
+## P5 本机目标服务
+
+新增 `cmd/guardtargets`，将 P2 易失注册表以独立回环 mTLS 服务运行；不持有防火墙权限。保留旧lease/resolve，新增resolve-lease返回原始lastPacketAt/expiresAt，供P5在安装前核验新鲜度。配置包含明确期限和collector/executor分离证书指纹；退出销毁引用，执行器boot变化须重新配对。构建为 `go build -o bin/guardtargets ./cmd/guardtargets`，运行与执行器对接见[执行器说明](../executor/README.md)。现有guardlive仍是research入口，不因新增目标服务自动取得真实执行资格。

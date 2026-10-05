@@ -123,7 +123,7 @@ public class SecurityConfiguration {
                                                    AuthenticationEntryPoint entryPoint, AccessDeniedHandler deniedHandler,
                                                    MachineCredentialFilter machineCredentialFilter,
                                                    MachineRequestSizeFilter machineRequestSizeFilter) throws Exception {
-        http.securityMatcher("/api/v1/machine/**")
+        http.securityMatcher("/api/v1/machine/**", "/api/v2/machine/**")
                 .csrf(csrf -> csrf.disable())
                 .securityContext(context -> context.securityContextRepository(new NullSecurityContextRepository()))
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
@@ -144,7 +144,8 @@ public class SecurityConfiguration {
                                             AuthenticationEntryPoint entryPoint, AccessDeniedHandler deniedHandler,
                                             SecurityContextRepository contextRepository,
                                             AbsoluteSessionFilter absoluteSessionFilter,
-                                            MachineCredentialFilter machineCredentialFilter) throws Exception {
+                                            MachineCredentialFilter machineCredentialFilter,
+                                            MachineRequestSizeFilter machineRequestSizeFilter) throws Exception {
         http
                 .csrf(csrf -> csrf.ignoringRequestMatchers("/api/v1/machine/**"))
                 .securityContext(context -> context.securityContextRepository(contextRepository))
@@ -165,11 +166,12 @@ public class SecurityConfiguration {
                         .requestMatchers("/actuator/health", "/actuator/health/**").permitAll()
                         .requestMatchers("/actuator/metrics/**", "/actuator/prometheus").hasAuthority("ops.status.read")
                         .requestMatchers("/api/v1/auth/me", "/api/v1/auth/logout").authenticated()
-                        .requestMatchers("/api/v1/**").authenticated()
+                        .requestMatchers("/api/v1/**", "/api/v2/**").authenticated()
                         .anyRequest().denyAll())
                 .addFilterBefore(requestIdFilter, org.springframework.security.web.context.SecurityContextHolderFilter.class);
         http.addFilterAfter(absoluteSessionFilter, org.springframework.security.web.context.SecurityContextHolderFilter.class);
         http.addFilterAfter(machineCredentialFilter, AbsoluteSessionFilter.class);
+        http.addFilterAfter(machineRequestSizeFilter, AbsoluteSessionFilter.class);
         return http.build();
     }
 

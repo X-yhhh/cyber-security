@@ -1,21 +1,18 @@
 # 网络威胁检测与受控防御平台 - 前端系统 (SecOps Console)
 
-本项目基于 **Vue 3 稳定版 + Vite 6 + TypeScript + Tailwind CSS** 构建，采用现代化**高保真浅色科技防务风 (Clean Modern Light Cyber-SecOps Theme)** 设计。界面高级、审美统一、布局严谨，各功能模块严格对齐系统的设计契约（《项目详细设计》、《功能模块设计》、《接口设计》、《数据库设计》）。
+本项目基于 **Vue 3 稳定版 + Vite 6 + TypeScript + Tailwind CSS** 构建，采用**白纸墨字 + 单一钴蓝强调色**的技术文档式控制台风格。各功能模块对齐系统的设计契约（《项目详细设计》《功能模块设计》《接口设计》《数据库设计》）；完整视觉与代码约定见 [前端设计文档](../docs/前端设计文档.md)。
 
 ---
 
-## 1. 核心设计风格规范 (浅色科技主题)
+## 1. 核心设计风格规范
 
-- **底色与表面**：页面主底色为纯净冷灰 `#f8fafc` (Slate 50)，卡片采用纯白 `#ffffff`，辅以 1px 细微边界 `#e2e8f0` 与柔和多层微投影；
-- **品牌科技蓝**：主色调选用科技钛青与深钴蓝 `#0284c7` (Sky 600)；
-- **安全语义色彩**：
-  - **危急 (Critical)**: 背景 `#fef2f2`，边框 `#fecaca`，文字 `#dc2626`
-  - **高危 (High)**: 背景 `#fff7ed`，边框 `#fed7aa`，文字 `#ea580c`
-  - **中危 (Medium)**: 背景 `#fefce8`，边框 `#fef08a`，文字 `#ca8a04`
-  - **低危 (Low)**: 背景 `#f0fdfa`，边框 `#99f6e4`，文字 `#0d9488`
-  - **安全 (Safe)**: 背景 `#f0fdf4`，边框 `#bbf7d0`，文字 `#16a34a`
-  - **待办 (Pending)**: 背景 `#faf5ff`，边框 `#e9d5ff`，文字 `#9333ea`
-- **专业数据排版**：IP 地址、端口、MAC、五元组、哈希、TTL 与特征契约统一采用等宽字体 (`JetBrains Mono`, `Fira Code`) 排版。
+实际基线以 `tailwind.config.js` 与 `src/styles/index.css` 为准，完整说明见 [前端设计文档](../docs/前端设计文档.md)。
+
+- **底色与表面**：纯白纸底 `#FFFFFF`，次级表面 `#EFEEE9`；**不使用阴影**，层级靠三级细线组织——强线 `ink #14161A`、分隔线 `ink-line #D9D7D0`、发丝线 `ink-hair #E4E2DB`；
+- **强调色**：单一钴蓝 `signal #2438E8`（浅底 `#E6E8FB`）。刻意去掉大圆角（`rounded` 仅 2px，`rounded-md/lg/xl` 已移除）；
+- **语义色**：威胁 `threat #E0482A`、警示 `warn #B7791F`、正常 `ok #2F7D5B`，语义映射集中在 `src/data/tones.ts`，未知状态值自动回退为中性；
+- **语义标记**：状态用「圆点 + 文字」的 `Tag` 表达，**不用彩色底徽章**；
+- **专业数据排版**：时间戳、ID、IP、端口、哈希、TTL、分数与契约版本一律用等宽字体 `JetBrains Mono`，由 `.num` 与 `.label` 两个组件类落地。
 
 ---
 
@@ -36,17 +33,24 @@
 | `/console/sources` | 数据源与回放 | 数据源、接入汇总、回放场景（只读）、影子报告与反馈第二人复核（`SourcesShadowPanel`） | `/data-sources`、`/data-sources/ingest-summary`、`/replay-scenarios`、`/data-sources/{id}/shadow-report`、`/feedback-reviews`、`/feedback-samples/{id}/review` |
 | `/console/audit` | 审计 | 追加式只读审计查询 | `/audit` |
 | `/console/iam` | 身份与角色 | 用户列表、内置角色与权限 | `/users`、`/roles`、`/users/{id}/roles` |
+| `/console/observation` | 观测与目标 | 观察批次受理、单条观察快照、推理结论、证据迹（只读） | `/api/v2/observation-batches`、`/observations`、`/detections`、`/evidence-episodes`、`/evidence-episodes/{id}/evidence`、`/assets`、`/budget-targets` |
+| `/console/release` | 策略与发布 | 决策策略复核、发布组合登记报告/封存/审批/激活/停用、能力等级、评价运行 | `/api/v2/decision-policies`、`/release-bundles`（含 `imports` `sealings` `decisions` `activations` `suspensions`）、`/capabilities`、`/evaluations`、`/evaluation-plans`、`/models` |
+| `/console/execution` | 执行与预算 | 动作台账与回执、人工处置申请与审批与撤销、稳定目标预算账本、自动化停用 | `/api/v2/actions`（含 `receipts` 子资源、`decisions`、`revocations`）、`/budget-targets`、`/automation-stops`、`/assets`、`/evidence-episodes`、`/decisions` |
 
 ---
 
 ## 3. 数据来源与会话
 
-控制台不内置演示数据，所有页面数据均通过 `/api/v1` 从后端读取（后端以 MySQL 为事实源）。开发服务器将 `/api/v1` 代理到 `127.0.0.1:18080`。
+控制台不内置演示数据，所有页面数据均从后端读取（后端以 MySQL 为事实源）：既有页面走 `/api/v1`，
+09—11 三个模块走 host-guard v5 的 `/api/v2`。开发服务器将 `/api/v1` 与 `/api/v2` 代理到 `127.0.0.1:18080`。
 
 - 登录走 `POST /api/v1/auth/login` 建立服务端会话（HttpOnly Cookie）；写请求自动携带 `/auth/csrf` 下发的 CSRF 头。未登录访问 `/console/*` 跳转登录页，会话失效（401）时自动返回登录页。
 - 页面按 `/auth/me` 返回的权限决定请求哪些接口、显示哪些操作；最终授权始终由后端判定，无权限区块显示为空或提示，不补示例值。
 - 数据库中没有记录时页面如实显示“暂无记录”。
-- 已接入的写操作：事件状态迁移、研判笔记、处置申请（带 `Idempotency-Key`）、审批决定、资产授权批准、模型校验/发布申请/发布审批/本机激活、响应策略生命周期、告警标注与第二人复核。回放启停与处置执行器未开放（后端执行端点固定返回 `503 ACTION_EXECUTION_UNAVAILABLE`）。
+- 已接入的写操作：事件状态迁移、研判笔记、处置申请（带 `Idempotency-Key`）、审批决定、资产授权批准、模型校验/发布申请/发布审批/本机激活、响应策略生命周期、告警标注与第二人复核。
+- P4 的 v2 写操作（09—11）：全部带 `Idempotency-Key`，审批/激活/停用类另带 `If-Match: <revision>`。包括决策策略复核、发布组合登记报告/封存/审批/激活/停用、人工处置申请/审批/撤销、自动化停用。前端只按权限隐藏入口，职责分离（自批 403）与状态迁移以后端判定为准。
+- **机器侧路由不在控制台范围内**：`/api/v2/machine/**` 要求 `Bearer mch_*` 机器身份并清空浏览器会话，由采集器与执行器调用，浏览器不可用。
+- 回放启停与 v1 处置执行器未开放（后端执行端点固定返回 `503 ACTION_EXECUTION_UNAVAILABLE`）。
 
 ---
 
@@ -63,4 +67,4 @@ npm run build       # 类型检查 + 生产构建
 npm run preview     # 预览生产构建
 ```
 
-API 客户端 `src/api/client.ts` 遵循后端 `ApiEnvelope`（`{ success, data, error, requestId }`），自动携带 CSRF 头、会话 Cookie 与 `X-Request-Id`。
+API 客户端 `src/api/client.ts` 同时支持两套信封：v1 为 `{ success, data, error, requestId }`，v2 为 `{ requestId, data, error }`；自动携带 CSRF 头与会话 Cookie，写请求注入幂等键，审批类操作注入 `If-Match`。详见[前端设计文档](../docs/前端设计文档.md)。

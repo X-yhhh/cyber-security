@@ -9,6 +9,7 @@ from collections import Counter,defaultdict
 from datetime import datetime
 import hashlib,json
 from pathlib import Path
+from prefix_contract import PUBLIC_ROLES, metadata
 
 
 def sha(p):
@@ -31,7 +32,7 @@ def source_identity(registration):
     scenario=registration['scenario']
     if scenario not in identities:raise ValueError('未知的来源登记场景')
     source,activity=identities[scenario]
-    return dict(scenario=scenario,sourceId=source,activityId=activity,associationGroup=activity)
+    return dict(scenario=scenario,sourceId=source,activityId=activity,associationGroup=activity,plannedRole=PUBLIC_ROLES[scenario])
 
 
 def source_connection(observation,ledger,bykey,parent_sources):
@@ -124,6 +125,9 @@ def main():
             row['episodeId']=hashlib.sha256(json.dumps([target,row['startMs'],row['endMs'],ordinal]).encode()).hexdigest()
             row['basis']='union_of_qualified_source_connection_intervals; conservative onset bounds'
             row['activityId']=identity['activityId'];row['scenario']=identity['scenario'];episodes.append(row)
+    rows=[metadata(r) for r in rows]
+    episodes=[metadata(dict(e,**{k:v for k,v in identity.items() if k not in e})) for e in episodes]
+    timeline={k:metadata(dict(v,**{name:value for name,value in identity.items() if name not in v})) for k,v in timeline.items()}
     a.output.mkdir(parents=True,exist_ok=False)
     for name,values in [('index.jsonl',rows),('observations.jsonl',observations),('label-connection-timeline.jsonl',timeline.values()),('label-timeline.jsonl',episodes)]:
         with (a.output/name).open('x') as f:

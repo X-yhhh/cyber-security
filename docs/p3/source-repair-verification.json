@@ -1,0 +1,390 @@
+{
+  "version": "p3-source-repair-verification-v1",
+  "verifiedAt": "2026-10-05T07:28:54.923142+00:00",
+  "sourceRepairCompleted": true,
+  "p3Passed": false,
+  "trainingAllowed": false,
+  "p6Ready": false,
+  "scope": "Existing controlled PCAP source identity repair, offline rebuild, frozen corpus verification and training admission checks.",
+  "modelFitsThisRepair": 0,
+  "finalTestRead": false,
+  "newCapturePerformed": false,
+  "sourceCodeHashes": {
+    "scripts/p3/build_attack_prefix.py": "128fea1bffd83561d82af905e989521f6a3717e9b86ce774fe26d836be2f2358",
+    "scripts/p3/test_build_attack_prefix.py": "b55245230e7587572f588d5ceb15146d3e6b9c27fce0cdd2185e8c3b58bd14d1",
+    "scripts/p3/freeze_prefix_corpus.py": "ae7a6ec04675ceb53ff006195b783ff0ceacac9ed04b4941654f6f66bf8a3bfc",
+    "scripts/p3/test_freeze_prefix_corpus.py": "0d4d0b535b9ecbe2114c0d9a5f84469ef9e54882ee705075d154ef377647c474",
+    "scripts/p3/verify_prefix_corpus.py": "b42d75e1d4c998312a6518a65f4da4b5bc235a9c4ade02916a6a33e71721cb7c"
+  },
+  "actualMergeEvidence": {
+    "sharedSourceContextEdges": 0,
+    "wholeParentQuantizedSequenceEdges": 8,
+    "controlledSequenceMergeEdges": 4,
+    "gapSeconds": [
+      155.682445,
+      155.676178,
+      155.607233,
+      155.645375,
+      155.674681
+    ],
+    "controlledSignatures": [
+      {
+        "signature": "9ee442d2effa0809e1c6a731dd854e29bd3094c3ed0b16bae8fdbbb8a23dcf30",
+        "parents": 12,
+        "activities": 3
+      },
+      {
+        "signature": "ccf5c89373eb75809f86f0e2fdeffa7bfc5d20f879330574c8bd580c8b3060ba",
+        "parents": 12,
+        "activities": 3
+      }
+    ],
+    "note": "Six distinct source identities still form two leakage groups under the unchanged whole-parent near-duplicate rule."
+  },
+  "controlledRebuild": {
+    "observations": 324,
+    "parents": 24,
+    "activities": 6,
+    "sourceGroups": 6,
+    "sourceDomains": 1,
+    "leakageGroups": 2,
+    "observationsBySource": {
+      "controlled_slowloris_g1": 36,
+      "controlled_slowloris_g2": 36,
+      "controlled_slowloris_g3": 36,
+      "controlled_slowhttptest_g1": 72,
+      "controlled_slowhttptest_g2": 72,
+      "controlled_slowhttptest_g3": 72
+    },
+    "rawCaptureHashes": {
+      "group-01-slowloris-g1": "0e2231d5dbabb94e676f695929b9776b14d23e89d45ff2cfd632133d54d02879",
+      "group-02-slowloris-g2": "eca748d2a75e32d598e41c25f78e32c1f5944bd4bf1111ec8b9922477eba2330",
+      "group-03-slowloris-g3": "f5280b5bb02e98395d7c27130899bc35943fd6f70408023685e2a20a168f3019",
+      "group-04-slowhttptest-g1": "a398a9155a71024a789043f3b7837850b12ccf45470614608f59268ab2d552fb",
+      "group-05-slowhttptest-g2": "c12b376e42810d55d51cd65cb16e7ed9bcb922959ec78fbe9050e2621a39be37",
+      "group-06-slowhttptest-g3": "7957f77d80f1dc65664155acf7972adbb4039064bb470cfa1b31b78e60ef809d"
+    },
+    "featureAndLabelSemanticsUnchanged": true,
+    "macWindowsSemanticParity": true,
+    "semanticFingerprint": {
+      "rows": 324,
+      "semanticSha256": "131793edc475363c931563dfee424692ff9b66cc378c803da08cbcca3bf154f8",
+      "observationFields": [
+        "contractVersion",
+        "profile",
+        "direction",
+        "transport",
+        "addressFamily",
+        "servicePort",
+        "firstSeenAt",
+        "lastPacketAt",
+        "asOf",
+        "emittedAt",
+        "features",
+        "contexts",
+        "quality",
+        "closeReason"
+      ],
+      "indexFields": [
+        "activityId",
+        "scenario",
+        "split",
+        "label",
+        "family",
+        "evidenceTier",
+        "attackMode",
+        "groupOrdinal",
+        "labelRuleVersion",
+        "onsetMode",
+        "onsetUs",
+        "captureSha256",
+        "firstSeenAt",
+        "asOf",
+        "sourceId",
+        "sourceDomainId",
+        "contextSourceId"
+      ],
+      "version": "p3-controlled-semantic-multiset-v1",
+      "algorithm": "sha256 of UTF-8 canonical JSON array of lexically sorted canonical JSON record strings; sort_keys=true; separators=comma:colon; ensure_ascii=true; allow_nan=false; duplicate records retained"
+    },
+    "macExtractorSha256": "58d70ec9463d148051704cf074772b16472499de1cc210ae42da3b2bc1428b49",
+    "windowsExtractorSha256": "cd3f0ff49705195eef40e38f8945a5e93999a1044737d93e0366028bdd06ef4f"
+  },
+  "corpus": {
+    "directory": "artifacts/p3-source-repair-20261005-01/prefix-corpus-v2",
+    "remoteDirectory": ".cache/p3-source-repair-20261005-01/prefix-corpus-v2",
+    "version": "prefix-corpus-partition-v4",
+    "assignmentSeedVersion": "prefix-corpus-partition-v3",
+    "fileHashes": {
+      "readiness.json": "11e66f4f6acacf4ec124682efded52bf83f4c0f68dfda7aa879799fcff08a91e",
+      "index.jsonl": "80aa1a0bb191f02dae03b06b90a04029c0348b3bf58e138ab81945b09ac3827b",
+      "observations.jsonl": "05b4dba155daada5beb6e1ad8410695f932deb4e1b6b9da5c44348044211f07c",
+      "partitions.json": "6a167a63aee9b2f1d7473e4eafd9502b261c82755f50ccd60ac523e4ab1c2f32",
+      "p6-sealed-manifest.json": "b69b1819008e893fc7190105535de6a7ee75511af38ece23f0e6a5dce2a03c2d",
+      "label-timeline.jsonl": "b54613628ad53a005fdfab6cde8810d9ba98eff29b2710105fcee0f01c352d1d"
+    },
+    "archiveSha256": "f0c27990e2f06124e4ec8d6c7e7a552a70b7d4fa6c3174ef21b242e381394976",
+    "archiveBytes": 12915993,
+    "verification": {
+      "version": "prefix-corpus-verification-v2",
+      "integrityPassed": true,
+      "trainingAllowed": false,
+      "blockers": [
+        "INDEPENDENT_DEVELOPMENT_FEWER_THAN_FIVE_ATTACK_GROUPS",
+        "ROLE_MISSING_CLASS:validation_calibration:1",
+        "SCENARIO_NOT_PRESENT_IN_ALL_DEVELOPMENT_ROLES:cic2017_slowhttptest",
+        "SCENARIO_NOT_PRESENT_IN_ALL_DEVELOPMENT_ROLES:cic2018_slowloris",
+        "SCENARIO_NOT_PRESENT_IN_ALL_DEVELOPMENT_ROLES:controlled_slowhttptest",
+        "SCENARIO_NOT_PRESENT_IN_ALL_DEVELOPMENT_ROLES:controlled_slowloris",
+        "SCENARIO_NOT_PRESENT_IN_ALL_DEVELOPMENT_ROLES:taara_slowloris"
+      ],
+      "roleCounts": {
+        "train": {
+          "0": 233,
+          "1": 1111
+        },
+        "validation_selection": {
+          "0": 15,
+          "1": 8067
+        },
+        "validation_calibration": {
+          "0": 17,
+          "1": 0
+        },
+        "independent_development": {
+          "0": 241,
+          "1": 40922
+        }
+      },
+      "roleClassGroups": {
+        "train": {
+          "0": 3,
+          "1": 1
+        },
+        "validation_selection": {
+          "0": 1,
+          "1": 1
+        },
+        "validation_calibration": {
+          "0": 1,
+          "1": 0
+        },
+        "independent_development": {
+          "0": 9,
+          "1": 3
+        }
+      },
+      "sceneRoleAttackGroups": {
+        "cic2017_slowhttptest": {
+          "train": 1,
+          "validation_selection": 0,
+          "validation_calibration": 0,
+          "independent_development": 0
+        },
+        "cic2018_slowloris": {
+          "train": 0,
+          "validation_selection": 1,
+          "validation_calibration": 0,
+          "independent_development": 0
+        },
+        "controlled_slowhttptest": {
+          "train": 0,
+          "validation_selection": 0,
+          "validation_calibration": 0,
+          "independent_development": 1
+        },
+        "controlled_slowloris": {
+          "train": 0,
+          "validation_selection": 0,
+          "validation_calibration": 0,
+          "independent_development": 1
+        },
+        "taara_slowloris": {
+          "train": 0,
+          "validation_selection": 0,
+          "validation_calibration": 0,
+          "independent_development": 1
+        }
+      },
+      "observations": 50606,
+      "parents": 12751,
+      "activities": 28,
+      "leakageGroups": 18,
+      "crossRoleParents": 0,
+      "crossRoleActivities": 0,
+      "crossRoleNearDuplicates": 0,
+      "finalTestRead": false,
+      "modelFits": 0,
+      "groupingSummary": {
+        "sourceGroups": 11,
+        "mergeEdgesByReason": {
+          "whole_parent_quantized_sequence": 8
+        },
+        "nearDuplicateParentMatches": 270,
+        "byScenario": {
+          "cic2017_slowhttptest": {
+            "activities": 1,
+            "sourceGroups": 1,
+            "leakageGroups": 1,
+            "roleGroups": {
+              "train": 1,
+              "validation_selection": 0,
+              "validation_calibration": 0,
+              "independent_development": 0
+            }
+          },
+          "cic2018_slowloris": {
+            "activities": 1,
+            "sourceGroups": 1,
+            "leakageGroups": 1,
+            "roleGroups": {
+              "train": 0,
+              "validation_selection": 1,
+              "validation_calibration": 0,
+              "independent_development": 0
+            }
+          },
+          "controlled_benign": {
+            "activities": 16,
+            "sourceGroups": 2,
+            "leakageGroups": 13,
+            "roleGroups": {
+              "train": 3,
+              "validation_selection": 1,
+              "validation_calibration": 1,
+              "independent_development": 8
+            }
+          },
+          "controlled_slowhttptest": {
+            "activities": 3,
+            "sourceGroups": 3,
+            "leakageGroups": 1,
+            "roleGroups": {
+              "train": 0,
+              "validation_selection": 0,
+              "validation_calibration": 0,
+              "independent_development": 1
+            }
+          },
+          "controlled_slowloris": {
+            "activities": 3,
+            "sourceGroups": 3,
+            "leakageGroups": 1,
+            "roleGroups": {
+              "train": 0,
+              "validation_selection": 0,
+              "validation_calibration": 0,
+              "independent_development": 1
+            }
+          },
+          "taara_slowloris": {
+            "activities": 4,
+            "sourceGroups": 1,
+            "leakageGroups": 1,
+            "roleGroups": {
+              "train": 0,
+              "validation_selection": 0,
+              "validation_calibration": 0,
+              "independent_development": 1
+            }
+          }
+        }
+      },
+      "readinessSha256": "11e66f4f6acacf4ec124682efded52bf83f4c0f68dfda7aa879799fcff08a91e",
+      "verifierSha256": "b42d75e1d4c998312a6518a65f4da4b5bc235a9c4ade02916a6a33e71721cb7c"
+    },
+    "roleAssignmentsAndMergeEdgesUnchanged": true
+  },
+  "validation": {
+    "macOS": {
+      "passed": 22,
+      "checks": [
+        {
+          "command": "python -m unittest discover -s scripts/p3 -p 'test_build_attack_prefix.py' -v",
+          "passed": 21,
+          "exitCode": 0
+        },
+        {
+          "command": "python -m unittest discover -s scripts/p3 -p 'test_freeze_prefix_corpus.py' -v",
+          "passed": 1,
+          "subcases": 3,
+          "exitCode": 0
+        }
+      ],
+      "trainingGateExitCode": 2
+    },
+    "windows": {
+      "passed": 26,
+      "checks": [
+        {
+          "command": "python -m unittest discover -s scripts/p3 -p 'test_build_attack_prefix.py' -v",
+          "passed": 21,
+          "exitCode": 0
+        },
+        {
+          "command": "python -m unittest discover -s scripts/p3 -p 'test_freeze_prefix_corpus.py' -v",
+          "passed": 1,
+          "subcases": 3,
+          "exitCode": 0
+        },
+        {
+          "command": ".venv/Scripts/python.exe -m pytest tests/test_host_guard_prefix.py -q -k 'five_training_groups or each_declared_scenario or unknown_and_final_roles or pipeline_lock'",
+          "passed": 4,
+          "exitCode": 0
+        }
+      ],
+      "pythonVersion": "3.12.10",
+      "branch": "training/windows-cuda",
+      "head": "7c139fa68233395ab9a4c6348585af4a4fe2c9cf",
+      "verifierModule": "cyber_training.host_guard.prefix_corpus.verify",
+      "verifierSha256": "b42d75e1d4c998312a6518a65f4da4b5bc235a9c4ade02916a6a33e71721cb7c",
+      "trainingGateExitCode": 2,
+      "exportedLogHashes": {
+        "build-tests.txt": "87cc58791cd9ba6993cd485bea85aac401b7ba8c5adfcd90c234118fb59b7256",
+        "grouping-tests.txt": "956d6dec09c0534d36e059a4d8d9718f6536e84653e73453725b0635d361e1e3",
+        "training_gate-tests.txt": "c4b808d34f4db00b333696dec1f3a43a2887d8bfe0cb7af07a3cb98ff43a7830"
+      }
+    },
+    "sameFrozenFilesAndVerificationResults": true
+  },
+  "preservation": {
+    "originalCapturesUnchanged": true,
+    "oldCorpusUnchanged": true,
+    "oldCorpusReadinessSha256": "78a374626b7fc1061ce16a8b17acb523d7f4296b9d86229eec2f7585a78b5dba",
+    "p6SealedManifestUnchanged": true,
+    "p6SealedManifestSha256": "b69b1819008e893fc7190105535de6a7ee75511af38ece23f0e6a5dce2a03c2d",
+    "historyAndCandidateHashes": {
+      "docs/p3/stage-exit.json": "eefafb747f0a188ecedb9383609d6051c507652e56c7e1083891ea8163e0a2f9",
+      "docs/p3/continuation/stage-exit.json": "88b4f76f82d0e2260f21d2da94157545a1dc1ff50fec38c864429c45d193644a",
+      "docs/p3/cde-plan.json": "978d7305711a4c742220d30d6fc278373452594e6a99df5a3a718e93d32d2c1b",
+      "docs/p3/candidate-manifest.json": "58d8aa9a54e7f820a06cf0245e6d616faf502bd4e948bcf0c2eb88437a94b7a7",
+      "docs/p3/candidate-policy.json": "d56b6ba58deb4ba5ff1b4d31540a5dc888ca86b6a7d0256fe01be3a3ef4c4896",
+      "docs/p2/freeze-manifest.json": "3d4cf75f1a150690a1908ba5cae4e886b1fce05c65a98814033561df5930a9d6"
+    },
+    "windowsProtectedFiles": 17,
+    "windowsProtectedFilesUnchanged": true,
+    "localHead": "7a52b76615b8fe935821ac5a142a20af1da10d50",
+    "localHeadUnchanged": true,
+    "windowsHeadUnchanged": true,
+    "newFitOrActivation": false,
+    "gitCommitOrPush": false,
+    "serviceRestart": false,
+    "userFilesDeleted": false
+  },
+  "remainingConditions": [
+    "Independent-development attack leakage groups: 3; required: at least 5.",
+    "validation_calibration attack observations: 0; both classes are required.",
+    "Each of the five declared attack scenarios currently has one leakage group, so none can cover all four mutually exclusive development roles.",
+    "Scenario and source-domain registration and qualified independent activities must be resolved before P3-D; names, copies and splitting parents are not substitutes.",
+    "P3-D performance, independent E5 comparison and new candidate ONNX parity remain unverified; P6 and automatic response are not admitted."
+  ],
+  "evidenceHashes": {
+    "artifacts/p3-source-repair-20261005-01/initial-audit.json": "a473fcb6c839c9a648d63204106d8454f690c7bd8f9344350c9551e140fc9cbb",
+    "artifacts/p3-source-repair-20261005-01/semantic-comparison.json": "ff844b00fef9d97e92bf4d85142e8fb8f29bc9049451a71840b89a2ce14f6648",
+    "artifacts/p3-source-repair-20261005-01/preservation.json": "61b710090454e330accfc68aae4ebd57e51b704c22ca24ea14b7122bbf362982",
+    "artifacts/p3-source-repair-20261005-01/mac-training-gate.json": "48c028b1ec17fc69b4a7c1c546b534897a9b2d4556e5dc7276b291ce4e36092a",
+    "artifacts/p3-source-repair-20261005-01/semantic-fingerprint-v2-mac.json": "d08d082ea2847466db65faae3f2ef4711e3c98b289c4f0658852baef8fba60d6",
+    "artifacts/p3-source-repair-20261005-01/remote-read/corpus-verification-windows.json": "48c028b1ec17fc69b4a7c1c546b534897a9b2d4556e5dc7276b291ce4e36092a",
+    "artifacts/p3-source-repair-20261005-01/remote-read/windows-source-repair-verification.json": "fb095a16e81d5a06613c8d8d9ff6c737e00a675e642d52080413d4feb417d353"
+  }
+}

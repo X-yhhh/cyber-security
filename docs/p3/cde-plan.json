@@ -1,78 +1,554 @@
 {
-  "version": "p3-prefix-cde-20261004-v1",
-  "status": "registered_before_new_collection_or_fit",
-  "authorization": "用户要求参考图片和当前代码完成P3-C/D/E，并明确继续核查公开来源",
-  "candidateOnly": true,
-  "finalTestRead": false,
-  "profile": "flow-prefix-v1",
-  "contractVersion": "host-guard/5.0.0-rc.2",
-  "sources": {
-    "maximumQualifiedNewSources": 2,
-    "maximumRawDownloadBytes": 2147483648,
-    "selected": ["usb-ids", "dos-and-slowrate-dos-detection-dataset"],
-    "requirements": ["原始PCAP及许可", "可对应的活动、端点、起点", "完整parent与近重复隔离"],
-    "flowTablesArePrefixEvidence": false
+  "version": "p3-prefix-cde-20261005-v4",
+  "status": "p3a_implemented_data_admission_pending",
+  "documentKind": "design_registration_not_runtime_plan",
+  "updatedAt": "2026-10-05",
+  "stageBaseline": {
+    "P1": "completed_closed",
+    "P2": "completed_closed",
+    "P3": "in_progress",
+    "P4_P8": "planned"
   },
-  "benignCollection": {
-    "host": "win-dev",
-    "server": "127.0.0.1:80",
-    "client": "127.0.0.2",
-    "interface": "\\Device\\NPF_Loopback",
-    "maximumBatches": 8,
-    "maximumSeconds": 1800,
-    "maximumConcurrency": 4,
-    "contextIsolationSeconds": 155,
-    "roles": ["train", "validation_selection", "validation_calibration", "independent_development", "independent_development", "independent_development", "independent_development", "independent_development"],
-    "kinds": ["paced_download", "bounded_complete_upload", "long_poll", "retry_and_range_resume"],
-    "acceptance": ["实际报文时长", "完整业务内容哈希", "捕获零丢包", "实际新SYN和parent", "整连接近重复审查", "监听释放"],
-    "taskProfiles": "每批预登记不同的业务大小、节奏与时长；同一主机域局限另报，不把变化身份当独立性",
-    "firewallChanges": false
+  "authorization": {
+    "scope": "更新现有文档及清理旧文档产物",
+    "collectionAuthorizedByThisDocument": false,
+    "trainingAuthorizedByThisDocument": false,
+    "liveActionAuthorizedByThisDocument": false
+  },
+  "candidateOnly": true,
+  "policyMode": "alert_only",
+  "trainingAllowed": false,
+  "finalTestRead": false,
+  "versions": {
+    "observation": "host-guard/5.0.0-rc.2",
+    "decision": "host-guard-decision/2026-10-05.2",
+    "evaluation": "host-guard-evaluation/2026-10-05.2",
+    "captureHealth": "host-guard-capture-health/1.0.0",
+    "scenarioMapping": "host-guard-behavior-map/1"
+  },
+  "scope": {
+    "profile": "flow-prefix-v1",
+    "family": "connection_abuse",
+    "addressFamily": "ipv4",
+    "transport": "tcp",
+    "direction": "inbound",
+    "servicePort": 80,
+    "scenarioAxis": "behavior",
+    "scenarios": [
+      "slowloris",
+      "slowhttptest"
+    ],
+    "automaticEligibility": "not_granted"
+  },
+  "currentInput": {
+    "dataset": "artifacts/p3-source-repair-20261005-01/prefix-corpus-v2",
+    "readinessSha256": "11e66f4f6acacf4ec124682efded52bf83f4c0f68dfda7aa879799fcff08a91e",
+    "verifierSha256": "138ee9024d37fd72daa22ba36cc84f04959369cce46344a8fcb6abeba7006a5a",
+    "observations": 50606,
+    "parents": 12751,
+    "activities": 28,
+    "leakageGroups": 18,
+    "attackObservations": 50100,
+    "benignObservations": 506,
+    "controlledActivities": 6,
+    "controlledLeakageGroups": 2,
+    "trainingAllowed": false,
+    "roles": {
+      "train": {
+        "benignPrefixes": 233,
+        "attackPrefixes": 1111,
+        "benignGroups": 3,
+        "attackGroups": 1
+      },
+      "validation_selection": {
+        "benignPrefixes": 15,
+        "attackPrefixes": 8067,
+        "benignGroups": 1,
+        "attackGroups": 1
+      },
+      "validation_calibration": {
+        "benignPrefixes": 17,
+        "attackPrefixes": 0,
+        "benignGroups": 1,
+        "attackGroups": 0
+      },
+      "independent_development": {
+        "benignPrefixes": 241,
+        "attackPrefixes": 40922,
+        "benignGroups": 9,
+        "attackGroups": 3
+      }
+    },
+    "blockingReasons": [
+      "ROLE_MISSING_CLASS:validation_calibration:1",
+      "INDEPENDENT_DEVELOPMENT_FEWER_THAN_FIVE_ATTACK_GROUPS",
+      "SCENARIO_NOT_PRESENT_IN_ALL_DEVELOPMENT_ROLES:slowloris",
+      "SCENARIO_NOT_PRESENT_IN_ALL_DEVELOPMENT_ROLES:slowhttptest",
+      "P3_A_ROLE_BEHAVIOR_EARLY_TRAJECTORY_NOT_FROZEN",
+      "AUTHENTICATED_CONTINUOUS_HEALTH_UNAVAILABLE",
+      "ACTION_PHASE_PENDING_CAPTURE_HEALTH:independent_development:slowhttptest"
+    ],
+    "blockingReasonsClass": "collection_repairable_only",
+    "behaviorRoleAttackGroups": {
+      "slowhttptest": {
+        "train": 1,
+        "validation_selection": 0,
+        "validation_calibration": 0,
+        "independent_development": 1
+      },
+      "slowloris": {
+        "train": 0,
+        "validation_selection": 1,
+        "validation_calibration": 0,
+        "independent_development": 2
+      }
+    }
+  },
+  "scenarioMapping": {
+    "mapping": {
+      "cic2017_slowhttptest": "slowhttptest",
+      "cic2018_slowloris": "slowloris",
+      "taara_slowloris": "slowloris",
+      "controlled_slowloris": "slowloris",
+      "controlled_slowhttptest": "slowhttptest"
+    },
+    "retainSidecarFields": [
+      "sourceId",
+      "sourceDomainId",
+      "contextSourceId",
+      "cohortId",
+      "originalScenario",
+      "activityId",
+      "plannedRole"
+    ],
+    "unknownMapping": "reject",
+    "sourceMetadataInModel": false,
+    "supportedVersusDiagnosticSourceScope": "训练前完成可达性裁决并冻结；支持来源必须分别达标，诊断来源不得充当对应支持格子的通过证据",
+    "sourceScope": {
+      "cic2018_corrected": "supported_research",
+      "taara_publisher": "supported_research",
+      "controlled_windows_http_cde": "supported_research",
+      "cic2017_corrected": "diagnostic_train_only：公共角色固定 train，无门禁角色证据；合格证据约 111 秒才出现，不作支持来源"
+    }
+  },
+  "partition": {
+    "roles": [
+      "train",
+      "validation_selection",
+      "validation_calibration",
+      "independent_development"
+    ],
+    "roleAssignment": "explicit_fail_closed",
+    "defaultRole": null,
+    "rolePropagation": [
+      "registration",
+      "activity.json",
+      "completion_record",
+      "connection_index",
+      "label_timeline",
+      "frozen_partition"
+    ],
+    "keepPublicGroupRoles": {
+      "cic2017_slowhttptest": "train",
+      "cic2018_slowloris": "validation_selection",
+      "taara_slowloris": "independent_development"
+    },
+    "oldControlledActivities": "diagnostic_only_in_replacement_plan",
+    "expectedNewControlledActivities": 8,
+    "expectedRoleAttackGroupsIfAllRemainIndependent": {
+      "train": 2,
+      "validation_selection": 2,
+      "validation_calibration": 2,
+      "independent_development": 5
+    },
+    "expectedBehaviorRoleGroupsIfAllRemainIndependent": {
+      "slowloris": {
+        "train": 1,
+        "validation_selection": 1,
+        "validation_calibration": 1,
+        "independent_development": 3
+      },
+      "slowhttptest": {
+        "train": 1,
+        "validation_selection": 1,
+        "validation_calibration": 1,
+        "independent_development": 2
+      }
+    },
+    "countIsConditional": true,
+    "countBasis": "替换旧受控部分且保留三个公共来源组时的配额；不是独立性证明或通用最小值。若复用旧组、并组或改为诊断来源，冻结前重算。",
+    "isolation": [
+      "parentConnection",
+      "activity",
+      "whole_parent_quantized_sequence",
+      "common_early_prefix_trajectory",
+      "shared_source_context_150s"
+    ],
+    "minimumContextIsolationSeconds": 155,
+    "earlyTrajectoryWindowsSeconds": [
+      10,
+      30,
+      45,
+      60,
+      75,
+      90
+    ],
+    "earlyTrajectoryRule": "比较共同可观察窗口内的同量化前缀轨迹；仅末尾长度、标识、UUID或无业务意义抖动不同不算独立，重合组并为同一泄漏组",
+    "mergedRoleConflict": "reject_and_preregister_group_reassignment_before_fit",
+    "denominatorSource": "qualified_original_label_timeline_not_observation_presence"
+  },
+  "controlledCollection": {
+    "designRef": "controlled-attack-authorization.json",
+    "maximumNewAttackActivities": 8,
+    "maximumNewBenignActivities": 8,
+    "maximumBenignActiveSeconds": 1800,
+    "benignRoles": [
+      "train",
+      "train",
+      "validation_selection",
+      "validation_selection",
+      "validation_calibration",
+      "validation_calibration",
+      "independent_development",
+      "independent_development"
+    ],
+    "benignKinds": [
+      "complete_long_request",
+      "paced_download",
+      "long_poll",
+      "legitimate_concurrency",
+      "retry_and_range_resume",
+      "connection_recovery"
+    ],
+    "requirements": [
+      "各角色有同域同服务困难良性",
+      "任务完成与内容完整性可核验",
+      "真实新SYN和parent",
+      "零丢包且计数可测",
+      "共同早期轨迹审查",
+      "连续健康旁证",
+      "清理监听和任务进程"
+    ],
+    "newSourcesByDefault": false,
+    "attackActivities": [
+      {
+        "id": "controlled_slowloris_g1",
+        "behavior": "slowloris",
+        "plannedRole": "train",
+        "intervalSeconds": 7,
+        "chunkBytes": 40,
+        "connections": 3,
+        "activitySeconds": 70,
+        "differentia": "intervalSeconds=7 chunkBytes=40；早期窗口内包计数/字节增量序列与其余七组两两可分"
+      },
+      {
+        "id": "controlled_slowhttptest_g1",
+        "behavior": "slowhttptest",
+        "plannedRole": "validation_selection",
+        "intervalSeconds": 5,
+        "chunkBytes": 3,
+        "connections": 4,
+        "activitySeconds": 65,
+        "differentia": "intervalSeconds=5，最小分片 3B，慢请求体早期增量序列最慢"
+      },
+      {
+        "id": "controlled_slowloris_g2",
+        "behavior": "slowloris",
+        "plannedRole": "validation_calibration",
+        "intervalSeconds": 11,
+        "chunkBytes": 88,
+        "connections": 4,
+        "activitySeconds": 95,
+        "differentia": "intervalSeconds=11 chunkBytes=88；慢头部最长间隔组之一"
+      },
+      {
+        "id": "controlled_slowhttptest_g2",
+        "behavior": "slowhttptest",
+        "plannedRole": "validation_calibration",
+        "intervalSeconds": 8,
+        "chunkBytes": 24,
+        "connections": 3,
+        "activitySeconds": 90,
+        "differentia": "intervalSeconds=8 connections=3，字节增量适中"
+      },
+      {
+        "id": "controlled_slowloris_g3",
+        "behavior": "slowloris",
+        "plannedRole": "independent_development",
+        "intervalSeconds": 9,
+        "chunkBytes": 56,
+        "connections": 3,
+        "activitySeconds": 80,
+        "differentia": "intervalSeconds=9；与 g4 在早期 30 秒内包计数明显不同"
+      },
+      {
+        "id": "controlled_slowloris_g4",
+        "behavior": "slowloris",
+        "plannedRole": "independent_development",
+        "intervalSeconds": 13,
+        "chunkBytes": 120,
+        "connections": 5,
+        "activitySeconds": 110,
+        "differentia": "最高并发（5连接）chunkBytes=120；最长活动，覆盖额度上限边缘"
+      },
+      {
+        "id": "controlled_slowhttptest_g3",
+        "behavior": "slowhttptest",
+        "plannedRole": "independent_development",
+        "intervalSeconds": 6,
+        "chunkBytes": 9,
+        "connections": 4,
+        "activitySeconds": 75,
+        "differentia": "intervalSeconds=6 chunkBytes=9；早期字节增量区别于 g4"
+      },
+      {
+        "id": "controlled_slowhttptest_g4",
+        "behavior": "slowhttptest",
+        "plannedRole": "independent_development",
+        "intervalSeconds": 12,
+        "chunkBytes": 48,
+        "connections": 5,
+        "activitySeconds": 105,
+        "differentia": "最高并发（5连接）intervalSeconds=12；最长慢请求体活动"
+      }
+    ],
+    "attackActivityNote": "八组 intervalSeconds 两两不同（5/6/7/8/9/11/12/13），量化早期轨迹两两可分；冻结器近重复与共同早期窗口审查不会将其并组。不保证自动取得八个独立组：复用旧组、近重复归并或改为仅诊断来源后须在冻结前重算配额。"
+  },
+  "preFitDiagnostics": {
+    "fitCount": 0,
+    "scope": "按原始连续目标时间线回放所有预算域，之后按角色、行为、来源汇总",
+    "required": [
+      "角色端到端拒绝缺失/冲突",
+      "行为映射版本与逐来源范围",
+      "当前证据可用时间分布",
+      "合成高分策略可达性",
+      "稳定目标连续预算",
+      "认证健康冷却恢复",
+      "相同早期轨迹及困难良性覆盖"
+    ],
+    "syntheticHighScoresAreModelMetrics": false,
+    "onStructuralFailure": "停止拟合并修复时钟、预算、观测或数据范围；不通过放宽新鲜度、重置目标身份或删失败桶绕过",
+    "blockerClasses": {
+      "structuralOrImplementation": "停止拟合与采集，修规则/实现/登记",
+      "collectionRepairable": "采集门禁可放行到受控登记；仍需本轮实际执行授权"
+    },
+    "latestRun": {
+      "runDirectory": "artifacts/p3-a-repair-20261005-v4",
+      "windowsRunDirectory": "E:/Workspace/ai/experiments/cyber-security-training/.cache/p3-a-repair-20261005-v4",
+      "runtimePlanSha256": "e6116258892b293257ef65caffa9470be1115655f16c0711fc8190cfe874a96a",
+      "status": "blocked",
+      "structuralOrImplementationBlockers": 0,
+      "modelFits": 0,
+      "finalTestRead": false,
+      "macWindowsDiagnosticsIdentical": true,
+      "note": "常数分诊断，非模型成绩；使用旧输入，仅证明结构可达"
+    }
   },
   "admission": {
+    "allRolesRequireBothClasses": true,
+    "allDeclaredBehaviorsInAllDevelopmentRoles": true,
     "independentDevelopmentMinimumAttackGroups": 5,
     "independentDevelopmentMinimumBenignGroups": 5,
-    "allDeclaredScenariosInAllDevelopmentRoles": true,
+    "reportPerBehaviorAndSourceGroupCounts": true,
+    "minimumGroupsProveStatisticalSufficiency": false,
+    "rejectWithoutQualifiedAttackGroups": true,
+    "boundedDiagnosticModeAllowsFit": false,
+    "requireDeclaredLatencyAndSourceScopeBeforeFit": true,
+    "requireHealthyBudgetReplayBeforeFit": true,
     "recomputeFromActualFiles": true,
-    "rejectWithoutQualifiedAttackGroups": false,
-    "boundedDiagnosticMode": true,
-    "boundedDiagnosticRationale": "用户明确选择方案1：现有3个攻击活动组（train/selection/calibration）加12000余正常机会已足以支撑P3可行性诊断；独立开发评估组不足（实际0个独立开发组，攻击活动总计3组，低于计划5组）导致聚类区间不可靠，须在诊断报告中明确标注unreliable_ci；P3仅证明可行性，P6正式验收强制使用另一批未暴露数据，本次放行不污染P6统计门槛。INSUFFICIENT_INDEPENDENT_ATTACK_ACTIVITIES仍写入stage-exit blockingReasons，不从裁决记录中移除。",
-    "boundedDiagnosticConstraints": [
-      "诊断报告必须标注independentDevelopmentAttackGroups=0，independentAttackActivitiesTotal=3，低于minimumPlanned=5",
-      "聚类区间标注unreliable_ci=true，不得报告精确率点估计",
-      "INSUFFICIENT_INDEPENDENT_ATTACK_ACTIVITIES保留在blockingReasons中",
-      "trainingAllowed保持false，本次诊断不授权新拟合",
-      "不移除任何已有停止条件，不改写历史裁决",
-      "有界诊断结果不用于替代P6正式独立评估"
-    ],
-    "boundedDiagnosticAuthorizedDate": "2026-10-05"
+    "requireRuntimePlanCompatibilityCheck": true,
+    "requireSeparateTrainingAuthorization": true
   },
-  "training": {
-    "host": "win-dev",
-    "branch": "training/windows-cuda",
-    "algorithms": ["lightgbm", "xgboost"],
-    "featureSets": ["base", "peer_context"],
+  "budget": {
     "maximumFullFits": 10,
     "maximumSmokeFits": 3,
     "maximumSecondsPerFit": 300,
     "maximumTotalSeconds": 14400,
     "maximumGpuSeconds": 14400,
+    "maximumPolicyTrials": 256,
+    "policyTrialAllocation": {
+      "model_selection": 64,
+      "rules": 64,
+      "model": 64,
+      "model_and_policy": 64
+    },
+    "seedsFoldsAndRetriesCountAsFits": true,
+    "allThresholdAndPolicySelectionsCount": true,
+    "rounds": 1,
+    "maximumCorrectionFitsWithinRound": 2
+  },
+  "training": {
+    "host": "win-dev",
+    "branch": "training/windows-cuda",
+    "runtimeModule": "cyber_training.host_guard.prefix_runner",
+    "runtimeCommands": [
+      "check",
+      "run"
+    ],
+    "runtimeArguments": [
+      "--dataset",
+      "--contracts",
+      "--plan",
+      "--output"
+    ],
+    "algorithms": [
+      "lightgbm",
+      "xgboost"
+    ],
+    "featureSets": [
+      "base",
+      "peer_context"
+    ],
     "winnerSeed": 42,
-    "varianceSeeds": [43, 44],
+    "varianceSeeds": [
+      43,
+      44
+    ],
+    "fitAllocation": {
+      "base_matrix": 4,
+      "correction_or_ablation": 2,
+      "winner_variance_seeds": 2,
+      "fold_or_failed_retry_reserve": 2
+    },
     "calibrationAfterSelectionLock": true,
-    "independentEvaluationAfterPipelineLock": true
+    "independentEvaluationAfterPipelineLock": true,
+    "runPlanBinding": [
+      "actual_contract_files",
+      "feature_profile",
+      "extractor",
+      "dataset_manifest",
+      "partition",
+      "label_timeline",
+      "scenario_mapping",
+      "capture_health",
+      "decision_version",
+      "evaluation_version",
+      "latency_registration",
+      "source_scope",
+      "code_and_environment_lock"
+    ],
+    "localDesignPlanDirectlyRunnable": false,
+    "compatibilityRequirement": "先更新训练分支现有实验计划/适配层并完成prefix_runner check；不调用final runner，不传smoke或--public。"
+  },
+  "decision": {
+    "stableBudgetIdentityAcross": [
+      "boot",
+      "capture",
+      "activity",
+      "role",
+      "keyEpoch",
+      "policy",
+      "bundle"
+    ],
+    "maxEvidenceAgeMs": 10000,
+    "targetLastPacketLeaseMs": 15000,
+    "episodeSeconds": 30,
+    "defaultTtlSeconds": 30,
+    "maxTtlSeconds": 60,
+    "maxContinuousBlockSeconds": 120,
+    "maxActiveRulesPerAsset": 10,
+    "maxNewActionsPerMinute": 5,
+    "cooldownSeconds": 120,
+    "continuousHealthMustCoverLastBlockEnd": true,
+    "unknownHealthAllowsReset": false,
+    "healthMaximumWindowSeconds": 5,
+    "healthMaximumLiveDelaySeconds": 10,
+    "resetAfter": "verified_no_rule AND continuous_health AND now-max(lastBlockEnd,lastEvidenceAt)>=120s",
+    "nextActivityStart": "max(context_isolation_end,verified_budget_cooldown_end)",
+    "perGroupBudgetReplay": false,
+    "onContinuousBudgetExhausted": "escalate_manual",
+    "escalationRule": "目标首次因连续预算被拒时，每个预算 generation 输出一次 escalate_manual；之后合格证据只形成人工移交告警，不签发自动动作",
+    "collectionInterActivitySeconds": 190,
+    "collectionInterActivityBasis": "max(上下文隔离155秒, 冷却120秒+最大TTL60秒+健康窗口/证据余量10秒)；固定等待不是恢复证据"
   },
   "evaluation": {
     "unit": "qualified_label_timeline_target_30s_bucket",
+    "bucketOrigin": "activity_start",
+    "attackOnsetSource": "original_label_activity_start",
+    "resetOnsetPerBucket": false,
+    "keepMissingObservationBuckets": true,
     "minimumScenarioCoverage": 0.8,
+    "gateRoles": [
+      "validation_selection",
+      "validation_calibration",
+      "independent_development"
+    ],
+    "trainRole": "diagnostic_only",
     "falseBenignOpportunityBudget": 0,
     "incorrectCandidateActionBudget": 0,
-    "onsetToCandidateLimitMs": 10000,
+    "timing": {
+      "defaultShortWindowStartToActionMs": 10000,
+      "evidenceToActionP95Ms": 2000,
+      "researchDeadlineRegistration": "按行为及来源实测evidenceAvailableP50/P95，在拟合前冻结起点截止；默认ceil((P95+2000)/1000)*1000，短窗口使用10000ms",
+      "onLongerThanShortWindow": "保持alert_only；自动能力须单独登记并批准较长时效，不由研究计划自动放宽",
+      "missedActivityTreatment": "未在登记截止前形成有效候选/动作的活动记超时，相关机会不计及时覆盖",
+      "evaluatorMustConsumeFrozenTimingPlan": true,
+      "offlineCandidateReserveMs": 2000,
+      "offlineCandidateDeadline": "startToActionLimitMs-2000"
+    },
+    "compare": [
+      "rules",
+      "model",
+      "model_and_policy"
+    ],
+    "comparisonRequiresEqualSafetyFreshnessTimingAndBudget": true,
+    "comparisonParametersSelectedSeparatelyWithinPreregisteredBudget": true,
+    "perSourceResultsRequired": true,
+    "sourceSeparabilityDiagnosticRequired": true,
+    "clusterUnit": "independent_leakage_group",
     "clusterBootstrapReplicates": 2000,
     "clusterBootstrapSeed": 20261004,
-    "compare": ["rules", "model", "model_and_policy"],
+    "gainGate": "预登记攻击组等权自动处置期及时覆盖率差的配对bootstrap双侧95%区间下界>0；时效为次指标，不在主指标失败后切换",
     "maximumOnnxScoreDifference": 0.0001,
     "maximumThresholdFlips": 0,
-    "realOsActionTimingMeasured": false
+    "realOsActionTimingMeasured": false,
+    "gainMetric": "attack_independent_group_equal_weight_action_horizon_timely_coverage_difference_model_and_policy_minus_rules",
+    "opportunityCoverage": "有效阻断区间与固定机会内攻击时间有正长度交集；所属活动首次响应须及时才计及时覆盖，另报覆盖秒数和活动首次成功率",
+    "phases": {
+      "actionHorizon": {
+        "maxContinuousBlockMs": 120000,
+        "cooldownMs": 120000,
+        "maxTtlMs": 60000,
+        "phaseRule": "first_attack_activity_or_authenticated_cooldown",
+        "window": "[原始起点, 原始起点+startToActionLimitMs+120秒) 内开始的机会；目标额度不可证明恢复的活动整段属于移交期",
+        "policyIndependent": true
+      },
+      "manualHandoff": {
+        "minimumContinuity": 0.8,
+        "coveredWhen": "有效阻断仍在，或目标已 escalate_manual 且桶内有满足 T1—T7 的合格告警"
+      },
+      "fullDurationCoverage": "descriptive_only_not_gate",
+      "denominatorUnchanged": true
+    },
+    "gateCheckScope": "仅 gateRoles 判定可达性与门槛；train 只诊断"
   },
-  "stop": ["缺少合格独立攻击组时不拟合", "来源只提供final流表时不得冒充因果prefix", "不读取P6封存特征标签分数", "两轮有界修正无净收益时停止", "到期或业务/捕获失败立即停止采集"]
+  "p6": {
+    "usesUnseenActivities": true,
+    "inheritsP3DevelopmentResults": false,
+    "minimumAttackEpisodes": 100,
+    "minimumBenignOpportunities": 3000,
+    "finalPipelineEvaluations": 1,
+    "separateAdmission": true
+  },
+  "stop": [
+    "当前输入未通过新准入不得拟合",
+    "同角色缺类别/行为或独立组不足则补数据",
+    "结构可达性不足则修规则实现/时效登记/支持范围；仅缺认证健康导致的移交期化按补采类处理",
+    "达到本轮拟合/策略/墙钟预算即停止",
+    "选型/校准/独立开发任一声明行为不达80%或出现良性误伤则不移交",
+    "E5收益未证明则不宣布模型贡献",
+    "不读取P6封存特征标签分数",
+    "不把活动改名、缩短或换预算身份当修复",
+    "不通过把未达标桶移出分母、放宽120秒上限或把转人工后的机会改记自动覆盖来通过门槛"
+  ],
+  "outputs": {
+    "location": "受控artifacts/run目录及Windows训练输出目录",
+    "docsPolicy": "原位更新本文件和README，不新增阶段报告文档",
+    "immutableCandidateOnly": true,
+    "designUpdate": "v4 原位替换 v3；旧 v3 诊断保留在 artifacts/p3-implementation-20261005-v3 作为根因证据"
+  },
+  "supersedes": {
+    "version": "p3-prefix-cde-20261005-v3",
+    "reason": "v3 评价把转人工后的持续攻击机会计为自动阻断漏封，与 120 秒连续阻断上限结构性矛盾；同时缺转人工输出、角色门禁限定和健康观察器"
+  }
 }

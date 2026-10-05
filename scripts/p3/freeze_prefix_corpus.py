@@ -2,7 +2,7 @@
 """冻结新 prefix 开发语料的保守分区与 P6 原件预留；准入不足仍产出明确的拒绝裁决。
 
 不读取 final_reserved 的载荷、标签或特征。parent/活动/来源日/上下文/近重复的
-连通分量只能进入一个角色；类别分层、固定哈希排序分配，不看模型分数或调换困难样本。
+连通分量只能进入一个明确登记角色；缺失或冲突即拒绝，不看模型分数或调换困难样本。
 近重复按完整 parent 的有序、去身份、粗粒度特征序列登记，可能多合并但不拆活动。
 """
 import argparse
@@ -13,8 +13,9 @@ from pathlib import Path
 
 from build_qualified_prefix import sha,lines,us
 from verify_prefix_corpus import context_sources, group_admission, grouping_summary
+from prefix_contract import metadata, early_edges, sole_role, MAPPING_VERSION, EARLY_WINDOWS
 
-VERSION='prefix-corpus-partition-v4'
+VERSION='prefix-corpus-partition-v5'
 # 增加谱系和诊断不重洗既有分区；固定原来的排序种子及组 ID 算法。
 ASSIGNMENT_SEED_VERSION='prefix-corpus-partition-v3'
 ADMISSION_VERSION='prefix-independent-development-v1'
@@ -41,6 +42,10 @@ def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--qualified',type=Path,action='append',required=True)
     p.add_argument('--benign-root',type=Path)
+    p.add_argument('--health-registry',type=Path,default=None,
+                   help='capture_health_observer 产出的 health-registry.json；'
+                        '提供后将受控活动的 budgetTargetId 绑定到观察器会话，'
+                        '写入冻结输出的 targetBindings。不提供则跳过绑定。')
     for name in ['qualification','reservation','output']:p.add_argument('--'+name,type=Path,required=True)
     a=p.parse_args();q=json.loads(a.qualification.read_text());reservation=json.loads(a.reservation.read_text())
     if q['reservationSha256']!=sha(a.reservation) or reservation['modelScoresRead'] or reservation['finalFeaturesRead']:
@@ -58,7 +63,8 @@ def main():
         cohort=index.get('sourceDayCluster') or index['activityId']
         previous=parents.setdefault(parent,cohort)
         if previous!=cohort:raise ValueError('parent跨来源活动')
-        index=dict(index,sourceId=index.get('sourceId',origin),scenario=index.get('scenario','controlled_benign'),
+        index=metadata(index)
+        index=dict(index,sourceId=index['sourceId'],scenario=index['scenario'],
                    cohortId=cohort,priorPlannedRole=index['split'])
         c=cohorts.setdefault(cohort,dict(activities=set(),sources=set(),first=us(index['firstSeenAt']),last=us(index['asOf'])))
         c['activities'].add(index['activityId']);c['sources'].update(context_sources(index))
@@ -77,7 +83,7 @@ def main():
         name='label-timeline.jsonl' if 'label-timeline.jsonl' in report['outputHashes'] else 'label-connection-timeline.jsonl'
         for ordinal,ep in enumerate(lines(folder/name)):
             # 时间线保留发布/任务起点，绝不从首个高分观察反推分母。
-            ep=dict(ep)
+            ep=metadata(ep)
             ep.setdefault('activityId',report.get('activityId'))
             ep.setdefault('scenario',report.get('scenario','taara_slowloris'))
             ep.setdefault('episodeId',digest([folder.name,ep.get('sourceConnectionId'),ordinal]))
@@ -138,6 +144,9 @@ def main():
         if sig in signatures and signatures[sig]!=cohort:
             near_matches+=1;merge(cohort,signatures[sig],'whole_parent_quantized_sequence')
         else:signatures[sig]=cohort
+    early_matches=early_edges(parent_rows,parents)
+    for left,right,window in early_matches:
+        merge(left,right,'common_early_prefix_trajectory_'+str(window)+'s')
     components=defaultdict(list)
     for key in keys:components[find(key)].append(key)
     assigned={};groups=[];component_labels=defaultdict(Counter)
@@ -149,18 +158,7 @@ def main():
     for members in ordered:
         group=digest([ASSIGNMENT_SEED_VERSION,members]);labels=component_labels[find(members[0])]
         scenes={r['scenario'] for r in rows if r['cohortId'] in members and r['label']==1}
-        # 先满足类别覆盖，再按固定权重平衡；不足的独立组显式拒绝，不切组填空角色。
-        weights={'train':.4,'validation_selection':.2,'validation_calibration':.2,'independent_development':.2}
-        planned={r['priorPlannedRole'] for r in rows if r['cohortId'] in members and r['priorPlannedRole'] in ROLES}
-        if len(planned)>1:
-            # 近重复/上下文归并优先于任务角色；冲突整组归训练，不能拆组。
-            role='train'
-        elif planned:
-            role=planned.pop()
-        else:
-            role=min(ROLES,key=lambda role:(-len(scenes-covered_scenes[role]),-len(set(labels)-covered[role]),
-                -sum(evaluation_groups[label]<5 for label in labels) if role=='independent_development' else 0,
-                role_sizes[role]/weights[role],ROLES.index(role)))
+        role=sole_role(r for r in rows if r['cohortId'] in members)
         covered[role].update(labels);role_sizes[role]+=sum(labels.values())
         covered_scenes[role].update(scenes)
         if role=='independent_development':evaluation_groups.update(labels.keys())
@@ -178,10 +176,37 @@ def main():
     qualified_timeline=[]
     for ep in timelines:
         if ep['activityId'] not in activity_binding:
-            blockers.append('TIMELINE_ACTIVITY_WITHOUT_QUALIFIED_OBSERVATIONS');continue
+            raise ValueError('时间线活动没有完整来源/分区绑定；禁止丢弃无观察分母后冻结')
         group,role=activity_binding[ep['activityId']]
+        if ep.get('plannedRole') != role:
+            raise ValueError('标签时间线 plannedRole 与冻结组冲突')
         if ep['endMs']<=ep['startMs']:raise ValueError('非法标签时间线')
         qualified_timeline.append(dict(ep,leakageGroupId=group,split=role))
+    # 从健康登记推导受控活动的 targetBindings（budgetTargetId → 观察器会话绑定）。
+    # 只绑定实际出现在当前语料中的受控活动，多余的登记跳过，缺失的不报错。
+    target_bindings={}
+    health_registry_sha=None
+    if a.health_registry:
+        registry=json.loads(a.health_registry.read_text())
+        if registry.get('modelFits',0)!=0:
+            raise ValueError('健康登记 modelFits 不为 0，拒绝绑定')
+        health_registry_sha=sha(a.health_registry)
+        bindings_by_observer={b['observerSessionId']:b for b in registry.get('observerBindings',[])}
+        corpus_target_ids={r.get('budgetTargetId') for r in rows if r.get('budgetTargetId')}
+        for tid in corpus_target_ids:
+            # targetBindings 格式：targetId → {observerSessionId, captureScopeId, authRef}
+            for obs_id,binding in bindings_by_observer.items():
+                # 同一稳定目标的 assetId 与 binding 中的 assetId 对应
+                auth_ref=registry.get('authenticatedCollectionRef','')
+                target_bindings[tid]=dict(
+                    observerSessionId=binding['observerSessionId'],
+                    captureScopeId=binding.get('captureScopeId',''),
+                    healthVersion=binding.get('healthVersion',''),
+                    authenticatedCollectionRef=auth_ref,
+                    registrySha256=health_registry_sha,
+                )
+                break  # 当前设计一次采集只有一个观察器会话
+
     # 独立开发最少组数是下限；真实训练入口仍须使用完整实验计划，不由此脚本放宽。
     a.output.mkdir(parents=True,exist_ok=False,mode=0o700)
     for name,values in [('index.jsonl',rows),('observations.jsonl',[observations[r['observationId']] for r in rows]),('label-timeline.jsonl',qualified_timeline)]:
@@ -199,8 +224,17 @@ def main():
               captures=sealed_rows,
               reason='immutable reservation only; final provenance and candidate admission must be reviewed separately')
     (a.output/'p6-sealed-manifest.json').write_text(json.dumps(seal,indent=2)+'\n')
-    partition=dict(version=VERSION,assignment='class coverage first, hash-ordered whole groups, then fixed 40/20/20/20 balance before any model scores',
+    if target_bindings:
+        (a.output/'health-targetbindings.json').write_text(json.dumps(
+            dict(version='p3-health-targetbindings-v1',
+                 registrySha256=health_registry_sha,
+                 targetBindings=target_bindings,
+                 modelFits=0),
+            ensure_ascii=False,indent=2)+'\n')
+    partition=dict(version=VERSION,assignment='explicit plannedRole; merged role conflict rejected before output',
                    assignmentSeedVersion=ASSIGNMENT_SEED_VERSION,
+                   scenarioMappingVersion=MAPPING_VERSION,earlyTrajectoryWindowsSeconds=list(EARLY_WINDOWS),
+                   earlyTrajectoryMatches=len(early_matches),
                    contextGapSeconds=150,nearDuplicateRule=near_vector.__doc__,nearDuplicateMatches=near_matches,
                    edges=edges,groups=groups,sourceIdentityPreserved=True)
     (a.output/'partitions.json').write_text(json.dumps(partition,indent=2)+'\n')

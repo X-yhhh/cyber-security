@@ -6,6 +6,10 @@
 from collections import Counter
 import re
 
+# RFC 9110 method=token。扩展方法（如来源中的 FAKEVERB）不表示正常或攻击，
+# 仅允许解析其消息边界；标签仍须有发布来源和逐连接行为的独立绑定。
+REQUEST_LINE = re.compile(rb"([!#$%&'*+\-.^_`|~0-9A-Za-z]+) [^ \r\n]+ HTTP/1\.[01]\r\n")
+
 
 class CausalHTTP:
     """首请求最多 32KiB，乱序最多 8KiB；保留已生成证据，未来坏包不反写过去。
@@ -79,7 +83,7 @@ class CausalHTTP:
         if self.complete is not None:
             return
         data = bytes(self.request)
-        line = re.match(rb'(GET|POST|HEAD|PUT|OPTIONS) [^\r\n]+ HTTP/1\.[01]\r\n', data)
+        line = REQUEST_LINE.match(data)
         if line is None:
             return
         end = data.find(b'\r\n\r\n')

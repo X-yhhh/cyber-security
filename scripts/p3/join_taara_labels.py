@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""TAARA 开发材料的来源限定标签：论文登记、完整 SYN epoch、HTTP 状态与 Apache 请求日志交叉关联。
+"""TAARA 开发材料的来源限定标签：论文登记、完整 SYN epoch 与因果 HTTP 状态。
 
 只读谱系清单中已暴露的开发捕获；final_reserved 完全跳过。论文表 II 指定
-攻击端/服务端，表 V 指定正常 host；日志不带源端口，歧义关联明确保留 Unknown。
+攻击端/服务端，表 V 指定正常 host；Apache 唯一关联只作独立旁证，不能虚构源端口。
 Suricata 告警不参与标签。输出含私有端点，只能留在受控忽略目录，不能进入模型。
 """
 import argparse
@@ -14,7 +14,7 @@ sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'p1'))
 from pcap_reference import frames,tcp
 from http_prefix_state import CausalHTTP
 
-VERSION='taara-publisher-http-apache-v1'
+VERSION='taara-publisher-http-v2'
 ATTACK=int(ipaddress.IPv4Address('192.168.1.9'))
 BENIGN=int(ipaddress.IPv4Address('192.168.1.2'))
 VICTIM=int(ipaddress.IPv4Address('192.168.1.8'))
@@ -66,7 +66,8 @@ def main():
     a=argparse.ArgumentParser(description=__doc__)
     for k in ['sources','qualification','paper','output']:a.add_argument('--'+k,type=Path,required=True)
     args=a.parse_args();q=json.loads(args.qualification.read_text());args.output.mkdir(parents=True,exist_ok=False)
-    registration=dict(version=VERSION,paperSha256=sha(args.paper),qualificationSha256=sha(args.qualification),scriptSha256=sha(Path(__file__)),sourceScope='paper Table II/V + named capture + Apache request, no Suricata alerts',finalRead=False)
+    if args.paper.read_bytes()[:5]!=b'%PDF-':raise ValueError('须登记原始论文 PDF，不把提取文本冒充原件')
+    registration=dict(version=VERSION,paperSha256=sha(args.paper),qualificationSha256=sha(args.qualification),scriptSha256=sha(Path(__file__)),sourceScope='paper Table II/V + named capture + documented endpoint role + complete SYN epoch + causal HTTP; Apache is separate corroboration',finalRead=False)
     (args.output/'registration.json').write_text(json.dumps(registration,indent=2)+'\n')
     summaries=[];all_rows=[]
     for meta in q['captures']:
@@ -85,22 +86,23 @@ def main():
             matched=log_index.get(k,[]);unique=len(matched)==1 and len(conn_index.get(k,[]))==1
             if unique:unique_logs.add(matched[0])
             scope=c['destination']==(VICTIM,80)
-            attack=(scope and c['origin'][0]==ATTACK and bool(c['evidence']) and unique and c['status'] in (400,408))
-            normal=(scope and c['origin'][0]==BENIGN and c['completeAtUs'] is not None and unique and c['status']==200 and c['invalid'] is None)
+            # 公开基准已独立登记攻击端；有同一 SYN epoch 的连续慢头部证据即可关联。
+            # 日志按秒且无源端口，其一对多只限制日志旁证，不否定完整 TCP 来源关联。
+            attack=(scope and c['origin'][0]==ATTACK and bool(c['evidence']))
+            normal=(scope and c['origin'][0]==BENIGN and c['completeAtUs'] is not None and c['status']==200 and c['invalid'] is None)
             label=1 if attack else 0 if normal else None
             why=[]
             if not scope:why.append('outside_documented_service')
-            if not unique:why.append('no_unique_apache_request_join')
             if c['origin'][0] not in (ATTACK,BENIGN):why.append('undocumented_peer_role')
             if c['origin'][0]==ATTACK and not c['evidence']:why.append('no_causal_header_continuation')
             if label is None and not why:why.append('request_or_status_not_qualified')
             decisions[str(label)]+=1;reasons.update(why)
-            row=dict(captureSha256=meta['sha256'],associationGroup=meta['associationGroup'],sourceDayCluster=meta['cluster'],member=meta['member'],sourceConnectionId=hashlib.sha256(json.dumps([meta['sha256'],c['origin'],c['destination'],c['syn'],c['firstUs']]).encode()).hexdigest(),origin=c['origin'],destination=c['destination'],firstUs=c['firstUs'],lastUs=c['lastUs'],label=label,evidenceTier='publisher_documented',labelRuleVersion=VERSION,apacheUniqueJoin=unique,attackStartUs=c['firstUs'] if attack else None,attackStartIntervalUs=[c['firstUs'],c['firstPayloadUs']] if attack else None,evidenceAvailableAtUs=c['evidenceAvailableAtUs'] if attack else None,causalEvidence=c['evidence'] if attack else [],completeAtUs=c['completeAtUs'],futureConnectionIssue=c['invalid'],reasons=why,role='development_unassigned')
+            row=dict(captureSha256=meta['sha256'],associationGroup=meta['associationGroup'],sourceDayCluster=meta['cluster'],member=meta['member'],sourceConnectionId=hashlib.sha256(json.dumps([meta['sha256'],c['origin'],c['destination'],c['syn'],c['firstUs']]).encode()).hexdigest(),origin=c['origin'],destination=c['destination'],firstUs=c['firstUs'],lastUs=c['lastUs'],label=label,evidenceTier='publisher_documented',labelRuleVersion=VERSION,apacheUniqueJoin=unique,apacheCandidateMatches=len(matched),sourceRole='documented_attacker' if c['origin'][0]==ATTACK else 'documented_host' if c['origin'][0]==BENIGN else 'unknown',attackStartUs=c['firstUs'] if attack else None,attackStartIntervalUs=[c['firstUs'],c['firstPayloadUs']] if attack else None,evidenceAvailableAtUs=c['evidenceAvailableAtUs'] if attack else None,causalEvidence=c['evidence'] if attack else [],completeAtUs=c['completeAtUs'],futureConnectionIssue=c['invalid'],reasons=why,role='development_unassigned')
             all_rows.append(row)
         summaries.append(dict(member=meta['member'],associationGroup=meta['associationGroup'],cluster=meta['cluster'],connections=len(conns),labels=dict(decisions),unknownReasons=dict(reasons),apacheLogRows=len(logs),apacheLogUnparsed=bad,uniqueApacheRowsJoined=len(unique_logs),apacheHashes=log_hashes,captureSha256=capture['sha256'],quality=quality))
     with (args.output/'labels.jsonl').open('x') as f:
         for r in all_rows:f.write(json.dumps(r)+'\n')
     positives=[r for r in all_rows if r['label']==1];negatives=[r for r in all_rows if r['label']==0]
-    result=dict(version=VERSION,captures=summaries,qualifiedAttackAssociationGroups=len({r['associationGroup'] for r in positives}),qualifiedAttackSourceDayClusters=len({r['sourceDayCluster'] for r in positives}),attackConnections=len(positives),benignConnections=len(negatives),unknownConnections=sum(r['label'] is None for r in all_rows),labelsSha256=sha(args.output/'labels.jsonl'),finalRead=False,modelFits=0,prefixDatasetFrozen=False,rolesFrozen=False,status='partial',limitations=['TAARA slow_header only; CIC2017 slow-read remains unqualified','Apache log lacks source ports; ambiguous same-second identical requests excluded','Association groups do not prove independence of shared source-day experiments'])
+    result=dict(version=VERSION,captures=summaries,qualifiedAttackAssociationGroups=len({r['associationGroup'] for r in positives}),qualifiedAttackSourceDayClusters=len({r['sourceDayCluster'] for r in positives}),qualifiedBenignAssociationGroups=len({r['associationGroup'] for r in negatives}),attackConnections=len(positives),benignConnections=len(negatives),unknownConnections=sum(r['label'] is None for r in all_rows),labelsSha256=sha(args.output/'labels.jsonl'),finalRead=False,modelFits=0,prefixDatasetFrozen=False,rolesFrozen=False,status='source_qualified_development',limitations=['TAARA supports slow_header only','Apache log lacks source ports; ambiguous joins remain explicitly non-unique corroboration','Association groups do not prove independence of shared source-day experiments'])
     (args.output/'summary.json').write_text(json.dumps(result,indent=2)+'\n');print(json.dumps({k:v for k,v in result.items() if k!='captures'}))
 if __name__=='__main__':main()

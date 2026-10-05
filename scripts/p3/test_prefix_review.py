@@ -2,6 +2,7 @@
 import unittest
 from review_prefix_onsets import Review, prefix_label
 from http_prefix_state import CausalHTTP
+from build_qualified_prefix import source_connection,qualified_connection,source_identity
 
 
 class PrefixReviewTests(unittest.TestCase):
@@ -80,6 +81,37 @@ class PrefixReviewTests(unittest.TestCase):
         completed.add(self.packet(11,ts=10),b'GET / HTTP/1.1\r\nX-a: b\r\n\r\n')
         completed.add(self.packet(41,ts=20),b'X-a: b\r\n')
         self.assertIsNone(completed.onset)
+
+    def test_extension_method_body_progress_is_causal(self):
+        # 实际来源曾被常见方法白名单误排除；仅有扩展方法仍不产生攻击起点。
+        review=CausalHTTP();review.add(self.packet(10,2),b'')
+        head=b'FAKEVERB /fixture HTTP/1.1\r\nContent-Length: 1000\r\n\r\n'
+        review.add(self.packet(11,ts=10),head+b'a')
+        self.assertIsNone(review.onset)
+        review.add(self.packet(11,ts=20),head+b'a')
+        self.assertIsNone(review.onset)
+        review.add(self.packet(12+len(head),ts=30),b'b')
+        self.assertEqual(review.detected_mode,'slow_body')
+        self.assertEqual(review.onset,30)
+
+    def test_exporter_boundary_and_idle_slice_keep_syn_identity(self):
+        # 导出段末尾不等于 TCP 结束；晚来的陌生 parent 不得借时间区间取得标签。
+        from datetime import datetime,timezone
+        iso=lambda n:datetime.fromtimestamp(n/1e6,timezone.utc).isoformat()
+        label=dict(id='source',origin='192.0.2.1:1234',responder='192.0.2.2:80',start=1000000,end=2100000)
+        review=dict(firstUs=1000000,lastUs=9000000,headerCompleteUs=None,invalidReason=None,checks={'fullLabelJoin':True})
+        registration=dict(scenario='cic2017_slowhttptest',rule={'end':8000000})
+        qualified=qualified_connection(label,review,registration)
+        self.assertEqual((qualified['exporterEnd'],qualified['end']),(2100000,8000000))
+        self.assertEqual(source_identity(registration)['sourceId'],'cic2017_corrected')
+        ledger={'Endpoints':{'Local':label['responder'],'Peer':label['origin']}}
+        lookup={tuple(sorted((label['origin'],label['responder']))):[qualified]};parents={}
+        initial=dict(parentConnectionId='one',firstSeenAt=iso(1000000),lastPacketAt=iso(2000000))
+        self.assertEqual(source_connection(initial,ledger,lookup,parents),qualified)
+        later=dict(parentConnectionId='one',firstSeenAt=iso(5000000),lastPacketAt=iso(6000000))
+        self.assertEqual(source_connection(later,ledger,lookup,parents),qualified)
+        self.assertIsNone(source_connection(dict(later,parentConnectionId='new'),ledger,lookup,parents))
+        self.assertIsNone(source_connection(dict(later,lastPacketAt=iso(8100000)),ledger,lookup,parents))
 
 
 if __name__ == '__main__':

@@ -192,6 +192,49 @@ class TestAuditGroup(unittest.TestCase):
             with self.assertRaises(ValueError):
                 bap.audit_group(gdir)
 
+    def _registration(self, activity):
+        registration = {'scenarios': [dict(id=activity['scenarioId'], mode=activity['mode'],
+                                            groupOrdinal=activity['groupOrdinal'])]}
+        complete = dict(status='completed', groups=1, results=[dict(activity)])
+        return registration, complete
+
+    def test_registered_group_identity_must_match_activity(self):
+        with tempfile.TemporaryDirectory() as td:
+            folder = self._write_activity(td)
+            activity = json.loads((folder / 'activity.json').read_text())
+            registration, complete = self._registration(activity)
+            groups = bap.registered_groups(Path(td), registration, complete)
+            self.assertEqual(groups[0][4], 'controlled_slowloris_g1')
+            activity['groupOrdinal'] = 2
+            (folder / 'activity.json').write_text(json.dumps(activity))
+            with self.assertRaisesRegex(ValueError, '未登记、错配或重复'):
+                bap.registered_groups(Path(td), registration, complete)
+
+    def test_missing_registered_group_cannot_be_silently_skipped(self):
+        with tempfile.TemporaryDirectory() as td:
+            folder = self._write_activity(td)
+            activity = json.loads((folder / 'activity.json').read_text())
+            registration, complete = self._registration(activity)
+            registration['scenarios'].append(dict(id='controlled_slowloris_g2', mode='slowloris', groupOrdinal=2))
+            complete['groups'] = 2
+            complete['results'].append(dict(activity, activityId='second', scenarioId='controlled_slowloris_g2', groupOrdinal=2))
+            with self.assertRaisesRegex(ValueError, '采集组缺失'):
+                bap.registered_groups(Path(td), registration, complete)
+
+    def test_renamed_copy_of_capture_cannot_be_a_new_source(self):
+        with tempfile.TemporaryDirectory() as td:
+            folder = self._write_activity(td)
+            activity = json.loads((folder / 'activity.json').read_text())
+            registration, complete = self._registration(activity)
+            second = dict(activity, activityId='second', scenarioId='controlled_slowloris_g2', groupOrdinal=2)
+            other = Path(td) / 'group-02'; other.mkdir()
+            (other / 'activity.json').write_text(json.dumps(second))
+            (other / 'native.pcap').write_bytes((folder / 'native.pcap').read_bytes())
+            registration['scenarios'].append(dict(id=second['scenarioId'], mode='slowloris', groupOrdinal=2))
+            complete['groups'] = 2; complete['results'].append(second)
+            with self.assertRaisesRegex(ValueError, '重复 PCAP'):
+                bap.registered_groups(Path(td), registration, complete)
+
 
 class TestScenarioMeta(unittest.TestCase):
 
@@ -209,9 +252,16 @@ class TestScenarioMeta(unittest.TestCase):
         rules = [m[2] for m in bap.SCENARIO_META.values()]
         self.assertEqual(len(rules), len(set(rules)), '两个场景的 labelRuleVersion 重复')
 
-    def test_source_id_consistent(self):
-        for meta in bap.SCENARIO_META.values():
-            self.assertEqual(meta[0], 'controlled_windows_http_cde')
+    def test_each_registered_scenario_and_ordinal_has_distinct_source(self):
+        sources = {bap.source_identity(mode, ordinal)[1]
+                   for mode in ('slowloris', 'slowhttptest') for ordinal in (1, 2, 3)}
+        self.assertEqual(sources, {f'controlled_{mode}_g{ordinal}'
+                                  for mode in ('slowloris', 'slowhttptest') for ordinal in (1, 2, 3)})
+
+    def test_invalid_ordinal_does_not_create_source_identity(self):
+        for ordinal in (None, True, False, '1', 1.0, 0, -1):
+            with self.subTest(ordinal=ordinal), self.assertRaises(ValueError):
+                bap.source_identity('slowloris', ordinal)
 
 
 class TestConstants(unittest.TestCase):

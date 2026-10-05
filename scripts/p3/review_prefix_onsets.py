@@ -15,13 +15,13 @@ import sys
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'scripts/p1'))
 from pcap_reference import frames, tcp
-from http_prefix_state import CausalHTTP
+from http_prefix_state import CausalHTTP, REQUEST_LINE
 
-LABEL_RULE_VERSION = 'source-http-causal-v2'
+LABEL_RULE_VERSION = 'source-http-causal-v3'
 
 RULES = {
     'cic2017_slowhttptest': dict(label='DoS Slowhttptest', start=1499260537936810, end=1499261869331517,
-        sourceMode='source-bound continuous HTTP review; header/body supported only when observed; slow-read remains unqualified',
+        sourceMode='source-bound HTTP extension method and declared incomplete body; later contiguous body progress required; zero-window RST is not slow-read evidence',
         approvedPattern='auto', excludedPorts=[33372, 37670]),
     'cic2018_slowloris': dict(label='DoS Slowloris', start=1518706812000000, end=1518709321000000,
         sourceMode='incomplete request header with later contiguous progress; numeric and literal X-a variants recorded',
@@ -159,7 +159,7 @@ def audit(args):
             started=False, ended=False, first=None, last=None, packets=0, forward=0, reverse=0,
             labelCounts=[0,0,0,0], regressions=0, offload=0, incomplete=0, closed=False, synSequence=None)
         lookup[tuple(sorted((origin,responder)))]['readState']={'clientWindowMin':None,'zeroWindowTimes':[],
-            'responsePayloadBytes':0,'responsePackets':0,'responseHttpStatusSeen':False}
+            'responsePayloadBytes':0,'responsePackets':0,'responseHttpStatusSeen':False,'resetZeroWindowPackets':0}
     capture, quality = {}, Counter()
     for ts, data, wire, link in frames(args.pcap, capture):
         packet = tcp(ts, data, wire, link, quality)
@@ -189,7 +189,9 @@ def audit(args):
             item['review'].add(packet, payload)
             state=item['readState'];window=packet['tcpWindow']
             state['clientWindowMin']=window if state['clientWindowMin'] is None else min(window,state['clientWindowMin'])
-            if window==0:state['zeroWindowTimes'].append(ts)
+            # RST 的 Window 字段没有接收窗口通告语义，不能据此推断慢读取。
+            if window==0 and packet['flags']&4:state['resetZeroWindowPackets']+=1
+            if window==0 and packet['flags']&16 and not packet['flags']&6:state['zeroWindowTimes'].append(ts)
         else:
             state=item['readState'];state['responsePayloadBytes']+=packet['payloadBytes'];state['responsePackets']+=packet['payloadBytes']>0
             state['responseHttpStatusSeen'] |= data[packet['payloadOffset']:packet['payloadOffset']+5]==b'HTTP/'
@@ -219,7 +221,7 @@ def audit(args):
             slowReadDiagnostic=item['readState'],slowReadOnsetQualified=False,
             fullConnectionDurationUs=(item['last']-item['first']) if item['started'] else None,
             timestampRegressions=item['regressions'], offloadPackets=item['offload'], truncatedPayloads=item['incomplete'],
-            requestMethod=next((verb.decode() for verb in (b'GET',b'POST',b'HEAD',b'PUT') if v.request.startswith(verb+b' ')), 'unrecognized'),
+            requestMethod=(match.group(1).decode('ascii') if (match:=REQUEST_LINE.match(bytes(v.request))) else 'unrecognized'),
             labelSegmentDurationUs=r['end']-r['start'], firstPayloadUs=v.first_payload,
             payloadShapes=dict(v.payload_shapes), invalidReason=v.invalid, continuations=v.continuations,
             boundaryLabels={'before': prefix_label(on-1,on,end,supported) if on else None,

@@ -16,19 +16,26 @@ import subprocess
 import sys
 import uuid
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'p1'))
+import os as _os
+_here = _os.path.normpath(_os.path.dirname(_os.path.abspath(__file__)))
+_p1   = _os.path.normpath(_os.path.join(_here, '..', 'p1'))
+for _p in (_here, _p1):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 from verify_prefix_corpus import lines, read, sha, time_ms
 from build_qualified_prefix import target_key
 
-# 场景 → (sourceId, family, labelRuleVersion)
+# 场景 → (分组 sourceId 模板, family, labelRuleVersion)。来源组不等于独立评价组；
+# 后续仍按原捕获域、活动、完整 parent 和近重复审查，不能凭新名称拆开重复数据。
+SOURCE_DOMAIN_ID = 'controlled_windows_http_cde'
 SCENARIO_META = {
     'controlled_slowloris': (
-        'controlled_windows_http_cde',
+        'controlled_slowloris_g{groupOrdinal}',
         'slowloris',
         'p3-cde-controlled-slowloris-syn-onset-v1',
     ),
     'controlled_slowhttptest': (
-        'controlled_windows_http_cde',
+        'controlled_slowhttptest_g{groupOrdinal}',
         'slowhttptest',
         'p3-cde-controlled-slowhttptest-syn-onset-v1',
     ),
@@ -38,6 +45,68 @@ SCENARIO_META = {
 AUTHORIZED_ADDRS = {0x7f000001, 0x7f000002}  # 127.0.0.1, 127.0.0.2
 SERVICE_IP  = 0x7f000001
 SERVICE_PORT = 80
+
+
+def source_identity(mode, group_ordinal):
+    """按已登记模式和正整数轮次生成来源组，拒绝缺失、布尔或字符串轮次。
+
+    sourceId 只说明采集谱系，不表示通过独立性审查；同域上下文身份另行保留。
+    """
+    scenario = 'controlled_' + str(mode)
+    if scenario not in SCENARIO_META:
+        raise ValueError(f'未知攻击模式: {mode}')
+    if type(group_ordinal) is not int or group_ordinal < 1:
+        raise ValueError('groupOrdinal 必须是正整数')
+    template, family, label_rule = SCENARIO_META[scenario]
+    return scenario, template.format(groupOrdinal=group_ordinal), family, label_rule
+
+
+def registered_groups(root, registration, complete):
+    """提取前核对登记、完成账本和全部原件；不跳过缺组或复用同一捕获。
+
+    这是既有 PCAP 的离线核验，不续用采集授权。错误发生在创建输出与密钥之前。
+    """
+    if complete.get('status') != 'completed':
+        raise ValueError('整轮采集未完成')
+    expected = {}
+    for entry in registration['scenarios']:
+        _, source_id, _, _ = source_identity(entry['mode'], entry['groupOrdinal'])
+        if entry['id'] != source_id or source_id in expected:
+            raise ValueError('场景登记身份错配或重复')
+        expected[source_id] = entry
+    results = complete['results']
+    if not expected or complete['groups'] != len(expected) or len(results) != len(expected):
+        raise ValueError('登记与完成组数不符')
+    completed = {entry['activityId']: entry for entry in results}
+    if len(completed) != len(results):
+        raise ValueError('完成账本重复 activityId')
+    audited = []
+    seen_sources, seen_activities, seen_captures = set(), set(), set()
+    previous_end = None
+    for folder in sorted(d for d in root.iterdir() if d.is_dir() and d.name.startswith('group-')):
+        activity, conns = audit_group(folder)
+        scenario, source_id, family, label_rule = source_identity(activity['mode'], activity['groupOrdinal'])
+        activity_id = activity['activityId']
+        if (source_id not in expected or activity['scenarioId'] != source_id
+                or source_id in seen_sources or activity_id in seen_activities):
+            raise ValueError('活动来源组未登记、错配或重复')
+        result = completed.get(activity_id, {})
+        if any(result.get(k) != activity[k] for k in ('scenarioId', 'mode', 'groupOrdinal', 'success')):
+            raise ValueError('活动与完成账本不符')
+        capture_sha = sha(folder / 'native.pcap')
+        if capture_sha in seen_captures:
+            raise ValueError('重复 PCAP 不能作为新来源组')
+        start_us = min(c['firstUs'] for c in conns.values())
+        end_us = max(c['lastUs'] for c in conns.values())
+        gap_seconds = None if previous_end is None else (start_us - previous_end) / 1_000_000
+        if gap_seconds is not None and gap_seconds < 155:
+            raise ValueError(f'{folder.name}: 与上一组隔离不足 155 秒')
+        previous_end = end_us
+        seen_sources.add(source_id); seen_activities.add(activity_id); seen_captures.add(capture_sha)
+        audited.append((folder, activity, conns, scenario, source_id, family, label_rule, gap_seconds))
+    if seen_sources != set(expected) or seen_activities != set(completed):
+        raise ValueError('已登记采集组缺失或完成账本不完整')
+    return audited
 
 
 def _ip_int(b4):
@@ -150,9 +219,8 @@ def main():
     args = p.parse_args()
 
     complete = read(args.root / 'complete.json')
-    if complete.get('status') != 'completed':
-        raise ValueError('整轮采集未完成')
     registration = read(args.root / 'registration.json')
+    groups = registered_groups(args.root, registration, complete)
 
     args.output.mkdir(parents=True, exist_ok=False, mode=0o700)
     secret = args.output / 'peer-key.bin'
@@ -166,34 +234,11 @@ def main():
     )
 
     rows = []; observations = []; timelines = []; audits = []
-    previous_end = None
-
-    # 按场景聚合组，每个 activityId 构成独立防泄漏组
-    group_dirs = sorted(
-        d for d in args.root.iterdir()
-        if d.is_dir() and d.name.startswith('group-')
-    )
-
-    for group_dir in group_dirs:
-        if not (group_dir / 'activity.json').exists():
-            continue
-        activity, conns = audit_group(group_dir)
-
+    # 每个来源组独立提取；是否可作为独立评价组仍由冻结器统一裁决。
+    for group_dir, activity, conns, scenario, source_id, family, label_rule, gap_seconds in groups:
         mode        = activity['mode']          # 'slowloris' | 'slowhttptest'
-        scenario    = 'controlled_' + mode
         activity_id = activity['activityId']
         group_ordinal = activity['groupOrdinal']
-
-        if scenario not in SCENARIO_META:
-            raise ValueError(f'未知攻击模式: {mode}')
-        source_id, family, label_rule = SCENARIO_META[scenario]
-
-        # 时间段顺序检查（相邻组隔离 ≥155 秒）
-        start_us = min(c['firstUs'] for c in conns.values())
-        end_us   = max(c['lastUs']  for c in conns.values())
-        if previous_end is not None and start_us - previous_end < 155_000_000:
-            raise ValueError(f'{group_dir.name}: 与上一组隔离不足 155 秒')
-        previous_end = end_us
 
         # Go 提取器
         work = args.output / group_dir.name
@@ -276,6 +321,8 @@ def main():
                 activityId=activity_id,
                 associationGroup=activity_id,
                 sourceId=source_id,
+                sourceDomainId=SOURCE_DOMAIN_ID,
+                contextSourceId=SOURCE_DOMAIN_ID,
                 scenario=scenario,
                 split='independent_development',
                 label=1,
@@ -315,8 +362,11 @@ def main():
             group=group_dir.name,
             activityId=activity_id,
             scenario=scenario,
+            sourceId=source_id,
+            sourceDomainId=SOURCE_DOMAIN_ID,
             mode=mode,
             groupOrdinal=group_ordinal,
+            previousGroupGapSeconds=gap_seconds,
             connections=len(conns),
             keptObservations=kept['kept'],
             rejectedQuality=kept['quality_rejected'],
@@ -343,12 +393,14 @@ def main():
 
     scenarios_present = sorted({r['scenario'] for r in rows})
     report = dict(
-        version='p3-cde-qualified-attack-v1',
+        version='p3-cde-qualified-attack-v2',
         observations=len(rows),
         parents=len({r['parentConnectionId'] for r in rows}),
         activities=len(audits),
         scenarios=scenarios_present,
         sourceDomainCount=1,
+        sourceGroupCount=len({r['sourceId'] for r in rows}),
+        sourceIdentityRule='scenario_and_registered_group_ordinal; independent_admission_requires_corpus_verification',
         split='independent_development',
         trainingAllowed=False,
         rolesFrozen=False,

@@ -1,5 +1,7 @@
 # P1—P3 解决方案实施记录
 
+> 本文保存上一轮实施与Git交付的历史快照。后续SCM/PF、双平台Go live、来源标签及数据冻结已继续实施，当前结果以[2026-10-04最新交付](../p1-p3-completion/README.md)为准；本文旧计数、失败和JSON均不覆盖。
+
 日期：2026-10-04。应用基线 `main@58d30c9`，Windows 训练基线 `training/windows-cuda@d6a3afd8`。按[逐项解决设计](../p1-p3-resolution-plan.md)完成输入适配、因果审查、来源关联、长期良性实测、累计预算修复及完整候选包装。**P1/P3 仍 blocked，不能宣称全部缺口已关闭。** 本记录与[去敏结果摘要](results-summary.json)保存本次实际结果，不修改历史阶段裁决。
 
 ## 1. 交付与剩余依赖

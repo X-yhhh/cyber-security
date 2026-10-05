@@ -1,0 +1,34 @@
+{
+  "version": "self-use-delivery-scope-v1",
+  "updatedOn": "2026-10-04",
+  "authority": "user_explicit_self_use_no_distribution",
+  "purpose": "private_self_use",
+  "trainingHost": "windows",
+  "modelInferenceHost": "macos",
+  "modelDelivery": "ONNX with feature, preprocessing, calibration and threshold configuration; load through the existing backend or local inference entry",
+  "externalDistributionRequired": false,
+  "standaloneInstallerRequired": false,
+  "codeSigningCertificateRequired": false,
+  "codeSigningServiceRequired": false,
+  "formalSigningGate": "not_applicable",
+  "windowsArtifactModeForCurrentUse": "research",
+  "modelDeliveryChecks": [
+    "model and configuration integrity",
+    "successful loading on the target host",
+    "matching feature and preprocessing semantics",
+    "cross-platform inference parity",
+    "observed model effectiveness and explicit evaluation limits"
+  ],
+  "runtimeChecks": [
+    "actual operation under existing operating-system policy",
+    "required dependencies and permissions",
+    "startup, shutdown and error handling for components actually used"
+  ],
+  "automaticResponseChecksWhenEnabled": [
+    "registered target and operation scope",
+    "internal command authentication",
+    "narrow action boundaries, expiry, revocation and recovery"
+  ],
+  "historicalVerificationPreserved": "verification.json",
+  "scopeClarificationGrantsModelOrAutomaticExecutionApproval": false
+}

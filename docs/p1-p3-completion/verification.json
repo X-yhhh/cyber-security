@@ -1,0 +1,380 @@
+{
+  "version": "p1-p3-completion-20261004-v1",
+  "baseHead": "4d133027a6a82657f4aa9e74edc7344f861c0313",
+  "status": "implementable_work_delivered_with_explicit_admission_limits",
+  "contractVersion": "host-guard/5.0.0-rc.2",
+  "windowsRecovery": {
+    "scmStopPassed": true,
+    "scmStopIndependentClearDelaySeconds": -21.270844665530603,
+    "preshutdownControl": 15,
+    "independentClosedBeforeShutdown": true,
+    "independentClearDelaySeconds": -14.681788307185343,
+    "actualRebootsThisRun": 1,
+    "newBootObserved": true,
+    "postBootInventoryEmpty": true,
+    "oldCommandRejection": "STALE_BOOT",
+    "automaticFirstBootObservationCompleted": false,
+    "automaticFirstBootFailure": "PowerShell/CIM boot-time query timed out before inventory audit was saved",
+    "fix": "native SystemTimeOfDayInformation; inventory persisted before metadata; failed SCM exit propagated",
+    "fixedSystemPreflightPassed": true,
+    "fixedSystemBootEntryAndTrafficPassed": true,
+    "fixedEntryTrigger": "manual SYSTEM; not a second automatic boot",
+    "scmInitializationFailurePreserved": true,
+    "fullG1AutomaticBootChainPassed": false
+  },
+  "macPF": {
+    "passed": true,
+    "scope": "macOS IPv4 TCP loopback canary",
+    "kernelRelease": "27.2.0",
+    "kernelBuild": "xnu-13432.40.162~92",
+    "abiBytes": 216,
+    "ioctl": "0xc0d84429",
+    "exactPublishedKernelSourceAvailable": false,
+    "cases": {
+      "ttl": {
+        "passed": true,
+        "clearDelaySeconds": 0.08117608306929469,
+        "during": {
+          "targetExisting": false,
+          "targetNew": false,
+          "controlExisting": true,
+          "controlNew": true
+        },
+        "after": {
+          "targetNew": true,
+          "controlExisting": true,
+          "controlNew": true
+        }
+      },
+      "revoke": {
+        "passed": true,
+        "clearDelaySeconds": -28.86986504192464,
+        "during": {
+          "targetExisting": false,
+          "targetNew": false,
+          "controlExisting": true,
+          "controlNew": true
+        },
+        "after": {
+          "targetNew": true,
+          "controlExisting": true,
+          "controlNew": true
+        }
+      },
+      "executor-crash": {
+        "passed": true,
+        "clearDelaySeconds": -28.24931274994742,
+        "during": {
+          "targetExisting": false,
+          "targetNew": false,
+          "controlExisting": true,
+          "controlNew": true
+        },
+        "after": {
+          "targetNew": true,
+          "controlExisting": true,
+          "controlNew": true
+        }
+      }
+    },
+    "rootRulesRestored": true,
+    "pfDisabledRestored": true,
+    "ownAnchorEmpty": true,
+    "listenersClosed": true,
+    "failureBoundaryRegression": {
+      "passed": true,
+      "cases": 2,
+      "scope": "recovery before apply receipt; late reinstall after cancellation",
+      "kernelActionsRepeated": false
+    }
+  },
+  "liveCapture": {
+    "macLoopback": {
+      "passed": true,
+      "binarySha256": "f93ab59d059c54c2811f864218ae3c62fd883f9890929822e4378fdb866debdb",
+      "connections": 3,
+      "observations": 15,
+      "parents": 3,
+      "profiles": {
+        "flow-prefix-v1": 12,
+        "flow-final-v1": 3
+      },
+      "drops": 0,
+      "sameBytes": true,
+      "liveSha256": "408de0ef3f5b64c0771ff634d0f72bb968af0b7b61031de981ae74b2d5e3d2c6",
+      "replaySha256": "408de0ef3f5b64c0771ff634d0f72bb968af0b7b61031de981ae74b2d5e3d2c6",
+      "traceSha256": "7eec599501e590323a12ed629a876b9c611a23cb994b77e827a75a894c91b30d",
+      "serverClosed": true,
+      "captureClosed": true
+    },
+    "windowsLoopback": {
+      "passed": true,
+      "binarySha256": "3b0e6630595fe199bded1ed07150f0dc867203ce625b5d2af3136e3b819c6602",
+      "connections": 3,
+      "observations": 16,
+      "parents": 3,
+      "profiles": {
+        "flow-prefix-v1": 13,
+        "flow-final-v1": 3
+      },
+      "drops": 0,
+      "sameBytes": true,
+      "liveSha256": "2d13c22d5b61b66adab09034c57da7e9d04a804e06f589c31726bff34d39316a",
+      "replaySha256": "2d13c22d5b61b66adab09034c57da7e9d04a804e06f589c31726bff34d39316a",
+      "traceSha256": "69bf169709521198538f62d0f4e86fb253b12bdb4636cf6856269a55dfd90d13",
+      "serverClosed": true,
+      "captureClosed": true
+    },
+    "macPhysical": {
+      "passed": true,
+      "binarySha256": "6d85e1e8e2573f63577b191dea347ddd35b31243368a6cbf1933ee629abbd973",
+      "connections": 3,
+      "observations": 11,
+      "parents": 3,
+      "profiles": {
+        "flow-prefix-v1": 8,
+        "flow-final-v1": 3
+      },
+      "directions": {
+        "outbound": 11
+      },
+      "drops": 0,
+      "sameBytes": true,
+      "liveSha256": "54b349039fcd43078e83e69365b35250dc58298684ff4d2c791609847cd0ab4c",
+      "replaySha256": "54b349039fcd43078e83e69365b35250dc58298684ff4d2c791609847cd0ab4c",
+      "traceSha256": "e568c5c4dec4ec8166a215865314f08379bbe1322a003afb0d548067fad402c0",
+      "serverClosed": true,
+      "captureClosed": true
+    },
+    "windowsPhysical": {
+      "passed": true,
+      "binarySha256": "8d5bbf69e86fc5794484b8f3f2dd8f7212871ee9f521ad66ed2d2c5212317cff",
+      "connections": 3,
+      "observations": 10,
+      "parents": 3,
+      "profiles": {
+        "flow-prefix-v1": 7,
+        "flow-final-v1": 3
+      },
+      "directions": {
+        "outbound": 10
+      },
+      "drops": 0,
+      "sameBytes": true,
+      "liveSha256": "097e3ea4bf2b021f6350a727664f08e168c066247b59f1595ff739ad8650b08f",
+      "replaySha256": "097e3ea4bf2b021f6350a727664f08e168c066247b59f1595ff739ad8650b08f",
+      "traceSha256": "4e52471e9e179fb9a2178b8479d5a51d3e447742ba71aecf9c60846fc3a099cd",
+      "serverClosed": true,
+      "captureClosed": true,
+      "loadedModules": [
+        {
+          "name": "wpcap.dll",
+          "version": "1.10.7",
+          "sha256": "AA2C63A5A0B732E2AAEC6660F5D97727D857FCFD315084940859E5FE71A65C24",
+          "signature": "Valid"
+        },
+        {
+          "name": "packet.dll",
+          "version": "1.89",
+          "sha256": "1181BA48394DFD64E281D43850E41355BD6A0ED2523819980820221C0BE09D74",
+          "signature": "Valid"
+        }
+      ]
+    },
+    "physicalBusiness": "three HTTPS keep-alive connections and nine complete GET requests per host to fixed example.com; bound local physical IPv4 interface",
+    "windowsCgoRequired": false,
+    "npcapSdkRequired": false,
+    "contractChanged": false
+  },
+  "data": {
+    "cic2017SourceSupportedConnections": 1020,
+    "cic2017ObservedMode": "slow_body",
+    "cic2017QualifiedPrefix": 1111,
+    "cic2018QualifiedPrefix": 8067,
+    "taaraSourceSupportedConnections": 11674,
+    "taaraQualifiedAttackPrefix": 40598,
+    "taaraQualifiedBenignPrefix": 1,
+    "observations": 50129,
+    "parents": 12703,
+    "activities": 14,
+    "leakageGroups": 8,
+    "classGroups": {
+      "1": 3,
+      "0": 6
+    },
+    "sceneAttackGroups": {
+      "cic2017_slowhttptest": 1,
+      "cic2018_slowloris": 1,
+      "taara_slowloris": 1
+    },
+    "roleCounts": {
+      "train": {
+        "0": 1,
+        "1": 40598
+      },
+      "validation_selection": {
+        "0": 176,
+        "1": 1111
+      },
+      "validation_calibration": {
+        "0": 43,
+        "1": 8067
+      },
+      "independent_development": {
+        "0": 133,
+        "1": 0
+      }
+    },
+    "nearDuplicateMatches": 254,
+    "rolesFrozen": true,
+    "finalReservationFrozen": true,
+    "sealedCaptures": 10,
+    "finalRead": false,
+    "trainingAllowed": false,
+    "modelFits": 0,
+    "blockers": [
+      "INDEPENDENT_DEVELOPMENT_FEWER_THAN_FIVE_BENIGN_GROUPS",
+      "FEWER_THAN_FIVE_INDEPENDENT_ATTACK_GROUPS",
+      "INDEPENDENT_DEVELOPMENT_FEWER_THAN_FIVE_ATTACK_GROUPS",
+      "SCENARIO_NOT_PRESENT_IN_ALL_DEVELOPMENT_ROLES:cic2017_slowhttptest",
+      "SCENARIO_NOT_PRESENT_IN_ALL_DEVELOPMENT_ROLES:cic2018_slowloris",
+      "SCENARIO_NOT_PRESENT_IN_ALL_DEVELOPMENT_ROLES:taara_slowloris",
+      "ROLE_MISSING_CLASS:independent_development"
+    ],
+    "corpusVerification": {
+      "passed": true,
+      "observations": 50129,
+      "parents": 12703,
+      "groups": 8,
+      "labels": {
+        "1": 49776,
+        "0": 353
+      },
+      "crossRoleParentCount": 0,
+      "crossRoleActivityCount": 0,
+      "crossRoleLeakageGroupCount": 0,
+      "sealedCaptures": 10,
+      "sealedEligibility": {
+        "quarantined_shared_development_source_day": 9,
+        "sealed_provenance_pending": 1
+      },
+      "trainingCorrectlyRejected": true,
+      "finalRead": false,
+      "roleClassGroups": {
+        "train": {
+          "0": 1,
+          "1": 1
+        },
+        "validation_selection": {
+          "0": 1,
+          "1": 1
+        },
+        "validation_calibration": {
+          "0": 1,
+          "1": 1
+        },
+        "independent_development": {
+          "0": 3,
+          "1": 0
+        }
+      },
+      "priorVerificationSha256": "b96b3872c0681105e69fe2cb52e847300d09e94eb73faf5c9f33ed40ac8e6d9f",
+      "priorFrozenDataByteIdentical": {
+        "index.jsonl": true,
+        "observations.jsonl": true,
+        "partitions.json": true,
+        "p6-sealed-manifest.json": true
+      },
+      "admissionVersion": "prefix-independent-development-v1",
+      "corpusReadinessSha256": "7da562b8ce3ba05f77adf49079230e1f000b9b52a12aa8a5188b3f73a9ccc00f",
+      "scriptSha256": "5703349865f78679bec36c85d96389f51d0af564911a08268feb4f081297fd84"
+    },
+    "riosConnectionSupervision": "excluded after publisher paper review; no unique endpoint/epoch mapping; raw final capture untouched",
+    "admissionVersion": "prefix-independent-development-v1",
+    "roleClassGroups": {
+      "train": {
+        "0": 1,
+        "1": 1
+      },
+      "validation_selection": {
+        "0": 1,
+        "1": 1
+      },
+      "validation_calibration": {
+        "0": 1,
+        "1": 1
+      },
+      "independent_development": {
+        "0": 3,
+        "1": 0
+      }
+    },
+    "p6Ready": false,
+    "corpusDirectory": "prefix-corpus-v3"
+  },
+  "signing": {
+    "passed": true,
+    "mode": "research",
+    "signature": {
+      "publisher": null,
+      "status": "NotSigned",
+      "signer": null,
+      "timestampSigner": null
+    },
+    "smartAppControl": "On",
+    "launchExitCode": 0,
+    "sha256": "8d5bbf69e86fc5794484b8f3f2dd8f7212871ee9f521ad66ed2d2c5212317cff",
+    "trustedPublisherSignature": false,
+    "distributionClass": "research_only",
+    "missingCertificateReleaseGate": {
+      "releaseExitCode": 2,
+      "outputCreated": false
+    }
+  },
+  "productionAutoSupported": false,
+  "newCandidateTrained": false,
+  "gitCommitted": false,
+  "gitPushed": false,
+  "cleanup": {
+    "mac": {
+      "rootRulesRestored": true,
+      "natRulesRestored": true,
+      "pfConfUnchanged": true,
+      "pfDisabled": true,
+      "ownAnchorEmpty": true,
+      "temporaryLoopbackAliasRemoved": true,
+      "ownLaunchdJobsRemaining": [],
+      "passed": true
+    },
+    "windows": {
+      "inventoryEmpty": true,
+      "ownListeners": 0,
+      "ownRules": 0,
+      "ownProcesses": 0,
+      "ownTasks": 0,
+      "ownServices": 0,
+      "managementServicesRunning": true,
+      "smartAppControl": "On"
+    }
+  },
+  "repository": {
+    "localBranch": "main",
+    "localHead": "4d133027a6a82657f4aa9e74edc7344f861c0313",
+    "windowsBranch": "training/windows-cuda",
+    "windowsHead": "4d0ae5d88c554a1b45d9aebf41d147b1e939f78f",
+    "windowsTrackedClean": true,
+    "windowsExistingUntrackedFiles": 15
+  },
+  "validation": {
+    "goHostguardAndGuardlive": "passed",
+    "wfpBoundaryTests": 15,
+    "pfFailureBoundaryTests": 2,
+    "prefixAssociationTests": 8,
+    "sourceChecks": {
+      "pythonSyntaxFiles": 18,
+      "gofmtPassed": true,
+      "diffCheckPassed": true
+    },
+    "corpusIndependentVerification": "passed"
+  }
+}

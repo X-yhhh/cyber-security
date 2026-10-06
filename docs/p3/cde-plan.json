@@ -1,12 +1,12 @@
 {
   "version": "p3-prefix-cde-20261005-v4",
-  "status": "p3c_frozen_admission_passed",
+  "status": "p3d_failed_onnx_hard_gate",
   "documentKind": "design_registration_not_runtime_plan",
   "updatedAt": "2026-10-06",
   "stageBaseline": {
     "P1": "completed_closed",
     "P2": "completed_closed",
-    "P3": "in_progress",
+    "P3": "blocked_at_p3d_onnx_hard_gate",
     "P4_P8": "planned"
   },
   "authorization": {
@@ -344,6 +344,36 @@
       "finalTestRead": false,
       "macWindowsDatasetVerificationMatched": true,
       "note": "Mac/Windows 冻结集核验一致；Windows 常数分诊断及 prefix_runner check 通过，非模型成绩，Mac 未独立重跑新诊断"
+    },
+    "p3dRun": {
+      "runDirectory": "E:/Workspace/ai/experiments/cyber-security-training/.cache/p3-cde-run-20261006-074800/p3de-run-codex-20261006",
+      "status": "failed_onnx_hard_gate",
+      "precheckPassed": true,
+      "fullFitsStarted": 5,
+      "fullFitsPassedBeforeFailure": 4,
+      "policyTrialsConsumed": 16,
+      "failedExperiment": "winner-seed-43",
+      "algorithm": "xgboost",
+      "featureSet": "peer_context",
+      "onnxParity": {
+        "rows": 9323,
+        "maxAbsError": 0.0003044605255126953,
+        "maximumAllowed": 0.0001,
+        "thresholdFlips": 0,
+        "maximumAllowedThresholdFlips": 0
+      },
+      "accessedRoles": [
+        "train",
+        "validation_selection"
+      ],
+      "unaccessedRoles": [
+        "validation_calibration",
+        "independent_development",
+        "P6_final_test"
+      ],
+      "candidateCreated": false,
+      "p3eEntered": false,
+      "retryRequirement": "先登记新的版本化运行计划，保留既有5次完整拟合和16次策略试验消耗，并限定ONNX转换或数值修复范围；不得放宽门槛、复用失败输出或删除账本重启。"
     }
   },
   "admission": {

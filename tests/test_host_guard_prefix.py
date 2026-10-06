@@ -264,3 +264,53 @@ def test_xgboost_train_rows_on_hist_split_points_keep_parity(tmp_path):
     result = parity(path, 'xgboost', model, pre, {'method': 'none'}, [batch], [.5, .8, .95, .99])
     assert result['status'] == 'passed' and result['thresholdFlips'] == 0
     assert result['maxAbsError'] <= 1e-5
+
+
+def _rebound_fixture(tmp_path):
+    from cyber_training.host_guard.data import sha, write
+    name = 'xgboost-peer_context-42'
+    prior, rebind = tmp_path / 'run' / 'prior', tmp_path / 'run' / 'rebind'
+    (prior / 'experiments' / name).mkdir(parents=True); (rebind / 'experiments' / name).mkdir(parents=True)
+    (prior / 'experiments' / name / 'native-model.json').write_text('{}', encoding='utf-8')
+    (rebind / 'experiments' / name / 'preprocessing.json').write_text('{"version": "p3-preprocess-v2"}', encoding='utf-8')
+    (rebind / 'experiments' / name / 'model.onnx').write_bytes(b'onnx')
+    (prior / 'fit-ledger.jsonl').write_text(json.dumps(dict(id=name, status='started')) + '\n'
+                                            + json.dumps(dict(id=name, status='passed', gpuSeconds=1.0)) + '\n', encoding='utf-8')
+    entry = dict(id=name, algorithm='xgboost', status='passed', modelFitPerformed=False, parity=dict(status='passed'),
+                 nativeModelSha256=sha(prior / 'experiments' / name / 'native-model.json'),
+                 preprocessingSha256=sha(rebind / 'experiments' / name / 'preprocessing.json'),
+                 artifactSha256=sha(rebind / 'experiments' / name / 'model.onnx'))
+    (rebind / 'rebind-ledger.jsonl').write_text(json.dumps(entry) + '\n', encoding='utf-8')
+    (rebind / 'policy-trials.jsonl').write_text(json.dumps(dict(arm='model_selection', ordinal=1)) + '\n', encoding='utf-8')
+    write(rebind / 'rebind-report.json', dict(status='parity_remediated_awaiting_review', newModelFits=0, finalTestRead=False))
+    files = {n: sha(rebind / n) for n in ('rebind-report.json', 'rebind-ledger.jsonl', 'policy-trials.jsonl')}
+    plan = dict(remediation=dict(modelRefit=False, priorRun='prior', reboundExperiments=[name],
+                                 priorFitLedgerSha256=sha(prior / 'fit-ledger.jsonl'), rebind=dict(files=files)))
+    return plan, rebind
+
+
+def test_resume_inherits_registered_zero_fit_rebind(tmp_path):
+    from cyber_training.host_guard.prefix_runner import load_rebound
+    plan, rebind = _rebound_fixture(tmp_path)
+    out = tmp_path / 'out'
+    rebound, ledger = load_rebound(plan, rebind, out)
+    assert list(rebound) == ['xgboost-peer_context-42']
+    assert ledger == [dict(id='xgboost-peer_context-42', status='passed', gpuSeconds=1.0)]
+    assert (out / 'policy-trials.jsonl').read_bytes() == (rebind / 'policy-trials.jsonl').read_bytes()
+    assert (out / 'experiments' / 'xgboost-peer_context-42' / 'model.onnx').read_bytes() == b'onnx'
+
+
+def test_resume_rejects_tampered_rebind_artifact(tmp_path):
+    from cyber_training.host_guard.prefix_runner import load_rebound
+    plan, rebind = _rebound_fixture(tmp_path)
+    (rebind / 'experiments' / 'xgboost-peer_context-42' / 'model.onnx').write_bytes(b'changed')
+    with pytest.raises(ValueError):
+        load_rebound(plan, rebind, tmp_path / 'out')
+
+
+def test_resume_rejects_plan_without_zero_fit_registration(tmp_path):
+    from cyber_training.host_guard.prefix_runner import load_rebound
+    plan, rebind = _rebound_fixture(tmp_path)
+    plan['remediation']['modelRefit'] = True
+    with pytest.raises(ValueError):
+        load_rebound(plan, rebind, tmp_path / 'out')

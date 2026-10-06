@@ -22,6 +22,7 @@ from cyber_training.host_guard.prefix_runner import measure, policy_trial
 MAIN = ['lightgbm-base-42', 'lightgbm-peer_context-42', 'xgboost-base-42', 'xgboost-peer_context-42']
 SEEDS = ['winner-seed-43']
 STATUS = 'p3d_remediation_preprocess_v2_rebind'
+RESUME_STATUS = 'p3d_resume_after_preprocess_v2_rebind'
 PREPROCESSING = ('p3-preprocess-v2: float32 input promoted to float64 for log(x+1), train-only weighted mean '
                  'imputation, centering and scaling, rounded to float32 once; mask preserved; train vocabulary '
                  'unknown=0; ONNX embeds the same float64 sequence; no IDs, ports, absolute timestamps, source or labels')
@@ -82,10 +83,40 @@ def prepare(args):
     args.output.write_text(json.dumps(plan, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
 
 
+def prepare_resume(args):
+    """在零拟合修复计划之上登记接续：绑定重绑定证据与用户审查，代码哈希按当前文件重算。"""
+    plan = read(args.base_plan)
+    rebind = args.rebind
+    report = read(rebind / 'rebind-report.json')
+    if (plan['status'] != STATUS or not plan['preFitDiagnostics'].get('sha256')
+            or report['status'] != 'parity_remediated_awaiting_review' or report['planSha256'] != sha(args.base_plan)
+            or report['newModelFits'] != 0 or not report['winner']['unchanged']):
+        raise ValueError('零拟合修复计划或重绑定报告不满足接续条件')
+    remediation = plan['remediation']
+    remediation['supersedesRemediationPlanSha256'] = sha(args.base_plan)
+    remediation['rebind'] = dict(
+        directory=rebind.name,
+        files={name: sha(rebind / name) for name in ('rebind-report.json', 'rebind-ledger.jsonl',
+                                                      'policy-trials.jsonl', 'prior-fit-ledger.jsonl')},
+        winner=report['winner']['v2'],
+        priorElapsedSeconds=127,
+        priorElapsedBasis='上一轮 run 约 67 秒加零拟合重绑定约 60 秒（按输出文件时间戳）；不含此前导出器诊断脚本')
+    remediation['review'] = dict(status='approved', by='user', date='2026-10-06',
+                                 scope=['winner-seed-44 拟合（第 6 次完整拟合）', 'selection-lock',
+                                        'validation_calibration 读取与校准/三臂策略选择',
+                                        'independent_development 读取与冻结评价', '候选冻结与阶段出口'])
+    plan.update(version='host-guard-p3-prefix-runtime-20261006-v6', status=RESUME_STATUS)
+    from cyber_training.host_guard import prefix_plan
+    plan['codeFiles'] = {p.name: sha(p) for p in Path(prefix_plan.__file__).parent.glob('*.py')}
+    relative = args.diagnostics.resolve().relative_to(args.dataset.resolve().parent).as_posix()
+    plan['preFitDiagnostics'] = dict(plan['preFitDiagnostics'], file='../' + relative + '/diagnostics.json', sha256=None)
+    args.output.write_text(json.dumps(plan, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+
+
 def finalize(args):
     plan = read(args.base_plan)
     report = read(args.diagnostics / 'diagnostics.json')
-    if report['status'] != 'passed' or report['modelFits'] != 0 or plan['status'] != STATUS:
+    if report['status'] != 'passed' or report['modelFits'] != 0 or plan['status'] not in (STATUS, RESUME_STATUS):
         raise ValueError('拟合前诊断未通过或计划状态不符')
     if report['latencyRegistrations'] != plan['evaluation']['latencyRegistrations']:
         raise ValueError('诊断时效登记与计划不一致，不能静默改写')
@@ -213,16 +244,17 @@ def rebind(args):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('mode', choices=['prepare', 'finalize', 'rebind'])
+    parser.add_argument('mode', choices=['prepare', 'prepare-resume', 'finalize', 'rebind'])
     parser.add_argument('--dataset', type=Path, required=True)
     parser.add_argument('--contracts', type=Path, required=True)
     parser.add_argument('--prior-run', type=Path, required=True)
     parser.add_argument('--base-plan', type=Path)
     parser.add_argument('--plan', type=Path)
     parser.add_argument('--diagnostics', type=Path)
+    parser.add_argument('--rebind', type=Path)
     parser.add_argument('--output', type=Path, required=True)
     args = parser.parse_args()
-    dict(prepare=prepare, finalize=finalize, rebind=rebind)[args.mode](args)
+    {'prepare': prepare, 'prepare-resume': prepare_resume, 'finalize': finalize, 'rebind': rebind}[args.mode](args)
 
 
 if __name__ == '__main__':

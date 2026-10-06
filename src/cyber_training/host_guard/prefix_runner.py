@@ -221,6 +221,11 @@ def stage_exit(by_role, by_scene, gain, parity_report, by_source=None):
                 p6Authorized=False, finalTestRead=False, realOsActionTimingMeasured=False)
 
 
+def ranking(record):
+    """主种子选型：完整策略目标优先，再比 parent 加权 logloss，最后按实验 ID 稳定打平。"""
+    return (objective(record['workingPoint']['metrics']), -record['classification']['logLoss'], record['id'])
+
+
 def run(dataset, plan, plan_path, out):
     start = time.perf_counter(); ledger = []
     plan['_health'] = load_health(plan, dataset.root)
@@ -229,12 +234,74 @@ def run(dataset, plan, plan_path, out):
     for algorithm, features in itertools.product(plan['budget']['algorithms'], plan['budget']['featureSets']):
         candidates.append(experiment(algorithm, features, train, selection, selection_timeline, plan, out,
                                     f'{algorithm}-{features}-42', 42, ledger, start))
-    ranking = lambda r: (objective(r['workingPoint']['metrics']), -r['classification']['logLoss'], r['id'])
     winner = max(candidates, key=ranking)
     seeds = [winner]
     for seed in (43, 44):
         seeds.append(experiment(winner['algorithm'], winner['featureSet'], train, selection, selection_timeline,
                      plan, out, f'winner-seed-{seed}', seed, ledger, start))
+    finish(dataset, plan, plan_path, out, train, selection, winner, seeds, ledger, start)
+
+
+def load_rebound(plan, rebind, out):
+    """只接收新版计划登记且逐文件哈希一致的零拟合重绑定结果，复制进本次输出后再使用。
+
+    返回 (按实验 ID 的重绑定记录, 历史拟合账本)。历史账本原样继承，使完整拟合与
+    策略试验按整轮累计；任何证据、权重、预处理或 ONNX 被改动都拒绝接续。
+    """
+    remediation = plan.get('remediation') or {}
+    binding = remediation.get('rebind')
+    if not binding or remediation.get('modelRefit') is not False:
+        raise ValueError('运行计划未登记零拟合重绑定')
+    for name, digest in binding['files'].items():
+        if sha(rebind / name) != digest: raise ValueError('重绑定证据被修改: ' + name)
+    report = read(rebind / 'rebind-report.json')
+    if report['status'] != 'parity_remediated_awaiting_review' or report['newModelFits'] != 0 or report['finalTestRead']:
+        raise ValueError('重绑定报告状态不符')
+    prior = rebind.parent / remediation['priorRun']
+    if sha(prior / 'fit-ledger.jsonl') != remediation['priorFitLedgerSha256']: raise ValueError('历史拟合账本被修改')
+    entries = [json.loads(line) for line in (rebind / 'rebind-ledger.jsonl').open(encoding='utf-8')]
+    if ([e['id'] for e in entries] != remediation['reboundExperiments']
+            or any(e['status'] != 'passed' or e['parity']['status'] != 'passed' or e['modelFitPerformed'] for e in entries)):
+        raise ValueError('重绑定实验集合或对拍状态不符')
+    rebound = {}
+    for entry in entries:
+        native = 'native-model.txt' if entry['algorithm'] == 'lightgbm' else 'native-model.json'
+        folder = out / 'experiments' / entry['id']; folder.mkdir(parents=True, exist_ok=False)
+        for source, name, digest in ((prior / 'experiments' / entry['id'], native, entry['nativeModelSha256']),
+                                     (rebind / 'experiments' / entry['id'], 'preprocessing.json', entry['preprocessingSha256']),
+                                     (rebind / 'experiments' / entry['id'], 'model.onnx', entry['artifactSha256'])):
+            if sha(source / name) != digest: raise ValueError('重绑定产物哈希不符: ' + entry['id'] + '/' + name)
+            shutil.copyfile(source / name, folder / name)
+        write(folder / 'report.json', entry)
+        rebound[entry['id']] = entry
+    history = {}
+    for line in (prior / 'fit-ledger.jsonl').open(encoding='utf-8'):
+        record = json.loads(line); history.setdefault(record['id'], {}).update(record)
+    shutil.copyfile(prior / 'fit-ledger.jsonl', out / 'fit-ledger.jsonl')
+    shutil.copyfile(rebind / 'policy-trials.jsonl', out / 'policy-trials.jsonl')
+    return rebound, list(history.values())
+
+
+def resume(dataset, plan, plan_path, out, rebind):
+    """零拟合重绑定后接续本轮：只新增 winner-seed-44 一次拟合，选型冻结后与 run 共用 finish。"""
+    binding = plan['remediation']['rebind']
+    start = time.perf_counter() - binding['priorElapsedSeconds']
+    plan['_health'] = load_health(plan, dataset.root)
+    rebound, ledger = load_rebound(plan, rebind, out)
+    train = dataset.load('train'); selection = dataset.load('validation_selection')
+    selection_timeline = dataset.timeline(['train', 'validation_selection'])
+    candidates = [rebound[f'{algorithm}-{features}-42'] for algorithm, features
+                  in itertools.product(plan['budget']['algorithms'], plan['budget']['featureSets'])]
+    winner = max(candidates, key=ranking)
+    if winner['id'] != binding['winner']: raise ValueError('接续时选型优胜者与登记不符')
+    seeds = [winner, rebound['winner-seed-43'],
+             experiment(winner['algorithm'], winner['featureSet'], train, selection, selection_timeline,
+                        plan, out, 'winner-seed-44', 44, ledger, start)]
+    finish(dataset, plan, plan_path, out, train, selection, winner, seeds, ledger, start)
+
+
+def finish(dataset, plan, plan_path, out, train, selection, winner, seeds, ledger, start):
+    """选型冻结后的校准、三臂策略、独立开发评价与候选冻结；run 与 resume 共用同一路径。"""
     write(out / 'selection-lock.json', dict(selectionFrozen=True, calibrationUsedForSelection=False,
          experimentId=winner['id'], artifactSha256=winner['artifactSha256'], planSha256=sha(plan_path),
          seedPolicy='retain42;43/44variance_only', finalTestRead=False))
@@ -337,8 +404,9 @@ def run(dataset, plan, plan_path, out):
 
 def main():
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument('mode', choices=['check', 'run'])
+    p.add_argument('mode', choices=['check', 'run', 'resume'])
     for name in ('dataset', 'contracts', 'plan', 'output'): p.add_argument('--' + name, type=Path, required=True)
+    p.add_argument('--rebind', type=Path, help='resume 模式下登记的零拟合重绑定目录')
     args = p.parse_args(); args.output.mkdir(parents=True, exist_ok=False)
     plan = read(args.plan); plan['planSha256'] = sha(args.plan)
     verification = compatibility(plan, args.dataset, args.contracts); write(args.output / 'runtime-check.json', verification)
@@ -356,7 +424,11 @@ def main():
         raise RuntimeError('训练主机、分支或CUDA环境不符')
     write(args.output / 'environment.json', env)
     dataset = PrefixDataset(args.dataset, args.contracts, plan, args.output / 'access-audit.jsonl')
-    run(dataset, plan, args.plan, args.output)
+    if args.mode == 'resume':
+        if args.rebind is None: raise ValueError('resume 必须指定 --rebind')
+        resume(dataset, plan, args.plan, args.output, args.rebind)
+    else:
+        run(dataset, plan, args.plan, args.output)
 
 
 if __name__ == '__main__':

@@ -176,11 +176,14 @@ class Preprocessor:
         filled = np.where(batch.missing == 1, mean, logged)
         variance = np.average((filled - mean) ** 2, weights=batch.weights, axis=0)
         scale = np.where(variance > 1e-12, np.sqrt(variance), 1.0)
-        if feature_set not in ("base", "context", "no_host_context"):
+        if feature_set not in ("base", "context", "no_host_context", "peer_context"):
             raise ValueError("未知特征消融")
         indices = list(range(16 if feature_set == "base" else 43))
         if feature_set == "no_host_context":
             indices = [i for i in indices if i < 16 or (i - 16) % 9 not in (0, 5, 6)]
+        if feature_set == "peer_context":
+            # 新prefix实验只增加对端上下文，显式排除主机全局连接数和对端数。
+            indices = [i for i in indices if i < 16 or (i - 16) % 9 not in (5, 6)]
         return cls({"version": "p3-preprocess-v1", "fitRole": "train", "numericFeatureCount": 43,
                     "meanLog": mean.astype(np.float32).tolist(), "scaleLog": scale.astype(np.float32).tolist(),
                     "indices": indices, "featureSet": feature_set, "unknownCategoryCode": 0,

@@ -156,3 +156,111 @@ def test_constant_lightgbm_preserves_native_probability(tmp_path):
     path=tmp_path/'constant.onnx';export_prefix('lightgbm',model,pre,path)
     result=parity(path,'lightgbm',model,pre,{'method':'none'},[batch],[.5,1.0])
     assert result['status']=='passed' and result['maxAbsError']==0
+
+
+def test_xgboost_json_export_preserves_native_probability(tmp_path):
+    from xgboost import XGBClassifier
+    from cyber_training.host_guard.export import export, parity
+    rng = np.random.default_rng(17)
+    count = 96
+    numeric = rng.uniform(0, 8, size=(count, 43)).astype(np.float32)
+    numeric_missing = np.zeros_like(numeric)
+    labels = (numeric[:, 0] + numeric[:, 17] * .4 > 5).astype(np.int64)
+    rows = [dict(label=int(label), sampleWeight=1.0, parentConnectionId=str(index))
+            for index, label in enumerate(labels)]
+    batch = Batch(rows, [], numeric, numeric_missing,
+                  np.asarray([['tcp', 'inbound', 'web']] * count), 'train')
+    pre = Preprocessor.fit(batch, 'peer_context')
+    model = XGBClassifier(n_estimators=12, max_depth=3, learning_rate=.2, n_jobs=1,
+                          random_state=17, tree_method='hist', device='cpu', eval_metric='logloss')
+    model.fit(pre.transform(batch), batch.y)
+    path = tmp_path / 'xgboost.onnx'
+    export('xgboost', model, pre, {'method': 'none'}, path)
+    result = parity(path, 'xgboost', model, pre, {'method': 'none'}, [batch], [.25, .5, .75])
+    assert result['status'] == 'passed'
+    assert result['maxAbsError'] <= 1e-4
+
+
+def _preprocessing_session(parameters):
+    import onnx
+    import onnxruntime as ort
+    from onnx import TensorProto, helper
+    from cyber_training.host_guard.export import _preprocessing
+    nodes, constants = _preprocessing(parameters)
+    columns = len(parameters['indices']) * 2 + 3
+    graph = helper.make_graph(nodes, 'preprocessing_only',
+        [helper.make_tensor_value_info('numeric_values', TensorProto.FLOAT, [None, 43]),
+         helper.make_tensor_value_info('numeric_missing', TensorProto.FLOAT, [None, 43]),
+         helper.make_tensor_value_info('categorical_codes', TensorProto.INT64, [None, 3])],
+        [helper.make_tensor_value_info('features', TensorProto.FLOAT, [None, columns])], constants)
+    model = helper.make_model(graph, opset_imports=[helper.make_opsetid('', 17)]); model.ir_version = 10
+    onnx.checker.check_model(model)
+    return ort.InferenceSession(model.SerializeToString(), providers=['CPUExecutionProvider'])
+
+
+def _wide_batch(count=4096, seed=23):
+    """覆盖计数、字节和毫秒量级；numpy float32 log 在这类值上常与 ORT 差 1 ulp。"""
+    rng = np.random.default_rng(seed)
+    numeric = np.exp(rng.uniform(0, 16, size=(count, 43))).astype(np.float32)
+    numeric[:, :8] = rng.integers(0, 5000, size=(count, 8)).astype(np.float32)
+    missing = (rng.random((count, 43)) < .05).astype(np.float32)
+    numeric[missing == 1] = 0
+    labels = (np.log1p(numeric[:, 9]) + .4 * np.log1p(numeric[:, 17]) > 11).astype(np.int64)
+    rows = [dict(label=int(label), sampleWeight=1.0, parentConnectionId=str(i)) for i, label in enumerate(labels)]
+    return Batch(rows, [], numeric, missing, np.asarray([['tcp', 'inbound', 'web']] * count), 'train')
+
+
+def test_fit_emits_portable_v2_preprocessing():
+    assert Preprocessor.fit(_wide_batch(256), 'peer_context').parameters['version'] == 'p3-preprocess-v2'
+
+
+def test_v2_preprocessing_onnx_features_are_bitwise_identical():
+    batch = _wide_batch()
+    pre = Preprocessor.fit(batch, 'peer_context')
+    actual = _preprocessing_session(pre.parameters).run(['features'], pre.feed(batch))[0]
+    expected = pre.transform(batch)
+    assert actual.dtype == expected.dtype == np.float32
+    np.testing.assert_array_equal(actual, expected)
+
+
+def test_v1_preprocessing_keeps_historical_float32_semantics():
+    from cyber_training.host_guard.export import _preprocessing
+    batch = _wide_batch(512)
+    parameters = dict(Preprocessor.fit(batch, 'peer_context').parameters, version='p3-preprocess-v1')
+    pre = Preprocessor(parameters)
+    mean = np.asarray(parameters['meanLog'], dtype=np.float32)
+    scale = np.asarray(parameters['scaleLog'], dtype=np.float32)
+    filled = np.where(batch.missing == 1, mean, np.log(batch.values + np.float32(1)))
+    ids = parameters['indices']
+    legacy = np.concatenate([((filled - mean) / scale)[:, ids], batch.missing[:, ids],
+                             pre.codes(batch).astype(np.float32)], axis=1).astype(np.float32)
+    np.testing.assert_array_equal(pre.transform(batch), legacy)
+    nodes, constants = _preprocessing(parameters)
+    assert [n.op_type for n in nodes][:6] == ['Add', 'Log', 'Equal', 'Where', 'Sub', 'Div']
+    assert all(c.data_type == 1 for c in constants if c.name in ('p3_mean', 'p3_scale'))
+
+
+def test_unknown_preprocessing_version_is_rejected():
+    from cyber_training.host_guard.export import _preprocessing
+    batch = _wide_batch(64)
+    parameters = dict(Preprocessor.fit(batch, 'peer_context').parameters, version='p3-preprocess-v9')
+    with pytest.raises(ValueError):
+        Preprocessor(parameters).transform(batch)
+    with pytest.raises(ValueError):
+        _preprocessing(parameters)
+
+
+def test_xgboost_train_rows_on_hist_split_points_keep_parity(tmp_path):
+    """hist 分裂点取自训练特征，train 行自身就落在分裂点上；特征差 1 ulp 即改走分支。"""
+    from xgboost import XGBClassifier
+    from cyber_training.host_guard.export import export, parity
+    batch = _wide_batch(2048, seed=31)
+    pre = Preprocessor.fit(batch, 'peer_context')
+    model = XGBClassifier(n_estimators=60, max_depth=4, learning_rate=.2, n_jobs=1, random_state=31,
+                          tree_method='hist', device='cpu', eval_metric='logloss', base_score=.5)
+    model.fit(pre.transform(batch), batch.y)
+    path = tmp_path / 'xgboost-hist.onnx'
+    export('xgboost', model, pre, {'method': 'none'}, path)
+    result = parity(path, 'xgboost', model, pre, {'method': 'none'}, [batch], [.5, .8, .95, .99])
+    assert result['status'] == 'passed' and result['thresholdFlips'] == 0
+    assert result['maxAbsError'] <= 1e-5

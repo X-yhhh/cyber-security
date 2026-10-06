@@ -160,8 +160,19 @@ class Dataset:
         return Batch(rows, obs, np.asarray(vals), np.asarray(masks), np.asarray(cats), role)
 
 
+PREPROCESS_V1 = "p3-preprocess-v1"
+PREPROCESS_V2 = "p3-preprocess-v2"
+
+
 class Preprocessor:
-    """仅 train 加权拟合插补/缩放/类别表；未知类别为0，观察类别从1编码。"""
+    """仅 train 加权拟合插补/缩放/类别表；未知类别为0，观察类别从1编码。
+
+    v2 在 float64 中依次计算 log(x+1)、插补、中心化和缩放，最后一步才舍入为
+    float32；ONNX 图按同一顺序计算，numpy 与 onnxruntime 的特征逐位一致。
+    v1 直接调用 float32 log，结果随平台 SIMD 实现相差 1 ulp，XGBoost hist
+    分裂点恰为训练特征值，落在分裂点上的样本会因此改走分支；v1 只保留用于
+    复现历史产物，新拟合一律输出 v2。
+    """
     def __init__(self, parameters):
         self.parameters = parameters
 
@@ -184,7 +195,7 @@ class Preprocessor:
         if feature_set == "peer_context":
             # 新prefix实验只增加对端上下文，显式排除主机全局连接数和对端数。
             indices = [i for i in indices if i < 16 or (i - 16) % 9 not in (5, 6)]
-        return cls({"version": "p3-preprocess-v1", "fitRole": "train", "numericFeatureCount": 43,
+        return cls({"version": PREPROCESS_V2, "fitRole": "train", "numericFeatureCount": 43,
                     "meanLog": mean.astype(np.float32).tolist(), "scaleLog": scale.astype(np.float32).tolist(),
                     "indices": indices, "featureSet": feature_set, "unknownCategoryCode": 0,
                     "vocabularies": [sorted(set(batch.categories[:, i])) for i in range(3)]})
@@ -198,10 +209,19 @@ class Preprocessor:
         return {"numeric_values": batch.values, "numeric_missing": batch.missing, "categorical_codes": self.codes(batch)}
 
     def transform(self, batch):
+        """输出模型特征；未知版本拒绝，不按默认精度静默计算。"""
+        version = self.parameters.get("version")
         mean = np.asarray(self.parameters["meanLog"], dtype=np.float32)
         scale = np.asarray(self.parameters["scaleLog"], dtype=np.float32)
-        logged = np.log(batch.values + np.float32(1))
+        if version == PREPROCESS_V2:
+            mean, scale = mean.astype(np.float64), scale.astype(np.float64)
+            logged = np.log(batch.values.astype(np.float64) + 1.0)
+        elif version == PREPROCESS_V1:
+            logged = np.log(batch.values + np.float32(1))
+        else:
+            raise ValueError("未知预处理版本")
         filled = np.where(batch.missing == 1, mean, logged)
         ids = self.parameters["indices"]
-        return np.concatenate([((filled - mean) / scale)[:, ids], batch.missing[:, ids],
+        scaled = ((filled - mean) / scale)[:, ids].astype(np.float32)
+        return np.concatenate([scaled, batch.missing[:, ids],
                                self.codes(batch).astype(np.float32)], axis=1).astype(np.float32)

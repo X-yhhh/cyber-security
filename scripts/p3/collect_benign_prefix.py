@@ -185,7 +185,7 @@ def main():
     p.add_argument('--asset-id', required=True, help='已登记资产 UUID，跨采集活动复用')
     p.add_argument('--sensor-id', required=True, help='已登记传感器 UUID')
     p.add_argument('--authorization-id', required=True, help='本轮实际执行授权 ID')
-    p.add_argument('--authorized-until', required=True, help='本轮授权截止 ISO-8601，最多 2 小时')
+    p.add_argument('--authorized-until', required=True, help='本轮授权截止 ISO-8601，覆盖整个 P3-B 收口期间')
     p.add_argument('--health-observer', type=Path, required=True,
                    help='已运行的 capture_health_observer 输出目录；须与攻击活动共用同一会话')
     p.add_argument('--role', required=True, choices=ROLE_ORDER, help='本次只执行该角色的良性批次')
@@ -195,7 +195,7 @@ def main():
     collection_gate(args.runtime_plan, args.prefit_report)
     if sys.platform != 'win32': raise RuntimeError('仅登记Windows回环环境')
     start = time.time(); deadline = datetime.fromisoformat(args.authorized_until).timestamp()
-    if not start < deadline <= start + 7200: raise ValueError('须提供本轮最多 2 小时的有效授权')
+    if not start < deadline <= start + 48 * 3600: raise ValueError('授权截止须覆盖整个 P3-B 收口期间（最多 48 小时）')
     health = (args.health_observer, args.asset_id, args.sensor_id)
     observer = require_live(*health)
     args.output.mkdir(parents=True, exist_ok=False, mode=0o700)

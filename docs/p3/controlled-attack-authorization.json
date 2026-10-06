@@ -1,13 +1,13 @@
 {
   "version": "p3-controlled-collection-design-20261005-v5",
   "documentKind": "execution_authorization",
-  "updatedAt": "2026-10-06",
+  "updatedAt": "2026-10-06T07:45:00+08:00",
   "planVersion": "p3-prefix-cde-20261005-v4",
   "status": "authorized_active",
   "executionAuthorized": true,
-  "authorizationId": "xyh-1005",
-  "validFrom": "2026-10-06T05:34:00+08:00",
-  "validUntil": "2026-10-06T07:34:00+08:00",
+  "authorizationId": "xyh-1006",
+  "validFrom": "2026-10-06T07:45:00+08:00",
+  "validUntil": "2026-10-07T23:59:59+08:00",
   "purpose": "为两种HTTP慢行为补齐四个开发角色；八个候选活动的数量以真实独立性审核为准",
   "decisionRef": "README.md",
   "versions": {
@@ -27,7 +27,7 @@
     "protocol": "IPv4/TCP",
     "maxConcurrentConnections": 4,
     "maximumNewAttackActivities": 8,
-    "maximumSessionWallSeconds": 7200,
+    "maximumSessionWallSeconds": 172800,
     "firewallChanges": false,
     "externalTrafficAllowed": false
   },
@@ -216,7 +216,7 @@
     "不以本文或旧授权代替本次实际执行范围",
     "不读取P6封存特征标签分数"
   ],
-  "onFailure": "到期、捕获/任务/健康失败立即停止当前任务并清理；冻结前标记不合格，不静默换角色或补造记录",
+  "onFailure": "P3-B 由 STOP 文件正常收口；validUntil 仅作安全兜底，若截止前未收口则停止当前任务并清理；冻结前标记不合格，不静默换角色或补造记录",
   "outputPolicy": "使用新run目录保存实际注册、旁证和产物；不回写旧语料或把生成报告放入docs",
   "healthObserver": {
     "script": "scripts/p3/capture_health_observer.py",
@@ -239,6 +239,6 @@
     "enforcement": "观察器目录 activity-ledger.jsonl：角色倒退拒绝，距上一活动结束不足190秒则等待或拒绝",
     "reason": "受控活动共用同一 budgetTargetId；prefix_runner check 拒绝 ROLE_ACCESS_ORDER_BREAKS_CONTINUOUS_BUDGET"
   },
-  "validFromNote": "执行时填入 ISO-8601 字符串，例如 \"2026-10-06T10:00:00+08:00\"",
-  "validUntilNote": "建议距 validFrom 不少于 7200 秒（2 小时）"
+  "validFromNote": "本轮已固定为 2026-10-06T07:45:00+08:00；授权覆盖整个 P3-B 收口期间",
+  "validUntilNote": "本轮安全兜底截止为 2026-10-07T23:59:59+08:00；正常结束由 STOP 文件记录"
 }

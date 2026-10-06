@@ -24,7 +24,8 @@ from capture_health import COUNTERS, IDENTITY, VERSION, HealthChain, content_has
 WINDOW_MS = 4900
 MAX_INTERVAL_MS = 5000
 MAX_LIVE_DELAY_MS = 10000
-MAX_SESSION_SECONDS = 4 * 3600
+# P3-B 授权覆盖整个收口期间；STOP 文件是正常结束条件，截止时间仅作安全兜底。
+MAX_SESSION_SECONDS = 48 * 3600
 FILTER = 'ip and tcp and host 127.0.0.1 and host 127.0.0.2 and port 80'
 INTERFACE = r'\Device\NPF_Loopback'
 RECORDS = 'health-records.jsonl'
@@ -248,7 +249,7 @@ def main():
     uuid.UUID(args.asset_id); uuid.UUID(args.sensor_id)
     until = datetime.fromisoformat(args.authorized_until).timestamp()
     if not time.time() < until <= time.time() + MAX_SESSION_SECONDS:
-        raise ValueError('健康观察授权须在未来 4 小时内截止')
+        raise ValueError('健康观察授权须在未来 48 小时内截止')
     if sys.platform != 'win32':
         raise RuntimeError('仅登记 Windows 回环环境')
     stats = NpcapStats()

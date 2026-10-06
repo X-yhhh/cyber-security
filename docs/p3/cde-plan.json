@@ -1,12 +1,12 @@
 {
   "version": "p3-prefix-cde-20261005-v4",
-  "status": "p3d_failed_onnx_hard_gate",
+  "status": "p3d_parity_remediated_awaiting_review",
   "documentKind": "design_registration_not_runtime_plan",
   "updatedAt": "2026-10-06",
   "stageBaseline": {
     "P1": "completed_closed",
     "P2": "completed_closed",
-    "P3": "blocked_at_p3d_onnx_hard_gate",
+    "P3": "p3d_parity_remediated_awaiting_review",
     "P4_P8": "planned"
   },
   "authorization": {
@@ -374,6 +374,67 @@
       "candidateCreated": false,
       "p3eEntered": false,
       "retryRequirement": "先登记新的版本化运行计划，保留既有5次完整拟合和16次策略试验消耗，并限定ONNX转换或数值修复范围；不得放宽门槛、复用失败输出或删除账本重启。"
+    },
+    "p3dRemediation": {
+      "runtimePlan": "host-guard-p3-prefix-runtime-20261006-v5",
+      "runtimePlanSha256": "6d4d02028994fd5e3344f348dd191415c7f2d2fe1c052445b96c1c7737459582",
+      "supersedesRuntimePlanSha256": "1b7ba97d9d8a73c3ea044d0ddf26db2288e8999525f5b1a9312089b068d245eb",
+      "status": "parity_remediated_awaiting_review",
+      "rootCause": "训练端 numpy float32 log 依平台 SIMD 实现，与 ONNX Runtime float32 Log 相差 1 ulp；XGBoost hist 分裂点取自训练特征值，落在分裂点上的 train 行改走分支",
+      "preprocessingVersion": "p3-preprocess-v2",
+      "preprocessingChange": "float32 输入提升为 float64 计算 log(x+1)、插补、中心化与缩放，最后一次舍入 float32；ONNX 内嵌同序 double 算子；v1 仅保留历史复现",
+      "modelRefit": false,
+      "failedOnnxReused": false,
+      "parityGateRelaxed": false,
+      "prefitDiagnosticsSha256": "8acdd423a79ca10a824a957f981d04acc9009a221a824dac6a8bd7627b9b8ba1",
+      "prefitDiagnosticsReplay": "与 P3-C 诊断仅计划/subject 哈希不同，轨迹与指标产物逐字节一致",
+      "windowsCheck": {
+        "runtimeCompatible": true,
+        "trainingAllowed": true,
+        "blockers": [],
+        "modelFits": 0
+      },
+      "rebindReportSha256": "6152a8e72048d5dc144c4b1b7bba19cc9fc54bfd804fd272c9b5e8e7cef65a48",
+      "reboundExperiments": [
+        "lightgbm-base-42",
+        "lightgbm-peer_context-42",
+        "xgboost-base-42",
+        "xgboost-peer_context-42",
+        "winner-seed-43"
+      ],
+      "onnxParity": {
+        "rows": 9323,
+        "maxAbsErrorRange": [
+          1.1920928955078125e-07,
+          1.7881393432617188e-07
+        ],
+        "maximumAllowed": 0.0001,
+        "thresholdFlips": 0
+      },
+      "selection": {
+        "winnerV1": "xgboost-peer_context-42",
+        "winnerV2": "xgboost-peer_context-42",
+        "mainExperimentMetricsIdentical": true,
+        "workingPointsUnchanged": true
+      },
+      "fitTimeVersusInference": "既有原生模型以 v1 特征拟合、以 v2 特征推理；参数相同，逐元素最多 1 ulp；train 分数最大变化 0.071，选型角色 0.0022，登记阈值翻转 0",
+      "budget": {
+        "fullFitsConsumed": 5,
+        "fullFitsRemaining": 5,
+        "modelSelectionPolicyTrials": 36,
+        "modelSelectionPolicyTrialsAdded": 20
+      },
+      "accessedRoles": [
+        "train",
+        "validation_selection"
+      ],
+      "trainingCodeCommitted": false,
+      "reviewRequiredBefore": [
+        "winner-seed-44 拟合",
+        "selection-lock",
+        "validation_calibration 读取",
+        "independent_development 读取"
+      ]
     }
   },
   "admission": {

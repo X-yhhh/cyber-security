@@ -115,7 +115,8 @@ def health_binding(registry_path, authorization_path, rows, timelines):
                 or episode['endMs']>by_activity[episode['activityId']]['endedAt']*1000
                 or chain.proof(binding,episode['startMs'],episode['endMs']) is None):
             raise ValueError('受控活动时间线缺少授权范围内的连续健康证明')
-    if last['end']<max(r['endMs'] for r in controlled_timeline)+180000:
+    attack_ends=[r['endMs'] for r in controlled_timeline if r['label']==1]
+    if attack_ends and last['end']<max(attack_ends)+180000:
         raise ValueError('最后活动后缺少规则到期及冷却旁证')
     derived=dict(registry, targetBindings={target:{k:binding[k] for k in IDENTITY} for target in targets},
                  sourceRegistrySha256=sha(registry_path),authorizationSha256=sha(authorization_path),
@@ -123,15 +124,62 @@ def health_binding(registry_path, authorization_path, rows, timelines):
     return derived,records_path,binding_path,ledger_path
 
 
+def health_sessions(registries, authorizations, rows, timelines, output):
+    """逐会话校验原始链及活动归属；会话间空档不构成连续健康证明。"""
+    if len(registries)!=len(authorizations) or not registries:
+        raise ValueError('每个健康会话必须绑定一份执行授权')
+    controlled={r['activityId'] for r in rows if r['sourceDomainId']==CONTROLLED_DOMAIN}
+    seen=set(); sessions=[]; bindings=[]; targets=None; files=[]
+    for ordinal,(registry_path,authorization_path) in enumerate(zip(registries,authorizations,strict=True)):
+        ledger_path=registry_path.parent/'activity-ledger.jsonl'
+        activity_ids={entry['activityId'] for entry in lines(ledger_path)}
+        if not activity_ids or seen & activity_ids or not activity_ids<=controlled:
+            raise ValueError('健康会话活动重复、缺失或未进入冻结语料')
+        seen.update(activity_ids)
+        subset=[row for row in rows if row['sourceDomainId']!=CONTROLLED_DOMAIN or row['activityId'] in activity_ids]
+        episodes=[ep for ep in timelines if ep['activityId'] in activity_ids]
+        derived,records_path,binding_path,ledger_path=health_binding(
+            registry_path,authorization_path,subset,episodes)
+        if targets is None: targets=set(derived['targetBindings'])
+        elif set(derived['targetBindings'])!=targets: raise ValueError('健康会话稳定目标不一致')
+        directory=output/'health-sessions'/str(ordinal)
+        directory.mkdir(parents=True)
+        for path in (registry_path,records_path,binding_path,ledger_path,authorization_path):
+            destination=directory/('authorization.json' if path==authorization_path else path.name)
+            destination.write_bytes(path.read_bytes())
+            files.append(str(destination.relative_to(output)))
+        sessions.append(dict(directory=str(directory.relative_to(output)),
+                             sourceRegistrySha256=sha(registry_path),
+                             authorizationSha256=sha(authorization_path),
+                             recordsSha256=sha(records_path),bindingSha256=sha(binding_path),
+                             activityLedgerSha256=sha(ledger_path),
+                             authenticatedCollectionRef=derived['authenticatedCollectionRef'],
+                             observerBinding=derived['observerBindings'][0],
+                             activityIds=sorted(activity_ids),
+                             startedAt=json.loads(binding_path.read_text())['startedAt'],
+                             stoppedAt=derived['stoppedAt']))
+        bindings.extend(derived['observerBindings'])
+    if seen!=controlled: raise ValueError('受控活动缺少健康会话归属')
+    ordered=sorted(sessions,key=lambda session:stamp(session['startedAt']))
+    if sessions!=ordered or any(stamp(left['stoppedAt'])>=stamp(right['startedAt'])
+                                for left,right in zip(sessions,sessions[1:])):
+        raise ValueError('健康会话重叠或顺序错误')
+    registry=dict(version='p3-capture-health-registry-v2',healthVersion=HEALTH_VERSION,
+                  modelFits=0,sessions=sessions,observerBindings=bindings,
+                  targetBindings={target:{k:bindings[0][k] for k in IDENTITY} for target in targets},
+                  crossSessionContinuity=False)
+    return registry,files
+
+
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--qualified',type=Path,action='append',required=True)
     p.add_argument('--benign-root',type=Path)
-    p.add_argument('--health-registry',type=Path,default=None,
+    p.add_argument('--health-registry',type=Path,action='append',default=[],
                    help='capture_health_observer 产出的 health-registry.json；'
                         '提供后将受控活动的 budgetTargetId 绑定到观察器会话，'
                         '原始记录及派生登记写入冻结输出。不提供则跳过绑定。')
-    p.add_argument('--authorization',type=Path,
+    p.add_argument('--authorization',type=Path,action='append',default=[],
                    help='本轮受控回环执行授权；指定健康登记时必填')
     for name in ['qualification','reservation','output']:p.add_argument('--'+name,type=Path,required=True)
     a=p.parse_args();q=json.loads(a.qualification.read_text());reservation=json.loads(a.reservation.read_text())
@@ -269,11 +317,11 @@ def main():
             raise ValueError('标签时间线 plannedRole 与冻结组冲突')
         if ep['endMs']<=ep['startMs']:raise ValueError('非法标签时间线')
         qualified_timeline.append(dict(ep,leakageGroupId=group,split=role))
-    if bool(a.health_registry)!=bool(a.authorization):
+    if bool(a.health_registry)!=bool(a.authorization) or len(a.health_registry)!=len(a.authorization):
         raise ValueError('健康登记与执行授权必须同时提供')
     health=None
-    if a.health_registry:
-        health=health_binding(a.health_registry,a.authorization,rows,qualified_timeline)
+    if len(a.health_registry)==1:
+        health=health_binding(a.health_registry[0],a.authorization[0],rows,qualified_timeline)
 
     # 独立开发最少组数是下限；真实训练入口仍须使用完整实验计划，不由此脚本放宽。
     a.output.mkdir(parents=True,exist_ok=False,mode=0o700)
@@ -298,6 +346,11 @@ def main():
         for path in (records_path,binding_path,ledger_path):
             (a.output/path.name).write_bytes(path.read_bytes())
             health_outputs.append(path.name)
+        (a.output/'health-registry.json').write_text(json.dumps(registry,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+        health_outputs.append('health-registry.json')
+    elif a.health_registry:
+        registry,session_files=health_sessions(a.health_registry,a.authorization,rows,qualified_timeline,a.output)
+        health_outputs.extend(session_files)
         (a.output/'health-registry.json').write_text(json.dumps(registry,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
         health_outputs.append('health-registry.json')
     partition=dict(version=VERSION,assignment='explicit plannedRole; merged role conflict rejected before output',

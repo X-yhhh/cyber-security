@@ -1,37 +1,39 @@
 # P3 模型与策略可行性
 
-更新于 2026-10-06。**P1/P2 已完成并收口；P3-B 已完成重新采集与收口审计，授权在整个收口期间持续有效并由 STOP 文件正常结束；P3-C 冻结和拟合未启动。** 本文件是当前 P3 的执行入口；整体依赖见 [开发路线](../开发路线.md)，指标定义以 [验证与验收](../验证与验收.md) 为准。旧 final 候选、阶段裁决和重复修复报告已退出当前 docs。
+更新于 2026-10-06。**P1/P2 已完成并收口；P3-B 已完成重新采集与收口审计；P3-C 冻结与零拟合准入已通过，P3-D 拟合尚未启动。** 本文件是当前 P3 的执行入口；整体依赖见 [开发路线](../开发路线.md)，指标定义以 [验证与验收](../验证与验收.md) 为准。旧 final 候选、阶段裁决和重复修复报告已退出当前 docs。
 
-当前计划为 [cde-plan.json](cde-plan.json) 的 `p3-prefix-cde-20261005-v4`（原位替换 v3）。保留 P2 的 `host-guard/5.0.0-rc.2`、`flow-prefix-v1` 和 43+3 输入顺序；决策 `host-guard-decision/2026-10-05.2`、评价 `host-guard-evaluation/2026-10-05.2` 和连续健康规则按 [检测与处置契约](../检测与处置契约.md) 分别版本化。**P3-A 已实施；P3-B 采集与收口审计已完成，P3-C 冻结和拟合均未开始。**
+当前设计登记为 [cde-plan.json](cde-plan.json) 的 `p3-prefix-cde-20261005-v4`。保留 P2 的 `host-guard/5.0.0-rc.2`、`flow-prefix-v1` 和 43+3 输入顺序；决策 `host-guard-decision/2026-10-05.2`、评价 `host-guard-evaluation/2026-10-05.2` 和连续健康规则按 [检测与处置契约](../检测与处置契约.md) 分别版本化。P3-C 的实际运行计划保留在 Windows 受控 run 目录，不以设计登记代替。
 
-上一轮 `win-dev` 的 `.cache/p3-cde-run-20261006-053600` 已删除，不作为本轮输入。本轮新 run 为 `.cache/p3-cde-run-20261006-074800`，授权 `xyh-1006` 有效期为 2026-10-06 07:45 至 2026-10-07 23:59（北京时间），覆盖整个 P3-B 收口期间。攻击 8 组、良性 8 批均成功完成；账本 16 条无失败，角色覆盖为 train 1/2、validation_selection 1/2、validation_calibration 2/2、independent_development 4/2。8 个 `complete.json` 均为 `completed`，健康记录 847 条且无捕获间隙、丢包计数为 0，观察器以 `stop_file` 正常结束；`modelFits=0`，未进行冻结、拟合、候选激活或 P6 数据读取。
+本轮 run 为 `win-dev` 的 `.cache/p3-cde-run-20261006-074800`。P3-B 攻击 8 组、良性 8 批已完成；P3-C 又按登记补充独立开发困难良性 3 批。授权 `xyh-1006` 及两段健康会话分别绑定到冻结集，跨会话空档不作为连续健康。`modelFits=0`，未拟合、激活候选或读取 P6 数据。
 
 ### P3-B 收口审计
 
-本轮远端受控产物仅保留在 `win-dev` 的 run 目录，不进入 Git。健康观察器已创建 `health/STOP` 并正常退出，`health/health-registry.json` 记录 `stopReason=stop_file`；旧 run 及其产物已删除。采集成功不等于训练准入：当前账本仍需在后续冻结前完成独立性、早期轨迹、来源和角色资格审查，P3-C 未启动。
+原始 PCAP、账本、健康记录与冻结集仅保留在 `win-dev` 的受控 run 目录，不进入 Git。首段观察器以 `stop_file` 正常结束；补充良性的第二段健康会话单独校验，未将停采空档拼成连续证明。旧 run 不作为本轮输入。
 
-## 1. 当前输入与缺口
+## 1. 当前冻结输入
 
-当前输入目录为 `artifacts/p3-source-repair-20261005-01/prefix-corpus-v2`。数据完整性已通过现有核验，保留 **50,606 条 prefix、12,751 个 parent、28 个活动、18 个防泄漏组**。实际文件绑定的 readiness 和核验器 SHA-256 见计划 `currentInput`。
+冻结输入为 `win-dev` run 目录下的 `prefix-corpus-v2`，共 **50,267 条 prefix、12,738 个 parent、25 个活动、22 个防泄漏组**。`readiness.json` SHA-256 为 `58059e4c7c29554bbac9afa243cc3c80bde856679ff1b078cd7590a7b700f8e3`；核验器 SHA-256 为 `94b0e1925d1e8eabdc04faa92774547af874668347a0b7c9a53ecb9cbe561fc4`。
 
 | 开发角色 | 良性 prefix | 攻击 prefix | 良性组 | 攻击组 |
 |---|---:|---:|---:|---:|
-| train | 233 | 1,111 | 3 | 1 |
-| validation_selection | 15 | 8,067 | 1 | 1 |
-| validation_calibration | 17 | 0 | 1 | 0 |
-| independent_development | 241 | 40,922 | 9 | 3 |
+| train | 28 | 1,141 | 2 | 2 |
+| validation_selection | 35 | 8,119 | 2 | 2 |
+| validation_calibration | 41 | 72 | 2 | 2 |
+| independent_development | 82 | 40,749 | 6 | 5 |
 
-同一个混合组可能同时贡献正负计数，组数列不能简单相加得到总组数。6 次受控活动仍只有 **2 个**防泄漏组，归并原因是完整 parent 的量化轨迹重复；来源改名不能消除这一事实。当前缺少校准攻击、四角色行为覆盖和足够独立攻击组，`trainingAllowed=false`。按行为统计的攻击组为：慢请求体 train 1、选型 0、校准 0、独立开发 1；慢头部 train 0、选型 1、校准 0、独立开发 2。
+四角色均有正负和两种行为；独立开发攻击/良性分别为 5/6 组。共同早期轨迹、整 parent、跨角色 parent/活动/近重复均已核验，受控语料中一条整 parent 量化序列归并边保留，不以活动数代替独立组数。`trainingAllowed=true` 仅表示 P3-C 数据和运行计划准入，不表示模型通过 P3-D/E。
 
-可在本仓库核验当前输入：
+在 `win-dev` 训练仓库核验冻结输入：
 
 ```sh
-python3 -B scripts/p3/verify_prefix_corpus.py \
-  --dataset artifacts/p3-source-repair-20261005-01/prefix-corpus-v2 \
-  --require-training
+PYTHONPATH=src .venv/Scripts/python.exe -m cyber_training.host_guard.prefix_runner check \
+  --dataset .cache/p3-cde-run-20261006-074800/prefix-corpus-v2 \
+  --contracts .cache/p3-publish-checkout-01b28505/contracts/host-guard-v5-rc2 \
+  --plan .cache/p3-cde-run-20261006-074800/p3c-runtime-plan-final.json \
+  --output <new-empty-check-directory>
 ```
 
-当前预期为完整性通过、训练准入拒绝（退出码 2）。行为覆盖按 `host-guard-behavior-map/1` 计算，缺字段时显式映射、未知原场景拒绝，不再静默回退为原场景名。旧输入没有 plannedRole 和早期轨迹冻结，仅作诊断；新训练必须用 P3-B/C 的新冻结集重新通过全部准入。
+Mac/Windows 对同一冻结集独立核验，计数、分组和零阻断一致；本轮 Windows `prefix_runner check` 返回 `runtimeCompatible=true`、`trainingAllowed=true`、零阻断、`modelFits=0`，验证代码、P2 契约、冻结文件、健康会话和诊断哈希。新诊断未在 Mac 逐字段对拍。行为覆盖按 `host-guard-behavior-map/1` 计算，未知原场景拒绝。旧输入仅作诊断，不作为本轮拟合输入。
 
 ## 2. 行为、来源与角色
 
@@ -52,7 +54,7 @@ python3 -B scripts/p3/verify_prefix_corpus.py \
 | slowhttptest_g3 | independent_development | 105 |
 | slowhttptest_g4 | independent_development | 135 |
 
-仅当这些活动经审查确实独立，且三个公共组仍满足登记用途时，四角色攻击组数才是 **2/2/2/5**；独立开发包含慢头部 3 组、慢请求体 2 组。八组不是通用最少数量，也不是自动取得的八个独立组。复用旧组、近重复归并或将公共来源改为仅诊断后，必须在冻结前重算配额，不拆组凑数。
+本轮冻结审查确认四角色攻击组数为 **2/2/2/5**；独立开发包含慢头部 3 组、慢请求体 2 组。八组受控活动不是通用最少数量，也不能直接等同八个独立组；组数以冻结后的防泄漏分组为准。
 
 `plannedRole` 必须贯穿登记 → activity.json → 完成账本 → 连接索引/标签时间线 → 冻结分区。缺失、未知或归并后角色冲突一律拒绝；禁止 `get(..., independent_development)` 默认放行，也不能由贪心分配器重新分派已登记的公共组。
 
@@ -62,7 +64,7 @@ python3 -B scripts/p3/verify_prefix_corpus.py \
 
 采集前登记任务大小、请求结构、业务过程、节奏及完成条件，证明差异出现在所声称的决策窗口内；轨迹重复则合组。源捕获域和 150 秒共享上下文检查保留，逻辑引擎重置不豁免真实近重复。
 
-每个角色补同域、同服务的困难良性，包括完整长请求、慢速下载、长轮询、正常并发、重试/断点恢复和连接恢复。现有选型/校准各一组良性不足以证明上述覆盖；不能借用旧 final 的正常机会数。新增良性最多 8 批，默认各角色 2 批、活动总时长不超过 1800 秒，实际独立性与业务完成证据在冻结时核验。
+每个角色补同域、同服务的困难良性，包括完整长请求、慢速下载、长轮询、正常并发、重试/断点恢复和连接恢复。原计划 8 批加独立开发补充 3 批，共 11 批；完成与内容完整性、共同早期轨迹及真实独立组数均在冻结时核验。不能借用旧 final 的正常机会数。
 
 [controlled-attack-authorization.json](controlled-attack-authorization.json) 沿用旧文件名，当前授权为 `xyh-1006`；授权覆盖整个 P3-B 收口期间，正常收口由 STOP 文件控制，截止时间只作安全兜底。它不再宣称“改时长规避归并”。
 
@@ -105,7 +107,7 @@ P3-C 的 5+5 是独立开发角色内的最低组数，不是每个行为各 5 �
 
 实际 prefix 模块是 `cyber_training.host_guard.prefix_runner`，命令为 `check` 和 `run`，接收 `--dataset --contracts --plan --output`；它没有 `smoke` 子命令或 `--public` 参数。旧 `host_guard.runner` 及旧 final profile 不是此计划入口。
 
-本地 cde-plan 是设计登记，不能直接假定符合训练程序结构。Windows 训练仓库的 `docs/host-guard-p3/experiment-plan.json` 已原位更新为 `host-guard-p3-prefix-runtime-20261005-v4`，SHA-256 为 `e6116258…74a96a`；新冻结集产生后仍须按实际文件重算哈希与时效登记。实施时原位更新该计划及相关适配代码，或由其生成 run 目录内的运行计划；核对 `budget`、`decision`、`scenarios`、`scope.profile`、maximumPolicyTrials 以及实际数据/契约哈希，再执行 `prefix_runner check`。已有 `--contracts` 包含其独立冻结清单；不能因为当前 docs 已删旧报告就修改包中历史哈希，也不能拿历史包证明当前源代码身份。
+本地 cde-plan 是设计登记，不是训练程序的运行计划。P3-C 的 Windows 运行计划为 run 目录内 `p3c-runtime-plan-final.json`，SHA-256 `1b7ba97d9d8a73c3ea044d0ddf26db2288e8999525f5b1a9312089b068d245eb`；绑定冻结集、P2 契约、当前代码、两段健康会话和诊断 SHA-256 `a777730a3e5770801fab56747d0a0fca19c6f3bcd251af4db79437ecc35b3cec`。`prefix_runner check` 返回兼容且训练准入通过。两种受控行为的 P95 首次合格证据分别为 39,065.3 毫秒和 24,003.7 毫秒，研究起点截止分别登记 42 秒和 27 秒，均保持 `alert_only`；较长真实自动时效未获批准。
 
 本轮只进行一轮 prefix 实验：LightGBM/XGBoost × 基础/对端上下文 4 次拟合，最多 2 次修正/消融、优胜者额外种子 43/44 两次、2 次折内或失败重跑预留，合计 **完整拟合≤10**；每次≤300 秒，小批冒烟≤3，整轮墙钟与 GPU 占用分别≤4 小时。主种子固定 42，不能挑最好种子代替主结果。所有折、种子、失败重试真实计数。
 
@@ -123,7 +125,7 @@ ONNX 与训练框架最大分差≤1e-4、阈值翻转 0。全部报告与候选
 
 ## 8. 当前待实现边界
 
-P3-A 已实施；P3-B 的采集入口和 P3-C 的冻结入口已补充校验，但新语料未完成冻结：
+P3-A 已实施；P3-B 的采集入口和 P3-C 的冻结入口已完成并核验：
 
 - 决策器在连续预算耗尽时输出 `escalate_manual`。
 - 评价器拆分处置期与移交期，E5 按处置期配对。
@@ -134,11 +136,11 @@ P3-A 已实施；P3-B 的采集入口和 P3-C 的冻结入口已补充校验，�
 - 新增独立健康观察器 `scripts/p3/capture_health_observer.py`。攻击与良性采集脚本每组前后核验观察器实时且处于同一健康段，组间隔 190 秒；良性脚本必须带实际授权 ID 与截止时间。
 - 所有受控活动共用同一稳定目标（对端 127.0.0.2），`prefix_runner check` 会以 `ROLE_ACCESS_ORDER_BREAKS_CONTINUOUS_BUDGET` 拒绝角色交错。两个采集脚本因此改为每次 `--role` 只执行一个角色，经观察器目录内的共享 `activity-ledger.jsonl` 强制 train→选型→校准→独立开发顺序和 190 秒间隔。运行顺序为每个角色先攻击、后良性。
 
-当前边界与暂停点：
+当前边界：
 
-- 八组攻击画像已登记；慢请求体分片和最大并发按本轮授权调整。画像只是候选，独立性须按实际量化轨迹审查，不能按活动次数认定。
-- 冻结器已加入受控目标与授权、健康哈希链、活动账本的一致性校验；本轮观察器已正常结束，采集产物可供后续资格审查，但尚未在此 run 上执行冻结。`prefix_runner check` 的诊断文件哈希仍须在新冻结集上绑定。
+- 八组攻击已按实际量化轨迹和共同早期窗口审查；相关 parent 仍按防泄漏规则并组，不按活动次数认定独立性。
+- 冻结器核验受控目标与授权、两段独立健康哈希链及活动账本一致性；诊断文件哈希已绑定当前运行计划，Windows `prefix_runner check` 已通过。
 - 本轮 [授权文件](controlled-attack-authorization.json) 使用 `xyh-1006`，覆盖 2026-10-06 07:45 至 2026-10-07 23:59（北京时间）；P3-B 在授权窗口内由 STOP 文件正常收口，未发生授权过期中断。
-- 远端训练工作树仍有未提交 P3 源码与历史未推送提交；此处的本地提交不能替代训练分支交付。原始 PCAP、账本和健康记录保持在远端，不提交到 Git。
+- 原始 PCAP、账本和健康记录保持在远端，不提交到 Git。P3-C 的通过不预判 P3-D 的误伤、收益或 ONNX 结果。
 
-当前 P3-B 已完成采集和收口审计；未进行冻结、拟合、候选激活或 P6 数据读取。P3-C 不启动。
+当前 P3-C 已完成冻结与准入；仍为零拟合，未激活候选或读取 P6 数据。P3-D 的有界实验和独立收益评价尚未开始。

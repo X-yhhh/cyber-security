@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""限时采集八批不同的正常HTTP任务；仅Windows登记回环、四路并发，无防火墙操作。
+"""限时采集预登记的正常HTTP任务；仅Windows登记回环、四路并发，无防火墙操作。
 
 每批是实际的新任务和新连接，大小/节奏在采集前冻结。预登记任务完成且内容
 匹配才可标正常；后续使用真实PCAP和Go提取，绝不通过换UUID复制模型输入。
@@ -37,11 +37,22 @@ def save(path, value):
 
 def profiles():
     """确定性业务矩阵；完整内容、时长和分包均改变，局限仍是同一个主机域。"""
-    return [dict(batch=i + 1, role=ROLES[i], plannedRole=ROLES[i], durationSeconds=39 + 3 * i,
+    original = [dict(batch=i + 1, role=ROLES[i], plannedRole=ROLES[i], durationSeconds=39 + 3 * i,
                  chunks=83 + 7 * i, chunkBytes=337 + 59 * i, uploadChunks=9 + i,
                  uploadIntervalSeconds=2.1 + .21 * i, uploadChunkBytes=211 + 43 * i,
                  pollSeconds=30 + i, rangeBytes=6173 + 863 * i)
             for i in range(8)]
+    additional = [
+        (9, 45, 52, 1024, 17, 1.2, 512, 25, 12288),
+        (10, 64, 94, 1536, 19, 1.5, 768, 35, 16384),
+        (11, 75, 140, 2048, 21, 1.8, 1024, 45, 20480),
+    ]
+    return original + [dict(batch=batch, role='independent_development',
+        plannedRole='independent_development', durationSeconds=duration,
+        chunks=chunks, chunkBytes=chunk_bytes, uploadChunks=upload_chunks,
+        uploadIntervalSeconds=upload_interval, uploadChunkBytes=upload_bytes,
+        pollSeconds=poll, rangeBytes=range_bytes)
+        for batch,duration,chunks,chunk_bytes,upload_chunks,upload_interval,upload_bytes,poll,range_bytes in additional]
 
 
 def content(size):
@@ -189,8 +200,15 @@ def main():
     p.add_argument('--health-observer', type=Path, required=True,
                    help='已运行的 capture_health_observer 输出目录；须与攻击活动共用同一会话')
     p.add_argument('--role', required=True, choices=ROLE_ORDER, help='本次只执行该角色的良性批次')
+    p.add_argument('--batches', nargs='+', type=int,
+                   help='显式选择本次会话预登记的批次；省略时执行该角色的全部批次')
     args = p.parse_args()
     selected = [profile for profile in profiles() if profile['plannedRole'] == args.role]
+    if args.batches is not None:
+        if len(set(args.batches))!=len(args.batches) or set(args.batches)-{p['batch'] for p in selected}:
+            raise ValueError('批次重复或不属于登记角色')
+        selected = [profile for profile in selected if profile['batch'] in set(args.batches)]
+    if not selected: raise ValueError('未选择任何已登记良性批次')
     uuid.UUID(args.asset_id); uuid.UUID(args.sensor_id)
     collection_gate(args.runtime_plan, args.prefit_report)
     if sys.platform != 'win32': raise RuntimeError('仅登记Windows回环环境')

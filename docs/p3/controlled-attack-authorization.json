@@ -8,7 +8,7 @@
   "authorizationId": "xyh-1006",
   "validFrom": "2026-10-06T07:45:00+08:00",
   "validUntil": "2026-10-07T23:59:59+08:00",
-  "purpose": "为两种HTTP慢行为补齐四个开发角色；八个候选活动的数量以真实独立性审核为准",
+  "purpose": "为两种HTTP慢行为补齐四个开发角色，并在独立开发角色补足真实困难良性；实际组数以防泄漏审核为准",
   "decisionRef": "README.md",
   "versions": {
     "observation": "host-guard/5.0.0-rc.2",
@@ -27,6 +27,7 @@
     "protocol": "IPv4/TCP",
     "maxConcurrentConnections": 4,
     "maximumNewAttackActivities": 8,
+    "maximumNewBenignActivities": 11,
     "maximumSessionWallSeconds": 172800,
     "firewallChanges": false,
     "externalTrafficAllowed": false
@@ -35,6 +36,7 @@
     "prebuilt_offline_replay",
     "separately_approved_bounded_loopback_task"
   ],
+  "additionalBenignBatchRefs": [9, 10, 11],
   "activities": [
     {
       "registrationKey": "slowloris_g1",

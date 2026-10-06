@@ -1,8 +1,8 @@
 {
   "version": "p3-prefix-cde-20261005-v4",
-  "status": "p3a_implemented_data_admission_pending",
+  "status": "p3c_frozen_admission_passed",
   "documentKind": "design_registration_not_runtime_plan",
-  "updatedAt": "2026-10-05",
+  "updatedAt": "2026-10-06",
   "stageBaseline": {
     "P1": "completed_closed",
     "P2": "completed_closed",
@@ -17,7 +17,7 @@
   },
   "candidateOnly": true,
   "policyMode": "alert_only",
-  "trainingAllowed": false,
+  "trainingAllowed": true,
   "finalTestRead": false,
   "versions": {
     "observation": "host-guard/5.0.0-rc.2",
@@ -41,66 +41,58 @@
     "automaticEligibility": "not_granted"
   },
   "currentInput": {
-    "dataset": "artifacts/p3-source-repair-20261005-01/prefix-corpus-v2",
-    "readinessSha256": "11e66f4f6acacf4ec124682efded52bf83f4c0f68dfda7aa879799fcff08a91e",
-    "verifierSha256": "138ee9024d37fd72daa22ba36cc84f04959369cce46344a8fcb6abeba7006a5a",
-    "observations": 50606,
-    "parents": 12751,
-    "activities": 28,
-    "leakageGroups": 18,
-    "attackObservations": 50100,
-    "benignObservations": 506,
-    "controlledActivities": 6,
-    "controlledLeakageGroups": 2,
-    "trainingAllowed": false,
+    "dataset": "E:/Workspace/ai/experiments/cyber-security-training/.cache/p3-cde-run-20261006-074800/prefix-corpus-v2",
+    "readinessSha256": "58059e4c7c29554bbac9afa243cc3c80bde856679ff1b078cd7590a7b700f8e3",
+    "verifierSha256": "94b0e1925d1e8eabdc04faa92774547af874668347a0b7c9a53ecb9cbe561fc4",
+    "observations": 50267,
+    "parents": 12738,
+    "activities": 25,
+    "leakageGroups": 22,
+    "attackObservations": 50081,
+    "benignObservations": 186,
+    "controlledActivities": 19,
+    "controlledLeakageGroups": 19,
+    "trainingAllowed": true,
     "roles": {
       "train": {
-        "benignPrefixes": 233,
-        "attackPrefixes": 1111,
-        "benignGroups": 3,
-        "attackGroups": 1
+        "benignPrefixes": 28,
+        "attackPrefixes": 1141,
+        "benignGroups": 2,
+        "attackGroups": 2
       },
       "validation_selection": {
-        "benignPrefixes": 15,
-        "attackPrefixes": 8067,
-        "benignGroups": 1,
-        "attackGroups": 1
+        "benignPrefixes": 35,
+        "attackPrefixes": 8119,
+        "benignGroups": 2,
+        "attackGroups": 2
       },
       "validation_calibration": {
-        "benignPrefixes": 17,
-        "attackPrefixes": 0,
-        "benignGroups": 1,
-        "attackGroups": 0
+        "benignPrefixes": 41,
+        "attackPrefixes": 72,
+        "benignGroups": 2,
+        "attackGroups": 2
       },
       "independent_development": {
-        "benignPrefixes": 241,
-        "attackPrefixes": 40922,
-        "benignGroups": 9,
-        "attackGroups": 3
+        "benignPrefixes": 82,
+        "attackPrefixes": 40749,
+        "benignGroups": 6,
+        "attackGroups": 5
       }
     },
-    "blockingReasons": [
-      "ROLE_MISSING_CLASS:validation_calibration:1",
-      "INDEPENDENT_DEVELOPMENT_FEWER_THAN_FIVE_ATTACK_GROUPS",
-      "SCENARIO_NOT_PRESENT_IN_ALL_DEVELOPMENT_ROLES:slowloris",
-      "SCENARIO_NOT_PRESENT_IN_ALL_DEVELOPMENT_ROLES:slowhttptest",
-      "P3_A_ROLE_BEHAVIOR_EARLY_TRAJECTORY_NOT_FROZEN",
-      "AUTHENTICATED_CONTINUOUS_HEALTH_UNAVAILABLE",
-      "ACTION_PHASE_PENDING_CAPTURE_HEALTH:independent_development:slowhttptest"
-    ],
-    "blockingReasonsClass": "collection_repairable_only",
+    "blockingReasons": [],
+    "blockingReasonsClass": "none",
     "behaviorRoleAttackGroups": {
       "slowhttptest": {
         "train": 1,
-        "validation_selection": 0,
-        "validation_calibration": 0,
-        "independent_development": 1
+        "validation_selection": 1,
+        "validation_calibration": 1,
+        "independent_development": 2
       },
       "slowloris": {
-        "train": 0,
+        "train": 1,
         "validation_selection": 1,
-        "validation_calibration": 0,
-        "independent_development": 2
+        "validation_calibration": 1,
+        "independent_development": 3
       }
     }
   },
@@ -200,7 +192,7 @@
   "controlledCollection": {
     "designRef": "controlled-attack-authorization.json",
     "maximumNewAttackActivities": 8,
-    "maximumNewBenignActivities": 8,
+    "maximumNewBenignActivities": 11,
     "maximumBenignActiveSeconds": 1800,
     "benignRoles": [
       "train",
@@ -209,6 +201,9 @@
       "validation_selection",
       "validation_calibration",
       "validation_calibration",
+      "independent_development",
+      "independent_development",
+      "independent_development",
       "independent_development",
       "independent_development"
     ],
@@ -220,6 +215,12 @@
       "retry_and_range_resume",
       "connection_recovery"
     ],
+    "additionalBenignActivities": [
+      {"batch": 9, "plannedRole": "independent_development", "durationSeconds": 45, "chunks": 52, "chunkBytes": 1024, "uploadChunks": 17, "uploadIntervalSeconds": 1.2, "uploadChunkBytes": 512, "pollSeconds": 25, "rangeBytes": 12288},
+      {"batch": 10, "plannedRole": "independent_development", "durationSeconds": 64, "chunks": 94, "chunkBytes": 1536, "uploadChunks": 19, "uploadIntervalSeconds": 1.5, "uploadChunkBytes": 768, "pollSeconds": 35, "rangeBytes": 16384},
+      {"batch": 11, "plannedRole": "independent_development", "durationSeconds": 75, "chunks": 140, "chunkBytes": 2048, "uploadChunks": 21, "uploadIntervalSeconds": 1.8, "uploadChunkBytes": 1024, "pollSeconds": 45, "rangeBytes": 20480}
+    ],
+    "additionalBenignBasis": "在独立开发角色追加三项完整 HTTP 任务；流、上传、轮询和重试/续传的字节量与节奏预先冻结，实际独立组仍以共同早期轨迹和整 parent 归并后的结果为准。",
     "requirements": [
       "各角色有同域同服务困难良性",
       "任务完成与内容完整性可核验",
@@ -333,15 +334,16 @@
       "collectionRepairable": "采集门禁可放行到受控登记；仍需本轮实际执行授权"
     },
     "latestRun": {
-      "runDirectory": "artifacts/p3-a-repair-20261005-v4",
-      "windowsRunDirectory": "E:/Workspace/ai/experiments/cyber-security-training/.cache/p3-a-repair-20261005-v4",
-      "runtimePlanSha256": "e6116258892b293257ef65caffa9470be1115655f16c0711fc8190cfe874a96a",
-      "status": "blocked",
+      "runDirectory": "E:/Workspace/ai/experiments/cyber-security-training/.cache/p3-cde-run-20261006-074800",
+      "windowsRunDirectory": "E:/Workspace/ai/experiments/cyber-security-training/.cache/p3-cde-run-20261006-074800",
+      "runtimePlanSha256": "1b7ba97d9d8a73c3ea044d0ddf26db2288e8999525f5b1a9312089b068d245eb",
+      "diagnosticsSha256": "a777730a3e5770801fab56747d0a0fca19c6f3bcd251af4db79437ecc35b3cec",
+      "status": "passed",
       "structuralOrImplementationBlockers": 0,
       "modelFits": 0,
       "finalTestRead": false,
-      "macWindowsDiagnosticsIdentical": true,
-      "note": "常数分诊断，非模型成绩；使用旧输入，仅证明结构可达"
+      "macWindowsDatasetVerificationMatched": true,
+      "note": "Mac/Windows 冻结集核验一致；Windows 常数分诊断及 prefix_runner check 通过，非模型成绩，Mac 未独立重跑新诊断"
     }
   },
   "admission": {

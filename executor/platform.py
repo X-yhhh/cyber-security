@@ -12,6 +12,7 @@ import time
 import uuid
 
 from .common import Rejected, parse, require
+from .contract import unprotected_ranges
 
 
 def inbound_ranges(scope):
@@ -20,13 +21,16 @@ def inbound_ranges(scope):
     require(scope.get("port") is None and isinstance(ranges, list) and 1 < len(ranges) <= 129,
             "SCOPE_DENIED")
     previous = 0
+    protected = []
     for pair in ranges:
         require(isinstance(pair, list) and len(pair) == 2 and
                 all(type(p) is int and 1 <= p <= 65535 for p in pair) and
                 previous < pair[0] <= pair[1], "SCOPE_DENIED")
+        protected.extend(range(previous + 1, pair[0]))
         previous = pair[1]
-    require(all(not any(first <= port <= last for first, last in ranges)
-                for port in (22, 53, 3389)), "PROTECTED_TARGET")
+    protected.extend(range(previous + 1, 65536))
+    require(len(protected) <= 128 and {22, 53, 3389} <= set(protected) and
+            ranges == unprotected_ranges(protected), "SCOPE_DENIED")
     return ranges
 
 

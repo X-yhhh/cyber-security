@@ -299,6 +299,36 @@ class EngineTest(unittest.TestCase):
         with self.assertRaisesRegex(Rejected, "RECOVERY_PENDING"):
             self.accept()
 
+    def test_control_loss_preserves_budget_and_blocks_reissue_until_reconciled(self):
+        p, _ = self.accept()
+        before = self.store.command(p["commandId"])
+        self.engine.control_lost()
+        row = self.store.command(p["commandId"])
+        self.assertEqual(row["status"], "uncertain")
+        self.assertEqual(row["deadline"], before["deadline"])
+        self.assertEqual(row["token"], before["token"])
+        self.assertIsNotNone(row["clearedAt"])
+        self.assertFalse(self.firewall.rules)
+        self.assertEqual(self.engine.accept(self.signed(p)), "uncertain")
+        with self.assertRaisesRegex(Rejected, "RECOVERY_PENDING"):
+            self.accept()
+        self.assertEqual(self.firewall.installs, 1)
+        self.clock.advance(31)
+        self.engine.recover()
+        self.assertEqual(self.store.command(p["commandId"])["status"], "expired")
+        self.assertTrue(self.store.get("paused"))
+
+    def test_control_loss_cleanup_failure_remains_visible(self):
+        p, _ = self.accept()
+        self.firewall.fail_remove = True
+        self.engine.control_lost()
+        self.assertEqual(self.store.command(p["commandId"])["status"], "recovery_failed")
+        self.assertTrue(self.engine.snapshot()["recoveryErrors"])
+        self.assertTrue(self.store.get("paused"))
+        self.firewall.fail_remove = False
+        self.engine.recover()
+        self.assertFalse(self.firewall.rules)
+
     def test_empty_rules_do_not_reset_budget_without_health_proof(self):
         p, _ = self.accept()
         self.clock.advance(31)

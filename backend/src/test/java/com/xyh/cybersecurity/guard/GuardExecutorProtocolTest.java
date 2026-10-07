@@ -1,7 +1,8 @@
 package com.xyh.cybersecurity.guard;
 
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.junit.jupiter.api.io.TempDir;
 import java.nio.file.*;
@@ -18,9 +19,13 @@ import static org.assertj.core.api.Assertions.*;
 class GuardExecutorProtocolTest {
     @TempDir Path temporary;
 
-    @Test void javaSignedCommandIsVerifiedAndIdenticallySignedByPython() throws Exception {
+    @ParameterizedTest
+    @ValueSource(strings={"peer_service","peer_inbound"})
+    void javaSignedCommandIsVerifiedAndIdenticallySignedByPython(String scope) throws Exception {
         KeyPair key=KeyPairGenerator.getInstance("Ed25519").generateKeyPair();
         ObjectNode payload=(ObjectNode)GuardDomainTest.example("action-command").get("payload");
+        payload.put("scope",scope);
+        if(scope.equals("peer_inbound"))payload.putNull("servicePort").put("direction","inbound");
         Instant now=Instant.now().truncatedTo(ChronoUnit.MICROS);
         payload.put("issuedAt",now.toString()).put("applyBy",now.plusSeconds(5).toString())
                 .put("blockUntil",now.plusSeconds(30).toString()).put("leaseExpiresAt",now.plusSeconds(30).toString());

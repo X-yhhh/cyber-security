@@ -90,6 +90,10 @@ class Engine:
                     self._receipt(row, self.adapter.inventory())
             raise
 
+    def authorize_command(self, payload, config, now):
+        """正式入口维持平台验收门禁；受控回环验收使用独立子类。"""
+        authorize(payload, config, self.boot, now)
+
     def _accept(self, p, signing):
         now, config = self.clock.time(), self.config()
         content_hash = digest(p)
@@ -106,7 +110,7 @@ class Engine:
             require(not self.store.get("paused", True), "RECOVERY_PENDING")
             require(self.trusted_clock(), "CLOCK_UNTRUSTED")
             require(self.healthy_recovery(), "RECOVERY_PENDING")
-            authorize(p, config, self.boot, now)
+            self.authorize_command(p, config, now)
             resolved = self.resolver.resolve(p)
             scope, target_deadline = self._resolve(p, resolved)
             token = self.stable_target(p, scope)
@@ -114,7 +118,7 @@ class Engine:
             actual = self.adapter.inventory()
             require(not self._unknown(actual), "STATE_RECONCILIATION_FAILED")
             # IPC、枚举可能耗时：在持久化前再次核验租约、配置和恢复器。
-            authorize(p, self.config(), self.boot, self.clock.time())
+            self.authorize_command(p, self.config(), self.clock.time())
             require(self.trusted_clock() and self.healthy_recovery(), "RECOVERY_PENDING")
             row = {"payload": p, "signing": signing, "hash": content_hash, "status": "prepared", "scope": scope,
                    "token": token, "handle": self.adapter.handle(p["commandId"]),
@@ -217,6 +221,20 @@ class Engine:
         with self.store.lock():
             self.boot = self.store.get("boot")
             self._recover(force)
+
+    def control_lost(self):
+        """控制面或回执响应丢失时保留原命令身份，暂停新动作并核对清理。
+
+        提前清理仍为 uncertain，预算不得因断连清零；追加回执重试同一 receiptId。
+        """
+        with self.store.lock():
+            self.store.set("paused", True)
+            for row in self.store.commands():
+                if row["status"] in ("prepared", "applied"):
+                    row["status"], row["error"] = "uncertain", "CONTROL_PLANE_UNAVAILABLE"
+                    self.store.save(row)
+            self.store.audit("control.disconnected", self.boot)
+            self._recover(force=True)
 
     def stop(self):
         """先暂停新动作，再核验清理实态；残留或枚举失败必须让调用者报告失败。"""

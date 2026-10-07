@@ -8,6 +8,7 @@ import time
 
 from .common import Rejected
 from .contract import unprotected_ranges
+from .pf_canary import canary_scope
 from .platform import PF, inbound_ranges
 
 
@@ -19,9 +20,26 @@ class PlatformTest(unittest.TestCase):
         covered = {port for first, last in ranges for port in range(first, last + 1)}
         self.assertEqual(covered, set(range(1, 65536)) - {22, 53, 443, 3389, 65535})
         for altered in ([[1, 30], [31, 65535]], [[1, 21], [21, 65535]], [[1, 21]],
-                        [[1, 21], [23, 53], [54, 65535]]):
+                        [[1, 21], [23, 53], [54, 65535]],
+                        [[1, 21], [23, 52], [54, 3388], [3390, 9999], [10130, 65535]]):
             with self.subTest(altered=altered), self.assertRaises(Rejected):
                 inbound_ranges({"port": None, "ranges": altered})
+        self.assertEqual(inbound_ranges({"port": None, "ranges": unprotected_ranges([1, 23, 65535])}),
+                         unprotected_ranges([1, 23, 65535]))
+
+    def test_inbound_canary_requires_protected_control_port(self):
+        config = {"platform": "pf", "environment": "lab", "interface": "lo0",
+                  "localAddresses": ["127.0.0.1"], "peerAddresses": ["127.0.0.2"],
+                  "servicePorts": [55001], "protectedServicePorts": [22, 53, 3389, 55002]}
+        port, scope = canary_scope(config, "peer_inbound")
+        self.assertEqual(port, 55001)
+        self.assertFalse(any(first <= 55002 <= last for first, last in scope["ranges"]))
+        self.assertTrue(any(first <= 55001 <= last for first, last in scope["ranges"]))
+        for change in ({"protectedServicePorts": [22, 53, 3389]},
+                       {"servicePorts": [55002]}, {"interface": "en0"},
+                       {"peerAddresses": ["192.0.2.2"]}):
+            with self.subTest(change=change), self.assertRaisesRegex(Rejected, "CANARY_SCOPE_REQUIRED"):
+                canary_scope({**config, **change}, "peer_inbound")
 
     def test_inventory_reconstructs_inbound_scope_and_rejects_foreign_rule(self):
         command = str(uuid.uuid4())

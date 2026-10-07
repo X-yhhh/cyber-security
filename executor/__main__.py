@@ -57,6 +57,16 @@ def flush(engine, control):
 
 
 def cycle(engine, control):
+    """通信失败不能被当成命令未执行；暂停并保存实态与原 ID 供重连核对。"""
+    try:
+        _cycle(engine, control)
+    except Rejected as exc:
+        if str(exc) == "CONTROL_PLANE_UNAVAILABLE":
+            engine.control_lost()
+        raise
+
+
+def _cycle(engine, control):
     engine.pulse("executor")
     engine.recover()
     snapshot = engine.snapshot()

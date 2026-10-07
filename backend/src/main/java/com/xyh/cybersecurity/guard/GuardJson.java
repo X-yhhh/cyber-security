@@ -16,10 +16,13 @@ import java.util.*;
 /** v2 的严格 JSON、UTC 时间和 RFC8785 摘要边界；异常只返回字段名/稳定码。 */
 public final class GuardJson {
     public static final ObjectMapper JSON = new ObjectMapper().enable(JsonParser.Feature.STRICT_DUPLICATE_DETECTION);
+    /** 观测结构保持 rc.2；模型、策略和命令的多分类结构使用 rc.3。 */
     public static final String CONTRACT = "host-guard/5.0.0-rc.2";
-    public static final String DECISION = "host-guard-decision/2026-10-05.1";
+    public static final String MODEL_CONTRACT = "host-guard/5.0.0-rc.3";
+    public static final String ACTION_CONTRACT = MODEL_CONTRACT;
+    public static final String DECISION = "host-guard-decision/2026-10-06.1";
     public static final String HEALTH = "host-guard-capture-health/1.0.0";
-    public static final String EVALUATION = "host-guard-evaluation/2026-10-05.1";
+    public static final String EVALUATION = "host-guard-evaluation/2026-10-07.1";
     private GuardJson() { }
     public static ApiRequestException error(int status, String code) {
         return new ApiRequestException(HttpStatus.valueOf(status), code, "请求不满足 v2 契约：" + code);
@@ -69,7 +72,7 @@ public final class GuardJson {
         catch(Exception e) {throw error(400,"INVALID_TIMESTAMP");}
     }
     public static LocalDateTime db(Instant i) { return i==null?null:LocalDateTime.ofInstant(i,ZoneOffset.UTC); }
-    public static Instant instant(Object o) {if(o==null)return null;if(o instanceof LocalDateTime d)return d.toInstant(ZoneOffset.UTC);if(o instanceof java.sql.Timestamp t)return t.toInstant();return time(o.toString());}
+    public static Instant instant(Object o) {if(o==null)return null;if(o instanceof LocalDateTime d)return d.toInstant(ZoneOffset.UTC);if(o instanceof java.util.Date d)return d.toInstant();return time(o.toString());}
     public static String id() {return UUID.randomUUID().toString();}
     public static Map<String,Object> map(Object... kv) {Map<String,Object> m=new LinkedHashMap<>();for(int i=0;i<kv.length;i+=2)m.put((String)kv[i],kv[i+1]);return m;}
     public static long number(Map<String,Object> r,String k) {return ((Number)r.get(k)).longValue();}

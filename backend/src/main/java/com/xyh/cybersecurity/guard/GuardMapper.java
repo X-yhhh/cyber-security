@@ -34,6 +34,9 @@ public interface GuardMapper {
         """) boolean machinePermission(@Param("client") long client,@Param("permission") String permission);
     @Select("SELECT COUNT(*)<>COALESCE(MAX(sequence_no),0) FROM guard_observation_batch WHERE sensor_id=#{sensor} AND boot_id=#{boot}")
     boolean batchGap(@Param("sensor") long sensor,@Param("boot") String boot);
+    /** 跨 episode/时间桶复核同一连接的最新已到达快照，不能使用插入顺序代替因果时间。 */
+    @Select("SELECT * FROM guard_observation WHERE asset_id=#{asset} AND sensor_id=#{sensor} AND boot_id=#{boot} AND parent_connection_id=#{parent} ORDER BY as_of DESC,snapshot_index DESC,id DESC LIMIT 1")
+    Map<String,Object> latestParent(@Param("asset") long asset,@Param("sensor") long sensor,@Param("boot") String boot,@Param("parent") String parent);
     final class Sql {
         private static final Map<String,Set<String>> COLUMNS=new HashMap<>();
         static {
@@ -57,15 +60,16 @@ public interface GuardMapper {
             COLUMNS.put("guard_observation_batch",Set.of("id","public_id","created_at","sensor_id","asset_id","boot_id","sequence_no","config_id","request_sha256","result_json"));
             COLUMNS.put("guard_observation",Set.of("id","public_id","created_at","batch_id","sensor_id","asset_id","boot_id","capture_scope_id","flow_id","parent_connection_id","snapshot_index","profile","as_of","last_packet_at","peer_key","key_epoch","direction","transport","service_port","environment","payload_json","content_sha256"));
             COLUMNS.put("guard_ingest_rejection",Set.of("id","public_id","created_at","batch_id","observation_external_id","reason_code","content_sha256"));
-            COLUMNS.put("guard_inference",Set.of("id","public_id","created_at","observation_id","asset_id","model_id","status","score","family","applicability","manifest_sha256","completed_at","error_code"));
+            COLUMNS.put("guard_inference",Set.of("id","public_id","created_at","observation_id","asset_id","model_id","status","score","family","family_scores_json","applicability","manifest_sha256","completed_at","error_code"));
             COLUMNS.put("guard_capture_health_window",Set.of("id","public_id","created_at","sensor_id","asset_id","capture_scope_id","observer_session_id","sequence_no","interval_start","interval_end","previous_sha256","content_sha256","payload_json","verification_status","received_at"));
             COLUMNS.put("guard_executor",Set.of("id","public_id","created_at","asset_id","api_client_id","platform","adapter_version","capability_hash","boot_id","status","last_heartbeat","health_json","revision"));
             COLUMNS.put("guard_budget_target",Set.of("id","public_id","created_at","asset_id","environment","stable_target_token","resolver_executor_id","scope_digest","identity_status"));
             COLUMNS.put("guard_target_binding",Set.of("id","public_id","created_at","target_ref","budget_target_id","executor_id","executor_boot_id","sensor_id","collector_boot_id","capture_scope_id","peer_key","key_epoch","scope_digest","expires_at","payload_json","content_sha256"));
             COLUMNS.put("guard_target_budget",Set.of("id","public_id","created_at","budget_target_id","charged_ms","last_block_end_at","last_evidence_at","health_proof_sha256","cycle_started_at","revision"));
             COLUMNS.put("guard_asset_budget",Set.of("id","public_id","created_at","asset_id","last_monotonic_at","revision"));
-            COLUMNS.put("guard_episode",Set.of("id","public_id","created_at","asset_id","sensor_id","boot_id","peer_key","key_epoch","direction","transport","service_port","family","bundle_id","bucket_start","revision"));
-            COLUMNS.put("guard_episode_evidence",Set.of("id","public_id","created_at","episode_id","parent_connection_id","observation_id","inference_id","score","as_of"));
+            COLUMNS.put("guard_episode",Set.of("id","public_id","created_at","asset_id","sensor_id","boot_id","peer_key","key_epoch","direction","transport","service_port","family","scope","source","rule_id","bundle_id","bucket_start","revision"));
+            COLUMNS.put("guard_episode_evidence",Set.of("id","public_id","created_at","episode_id","parent_connection_id","observation_id","inference_id","score","family","source","rule_id","rule_matched","family_scores_json","as_of"));
+            COLUMNS.put("guard_rule_evaluation",Set.of("id","public_id","created_at","asset_id","observation_id","policy_id","rule_version","rule_id","family","matched","applicable","payload_json"));
             COLUMNS.put("guard_decision",Set.of("id","public_id","created_at","episode_id","asset_id","bundle_id","decision_revision","decision_contract_version","decision","reason_code","budget_target_id","budget_revision","evidence_sha256","evidence_json","decided_at"));
             COLUMNS.put("guard_event_episode",Set.of("id","public_id","created_at","event_id","episode_id"));
             COLUMNS.put("guard_action",Set.of("id","public_id","created_at","decision_id","asset_id","executor_id","budget_target_id","budget_revision","bundle_id","authorization_id","authorization_revision","mode","desired_state","desired_revision","observed_state","idempotency_key","target_snapshot","block_until","created_by","approved_by","revision"));

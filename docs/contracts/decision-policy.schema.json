@@ -7,7 +7,7 @@
   "additionalProperties": false,
   "properties": {
     "contractVersion": {
-      "const": "host-guard/5.0.0-rc.2"
+      "const": "host-guard/5.0.0-rc.3"
     },
     "policyId": {
       "type": "string",
@@ -33,6 +33,41 @@
       "type": "string",
       "minLength": 1,
       "maxLength": 160
+    },
+    "familyPolicies": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "family": {"type": "string", "enum": ["port_scan", "brute_force", "dos_flood", "dos_slow"]},
+          "autoEligible": {"type": "boolean"},
+          "alertThreshold": {"type": "number", "minimum": 0, "maximum": 1},
+          "autoThreshold": {"type": "number", "minimum": 0, "maximum": 1},
+          "minDistinctFlows": {"type": "integer", "minimum": 1, "maximum": 1000},
+          "scope": {"type": "string", "enum": ["peer_service", "peer_inbound"]}
+        },
+        "required": ["family", "autoEligible", "alertThreshold", "autoThreshold", "minDistinctFlows", "scope"]
+      },
+      "minItems": 4,
+      "maxItems": 4
+    },
+    "rulePolicies": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "ruleId": {"type": "string", "minLength": 1, "maxLength": 160},
+          "family": {"type": "string", "enum": ["port_scan", "brute_force", "dos_flood", "dos_slow"]},
+          "field": {"type": "string", "minLength": 1, "maxLength": 160},
+          "operator": {"type": "string", "enum": ["gte", "gt", "lte", "lt", "eq"]},
+          "threshold": {"type": "number", "minimum": 0},
+          "autoEligible": {"type": "boolean"}
+        },
+        "required": ["ruleId", "family", "field", "operator", "threshold", "autoEligible"]
+      },
+      "maxItems": 100
     },
     "profile": {
       "type": "string",
@@ -141,6 +176,7 @@
     "maxNewActionsPerMinute",
     "supportedCapabilityIds",
     "protectionSetSha256",
-    "evaluationPlanSha256"
+    "evaluationPlanSha256",
+    "familyPolicies"
   ]
 }

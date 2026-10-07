@@ -1,5 +1,5 @@
 {
-  "contractVersion": "host-guard/5.0.0-rc.2",
+  "contractVersion": "host-guard/5.0.0-rc.3",
   "modelId": "00000000-0000-4000-8000-000000000007",
   "modelVersion": "example-only",
   "candidateOnly": true,
@@ -71,8 +71,8 @@
     {
       "addressFamily": "ipv4",
       "transport": "tcp",
-      "direction": "outbound",
-      "family": "connection_abuse",
+    "direction": "outbound",
+      "family": "port_scan",
       "minimumCoverageMs": 1000,
       "coverageWindowSeconds": 5
     }
@@ -94,6 +94,6 @@
       "benign": 0,
       "attack": 1
     },
-    "familyScoreOrder": []
+    "familyScoreOrder": ["port_scan", "brute_force", "dos_flood", "dos_slow"]
   }
 }

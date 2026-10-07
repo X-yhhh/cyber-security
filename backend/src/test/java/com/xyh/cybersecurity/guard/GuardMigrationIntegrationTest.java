@@ -7,7 +7,7 @@ import java.sql.*;
 import java.util.UUID;
 import static org.assertj.core.api.Assertions.*;
 
-/** 在独立 MySQL 8 schema 验证 V18→V19 升级、历史校验和与原账号保留。 */
+/** 在独立 MySQL 8 schema 验证 V20→V21 升级、历史校验和与原账号保留。 */
 @EnabledIfEnvironmentVariable(named="DB_TEST_BASE_URL",matches=".+")
 class GuardMigrationIntegrationTest {
     @Test void migrationPreservesPriorSchemaAndEnforcesGuardConstraints() throws Exception {
@@ -16,7 +16,7 @@ class GuardMigrationIntegrationTest {
         try {
             try(var c=DriverManager.getConnection(base,user,pass);var st=c.createStatement()){st.execute("CREATE DATABASE "+schema+" CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin");}
             String url=base+"/"+schema+"?connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true";
-            Flyway.configure().dataSource(url,user,pass).locations("classpath:db/migration").target("18").load().migrate();
+            Flyway.configure().dataSource(url,user,pass).locations("classpath:db/migration").target("20").load().migrate();
             try(var c=DriverManager.getConnection(url,user,pass);var st=c.createStatement()){
                 st.execute("INSERT INTO sys_user(user_key,username,display_name,password_hash,status) VALUES ('p4-preserved','p4-preserved','迁移哨兵','not-a-real-password-hash','active')");
             }
@@ -24,8 +24,8 @@ class GuardMigrationIntegrationTest {
             try(var c=DriverManager.getConnection(url,user,pass);var st=c.createStatement()){
                 try(var r=st.executeQuery("SELECT VERSION()")){r.next();assertThat(r.getString(1)).startsWith("8.");}
                 try(var r=st.executeQuery("SELECT password_hash FROM sys_user WHERE user_key='p4-preserved'")){r.next();assertThat(r.getString(1)).isEqualTo("not-a-real-password-hash");}
-                try(var r=st.executeQuery("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name LIKE 'guard_%'")){r.next();assertThat(r.getInt(1)).isEqualTo(37);}
-                try(var r=st.executeQuery("SELECT COUNT(*) FROM flyway_schema_history WHERE success=1")){r.next();assertThat(r.getInt(1)).isEqualTo(20);}
+                try(var r=st.executeQuery("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name LIKE 'guard_%'")){r.next();assertThat(r.getInt(1)).isEqualTo(38);}
+                try(var r=st.executeQuery("SELECT COUNT(*) FROM flyway_schema_history WHERE success=1")){r.next();assertThat(r.getInt(1)).isEqualTo(21);}
                 assertThatThrownBy(()->st.execute("INSERT INTO guard_target_budget(public_id,budget_target_id,charged_ms,cycle_started_at) VALUES (UUID(),999999,120001,UTC_TIMESTAMP(6))")).isInstanceOf(SQLException.class);
                 try(var r=st.executeQuery("SELECT COUNT(*) FROM guard_asset_binding")){r.next();assertThat(r.getInt(1)).isZero();}
             }

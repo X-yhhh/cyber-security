@@ -36,7 +36,7 @@ public class GuardQueries {
     public JsonNode view(String table,Map<String,Object> row){var n=JSON.createObjectNode();row.forEach((k,v)->{
         if(HIDDEN.contains(k))return;String name=k.equals("public_id")?"id":camel(k.endsWith("_json")?k.substring(0,k.length()-5):k);
         if(v!=null&&REFERENCES.containsKey(k))n.put(name,str(store.get(REFERENCES.get(k),((Number)v).longValue()),"public_id"));
-        else if(v instanceof LocalDateTime t)n.put(name,t.toInstant(ZoneOffset.UTC).toString());else if(v instanceof java.sql.Timestamp t)n.put(name,t.toInstant().toString());
+        else if(v instanceof LocalDateTime t)n.put(name,t.toInstant(ZoneOffset.UTC).toString());else if(v instanceof java.util.Date t)n.put(name,t.toInstant().toString());
         else if(k.endsWith("_json")||k.equals("target_snapshot"))n.set(name,v==null?node(null):redact(parse(v.toString())));else n.set(name,node(v));});return n;}
     private static String camel(String s){StringBuilder out=new StringBuilder();boolean upper=false;for(char c:s.toCharArray()){if(c=='_')upper=true;else{out.append(upper?Character.toUpperCase(c):c);upper=false;}}return out.toString();}
     private static JsonNode redact(JsonNode n){if(n.isObject()){var copy=(com.fasterxml.jackson.databind.node.ObjectNode)n.deepCopy();copy.remove(List.of("stableTargetToken","scopeDigest","credential","privateKey"));copy.fields().forEachRemaining(e->copy.set(e.getKey(),redact(e.getValue())));return copy;}if(n.isArray()){var a=JSON.createArrayNode();n.forEach(v->a.add(redact(v)));return a;}return n;}

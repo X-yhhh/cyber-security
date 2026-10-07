@@ -24,7 +24,7 @@ class GuardDomainTest {
         ObjectNode bad=observation(Instant.parse("2026-10-05T00:00:00Z"));((ObjectNode)bad.get("features")).put("elapsedMs",5001);assertThatThrownBy(()->c.observation(bad)).hasMessageContaining("INVALID_ELAPSED_TIME");
     }
     @Test void refusalOrderIsFixedAndNeverUsesExpiredHighScores()throws Exception{
-        Instant now=Instant.parse("2026-10-05T00:00:00Z");ObjectNode o=observation(now);JsonNode policy=example("decision-policy");var es=List.of(new GuardDecisionEngine.Evidence(o,1d,"a".repeat(64)));
+        Instant now=Instant.parse("2026-10-05T00:00:00Z");ObjectNode o=observation(now);JsonNode policy=autoPolicy(3);var es=List.of(new GuardDecisionEngine.Evidence(o,1d,"a".repeat(64)));
         assertThat(GuardDecisionEngine.evaluate(policy,es,now,new GuardDecisionEngine.Gates(false,false,false,false,"blocked")).reason()).isEqualTo("CAPABILITY_NOT_SUPPORTED");
         ((ObjectNode)o.get("quality")).put("captureGap",true);assertThat(GuardDecisionEngine.evaluate(policy,es,now,new GuardDecisionEngine.Gates(true,true,false,false,"blocked")).reason()).isEqualTo("QUALITY_UNSUPPORTED");
         ((ObjectNode)o.get("quality")).put("captureGap",false).putNull("clockSkewMs");assertThat(GuardDecisionEngine.evaluate(policy,es,now,new GuardDecisionEngine.Gates(true,true,false,false,"blocked")).reason()).isEqualTo("CLOCK_UNTRUSTED");
@@ -33,9 +33,50 @@ class GuardDomainTest {
         assertThat(GuardDecisionEngine.evaluate(policy,es,now,new GuardDecisionEngine.Gates(true,true,true,true,null)).reason()).isEqualTo("EVIDENCE_INSUFFICIENT");
     }
     @Test void singleParentHasZeroSpanAndBudgetRejectionStillQualifiesEvidence()throws Exception{
-        Instant now=Instant.parse("2026-10-05T00:00:00Z");var o=observation(now);ObjectNode p=(ObjectNode)example("decision-policy");p.put("minDistinctFlows",1).put("minEvidenceSpanMs",0);
+        Instant now=Instant.parse("2026-10-05T00:00:00Z");var o=observation(now);ObjectNode p=autoPolicy(1);p.put("minDistinctFlows",1).put("minEvidenceSpanMs",0);
         var result=GuardDecisionEngine.evaluate(p,List.of(new GuardDecisionEngine.Evidence(o,1d,"a".repeat(64))),now,new GuardDecisionEngine.Gates(true,true,true,true,"TARGET_CONTINUOUS_BUDGET"));assertThat(result.reason()).isEqualTo("PROTECTION_OR_BUDGET_BLOCKED");assertThat(result.qualifiedEvidence()).isTrue();
         p.put("minEvidenceSpanMs",1);assertThat(GuardDecisionEngine.evaluate(p,List.of(new GuardDecisionEngine.Evidence(o,1d,"a".repeat(64))),now,new GuardDecisionEngine.Gates(true,true,true,true,null)).reason()).isEqualTo("EVIDENCE_INSUFFICIENT");
+    }
+    static ObjectNode autoPolicy(int flows)throws Exception{
+        ObjectNode p=(ObjectNode)example("decision-policy");p.put("family","dos_slow");
+        for(var fp:p.path("familyPolicies"))if(fp.path("family").asText().equals("dos_slow"))((ObjectNode)fp).put("autoEligible",true).put("minDistinctFlows",flows);
+        return p;
+    }
+    @Test void sourceIsolationFamilyDowngradeAndRuleNonHitFailClosed()throws Exception{
+        Instant now=Instant.parse("2026-10-07T00:00:00Z");var p=autoPolicy(2);p.put("minEvidenceSpanMs",0);
+        var o=observation(now);var other=o.deepCopy().put("observationId",id()).put("parentConnectionId",id());
+        var gates=new GuardDecisionEngine.Gates(true,true,true,true,null);
+        var model=new GuardDecisionEngine.Evidence(o,1d,"dos_slow","model","",false,"a");
+        var rule=new GuardDecisionEngine.Evidence(other,null,"dos_slow","rule","r",true,"b");
+        assertThat(GuardDecisionEngine.evaluate(p,List.of(model,rule),now,gates,"dos_slow","model","").reason()).isEqualTo("CAPABILITY_NOT_SUPPORTED");
+        var changed=new GuardDecisionEngine.Evidence(o,1d,"brute_force","model","",false,"a");
+        assertThat(GuardDecisionEngine.evaluate(p,List.of(changed),now,gates,"dos_slow","model","").decision()).isEqualTo("observe");
+        var low=new GuardDecisionEngine.Evidence(o,.1d,"dos_slow","model","",false,"a");
+        assertThat(GuardDecisionEngine.evaluate(p,List.of(low),now,gates,"dos_slow","model","").reason()).isEqualTo("SCORE_BELOW_AUTO");
+        p.set("rulePolicies",node(List.of(object("ruleId","r","family","dos_slow","field","features.elapsedMs","operator","gte","threshold",1,"autoEligible",true))));
+        assertThat(GuardDecisionEngine.evaluate(p,List.of(rule),now,gates,"dos_slow","rule","r").decision()).isEqualTo("block_candidate");
+        var nonHit=new GuardDecisionEngine.Evidence(other,null,"dos_slow","rule","r",false,"b");
+        assertThat(GuardDecisionEngine.evaluate(p,List.of(nonHit),now,gates,"dos_slow","rule","r").decision()).isEqualTo("observe");
+    }
+    @Test void contractRejectsDuplicateFamilyRuleIdentityAndUnsafeScopes()throws Exception{
+        var c=new GuardContracts();var p=autoPolicy(2);c.policy(p);
+        ((ObjectNode)p.path("familyPolicies").get(1)).put("family","port_scan");
+        assertThatThrownBy(()->c.policy(p)).hasMessageContaining("INVALID_FAMILY_POLICIES");
+        var rules=List.of(object("ruleId","r","family","dos_slow","field","parentConnectionId","operator","gte","threshold",1,"autoEligible",false));
+        var valid=autoPolicy(2);valid.set("rulePolicies",node(rules));
+        assertThatThrownBy(()->c.policy(valid)).hasMessageContaining("INVALID_RULE_FIELD");
+        var cmd=(ObjectNode)example("action-command");var payload=(ObjectNode)cmd.path("payload");
+        payload.put("scope","peer_inbound").putNull("servicePort").put("direction","inbound");c.validate("action-command",cmd);
+        payload.put("direction","outbound");assertThatThrownBy(()->c.validate("action-command",cmd)).hasMessageContaining("CONTRACT_INVALID");
+        payload.put("scope","peer_service").put("direction","inbound");assertThatThrownBy(()->c.validate("action-command",cmd)).hasMessageContaining("CONTRACT_INVALID");
+        var scope=object("direction","inbound","servicePort",null);
+        assertThatThrownBy(()->GuardAdministration.executionScope(scope)).isInstanceOf(com.xyh.cybersecurity.common.api.ApiRequestException.class);
+        scope.put("scope","peer_inbound");GuardAdministration.executionScope(scope);
+    }
+    @Test void ruleMissingValueNeverMeansObservedZero()throws Exception{
+        var o=observation(Instant.EPOCH);var r=object("field","features.iatMeanUs","operator","eq","threshold",0);
+        ((ObjectNode)o.path("features")).putNull("iatMeanUs");assertThat(GuardRules.evaluate(r,o).applicable()).isFalse();assertThat(GuardRules.evaluate(r,o).matched()).isFalse();
+        ((ObjectNode)o.path("features")).put("iatMeanUs",0);assertThat(GuardRules.evaluate(r,o).matched()).isTrue();
     }
     @Test void intervalUnionDoesNotChargeRetriesTwice(){Instant t=Instant.EPOCH;assertThat(GuardBudget.unionMillis(List.of(new GuardBudget.Interval(t,t.plusSeconds(30)),new GuardBudget.Interval(t,t.plusSeconds(30)),new GuardBudget.Interval(t.plusSeconds(20),t.plusSeconds(50)),new GuardBudget.Interval(t.plusSeconds(60),t.plusSeconds(80))))).isEqualTo(70000);}
     static ObjectNode health(Instant end,long sequence,String previous){return object("healthVersion",HEALTH,"healthWindowId",id(),"assetId",id(),"sensorId",id(),"captureScopeId",id(),"observerSessionId",id(),"sequence",sequence,"intervalStart",end.minusSeconds(5).toString(),"intervalEnd",end.toString(),"previousSha256",previous,"counterStart",object("packetsSeen",0,"kernelDrops",0,"capacityDrops",0),"counterEnd",object("packetsSeen",0,"kernelDrops",0,"capacityDrops",0),"captureGap",false,"clockSkewMs",0,"configSha256","a".repeat(64),"buildSha256","b".repeat(64));}

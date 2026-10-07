@@ -1,10 +1,10 @@
 {
-  "contractVersion": "host-guard/5.0.0-rc.2",
+  "contractVersion": "host-guard/5.0.0-rc.3",
   "policyId": "00000000-0000-4000-8000-000000000008",
   "policyVersion": "example-only",
   "mode": "alert_only",
   "modelId": "00000000-0000-4000-8000-000000000007",
-  "family": "connection_abuse",
+  "family": "port_scan",
   "profile": "flow-prefix-v1",
   "alertThreshold": 0.6,
   "autoThreshold": 0.99,
@@ -23,4 +23,10 @@
   ],
   "protectionSetSha256": "0000000000000000000000000000000000000000000000000000000000000000",
   "evaluationPlanSha256": "0000000000000000000000000000000000000000000000000000000000000000"
+  ,"familyPolicies": [
+    {"family":"port_scan","autoEligible":false,"alertThreshold":0.6,"autoThreshold":0.99,"minDistinctFlows":3,"scope":"peer_inbound"},
+    {"family":"brute_force","autoEligible":false,"alertThreshold":0.6,"autoThreshold":0.99,"minDistinctFlows":3,"scope":"peer_service"},
+    {"family":"dos_flood","autoEligible":false,"alertThreshold":0.6,"autoThreshold":0.99,"minDistinctFlows":3,"scope":"peer_service"},
+    {"family":"dos_slow","autoEligible":false,"alertThreshold":0.6,"autoThreshold":0.99,"minDistinctFlows":3,"scope":"peer_service"}
+  ]
 }

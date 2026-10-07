@@ -20,7 +20,7 @@ public class GuardAdministration {
         require(b.path("interfaces").isArray()&&!b.path("interfaces").isEmpty()&&b.path("interfaces").size()<=16,"INVALID_AUTHORIZATION_SCOPE");
         for(var i:b.get("interfaces"))require(i.isTextual()&&i.asText().matches("[A-Za-z0-9_.:-]{1,96}"),"INVALID_INTERFACE_REFERENCE");
         bool(b,"observationAllowed");require(b.path("executionScopes").isArray()&&b.path("executionScopes").size()<=32,"INVALID_AUTHORIZATION_SCOPE");
-        for(var s:b.get("executionScopes")){fields(s,"direction transport servicePort addressFamily capabilityId","");uuid(s,"capabilityId");integer(s,"servicePort",1,65535);
+        for(var s:b.get("executionScopes")){fields(s,"direction transport servicePort addressFamily capabilityId","scope");uuid(s,"capabilityId");executionScope(s);
             require(Set.of("inbound","outbound").contains(text(s,"direction"))&&"tcp".equals(text(s,"transport"))&&"ipv4".equals(text(s,"addressFamily")),"CAPABILITY_NOT_SUPPORTED");}
         var from=time(b,"validFrom");var until=time(b,"validUntil");require(until.isAfter(from)&&until.isAfter(store.now()),"AUTHORIZATION_INACTIVE");
         var row=store.add("asset_authorization",map("asset_id",aid,"authorization_ref",text(b,"evidenceRef"),"scope_json",canonical(b),"valid_from",db(from),"valid_until",db(until),"status","pending","requested_by",access.human()));
@@ -62,6 +62,13 @@ public class GuardAdministration {
     public Map<String,Object> observationAuthorization(long asset,String scopeKey){var now=store.now();for(var a:store.rows("asset_authorization",map("asset_id",asset,"status","active"),false,1000)){
         var s=json(a,"scope_json");if(!now.isBefore(instant(a.get("valid_from")))&&now.isBefore(instant(a.get("valid_until")))&&s.path("observationAllowed").asBoolean()&&contains(s.path("interfaces"),scopeKey))return a;}
         throw error(422,"AUTHORIZATION_INACTIVE");}
+    /** 省略 scope 只兼容单服务；全部入站必须显式登记，且端口为空、方向为 inbound。 */
+    public static void executionScope(JsonNode b){
+        String scope=b.path("scope").asText("peer_service");require(Set.of("peer_service","peer_inbound").contains(scope),"INVALID_AUTHORIZATION_SCOPE");
+        if(b.has("scope"))require(b.path("scope").isTextual(),"INVALID_AUTHORIZATION_SCOPE");
+        if(scope.equals("peer_inbound"))require("inbound".equals(b.path("direction").asText())&&b.path("servicePort").isNull(),"INVALID_AUTHORIZATION_SCOPE");
+        else integer(b,"servicePort",1,65535);
+    }
     public static boolean contains(JsonNode a,String value){for(var v:a)if(value.equals(v.asText()))return true;return false;}
     public static void decisionBody(JsonNode b){fields(b,"decision reason","");require(Set.of("approve","reject").contains(text(b,"decision")),"INVALID_DECISION");text(b,"reason");}
 }

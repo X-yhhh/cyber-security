@@ -7,7 +7,7 @@
   "additionalProperties": false,
   "properties": {
     "contractVersion": {
-      "const": "host-guard/5.0.0-rc.2"
+      "const": "host-guard/5.0.0-rc.3"
     },
     "modelId": {
       "type": "string",
@@ -330,7 +330,9 @@
             "maxLength": 160
           },
           "uniqueItems": true,
-          "maxItems": 100
+          "maxItems": 4,
+          "minItems": 4,
+          "const": ["port_scan", "brute_force", "dos_flood", "dos_slow"]
         }
       },
       "required": [

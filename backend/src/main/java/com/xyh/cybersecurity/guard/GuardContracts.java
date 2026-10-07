@@ -7,7 +7,7 @@ import java.time.Duration;
 import java.util.*;
 import static com.xyh.cybersecurity.guard.GuardJson.*;
 
-/** 直接执行冻结的 rc.2 Schema，另核验 Schema 不能表达的时间与特征算术。 */
+/** 按类型执行 rc.2 观测或 rc.3 模型/策略/命令 Schema，另核验时间与特征算术。 */
 @Component
 public class GuardContracts {
     private final Map<String,JsonSchema> schemas=new HashMap<>();
@@ -49,9 +49,23 @@ public class GuardContracts {
         validate("model-manifest",n);
         require(profileHash.equals(n.path("featureProfileSha256").asText())&&profile.get("numericFeatures").equals(n.get("numericFeatures"))
                 &&profile.get("categoricalFeatures").equals(n.get("categoricalFeatures")),"PROFILE_HASH_MISMATCH");
-        require(n.at("/outputContract/familyScoreOrder").isEmpty(),"CAPABILITY_NOT_SUPPORTED");
+        JsonNode order=n.at("/outputContract/familyScoreOrder");
+        require(order.isArray()&&order.size()==4,"CAPABILITY_NOT_SUPPORTED");
+        List<String> expected=List.of("port_scan","brute_force","dos_flood","dos_slow");
+        require(expected.equals(JSON.convertValue(order,List.class)),"CAPABILITY_NOT_SUPPORTED");
         for(JsonNode scope:n.get("supportedScope"))require(scope.path("minimumCoverageMs").asLong()<=scope.path("coverageWindowSeconds").asLong()*1000,"CONTEXT_CONDITION_UNMET");
     }
-    public void policy(JsonNode n){validate("decision-policy",n);require(n.path("autoThreshold").asDouble()>=n.path("alertThreshold").asDouble()
-            &&n.path("minEvidenceSpanMs").asLong()<=n.path("maxEvidenceAgeMs").asLong(),"INVALID_POLICY_THRESHOLDS");}
+    /** 四类参数完整且唯一；规则只允许访问已冻结的观察数值字段，不能引用标签或身份。 */
+    public void policy(JsonNode n){validate("decision-policy",n);
+        Set<String> families=new HashSet<>();for(JsonNode p:n.get("familyPolicies")){
+            String family=p.path("family").asText();require(families.add(family),"INVALID_FAMILY_POLICIES");
+            require(p.path("scope").asText().equals(family.equals("port_scan")?"peer_inbound":"peer_service"),"INVALID_FAMILY_SCOPE");
+            require(p.path("autoThreshold").asDouble()>=p.path("alertThreshold").asDouble(),"INVALID_POLICY_THRESHOLDS");
+        }
+        require(families.equals(Set.of("port_scan","brute_force","dos_flood","dos_slow")),"INVALID_FAMILY_POLICIES");
+        Set<String> ids=new HashSet<>();for(JsonNode r:n.path("rulePolicies")){
+            require(ids.add(r.path("ruleId").asText()),"INVALID_RULE_POLICY");
+            require(GuardAdministration.contains(profile.path("numericFeatures"),r.path("field").asText()),"INVALID_RULE_FIELD");
+        }
+        require(n.path("autoThreshold").asDouble()>=n.path("alertThreshold").asDouble()&&n.path("minEvidenceSpanMs").asLong()<=n.path("maxEvidenceAgeMs").asLong(),"INVALID_POLICY_THRESHOLDS");}
 }

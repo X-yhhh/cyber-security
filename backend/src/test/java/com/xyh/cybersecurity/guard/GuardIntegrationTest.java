@@ -34,7 +34,7 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 @AutoConfigureMockMvc
 @EnabledIfEnvironmentVariable(named="DB_TEST_BASE_URL",matches=".+")
 class GuardIntegrationTest {
-    static final String SCHEMA="cyber_security_guard_api_p4_20261005";
+    static final String SCHEMA="cyber_guard_api_p4_"+UUID.randomUUID().toString().replace("-","");
     static final Path ROOT=Path.of("target/guard-fixtures").toAbsolutePath();
     static final JsonNode PROTECTION=object("protectedBudgetTargetIds",List.of(),"protectedServicePorts",List.of(22,3389));
     static KeyPair signing;
@@ -42,10 +42,14 @@ class GuardIntegrationTest {
         Files.createDirectories(ROOT);signing=KeyPairGenerator.getInstance("Ed25519").generateKeyPair();Files.write(ROOT.resolve("signing.der"),signing.getPrivate().getEncoded());Files.setPosixFilePermissions(ROOT.resolve("signing.der"),PosixFilePermissions.fromString("rw-------"));
         Files.writeString(ROOT.resolve("trust.json"),canonical(object("fixture-runner",Base64.getEncoder().encodeToString(signing.getPublic().getEncoded()))));Files.writeString(ROOT.resolve("protection.json"),canonical(PROTECTION));
         String base=System.getenv("DB_TEST_BASE_URL").replaceAll("/+$","");String username=System.getenv("DB_TEST_USERNAME"),password=System.getenv("DB_TEST_PASSWORD");
-        try(var c=DriverManager.getConnection(base,username,password);var s=c.createStatement()){s.execute("CREATE DATABASE IF NOT EXISTS "+SCHEMA+" CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin");}
+        try(var c=DriverManager.getConnection(base,username,password);var s=c.createStatement()){s.execute("CREATE DATABASE "+SCHEMA+" CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin");}
         String url=base+"/"+SCHEMA+"?connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true";Flyway.configure().dataSource(url,username,password).load().migrate();
         r.add("spring.datasource.url",()->url);r.add("spring.datasource.username",()->username);r.add("spring.datasource.password",()->password);r.add("spring.flyway.enabled",()->false);r.add("cyber.security.login-throttle.hmac-key",()->"isolated-test-key-with-more-than-thirty-two-bytes");
         r.add("cyber.guard.artifact-root",()->ROOT.toString());r.add("cyber.guard.signing-key-id",()->"fixture-control");r.add("cyber.guard.signing-key-file",()->ROOT.resolve("signing.der").toString());r.add("cyber.guard.report-trust-file",()->ROOT.resolve("trust.json").toString());r.add("cyber.guard.protection-file",()->ROOT.resolve("protection.json").toString());
+    }
+    @AfterAll static void dropOwnSchema()throws Exception{
+        String base=System.getenv("DB_TEST_BASE_URL").replaceAll("/+$","");
+        try(var c=DriverManager.getConnection(base,System.getenv("DB_TEST_USERNAME"),System.getenv("DB_TEST_PASSWORD"));var st=c.createStatement()){st.execute("DROP DATABASE IF EXISTS "+SCHEMA);}
     }
     static final String TEST_PASSWORD="isolated-test-password";
     @Autowired MockMvc mvc;@Autowired JdbcTemplate jdbc;@Autowired GuardDetection detection;@Autowired GuardStore store;@Autowired GuardContracts contracts;@Autowired GuardBudget budget;@Autowired GuardModelRuntime runtime;@Autowired PlatformTransactionManager manager;@Autowired PasswordEncoder passwordEncoder;
@@ -77,14 +81,16 @@ class GuardIntegrationTest {
     JsonNode machine(String path,JsonNode body,String credential,String key)throws Exception{return result(mvc.perform(post("/api/v2/machine"+path).header("Authorization","Bearer "+credential).header("Idempotency-Key",key).contentType("application/json").content(canonical(body))).andReturn());}
     JsonNode result(MvcResult r) throws Exception {JsonNode n=parse(r.getResponse().getContentAsString());assertThat(r.getResponse().getStatus()).withFailMessage("HTTP %s: %s",r.getResponse().getStatus(),n).isBetween(200,299);assertThat(n.path("requestId").asText()).isNotBlank();return n.get("data");}
     record Fixture(String asset,String sensor,String sensorCredential,String executor,String executorCredential,String scope,String config,String configHash,String boot,String executorBoot,String capability,String model,String policy,String bundle,String authorization,String target,String token,String targetId){}
-    Fixture setup()throws Exception{
+    Fixture setup()throws Exception{return setup("dos_slow",List.of());}
+    Fixture setup(String family,List<JsonNode> rules)throws Exception{
+        boolean scan=family.equals("port_scan");String direction=scan?"inbound":"outbound";
         String folder=id();Path dir=ROOT.resolve(folder);Files.createDirectories(dir);
         String asset=human("/assets",object("assetKey",id(),"platform","macos","environment","lab","owner","isolated-p4-test"),operator,null).path("id").asText();
-        ObjectNode cap=object("capabilityKey",id(),"version","fixture-v1","platform","macos","adapterVersion","fixture-1","addressFamily","ipv4","transport","tcp","direction","outbound","family","connection_abuse","profile","flow-prefix-v1","behaviorScope",List.of("slowloris","slowhttptest"),"latencyLimits",object("maxMs",10000),"level","lab_auto");
+        ObjectNode cap=object("capabilityKey",id(),"version","fixture-v1","platform","macos","adapterVersion","fixture-1","addressFamily","ipv4","transport","tcp","direction",direction,"family",family,"profile","flow-prefix-v1","behaviorScope",List.of("slowloris","slowhttptest"),"latencyLimits",object("maxMs",10000),"level","lab_auto");
         JsonNode signed=GuardSignatures.sign(object("passed",true,"protocolVersions",versions(),"capability",cap),"fixture-runner",signing.getPrivate());write(dir,"capability.json",signed);cap.put("evidenceRef",folder+"/capability.json").put("evidenceSha256",sha(Files.readAllBytes(dir.resolve("capability.json")))).put("runnerIdentity","fixture-runner");
         String capability=human("/capabilities",cap,operator,null).path("id").asText();
         Instant now=Instant.now().truncatedTo(ChronoUnit.MILLIS);
-        String auth=human("/assets/"+asset+"/authorizations",object("interfaces",List.of("fixture0"),"observationAllowed",true,"executionScopes",List.of(object("direction","outbound","transport","tcp","servicePort",443,"addressFamily","ipv4","capabilityId",capability)),"validFrom",now.minusSeconds(60).toString(),"validUntil",now.plusSeconds(3600).toString(),"evidenceRef","fixture:isolated-test"),operator,null).path("id").asText();
+        String auth=human("/assets/"+asset+"/authorizations",object("interfaces",List.of("fixture0"),"observationAllowed",true,"executionScopes",List.of(object("scope",scan?"peer_inbound":"peer_service","direction",direction,"transport","tcp","servicePort",scan?null:443,"addressFamily","ipv4","capabilityId",capability)),"validFrom",now.minusSeconds(60).toString(),"validUntil",now.plusSeconds(3600).toString(),"evidenceRef","fixture:isolated-test"),operator,null).path("id").asText();
         human("/authorizations/"+auth+"/decisions",object("decision","approve","reason","隔离测试批准"),reviewer,"1");
         String scope=id();JsonNode sensor=human("/sensors",object("assetId",asset,"platform","macos","captureScopeId",scope),operator,null);JsonNode executor=human("/executors",object("assetId",asset,"platform","macos","capabilityProbeRef","fixture:probe"),operator,null);
         JsonNode config=object("contractVersion",CONTRACT,"profileSha256",contracts.profileHash(),"captureHealthVersion",HEALTH,"interfaceIds",List.of("fixture0"),"limits",object("maxBatchSize",100),"captureScopeId",scope,"addressFamily","ipv4","buildSha256","b".repeat(64));
@@ -96,15 +102,16 @@ class GuardIntegrationTest {
         write(dir,"dataset.json",object("datasetKey",id(),"version","fixture"));String dataset=human("/datasets",object("manifestRef",folder+"/dataset.json","manifestSha256",sha(Files.readAllBytes(dir.resolve("dataset.json")))),operator,null).path("id").asText();
         ObjectNode plan=object("planKey",id(),"version","fixture","protocolVersions",versions(),"datasetRefs",List.of(dataset),"splitHashes",object("train","1".repeat(64),"selection","2".repeat(64),"calibration","3".repeat(64),"development","4".repeat(64)),"behaviorSourceScope",List.of(object("source","fixture","behaviors",List.of("slowloris","slowhttptest"))),"scenarioMappingSha256","a".repeat(64),"labelTimelineSha256","a".repeat(64),"captureHealthSha256","a".repeat(64),"latencyRegistration",object("maxMs",10000),"metrics",object("unit","episode"),"budget",object("maxSeconds",120),"scenarioRefs",List.of("fixture"));
         JsonNode registeredPlan=human("/evaluation-plans",plan,operator,null);
-        Files.write(dir.resolve("model.onnx"),GuardOnnxFixture.model(.999f));write(dir,"preprocessing.json",object("fitRole","train","vocabularies",List.of(List.of("tcp"),List.of("outbound"),List.of("web"))));write(dir,"calibration.json",object("fitRole","calibration","kind","fixed-test-only"));
-        ObjectNode manifest=(ObjectNode)GuardDomainTest.example("model-manifest");String model=id();manifest.put("modelId",model).put("modelVersion",folder).put("featureProfileSha256",contracts.profileHash()).put("evaluationPlanSha256",registeredPlan.path("planSha256").asText());
+        Files.write(dir.resolve("model.onnx"),GuardOnnxFixture.model(.999f,scan?.999f:0,0,0,scan?0:.999f));write(dir,"preprocessing.json",object("fitRole","train","vocabularies",List.of(List.of("tcp"),List.of("outbound"),List.of("web"))));write(dir,"calibration.json",object("fitRole","calibration","kind","fixed-test-only"));
+        ObjectNode manifest=(ObjectNode)GuardDomainTest.example("model-manifest");String model=id();for(var supported:manifest.path("supportedScope"))((ObjectNode)supported).put("direction",direction);manifest.put("modelId",model).put("modelVersion",folder).put("featureProfileSha256",contracts.profileHash()).put("evaluationPlanSha256",registeredPlan.path("planSha256").asText());
         for(var pair:Map.of("artifactSha256","model.onnx","preprocessingSha256","preprocessing.json","calibrationSha256","calibration.json").entrySet())manifest.put(pair.getKey(),sha(Files.readAllBytes(dir.resolve(pair.getValue()))));((ObjectNode)manifest.get("runtime")).put("runtimeVersion","1.23.2");write(dir,"manifest.json",manifest);
         human("/models",object("manifestRef",folder+"/manifest.json","manifestSha256",sha(Files.readAllBytes(dir.resolve("manifest.json")))),operator,null);assertThat(human("/models/"+model+"/validations",object("validationProfileId","host-guard-onnx-v1"),operator,null).path("status").asText()).isEqualTo("validated");
-        ObjectNode policy=(ObjectNode)GuardDomainTest.example("decision-policy");String pid=id();policy.put("policyId",pid).put("modelId",model).put("policyVersion",folder).put("mode","auto").put("minDistinctFlows",1).put("minEvidenceSpanMs",0).put("protectionSetSha256",hash(PROTECTION)).put("evaluationPlanSha256",registeredPlan.path("planSha256").asText());policy.set("supportedCapabilityIds",node(List.of(capability)));human("/decision-policies",policy,operator,null);human("/decision-policies/"+pid+"/reviews",object("decision","approve","reason","隔离测试策略"),reviewer,"1");
+        ObjectNode policy=(ObjectNode)GuardDomainTest.example("decision-policy");String pid=id();policy.put("policyId",pid).put("modelId",model).put("policyVersion",folder).put("mode","auto").put("minDistinctFlows",1).put("minEvidenceSpanMs",0).put("protectionSetSha256",hash(PROTECTION)).put("evaluationPlanSha256",registeredPlan.path("planSha256").asText());policy.put("family",family);for(var fp:policy.path("familyPolicies"))if(fp.path("family").asText().equals(family))((ObjectNode)fp).put("autoEligible",true).put("minDistinctFlows",scan?2:1);
+        policy.set("rulePolicies",node(rules));policy.set("supportedCapabilityIds",node(List.of(capability)));human("/decision-policies",policy,operator,null);human("/decision-policies/"+pid+"/reviews",object("decision","approve","reason","隔离测试策略"),reviewer,"1");
         JsonNode bundle=human("/release-bundles",object("modelId",model,"policyId",pid,"featureProfileSha256",contracts.profileHash(),"extractorSha256",manifest.get("extractorSha256"),"protocolVersions",versions(),"evaluationPlanId",registeredPlan.get("id"),"capabilityIds",List.of(capability),"environment","lab"),operator,null);String bid=bundle.path("id").asText();var evaluationIds=new ArrayList<String>();
         for(String kind:List.of("final","platform","canary")){write(dir,kind+".json",GuardSignatures.sign(object("protocolVersions",versions(),"subjectSha256",bundle.get("subjectSha256"),"evaluationPlanSha256",registeredPlan.get("planSha256"),"runKind",kind,"passed",true),"fixture-runner",signing.getPrivate()));evaluationIds.add(human("/release-bundles/"+bid+"/imports",object("reportRef",folder+"/"+kind+".json","sha256",sha(Files.readAllBytes(dir.resolve(kind+".json"))),"runnerIdentity","fixture-runner"),operator,null).path("id").asText());}
         human("/release-bundles/"+bid+"/sealings",object("evaluationIds",evaluationIds),operator,"1");human("/release-bundles/"+bid+"/decisions",object("decision","approve","reason","隔离固定夹具批准"),reviewer,"2");human("/release-bundles/"+bid+"/activations",object("assetIds",List.of(asset),"authorizationIds",List.of(auth)),reviewer,"3");
-        String target=id(),token=sha(id().getBytes());JsonNode binding=targetBody(eid,sensor.path("id").asText(),scope,boot,eboot,target,token);
+        String target=id(),token=sha(id().getBytes());ObjectNode binding=(ObjectNode)targetBody(eid,sensor.path("id").asText(),scope,boot,eboot,target,token);binding.put("scope",scan?"peer_inbound":"peer_service").put("direction",direction);if(scan)binding.putNull("servicePort");
         String targetId=machine("/executors/"+eid+"/target-bindings",binding,executor.path("credential").asText()).path("budgetTargetId").asText();
         Fixture f=new Fixture(asset,sensor.path("id").asText(),sensor.path("credential").asText(),eid,executor.path("credential").asText(),scope,configId,hash(config),boot,eboot,capability,model,pid,bid,auth,target,token,targetId);
         var h=GuardDomainTest.health(Instant.now().truncatedTo(ChronoUnit.MICROS),1,null);h.put("assetId",asset).put("sensorId",f.sensor).put("captureScopeId",scope).put("configSha256",hash(config));machine("/sensors/"+f.sensor+"/health-windows",h,f.sensorCredential);return f;
@@ -128,6 +135,58 @@ class GuardIntegrationTest {
         var clearance=machine("/executors/"+f.executor+"/clearance-proofs",object("commandId",command.at("/payload/commandId"),"clearedAt",time.toString(),"stateDigest",digest),f.executorCredential);
         assertThat(clearance.path("persisted").asBoolean()).isTrue();assertThat(clearance.path("budgetReset").asBoolean()).isFalse();
         ObjectNode late=(ObjectNode)receipt.deepCopy();late.put("receiptId",id()).put("status","applied").put("ruleHandle","fixture-rule").set("effectiveBlockUntil",command.at("/payload/blockUntil"));late.putNull("revocationId");machine("/executors/"+f.executor+"/receipts",late,f.executorCredential);assertThat(str(store.external("guard_action",aid,false),"observed_state")).isEqualTo("revoked");
+    }
+    void accept(Fixture f,List<? extends JsonNode> observations,long sequence,boolean consume)throws Exception{
+        var b=batch(f,observations,sequence);assertThat(machine("/sensors/"+f.sensor+"/observation-batches",b,f.sensorCredential).path("acceptedCount").asInt()).isEqualTo(observations.size());
+        if(consume)detection.consume(id(),"guard.observation.accepted",object("batchId",b.get("batchId")));
+    }
+    @Test void scanGroupsPortsButKeepsModelRuleAndIdentitySeparate()throws Exception{
+        var rule=object("ruleId","scan-context","family","port_scan","field","features.elapsedMs","operator","gte","threshold",4000,"autoEligible",false);
+        Fixture f=setup("port_scan",List.of(rule));Instant at=Instant.now().truncatedTo(ChronoUnit.MICROS);
+        var first=observation(f,at,id(),0).put("direction","inbound").put("servicePort",80);
+        var second=observation(f,at,id(),0).put("direction","inbound").put("servicePort",443);
+        accept(f,List.of(first,second),1,true);var asset=store.external("asset",f.asset,false);
+        var episodes=store.rows("guard_episode",map("asset_id",asset.get("id")),false,20);assertThat(episodes).hasSize(2);
+        for(var e:episodes){assertThat(e.get("service_port")).isNull();assertThat(str(e,"scope")).isEqualTo("peer_inbound");assertThat(store.rows("guard_episode_evidence",map("episode_id",e.get("id")),false,10)).hasSize(2);}
+        var model=episodes.stream().filter(e->str(e,"source").equals("model")).findFirst().orElseThrow();var decision=store.one("guard_decision",map("episode_id",model.get("id")),false);
+        assertThat(str(decision,"reason_code")).isEqualTo("PROTECTION_OR_BUDGET_BLOCKED");assertThat(json(decision,"evidence_json").path("detailCode").asText()).isEqualTo("PROTECTED_SERVICE");assertThat(store.rows("guard_action",map("asset_id",asset.get("id")),false,10)).isEmpty();
+        // NULL 端口经生成列归一化后同样受唯一键约束。
+        assertThatThrownBy(()->jdbc.update("INSERT INTO guard_episode(public_id,asset_id,sensor_id,boot_id,peer_key,key_epoch,direction,transport,service_port,family,scope,source,rule_id,bundle_id,bucket_start) SELECT UUID(),asset_id,sensor_id,boot_id,peer_key,key_epoch,direction,transport,service_port,family,scope,source,rule_id,bundle_id,bucket_start FROM guard_episode WHERE id=?",model.get("id"))).isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
+        var different=observation(f,Instant.now().truncatedTo(ChronoUnit.MICROS),id(),0).put("direction","inbound").put("servicePort",8080).put("keyEpoch",2);
+        accept(f,List.of(different),2,true);var isolated=store.one("guard_episode",map("asset_id",asset.get("id"),"key_epoch",2,"source","model"),false);assertThat(store.rows("guard_episode_evidence",map("episode_id",isolated.get("id")),false,10)).hasSize(1);
+        var target=store.one("guard_target_binding",map("target_ref",f.target),false);var policy=json(store.external("guard_decision_policy",f.policy,false),"definition_json");
+        assertThat(new GuardEligibility(store,true,ROOT.resolve("protection.json").toString()).target(target,first,store.now(),policy,"dos_slow")).isFalse();
+    }
+    @Test void rulesAlertOnInferenceFailureAndNonHitInvalidatesPriorEvidence()throws Exception{
+        var rule=object("ruleId","slow-duration","family","dos_slow","field","features.elapsedMs","operator","gte","threshold",4000,"autoEligible",false);
+        Fixture f=setup("dos_slow",List.of(rule));jdbc.update("UPDATE guard_model SET validation_status='failed' WHERE public_id=?",f.model);
+        String parent=id();var first=observation(f,Instant.now().truncatedTo(ChronoUnit.MICROS),parent,0);accept(f,List.of(first),1,true);
+        var asset=store.external("asset",f.asset,false);var decision=store.one("guard_decision",map("asset_id",asset.get("id")),false);assertThat(str(decision,"decision")).isEqualTo("alert");assertThat(str(decision,"reason_code")).isEqualTo("CAPABILITY_NOT_SUPPORTED");
+        var second=observation(f,Instant.now().truncatedTo(ChronoUnit.MICROS),parent,1);second.put("firstSeenAt",time(second,"asOf").minusSeconds(1).toString());((ObjectNode)second.path("features")).put("elapsedMs",1000);
+        accept(f,List.of(second),2,true);var facts=store.rows("guard_rule_evaluation",map("asset_id",asset.get("id")),false,10);assertThat(facts).hasSize(2);assertThat(facts.stream().filter(e->GuardDetection.flag(e.get("matched")))).hasSize(1);
+        var episode=store.one("guard_episode",map("asset_id",asset.get("id"),"source","rule"),false);assertThat(str(store.one("guard_decision",map("episode_id",episode.get("id")),false),"decision")).isEqualTo("observe");assertThat(GuardDetection.flag(store.one("guard_episode_evidence",map("episode_id",episode.get("id")),false).get("rule_matched"))).isFalse();
+    }
+    @Test void newlyArrivedSnapshotRejectsOldCommandBeforeInferenceConsumption()throws Exception{
+        Fixture f=setup();String parent=id();accept(f,List.of(observation(f,Instant.now().truncatedTo(ChronoUnit.MICROS),parent,0)),1,true);
+        var asset=store.external("asset",f.asset,false);var action=store.one("guard_action",map("asset_id",asset.get("id")),false);assertThat(action).isNotNull();
+        accept(f,List.of(observation(f,Instant.now().truncatedTo(ChronoUnit.MICROS),parent,1)),2,false);
+        var claim=machine("/executors/"+f.executor+"/command-claims",object("bootId",f.executorBoot,"capabilityHash","c".repeat(64),"maxItems",10,"waitSeconds",0),f.executorCredential);
+        assertThat(claim.path("commands")).isEmpty();assertThat(str(store.get("guard_action",number(action,"id")),"observed_state")).isEqualTo("rejected");assertThat(store.rows("guard_command",map("action_id",action.get("id")),false,10)).isEmpty();
+    }
+    @Test void outboundScanRuleRemainsAlertOnly()throws Exception{
+        var rule=object("ruleId","scan-outside-scope","family","port_scan","field","features.elapsedMs","operator","gte","threshold",4000,"autoEligible",true);
+        Fixture f=setup("dos_slow",List.of(rule));accept(f,List.of(observation(f,Instant.now().truncatedTo(ChronoUnit.MICROS),id(),0)),1,true);
+        var asset=store.external("asset",f.asset,false);var episode=store.one("guard_episode",map("asset_id",asset.get("id"),"source","rule"),false);
+        assertThat(str(episode,"scope")).isEqualTo("peer_service");assertThat(str(store.one("guard_decision",map("episode_id",episode.get("id")),false),"decision")).isEqualTo("alert");
+    }
+    @Test void validLatestTargetCannotAuthorizeOtherSelectedParent()throws Exception{
+        Fixture f=setup();Instant at=Instant.now().truncatedTo(ChronoUnit.MICROS);
+        var unbound=observation(f,at,id(),0);unbound.putNull("targetRef").putNull("targetExpiresAt");
+        var bound=observation(f,at.plusNanos(1000),id(),0);accept(f,List.of(unbound,bound),1,true);
+        var asset=store.external("asset",f.asset,false);var episode=store.one("guard_episode",map("asset_id",asset.get("id")),false);
+        var decisions=store.rows("guard_decision",map("episode_id",episode.get("id")),false,10);assertThat(decisions).hasSize(2);
+        assertThat(decisions).allSatisfy(d->assertThat(str(d,"reason_code")).isEqualTo("TARGET_REF_STALE"));
+        assertThat(store.rows("guard_action",map("asset_id",asset.get("id")),false,10)).isEmpty();
     }
     @Test void scopesUnknownFieldsMachineSeparationAndApprovalSeparation()throws Exception{
         Fixture f=setup();var crossConfig=mvc.perform(get("/api/v2/machine/sensors/"+f.sensor+"/config").header("Authorization","Bearer "+f.executorCredential)).andReturn();assertThat(crossConfig.getResponse().getStatus()).isEqualTo(403);assertThat(result(mvc.perform(get("/api/v2/machine/sensors/"+f.sensor+"/config").header("Authorization","Bearer "+f.sensorCredential)).andReturn()).path("configId").asText()).isEqualTo(f.config);

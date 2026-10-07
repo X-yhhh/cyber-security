@@ -90,6 +90,11 @@ class TransportTest(unittest.TestCase):
         with self.assertRaisesRegex(Rejected, "CONTROL_PLANE_UNAVAILABLE"):
             cycle(fixture.engine, control)
         self.assertEqual(fixture.firewall.installs, 1)
+        self.assertTrue(fixture.store.get("paused"))
+        self.assertFalse(fixture.firewall.rules)
+        row = fixture.store.command(command["payload"]["commandId"])
+        self.assertEqual(row["status"], "uncertain")
+        self.assertIsNotNone(row["clearedAt"])
         pending_id = fixture.store.pending()[0][0]
         flush(fixture.engine, control)
         retries = [r for r in requests if r[0] == "receipts" and r[1] == pending_id]

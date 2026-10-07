@@ -58,13 +58,25 @@ def verify(envelope, trust, now):
     return envelope["payload"]
 
 
-def authorize(payload, config, boot, now):
+def authorize(payload, config, boot, now, *, loopback_canary=False):
     for field in ("assetId", "executorId", "environment", "sensorId", "captureScopeId"):
         require(payload[field] == config[field], "SCOPE_DENIED")
     require(payload["executorBootId"] == boot, "BOOT_ID_MISMATCH")
     require(payload["direction"] == "inbound", "CAPABILITY_NOT_SUPPORTED")
     # 全入站规则会覆盖受保护管理端口；平台豁免和恢复未验收前拒绝安装。
-    require(payload["scope"] == "peer_service", "PROTECTED_TARGET")
+    inbound = payload["scope"] == "peer_inbound"
+    if inbound and loopback_canary:
+        # 仅独立验收入口可使用；没有配置项或正式 CLI 开关可以打开该例外。
+        ports = config["servicePorts"]
+        require(config.get("platform") == "pf" and config["environment"] == "lab" and
+                config["interface"] == "lo0" and config["localAddresses"] == ["127.0.0.1"] and
+                config["peerAddresses"] == ["127.0.0.2"] and len(ports) == 1 and
+                49152 <= ports[0] <= 65533 and ports[0] + 1 in config["protectedServicePorts"] and
+                ports[0] not in config["protectedServicePorts"] and payload["servicePort"] is None and
+                payload["addressFamily"] == "ipv4" and payload["transport"] == "tcp",
+                "CANARY_SCOPE_REQUIRED")
+    else:
+        require(not inbound, "PROTECTED_TARGET")
     require(payload["capabilityId"] in config["capabilityIds"] and
             payload["bundleId"] in config["bundleIds"] and
             payload["policySha256"] in config["policyHashes"], "CAPABILITY_NOT_SUPPORTED")
@@ -76,9 +88,10 @@ def authorize(payload, config, boot, now):
     require(instant(grant["validFrom"]) <= issued <= now <= apply < until <= lease <=
             instant(grant["validUntil"]) and apply - issued <= 5 and
             until - issued <= min(60, config["limits"]["maxTtlSeconds"]), "COMMAND_EXPIRED")
-    require(payload["servicePort"] in config["servicePorts"], "SCOPE_DENIED")
-    require(payload["servicePort"] not in set(config["protectedServicePorts"]) | {22, 53, 3389},
-            "PROTECTED_TARGET")
+    if not inbound:
+        require(payload["servicePort"] in config["servicePorts"], "SCOPE_DENIED")
+        require(payload["servicePort"] not in set(config["protectedServicePorts"]) | {22, 53, 3389},
+                "PROTECTED_TARGET")
 
 
 def endpoints(payload, resolved, config):

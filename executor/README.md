@@ -10,15 +10,31 @@
 - 独立恢复：`recover` 与 `run` 分开；到期、撤销、进程崩溃、时钟异常、密钥/授权撤销触发清理。启动先清理旧规则，未知归属不代删；不能确认时暂停并保留 uncertain/recovery_failed 和预算。
 - P4 对接：HTTPS机器身份、心跳、命令/撤销领取、回执持久重试、guard-state/1实态核对、目标绑定和预算恢复证明。历史清零时刻单独追加审计，不能用补报提前恢复额度。
 
-当前自动执行仍限 **IPv4/TCP 入站 peer_service**，其他方向/协议明确拒绝。rc.3 的 `peer_inbound` 命令已可验签识别；其目标引用与稳定预算身份已接通，Go/Python mTLS 对拍通过，但当前仍以 `PROTECTED_TARGET` 拒绝并生成 rc.2 回执。P4 保护资格也仍拒签。Mac PF 代码现把保护端口（含固定的22/53/3389）从1—65535拆成封禁闭区间，规则、枚举和精确状态清理共用区间；已通过离线测试、整组规则的 `pfctl -n` 语法检查与 helper 编译，**尚未安装或实测**。WFP 仍只处理单端口。PF 实际枚举格式、已有连接效果、保护端口不断连和恢复矩阵未实机证明前，不得解除 P4/P5 拒绝；端口扫描维持只告警。PF 使用专用 `hg5<executorId 的 URL-safe Base64 无填充编码>/*`，完整子规则路径为 62 字节；WFP 使用独立非持久子层、两层精确过滤器及接口 LUID。WFP 复用 P1 ABI，但对象生命周期不同，必须重新做平台验收。
+正式自动执行仍限 **IPv4/TCP 入站 peer_service**。P4 对全入站仍拒签，正式 P5 `build/run` 仍以 `PROTECTED_TARGET` 拒绝；没有新增配置开关。独立 `LoopbackCanaryEngine` 只允许 PF、lab、lo0、127.0.0.1/127.0.0.2、指定高端口和相邻保护端口，复用正式验签、授权、预算、持久账本、规则安装和独立恢复器。全入站签名、真实 Go/mTLS 引用、TTL、撤销和进程崩溃已在此范围实测；不构成 authorized 自动资格。PF 使用专用 `hg5<executorId 的 URL-safe Base64 无填充编码>/*`，保护端口（含固定 22/53/3389）从 1—65535 拆成闭区间，规则、枚举和精确状态清理共用区间。WFP 仍只有单端口实现，未在目标平台验收。
 
-**当前已验证代码、跨语言协议和隔离接口，P5整阶段未收口。** 本轮不重启主机；尚未安装常驻服务、挂接PF根规则或接入真实业务库。PF/WFP的新建/已建连接效果、目标机ACL、真实进程崩溃与主机重启均不能视为通过。Windows代码尚未在目标主机执行。
+**Mac 全入站签名命令及主要恢复场景已实测；P5 整阶段未收口。** 本轮不重启主机，未安装常驻服务或接入真实业务库。PF 仅在回环测试期间临时挂接，结束恢复原过滤规则、释放本次 enable token、移除本次别名，并验证回到 Disabled。Windows 自动执行保持关闭。
 
-### 2026-10-07 暂停交接
+### 本轮修复与验收
 
-用户将先整理本地与远端项目架构，P5 修复暂停。当前未提交的 P4/P5/P6 改动及 `scratch/` 原样保留；恢复工作时先核对工作区状态和整理后的路径，不沿用旧二进制或旧服务配置。截图所列四层中，目标绑定已接通；P4 对 `peer_inbound` 的保护端口拒签及执行器的 `PROTECTED_TARGET` 拒绝仍是有意保留的门禁。PF 规则名称已缩至 62 字节、保护端口区间和枚举代码已具备，但不能据此开放自动封禁。
+采用“先验执行器，再开放签发”。`canary_targets.py` 使用新建本地 PKI 和真实 Go `guardtargets`，collector/executor 身份分离；签名命令绑定实际短期引用和稳定目标 token。`pf_lab.py` 仅接受初始 Disabled 且只有预期 Apple 根规则的主机，用 `pfctl -R` 只临时调整过滤规则，不重载 NAT 等其他规则集。源文件/程序/配置哈希、规则状态摘要、清理时刻及失败记录保存在仓库外的新运行目录。
 
-本轮复核：临时新构建的 Go `guardtargets` 与 Python 执行器 21 项测试通过；Go 目标包测试、Java/Python JDK 25 签名对拍、C helper 严格语法检查及 `git diff --check` 通过。Java 对拍首次误用 JDK 17 失败，显式指定 Temurin 25 后通过；该失败不是代码回归。当前普通账号读取 `/dev/pf` 返回 `Permission denied`，无密码 sudo 不可用，故 PF 实际规则枚举、连接阻断与保护端口不断连、TTL/撤销/崩溃恢复均未验证。WFP 仍仅支持单端口，Windows 实测未做；P7 的 G3 联合闭环也未做。恢复后应先确认新架构中的 Mac lab 资产、管理员执行路径及网络隔离，再按下文平台验收逐项取证；在此之前保持端口扫描只告警。暂停期间不改动主机防火墙或远端环境。
+修复控制面断连/回执响应丢失只记审计的问题：`cycle` 现在把原动作记为 `uncertain`、暂停新动作并核对清理；仍保留原命令 ID、截止时刻及预算，回执重试同一 ID/内容。恢复失败继续为 `recovery_failed`。网络恢复不会静默重开自动能力，须先核对并重新启动执行器；旧命令不能重新应用。
+
+2026-10-07 至 10-08 真实 PF 14 项矩阵已通过：TTL、显式撤销、写账本前/后和安装后回执前三个真实子进程退出、同目标并发预算、身份/目标/期限/签名负例、控制面断连、回执响应丢失、资产并发、动作速率、累计续封额度、授权撤销和到期。TTL 与撤销验证两个非保护端口、新建/已建连接、保护端口新建/已建连接及正常对端；TTL 清理不晚于 `blockUntil + 1s`。证据为 `Workspace/scratch/p5-peer-inbound-20261007-f/summary.json` 及各场景 `result.json`、SQLite 账本。控制面为本地 TLS 故障夹具，显式撤销直接调用执行器；尚未把这些结果表述为真实 P4 HTTP/数据库联合验收。
+
+回归：Python 26 项、JDK 25 领域测试 10 项及两种 scope 的 Java/Python 对拍 2 项、Go 目标包测试、5 Schema/8 负例/55 观察、C helper 严格语法与 `git diff --check` 均通过。仍需收口自定义既有规则保护、并发撤销/续封组合及真实 P4 联合链路，保护清单和平台能力须显式绑定后才能讨论开放正式签发。未验证项不能由这 14 项通过替代。
+
+首轮尝试因根规则规范化文字不同在系统改动前拒绝；第二轮新编译 helper 首次加载超过 0.5 秒并完整回滚。现先在挂接 PF 前完成 helper ABI 预热检查，执行期 0.5 秒上限不变；随后多轮实测通过。空子 anchor 名称可由 PF 保留，不代表活动规则。
+
+### 2026-10-07 暂停与恢复记录
+
+架构整理前曾暂停 P5；恢复后重新核对工作区与主机 PF 状态，未沿用旧二进制或旧服务配置。截图所列四层中，目标绑定已接通；P4 对 `peer_inbound` 的保护端口拒签及执行器的 `PROTECTED_TARGET` 拒绝仍是有意保留的门禁。PF 规则名称为 62 字节，保护端口区间和枚举已在 Mac 回环适配器实测，但不能据此开放自动封禁。
+
+暂停前复核：临时新构建的 Go `guardtargets` 与 Python 执行器 21 项测试通过；Go 目标包测试、Java/Python JDK 25 签名对拍、C helper 严格语法检查及 `git diff --check` 通过。Java 对拍首次误用 JDK 17 失败，显式指定 Temurin 25 后通过；该失败不是代码回归。
+
+恢复后的本机实测：原始 PF 为 Disabled，根规则仅挂接 Apple anchor。管理员临时加载仅增加本次 P5 anchor 的根规则、获取 PF enable token，并给 `lo0` 临时添加 `127.0.0.2` 别名。`peer_inbound` 适配器回环 canary 显示安装时新建与已建目标连接均失败，受保护的相邻控制端口保持连通；规则移除后目标连接恢复且枚举为空。helper ABI 与本机内核匹配。测试后重新加载 `/etc/pf.conf`、释放本次 token、移除别名，确认 PF 为 Disabled、根规则仅剩 Apple anchor、`lo0` 仅有原地址。证据为受控运行目录 `Workspace/scratch/p5-pf-canary-20261007/result.json`；此项是适配器直测，未签发命令，未验证 TTL/撤销/崩溃恢复。WFP、Windows 和 P7 G3 联合闭环仍未实测。
+
+其后在同一受控回环边界运行 `pf_engine_canary.py`：由临时 Ed25519 密钥签发 `peer_service` 命令，固定目标解析夹具供给新鲜引用，独立恢复进程运行。验收结果 `passed=true`、`idempotentNoExtension=true`、`after.expired=true`、`after.clearedAtRecorded=true`、`after.rulesEmpty=true`；目标新建/已建连接受阻，控制端口连通，清理后目标恢复。证据在 `Workspace/scratch/p5-pf-engine-20261007/result.json`。测试退出后 PF 为 Disabled，根规则仅余 Apple anchor，回环别名已移除；PF 仍枚举到两个本次创建的空子 anchor 名称，但执行器 inventory 无规则，不能把空名称当作活动规则。该夹具绕过真实 mTLS 目标解析，不验证全入站命令、撤销、崩溃恢复或重启。
 
 ## 环境与验证
 
@@ -28,7 +44,7 @@ Python 3.12+，依赖固定在 `requirements.txt`；Go版本以 `sensor/go.mod` 
 python3 -m venv executor/.venv
 sh executor/python.sh -m pip install -r executor/requirements.txt
 go -C sensor build -o bin/guardtargets ./cmd/guardtargets
-sh executor/python.sh -m unittest executor.test_engine executor.test_platform executor.test_transport -v
+sh executor/python.sh -m unittest executor.test_engine executor.test_platform executor.test_transport executor.test_canary -v
 go -C sensor test ./internal/hostguard ./cmd/guardtargets
 ```
 
@@ -89,6 +105,10 @@ macOS先编译pf_state_helper.c并部署为root所有、不可组写的文件。
 
 ## 平台验收
 
-`python -m executor.pf_canary --config ... --signing-key ... --key-id ... --output <新文件>`仅接受127.0.0.1/127.0.0.2、lo0和单个49152—65533端口。必须有已配置的专用PF anchor/helper/恢复器，`stateDir/canary-binding.json`提供新鲜collector引用。该入口检查新/已建目标连接、相邻控制端口、到期恢复，最后清理自身规则；不重启、不注入攻击流量。固定命令不提供模型准确率或P7资格证据。
+`python -m executor.pf_canary --config ... --scope peer_inbound --output <新文件>` 是 Mac PF 适配器直测，不签发命令；完整 `peer_service` 路径另需 `--signing-key ... --key-id ...`、独立恢复器及 `stateDir/canary-binding.json` 中的新鲜 collector 引用。入口仅接受 127.0.0.1/127.0.0.2、lo0 和单个 49152—65533 端口；`peer_inbound` 还要求相邻控制端口位于保护清单。管理员须预先核对并临时配置专用 PF anchor/helper、PF enable token 和 `lo0` 的 `127.0.0.2` 别名；结束后逐项恢复并核验。入口检查新/已建目标连接、相邻控制端口及规则清理；只有完整命令路径才测试 TTL 恢复。不重启、不注入攻击流量；canary 不提供模型准确率或 P7 资格证据。
+
+`python -m executor.pf_engine_canary --config ... --signing-key ... --key-id ... --scope peer_inbound --guardtargets <本轮构建的绝对路径> --scenario ttl --output <新文件>` 验证全入站签名命令与真实 mTLS 引用；状态目录须专用且为空。`--scenario` 还支持撤销、三个崩溃点、预算、授权和通信故障。省略 `--guardtargets` 只兼容旧 `peer_service` 固定解析夹具，不能运行全入站验收。
+
+管理员可使用 `python -m executor.pf_lab --directory <不存在的绝对运行目录> --guardtargets <绝对二进制路径>` 运行矩阵。源码、依赖和解释器须先审查，运行期间禁止修改；入口不会请求提权、安装服务或重启主机。前置状态不符即拒绝，恢复证据不完整即失败，不得用全局 flush 或强制关闭 PF 来绕过。所有流量只走回环 echo，不访问外部目标。
 
 仍须完成两平台实机故障矩阵、最小服务权限/ACL、常驻安装和完整运行接线。主机重启验收按用户本轮要求暂缓。G3 前须完成的“必需”场景见[验证与验收第 8 节](../docs/验证与验收.md#8-动作与恢复场景)；P6 模型门槛与 P7 联合资格独立判定。

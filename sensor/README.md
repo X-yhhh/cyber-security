@@ -2,7 +2,7 @@
 
 现有 `cmd/sensor` 运行路径仍实现 `unsw-nb15-flow-v4`；P2 已新增独立 host-guard v5 研究引擎和 CLI，入口见本文末节。目标输入、prefix与时间窗、目标引用及质量规则见 [检测与处置契约](../docs/检测与处置契约.md)，实施顺序见 [开发路线](../docs/开发路线.md)。
 
-**P1/P2 已完成并收口**，范围见 [P1 交接](../docs/p1/README.md)及 [P2 交接](../docs/p2/README.md)。独立探针提供 `cmd/p1audit` 的公开标签/PCAP 关联审查、`cmd/p1canary` 的有界 TCP 回显和 `cmd/p1httpcanary` 的固定内存 HTTP 下载；Go canary 不操作防火墙，不走 v4 上报。后续从 [P3](../docs/p3/README.md) 的 prefix 计划接续，生产执行与恢复属于 P5。
+**P1/P2 已完成并收口**，范围见 [P1 交接](../docs/p1/README.md)及 [P2 交接](../docs/p2/README.md)。独立探针提供 `cmd/p1audit` 的公开标签/PCAP 关联审查、`cmd/p1canary` 的有界 TCP 回显和 `cmd/p1httpcanary` 的固定内存 HTTP 下载；Go canary 不操作防火墙，不走 v4 上报。P3 多分类路线用 `guardextract` 从公开 PCAP 提取 prefix 与 final 快照，见 [P3](../docs/p3/README.md)；生产执行与恢复属于 P5。
 
 ## v4 当前能力与限制
 
@@ -65,7 +65,7 @@ GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -o bin/guardlive.exe ./cmd/guar
 
 Mac/Windows回环和物理接口的实时输入与同轨迹逐字节复算已作为P1/P2基线收口。Windows未签名程序在目标机既有系统策略下的自用运行已交接，不增加发行签名或安装包任务。该基线仅覆盖实测范围；新构建绑定自己的文件/依赖哈希，不授予模型或自动处置资格。
 
-P3新增的连续健康旁证、plannedRole传递、共同早期轨迹检查和稳定预算恢复仍需按新计划实施。现有guardlive的单次轨迹复算不能替代跨活动连续健康证明；逻辑特征引擎可重置，健康观察器和真实目标预算必须连续。闭阶段报告工具如需旧输入，恢复相应Git基线或备份，不在当前docs重建旧报告。
+多分类路线对 guardlive 的待实施项：BPF 当前绑定单个 `servicePort` 与登记对端，用于持续监测时需支持“本机全部入站 TCP”的配置（扫描会访问大量端口）；P7 需要以 1 倍速读取冻结 PCAP 文件并接入同一运行链路。连续健康观察器尚未接入运行路径，现有单次轨迹复算不能替代跨活动连续健康证明。闭阶段报告工具如需旧输入，恢复相应Git基线或备份，不在当前docs重建旧报告。
 
 ## P5 本机目标服务
 

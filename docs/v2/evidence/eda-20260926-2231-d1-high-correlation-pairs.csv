@@ -1,9 +1,0 @@
-feature_a,feature_b,spearman
-is_ftp_login,ct_ftp_cmd,0.9997151136894995
-trans_depth,ct_flw_http_mthd,0.9990121832698141
-swin,dwin,0.9969003883520002
-dloss,Dpkts,0.9841093565867152
-Spkts,Dpkts,0.9827861443494399
-tcprtt,synack,0.9702109127818724
-dloss,Spkts,0.9664612036771439
-Sintpkt,Dintpkt,0.961173576254259

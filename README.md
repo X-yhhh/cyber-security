@@ -1,4 +1,24 @@
+# 当前 P3 多分类路线（2026-10-07）
+
+P3-A 已在应用仓库完成冻结。当前训练分支新增 `multiclass_train`、`multiclass_audit`、`verify_multiclass`；以下 prefix/UNSW 段落仅为历史，不作为当前入口。
+
+本轮 `p3-multiclass-20261006-v1` 的 13-fit 主矩阵位于 `.cache/p3b-20261007/run-main-v3`，已结束。研究候选为 `main-lightgbm-seed42`；validation 四类等权检出率 98.5961%、macro-F1 0.993117、内部/网页 FPR 均为 0。修正后的真实来源/最新证据预览、规则对比、分布与消融在 `.cache/p3b-20261007/audit-mac-v2`；所有类别仍为 `alert_only`，`candidateOnly=true`，未接入应用或真实动作。
+
+**P3-B 已于 2026-10-07 收口，P3-C 未开始。** 负责人书面把本轮累计拟合上限调整为 33（smoke、中断、重跑全部计入），`multiclass_reproduce fit`（`scripts/run_step.cmd B5R`）复现 `main-lightgbm-seed42` 1 次，train/validation ONNX 输出与 v3 原候选逐位一致；原生 LightGBM 文本模型、train/validation 全量框架概率及 int64 输入 ONNX 在 `.cache/p3b-20261007/run-reproduce-v1`，框架/ONNX 对拍 Windows 与 Mac 均通过（最大分差 3.47e-6，翻转 0）。台账 `.cache/p3b-20261007/fit-ledger.jsonl` 已计 33/33，再预留会被拒绝。test/L3 未读取，新增代码未提交或推送。
+
+代码回归：`scripts/run_step.cmd B1`（14 项）。B0/B2/B3/B4/B5 只输出审计说明并拒绝；零拟合验证入口为 `python -m cyber_training.host_guard.multiclass_audit` 和 `python -m cyber_training.host_guard.verify_multiclass`，输出目录必须新建。
+
+# 已终止的 P3 prefix 路线（历史 2026-10-05）
+
+P1/P2 已收口。P3-A 已接入严格 plannedRole、公共组固定角色、共同早期轨迹、原始活动起点评价、连续目标预算与认证健康链验证。实际入口仍为 `cyber_training.host_guard.prefix_runner check/run`，运行计划已原位更新为 `docs/host-guard-p3/experiment-plan.json`。
+
+零拟合诊断在保留全部机会的条件下证明当前公共来源受 120 秒目标预算限制而不可达 80% 覆盖；P3-A 结构出口 blocked，P3-B—E 暂不启动，candidateOnly/alert_only，不读取 P6。健康验证器的单元通过不能替代真实跨活动连续采集旁证；新轨迹与持续采集属于尚未准入的 P3-B。
+
+当前证据在 `.cache/p3-implementation-20261005-v3/`，原语料和历史契约包字节保持不变。`check` 现在校验真实代码、数据、完整计划及阶段诊断；不满足准入返回退出码 2。以下内容为历史记录，不覆盖当前 prefix 计划。
+
 # 网络威胁检测模型训练仓库
+
+2026-10-05 P3来源组修复完成：[离线修复与重新冻结](docs/host-guard-p3/source-repair-20261005.md)及[双平台验证记录](docs/host-guard-p3/source-repair-verification.json)。6次受控活动已分开来源标识，但整parent近重复仍合并为2个防泄漏组；完整语料50,606条，独立开发攻击/良性组3/9，校准攻击样本0。Windows26项相关检查通过，原生受控重建与Mac语义一致，实际训练模块对同一冻结集的结果一致；完整性通过，训练准入仍为false，新增拟合0次。下文保留历史阶段记录。
 
 2026-10-04 解决方案更新：[当前修复与交付记录](docs/host-guard-p3/resolution/README.md)登记42项回归、累计预算修复及最新数据证据。下文保留原阶段快照。
 

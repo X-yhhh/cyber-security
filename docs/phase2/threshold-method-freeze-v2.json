@@ -1,9 +1,0 @@
-{
-  "version": "threshold-method-freeze-v2",
-  "createdAt": "2026-10-01T11:53:38.925884+00:00",
-  "file": "threshold-method-v2.md",
-  "sha256": "5690bbf21642eb41b3d5fcab653e3f409cdf47f430669204fb5a05ad63a747c1",
-  "cicValidationEvaluationsBeforeFreeze": 0,
-  "holdoutEvaluations": 0,
-  "supersedes": "threshold-method-freeze-v1.json"
-}

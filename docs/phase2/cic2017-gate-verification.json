@@ -1,9 +1,0 @@
-{
-  "status": "blocked_category_coverage",
-  "freezeRejected": true,
-  "reason": "阶段 2 基线/切分门禁未通过",
-  "restorationGatesCreated": false,
-  "holdoutMode": "0o0",
-  "holdoutAudit": "{\"action\": \"sealed\", \"split\": \"9510f9b79fdaa30daf7b3b8469d3317ce8771cd6631ececdd0ebd286ed01b76e\", \"evaluations\": 0}",
-  "windowsFullBaseline": "not_run: validation transfer requires ready split"
-}

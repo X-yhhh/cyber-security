@@ -4,7 +4,7 @@ P3-A 已在应用仓库完成冻结。当前训练分支新增 `multiclass_train
 
 本轮 `p3-multiclass-20261006-v1` 的 13-fit 主矩阵位于 `.cache/p3b-20261007/run-main-v3`，已结束。研究候选为 `main-lightgbm-seed42`；validation 四类等权检出率 98.5961%、macro-F1 0.993117、内部/网页 FPR 均为 0。修正后的真实来源/最新证据预览、规则对比、分布与消融在 `.cache/p3b-20261007/audit-mac-v2`；所有类别仍为 `alert_only`，`candidateOnly=true`，未接入应用或真实动作。
 
-**P3-B 已于 2026-10-07 收口，P3-C 未开始。** 负责人书面把本轮累计拟合上限调整为 33（smoke、中断、重跑全部计入），`multiclass_reproduce fit`（`scripts/run_step.cmd B5R`）复现 `main-lightgbm-seed42` 1 次，train/validation ONNX 输出与 v3 原候选逐位一致；原生 LightGBM 文本模型、train/validation 全量框架概率及 int64 输入 ONNX 在 `.cache/p3b-20261007/run-reproduce-v1`，框架/ONNX 对拍 Windows 与 Mac 均通过（最大分差 3.47e-6，翻转 0）。台账 `.cache/p3b-20261007/fit-ledger.jsonl` 已计 33/33，再预留会被拒绝。test/L3 未读取，新增代码未提交或推送。
+**P3-B 已于 2026-10-07 收口，P3-C 未开始。** 负责人书面把本轮累计拟合上限调整为 33（smoke、中断、重跑全部计入），`multiclass_reproduce fit`（`scripts/run_step.cmd B5R`）复现 `main-lightgbm-seed42` 1 次，train/validation ONNX 输出与 v3 原候选逐位一致；原生 LightGBM 文本模型、train/validation 全量框架概率及 int64 输入 ONNX 在 `.cache/p3b-20261007/run-reproduce-v1`，框架/ONNX 对拍 Windows 与 Mac 均通过（最大分差 3.47e-6，翻转 0）。台账 `.cache/p3b-20261007/fit-ledger.jsonl` 已计 33/33，再预留会被拒绝。test/L3 未读取；代码已提交并推送至 training/windows-cuda，应用仓库文档见 main 的 docs/p3/README.md 5.7。
 
 代码回归：`scripts/run_step.cmd B1`（14 项）。B0/B2/B3/B4/B5 只输出审计说明并拒绝；零拟合验证入口为 `python -m cyber_training.host_guard.multiclass_audit` 和 `python -m cyber_training.host_guard.verify_multiclass`，输出目录必须新建。
 

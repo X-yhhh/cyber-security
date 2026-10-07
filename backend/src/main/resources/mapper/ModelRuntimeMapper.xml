@@ -1,8 +1,0 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
-<mapper namespace="com.xyh.cybersecurity.model.runtime.ModelRuntimeMapper">
-    <resultMap id="modelRow" type="com.xyh.cybersecurity.model.release.ModelMapper$ModelRow"><constructor>
-        <idArg column="id" javaType="_long"/><arg column="model_key" javaType="string"/><arg column="version" javaType="string"/><arg column="task_type" javaType="string"/><arg column="manifest_version" javaType="string"/><arg column="manifest_json" javaType="string"/><arg column="artifact_ref" javaType="string"/><arg column="artifact_sha256" javaType="string"/><arg column="feature_contract_version" javaType="string"/><arg column="approval_status" javaType="string"/><arg column="created_at" javaType="java.time.LocalDateTime"/>
-    </constructor></resultMap>
-    <select id="listActiveDeployments" resultMap="modelRow">SELECT mv.id,mv.model_key,mv.version,mv.task_type,mv.manifest_version,CAST(mv.manifest_json AS CHAR) manifest_json,mv.artifact_ref,mv.artifact_sha256,mv.feature_contract_version,mv.approval_status,mv.created_at FROM model_deployment md JOIN model_version mv ON mv.id=md.model_version_id WHERE md.status='active' AND md.mode='local' AND mv.approval_status='approved'</select>
-</mapper>

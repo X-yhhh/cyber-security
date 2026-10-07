@@ -1,3 +1,10 @@
+# 仓库边界（2026-10-07 整理）
+
+本分支 `training/windows-cuda` 只承载 Windows CUDA 的数据准备、训练、评估与模型导出。后端、前端、数据库与 P5 执行器只在 `main` 维护，本分支不再保留副本。
+
+- 保留的共享部分：`sensor/` 是训练特征提取器（`guardextract`/`guardjoin`），冻结清单绑定其源码，必须与冻结版本一致；`docs/contracts/`、`docs/检测与处置契约.md` 等规范为冻结时快照，现行版本以 `main` 为准。
+- 不再把 `main` 整分支合并进本分支。确需同步共享文件时按路径检出：`git checkout <main提交> -- <路径>`，并在提交说明中写明来源提交；`sensor/` 只在正式采用新提取器版本时同步。
+
 # 当前 P3 多分类路线（2026-10-07）
 
 P3-A 已在应用仓库完成冻结。当前训练分支新增 `multiclass_train`、`multiclass_audit`、`verify_multiclass`；以下 prefix/UNSW 段落仅为历史，不作为当前入口。

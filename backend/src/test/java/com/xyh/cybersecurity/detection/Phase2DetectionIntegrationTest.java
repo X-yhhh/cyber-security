@@ -36,8 +36,9 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 @org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.MOCK)
 @EnabledIfEnvironmentVariable(named = "DB_TEST_BASE_URL", matches = ".+")
+@org.junit.jupiter.api.extension.ExtendWith(com.xyh.cybersecurity.database.IsolatedDatabaseSchemas.class)
 class Phase2DetectionIntegrationTest {
-    private static final String TEST_SCHEMA = "cyber_security_backend_phase2_detection_20261001";
+    private static final String TEST_SCHEMA = com.xyh.cybersecurity.database.IsolatedDatabaseSchemas.name(Phase2DetectionIntegrationTest.class, "suite");
     private static final String V4 = "unsw-nb15-flow-v4";
     private static final Instant T0 = Instant.parse("2026-09-30T11:14:00Z");
     private static final String FAILED_HANDSHAKE = "{\"features\":{\"proto\":\"tcp\",\"service\":\"-\",\"synack\":0,"

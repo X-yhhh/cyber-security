@@ -47,8 +47,9 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 @AutoConfigureMockMvc
 @EnabledIfEnvironmentVariable(named = "DB_TEST_BASE_URL", matches = ".+")
 @EnabledIfEnvironmentVariable(named = "MODEL_DELIVERY_V4_DIR", matches = ".+")
+@org.junit.jupiter.api.extension.ExtendWith(com.xyh.cybersecurity.database.IsolatedDatabaseSchemas.class)
 class LocalInferenceIntegrationTest {
-    private static final String TEST_SCHEMA = "cyber_security_backend_local_inference_20260929";
+    private static final String TEST_SCHEMA = com.xyh.cybersecurity.database.IsolatedDatabaseSchemas.name(LocalInferenceIntegrationTest.class, "suite");
     private static final String LOGIN_PHRASE = "local-inference-test-password";
     private static final String HASH = new BCryptPasswordEncoder(4).encode(LOGIN_PHRASE);
     private static final String CSRF_HEADER = "X-CSRF-TOKEN";

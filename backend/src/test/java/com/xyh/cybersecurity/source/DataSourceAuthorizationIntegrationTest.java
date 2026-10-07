@@ -29,9 +29,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.MOCK)
 @AutoConfigureMockMvc
 @EnabledIfEnvironmentVariable(named = "DB_TEST_BASE_URL", matches = ".+")
+@org.junit.jupiter.api.extension.ExtendWith(com.xyh.cybersecurity.database.IsolatedDatabaseSchemas.class)
 class DataSourceAuthorizationIntegrationTest {
 
-    private static final String TEST_SCHEMA = "cyber_security_backend_source_authz_20260923";
+    private static final String TEST_SCHEMA = com.xyh.cybersecurity.database.IsolatedDatabaseSchemas.name(DataSourceAuthorizationIntegrationTest.class, "suite");
     private static final String PASSWORD_HASH = new BCryptPasswordEncoder(4).encode("admin");
     private static final String CSRF_HEADER = "X-CSRF-TOKEN";
 

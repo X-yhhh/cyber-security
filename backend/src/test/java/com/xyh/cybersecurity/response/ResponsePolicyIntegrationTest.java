@@ -31,8 +31,9 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.MOCK)
 @AutoConfigureMockMvc
 @EnabledIfEnvironmentVariable(named = "DB_TEST_BASE_URL", matches = ".+")
+@org.junit.jupiter.api.extension.ExtendWith(com.xyh.cybersecurity.database.IsolatedDatabaseSchemas.class)
 class ResponsePolicyIntegrationTest {
-    private static final String TEST_SCHEMA = "cyber_security_backend_response_policy_20260930";
+    private static final String TEST_SCHEMA = com.xyh.cybersecurity.database.IsolatedDatabaseSchemas.name(ResponsePolicyIntegrationTest.class, "suite");
     private static final String PASSWORD = "response-policy-test-password";
     private static final String HASH = new BCryptPasswordEncoder(4).encode(PASSWORD);
     private static final String CSRF = "X-CSRF-TOKEN";

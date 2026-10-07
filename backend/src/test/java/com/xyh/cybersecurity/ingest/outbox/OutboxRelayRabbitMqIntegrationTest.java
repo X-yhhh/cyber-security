@@ -29,8 +29,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 @AutoConfigureMockMvc
 @EnabledIfEnvironmentVariable(named = "RABBITMQ_IT_ENABLED", matches = "true")
 @EnabledIfEnvironmentVariable(named = "DB_TEST_BASE_URL", matches = ".+")
+@org.junit.jupiter.api.extension.ExtendWith(com.xyh.cybersecurity.database.IsolatedDatabaseSchemas.class)
 class OutboxRelayRabbitMqIntegrationTest {
-    private static final String TEST_SCHEMA = "cyber_security_backend_outbox_it_20260928";
+    private static final String TEST_SCHEMA = com.xyh.cybersecurity.database.IsolatedDatabaseSchemas.name(OutboxRelayRabbitMqIntegrationTest.class, "suite");
     private static final String ROUTING_KEY = "ingest.batch.received";
     private static CachingConnectionFactory testConnectionFactory;
     private static RabbitAdmin testRabbitAdmin;

@@ -19,10 +19,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @EnabledIfEnvironmentVariable(named = "DB_TEST_BASE_URL", matches = ".+")
+@org.junit.jupiter.api.extension.ExtendWith(com.xyh.cybersecurity.database.IsolatedDatabaseSchemas.class)
 class MigrationIntegrationTest {
 
-    private static final String EMPTY_SCHEMA = "cyber_security_backend_test_v3_20260923";
-    private static final String OCCUPIED_SCHEMA = "cyber_security_backend_occupied_v3_20260923";
+    private static final String EMPTY_SCHEMA = com.xyh.cybersecurity.database.IsolatedDatabaseSchemas.name(MigrationIntegrationTest.class, "empty");
+    private static final String OCCUPIED_SCHEMA = com.xyh.cybersecurity.database.IsolatedDatabaseSchemas.name(MigrationIntegrationTest.class, "occupied");
     private static String baseUrl;
     private static String username;
     private static String password;

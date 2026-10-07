@@ -28,8 +28,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.MOCK)
 @EnabledIfEnvironmentVariable(named = "DB_TEST_BASE_URL", matches = ".+")
+@org.junit.jupiter.api.extension.ExtendWith(com.xyh.cybersecurity.database.IsolatedDatabaseSchemas.class)
 class WindowRuleIntegrationTest {
-    private static final String TEST_SCHEMA = "cyber_security_backend_window_rule_20261001";
+    private static final String TEST_SCHEMA = com.xyh.cybersecurity.database.IsolatedDatabaseSchemas.name(WindowRuleIntegrationTest.class, "suite");
     private static final String V4 = "unsw-nb15-flow-v4";
     private static final Instant T0 = Instant.parse("2026-09-30T11:14:00Z");
     private static final String FAILED_HANDSHAKE = "{\"features\":{\"proto\":\"tcp\",\"service\":\"-\",\"synack\":0,"

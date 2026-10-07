@@ -34,9 +34,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.MOCK)
 @AutoConfigureMockMvc
 @EnabledIfEnvironmentVariable(named = "DB_TEST_BASE_URL", matches = ".+")
+@org.junit.jupiter.api.extension.ExtendWith(com.xyh.cybersecurity.database.IsolatedDatabaseSchemas.class)
 class AuthorizationIntegrationTest {
 
-    private static final String TEST_SCHEMA = "cyber_security_backend_authz_20260923";
+    private static final String TEST_SCHEMA = com.xyh.cybersecurity.database.IsolatedDatabaseSchemas.name(AuthorizationIntegrationTest.class, "suite");
     private static final String ADMIN_PASSWORD_HASH = new BCryptPasswordEncoder(4).encode("admin");
     private static final String CSRF_HEADER = "X-CSRF-TOKEN";
 
@@ -138,7 +139,10 @@ class AuthorizationIntegrationTest {
     @Test
     void myBatisMappersLoadAndApplyVisibleResourcePredicates() {
         assertThat(identityMapper.findUser(adminId)).isNotNull();
-        assertThat(identityMapper.listRoles()).hasSize(7);
+        assertThat(identityMapper.listRoles()).extracting(role -> role.roleKey())
+                .containsExactlyInAnyOrder("platform_admin", "asset_source_admin", "security_analyst",
+                        "response_approver", "model_operator", "model_releaser", "auditor",
+                        "security_reviewer", "evidence_reviewer");
         assertThat(assetMapper.countVisible(analystId)).isEqualTo(1);
         assertThat(auditMapper.countVisible(auditorId)).isZero();
     }
@@ -171,10 +175,12 @@ class AuthorizationIntegrationTest {
                 .andExpect(status().isOk())
                 .andReturn();
         JsonNode roles = objectMapper.readTree(result.getResponse().getContentAsString()).path("data");
-        assertThat(roles).hasSize(7);
+        // V19 追加两类 v2 独立审核角色；v1 角色目录同样展示这些内置模板。
+        assertThat(roles).hasSize(9);
         String templates = roles.toString();
         assertThat(templates).contains("security_analyst", "action.request", "response_approver", "approval.decide",
-                "model_operator", "model_releaser", "auditor", "audit.read")
+                "model_operator", "model_releaser", "auditor", "audit.read",
+                "security_reviewer", "evidence_reviewer")
                 .doesNotContain("response.policy.manage");
     }
 

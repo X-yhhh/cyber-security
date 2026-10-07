@@ -16,9 +16,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 /** 验证审计查询要求范围型记录的全部关联资源均可见。 */
 @SpringBootTest
 @EnabledIfEnvironmentVariable(named = "DB_TEST_BASE_URL", matches = ".+")
+@org.junit.jupiter.api.extension.ExtendWith(com.xyh.cybersecurity.database.IsolatedDatabaseSchemas.class)
 class AuditScopeMapperTest {
 
-    private static final String TEST_SCHEMA = "cyber_security_backend_audit_20260923";
+    private static final String TEST_SCHEMA = com.xyh.cybersecurity.database.IsolatedDatabaseSchemas.name(AuditScopeMapperTest.class, "suite");
     private static final String AUDITOR = "audit-scope-test";
     private static final String PLATFORM_ADMIN = "audit-platform-test";
     private static final String VISIBLE_ASSET = "10001";

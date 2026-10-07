@@ -15,6 +15,9 @@
 ## 2. 仓库与技术边界
 
 - `main` 承载本地应用、接口和系统设计；`training/windows-cuda` 承载 Windows CUDA 数据准备、训练、实验、评估和模型导出。训练资产与业务实现不得混放。
+- 长期分支只有这两条。临时分支验证后经 PR 以 merge commit 合并并删除，不长期滞留；旧路线代码确认无用后直接删除，不另开分支保存。
+- 不得把 `main` 整分支合并进 `training/windows-cuda`（会带入后端、前端和数据库副本）。共享文件按路径同步：`git checkout <main提交> -- <路径>`，提交说明写明来源提交。训练分支保留 `sensor/` 作为特征提取器，冻结清单绑定其源码，只在正式采用新提取器版本时同步。
+- 仓库根的 `data/`、`.cache/`、`artifacts/` 为忽略的本地数据与冻结证据，脚本和证据按仓库相对路径引用，不得移动或改名；模型交付包放在仓库外（Mac `~/Workspace/deliveries`，Windows `E:/Workspace/ai/deliveries/cyber-security`）。
 - 后端目标为 JDK 25、Spring Boot 模块化单体和 MyBatis；数据组件为 MySQL 8、RabbitMQ；Redis 为可选优化，不是实施前提。除非用户批准架构演进，不提前引入 Spring Cloud 或拆分微服务。
 - 前端当前使用 Vue 3 稳定版；只有在 Vue 4 正式发布、依赖生态兼容且项目明确决定升级后，才调整技术基线。
 - Java 命令必须使用/验证 JDK 25，而不能只依据当前 shell 的 `java -version` 推断主机安装状态。构建工具链、IDE、服务启动脚本和 CI 的 Java 版本应一致。

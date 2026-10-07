@@ -1,4 +1,4 @@
-"""复用 rc.2 JSON Schema 和 RFC8785；本机配置只能收窄已签发命令。"""
+"""按独立版本校验命令和回执；本机配置只能收窄已签发命令。"""
 import base64
 import ipaddress
 from pathlib import Path
@@ -13,8 +13,23 @@ from .common import Rejected, canonical, digest, instant, parse, require
 
 SCHEMAS = Path(__file__).resolve().parents[1] / "docs" / "contracts"
 SCOPE_FIELDS = "assetId sensorId bootId captureScopeId targetRef peerKey keyEpoch environment scope addressFamily direction transport servicePort".split()
-BINDING_FIELDS = "assetId sensorId bootId captureScopeId environment executorBootId peerKey keyEpoch direction transport addressFamily servicePort".split()
+BINDING_FIELDS = "assetId sensorId bootId captureScopeId environment executorBootId peerKey keyEpoch direction transport addressFamily scope servicePort".split()
 TERMINAL = {"rejected", "revoked", "expired"}
+
+
+def unprotected_ranges(protected):
+    """把保护端口从可封禁的 TCP 端口全集中扣除，供规则和状态清理共用。"""
+    ports = sorted(set(protected) | {22, 53, 3389})
+    require(len(ports) <= 128 and all(type(port) is int and 1 <= port <= 65535 for port in ports),
+            "CONFIG_SCOPE_INVALID")
+    ranges, start = [], 1
+    for port in ports:
+        if start < port:
+            ranges.append([start, port - 1])
+        start = port + 1
+    if start <= 65535:
+        ranges.append([start, 65535])
+    return ranges
 
 
 def validate(kind, value):
@@ -48,6 +63,8 @@ def authorize(payload, config, boot, now):
         require(payload[field] == config[field], "SCOPE_DENIED")
     require(payload["executorBootId"] == boot, "BOOT_ID_MISMATCH")
     require(payload["direction"] == "inbound", "CAPABILITY_NOT_SUPPORTED")
+    # 全入站规则会覆盖受保护管理端口；平台豁免和恢复未验收前拒绝安装。
+    require(payload["scope"] == "peer_service", "PROTECTED_TARGET")
     require(payload["capabilityId"] in config["capabilityIds"] and
             payload["bundleId"] in config["bundleIds"] and
             payload["policySha256"] in config["policyHashes"], "CAPABILITY_NOT_SUPPORTED")
@@ -72,7 +89,11 @@ def endpoints(payload, resolved, config):
         local, local_port = resolved["Local"].rsplit(":", 1)
         peer, peer_port = resolved["Peer"].rsplit(":", 1)
         a, b = ipaddress.IPv4Address(local), ipaddress.IPv4Address(peer)
-        require(0 < int(peer_port) <= 65535 and int(local_port) == payload["servicePort"], "SCOPE_DENIED")
+        require(0 < int(peer_port) <= 65535 and 0 < int(local_port) <= 65535, "SCOPE_DENIED")
+        require((payload["scope"] == "peer_inbound" and payload["servicePort"] is None and
+                 payload["direction"] == "inbound") or
+                (payload["scope"] == "peer_service" and int(local_port) == payload["servicePort"]),
+                "SCOPE_DENIED")
     except (ValueError, KeyError) as exc:
         raise Rejected("TARGET_REFERENCE_REJECTED") from exc
     require(a != b and not b.is_multicast and not b.is_unspecified and not b.is_reserved,
@@ -82,4 +103,7 @@ def endpoints(payload, resolved, config):
             "PROTECTED_TARGET")
     interface = config["interface"]
     require(isinstance(interface, str) and 0 < len(interface) <= 256, "INVALID_INTERFACE")
-    return {"local": str(a), "peer": str(b), "port": payload["servicePort"], "interface": interface}
+    scope = {"local": str(a), "peer": str(b), "port": payload["servicePort"], "interface": interface}
+    if payload["scope"] == "peer_inbound":
+        scope["ranges"] = unprotected_ranges(config["protectedServicePorts"])
+    return scope

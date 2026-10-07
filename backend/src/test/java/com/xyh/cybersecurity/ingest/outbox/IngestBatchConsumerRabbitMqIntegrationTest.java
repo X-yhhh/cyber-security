@@ -5,7 +5,6 @@ import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.TestInstance;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.springframework.amqp.core.MessageDeliveryMode;
 import org.springframework.amqp.core.MessageProperties;
@@ -33,16 +32,17 @@ import static org.assertj.core.api.Assertions.assertThat;
 /** 仅连接专用 DB_TEST schema 与 RabbitMQ 测试 vhost，验证消费者幂等和 TTL→DLQ。 */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.MOCK)
 @Import(IngestBatchConsumerRabbitMqIntegrationTest.SubmitterConfiguration.class)
-@TestInstance(TestInstance.Lifecycle.PER_CLASS)
 @EnabledIfEnvironmentVariable(named = "RABBITMQ_IT_ENABLED", matches = "true")
 @EnabledIfEnvironmentVariable(named = "DB_TEST_BASE_URL", matches = ".+")
+@org.junit.jupiter.api.extension.ExtendWith(com.xyh.cybersecurity.database.IsolatedDatabaseSchemas.class)
 class IngestBatchConsumerRabbitMqIntegrationTest {
-    private static final String SCHEMA = "cyber_security_ingest_consumer_it_20260928";
+    private static final String SCHEMA = com.xyh.cybersecurity.database.IsolatedDatabaseSchemas.name(IngestBatchConsumerRabbitMqIntegrationTest.class, "suite");
     private static final String EXCHANGE = "cyber-security.ingest.consumer.it." + UUID.randomUUID();
     private static final String DEAD_EXCHANGE = EXCHANGE + ".dlx";
     private static final String QUEUE = "cyber-security.ingest.consumer.it." + UUID.randomUUID();
     private static final String DLQ = QUEUE + ".dead";
     private static final String RETRY_PREFIX = QUEUE + ".retry.";
+    private static final String GUARD_QUEUE = QUEUE + ".guard";
     private static final AtomicInteger submitCount = new AtomicInteger();
     private static final ConcurrentHashMap<String, AtomicInteger> failures = new ConcurrentHashMap<>();
 
@@ -73,6 +73,7 @@ class IngestBatchConsumerRabbitMqIntegrationTest {
         registry.add("cyber.ingest.consumer.queue", () -> QUEUE);
         registry.add("cyber.ingest.consumer.dead-letter-queue", () -> DLQ);
         registry.add("cyber.ingest.consumer.retry-queue-prefix", () -> RETRY_PREFIX);
+        registry.add("cyber.guard.queue-prefix", () -> GUARD_QUEUE);
         registry.add("cyber.ingest.rabbitmq.exchange", () -> EXCHANGE);
         registry.add("cyber.ingest.rabbitmq.dead-letter-exchange", () -> DEAD_EXCHANGE);
         registry.add("cyber.ingest.rabbitmq.host", () -> required("RABBITMQ_IT_HOST"));
@@ -91,14 +92,24 @@ class IngestBatchConsumerRabbitMqIntegrationTest {
     @Autowired private CachingConnectionFactory connectionFactory;
 
     @AfterAll
-    void removeRabbitResourcesCreatedByThisTest() {
+    static void removeRabbitResourcesCreatedByThisTest(org.springframework.context.ApplicationContext context) {
+        // 使用默认生命周期，让静态建库/迁移先于 Spring 注入；清理前停止监听器。
+        context.getBean(RabbitListenerEndpointRegistry.class).stop();
+        RabbitAdmin rabbitAdmin = context.getBean(RabbitAdmin.class);
         for (int attempt = 1; attempt <= IngestBatchConsumer.MAX_RETRIES; attempt++) {
             rabbitAdmin.deleteQueue(RETRY_PREFIX + attempt);
         }
         rabbitAdmin.deleteQueue(QUEUE);
         rabbitAdmin.deleteQueue(DLQ);
+        rabbitAdmin.deleteQueue(GUARD_QUEUE);
+        rabbitAdmin.deleteQueue(GUARD_QUEUE + ".dead");
+        for (int attempt = 1; attempt <= IngestBatchConsumer.MAX_RETRIES; attempt++) {
+            rabbitAdmin.deleteQueue(GUARD_QUEUE + ".retry." + attempt);
+        }
         rabbitAdmin.deleteExchange(EXCHANGE);
         rabbitAdmin.deleteExchange(DEAD_EXCHANGE);
+        rabbitAdmin.deleteExchange(GUARD_QUEUE + ".retry");
+        rabbitAdmin.deleteExchange(GUARD_QUEUE + ".dead");
     }
 
     @Test

@@ -37,8 +37,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.MOCK)
 @AutoConfigureMockMvc
 @EnabledIfEnvironmentVariable(named = "DB_TEST_BASE_URL", matches = ".+")
+@org.junit.jupiter.api.extension.ExtendWith(com.xyh.cybersecurity.database.IsolatedDatabaseSchemas.class)
 class ShadowValidationIntegrationTest {
-    private static final String TEST_SCHEMA = "cyber_security_backend_shadow_20260930";
+    private static final String TEST_SCHEMA = com.xyh.cybersecurity.database.IsolatedDatabaseSchemas.name(ShadowValidationIntegrationTest.class, "suite");
     private static final String HASH = new BCryptPasswordEncoder(4).encode("shadow-password");
     private static final String CSRF_HEADER = "X-CSRF-TOKEN";
     private static final String V4 = "unsw-nb15-flow-v4";

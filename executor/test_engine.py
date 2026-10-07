@@ -1,6 +1,8 @@
 """P5 必需行为回归：故障注入使用规则替身，不宣称 OS 生效或恢复验收。"""
 import base64
 import copy
+import hashlib
+import hmac
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import tempfile
@@ -90,7 +92,7 @@ class EngineTest(unittest.TestCase):
     def payload(self, **changes):
         c, now = self.config, self.clock.time()
         p = {k: c[k] for k in ("assetId", "executorId", "sensorId", "captureScopeId", "environment")}
-        p.update(contractVersion="host-guard/5.0.0-rc.2", commandId=ident(), actionId=ident(),
+        p.update(contractVersion="host-guard/5.0.0-rc.3", commandId=ident(), actionId=ident(),
                  executorBootId=self.engine.boot, bootId=ident(), targetRef=ident(), peerKey="b" * 64,
                  keyEpoch=1, actionType="temporary_block", scope="peer_service", addressFamily="ipv4",
                  direction="inbound", transport="tcp", servicePort=55001, capabilityId=c["capabilityIds"][0],
@@ -140,6 +142,31 @@ class EngineTest(unittest.TestCase):
         with self.assertRaisesRegex(Rejected, "PROTECTED_TARGET"):
             self.accept()
         self.assertEqual(self.firewall.installs, 0)
+
+    def test_peer_inbound_is_rejected_before_install_with_rc2_receipt(self):
+        p = self.payload(scope="peer_inbound", servicePort=None)
+        with self.assertRaisesRegex(Rejected, "PROTECTED_TARGET"):
+            self.engine.accept(self.signed(p))
+        self.assertEqual(self.firewall.installs, 0)
+        self.assertEqual(self.store.command(p["commandId"])["status"], "rejected")
+        receipt = self.store.pending()[0][2]
+        self.assertEqual(receipt["contractVersion"], "host-guard/5.0.0-rc.2")
+        self.assertEqual(receipt["errorCode"], "PROTECTED_TARGET")
+
+    def test_peer_inbound_binding_has_distinct_stable_budget_identity(self):
+        service = self.payload()
+        inbound = self.payload(scope="peer_inbound", servicePort=None)
+        resolved = self.resolver.resolve(inbound)
+        bound = self.engine.target_binding(inbound, resolved, resolved["expiresAt"])
+        self.assertEqual(bound["scope"], "peer_inbound")
+        self.assertIsNone(bound["servicePort"])
+        service_scope = self.engine._resolve(service, resolved)[0]
+        old_identity = {"assetId": service["assetId"], "environment": service["environment"],
+                        "peer": service_scope["peer"], "direction": service["direction"],
+                        "transport": "tcp", "servicePort": service_scope["port"], "addressFamily": "ipv4"}
+        old_token = hmac.new(self.engine.budget_key, canonical(old_identity), hashlib.sha256).hexdigest()
+        self.assertEqual(self.engine.stable_target(service, service_scope), old_token)
+        self.assertNotEqual(bound["stableTargetToken"], old_token)
 
     def test_same_command_retries_do_not_extend_ttl_and_conflict_rejected(self):
         p, status = self.accept()
@@ -223,6 +250,7 @@ class EngineTest(unittest.TestCase):
         pending = self.store.pending()
         self.assertEqual(len(pending), 1)
         receipt = pending[0][2]
+        self.assertEqual(receipt["contractVersion"], "host-guard/5.0.0-rc.2")
         snapshot = self.engine.snapshot()
         state = {"digestVersion": "guard-state/1", "assetId": p["assetId"], "executorId": p["executorId"],
                  "executorBootId": self.engine.boot, "rules": snapshot["ownedRules"], "pendingRevocations": []}

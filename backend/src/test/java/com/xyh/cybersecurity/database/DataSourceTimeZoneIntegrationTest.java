@@ -23,9 +23,10 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 @SpringBootTest
 @EnabledIfEnvironmentVariable(named = "DB_TEST_BASE_URL", matches = ".+")
+@org.junit.jupiter.api.extension.ExtendWith(com.xyh.cybersecurity.database.IsolatedDatabaseSchemas.class)
 class DataSourceTimeZoneIntegrationTest {
 
-    private static final String TEST_SCHEMA = "cyber_security_backend_timezone_20260929";
+    private static final String TEST_SCHEMA = com.xyh.cybersecurity.database.IsolatedDatabaseSchemas.name(DataSourceTimeZoneIntegrationTest.class, "suite");
 
     @BeforeAll
     static void migrateTimeZoneTestSchema() throws Exception {

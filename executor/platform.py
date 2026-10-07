@@ -1,4 +1,5 @@
 """仅管理专用 PF anchor/WFP 子层；不接管默认策略、不执行任意 shell。"""
+import base64
 import ctypes as C
 import ipaddress
 import os
@@ -13,10 +14,32 @@ import uuid
 from .common import Rejected, parse, require
 
 
+def inbound_ranges(scope):
+    """安装、枚举和状态清理均使用同一份已扣除保护端口的闭区间。"""
+    ranges = scope.get("ranges")
+    require(scope.get("port") is None and isinstance(ranges, list) and 1 < len(ranges) <= 129,
+            "SCOPE_DENIED")
+    previous = 0
+    for pair in ranges:
+        require(isinstance(pair, list) and len(pair) == 2 and
+                all(type(p) is int and 1 <= p <= 65535 for p in pair) and
+                previous < pair[0] <= pair[1], "SCOPE_DENIED")
+        previous = pair[1]
+    require(all(not any(first <= port <= last for first, last in ranges)
+                for port in (22, 53, 3389)), "PROTECTED_TARGET")
+    return ranges
+
+
 class PF:
+    @staticmethod
+    def anchor_root(executor_id):
+        # PF anchor 名称最多 63 字节；22 字符编码保留完整 UUID，仍可容纳子命令 UUID。
+        encoded = base64.urlsafe_b64encode(uuid.UUID(executor_id).bytes).rstrip(b"=").decode("ascii")
+        return "hg5" + encoded
+
     def __init__(self, executor_id, helper):
         require(sys.platform == "darwin", "PLATFORM_UNSUPPORTED")
-        self.root = "hostguard/p5-" + str(uuid.UUID(executor_id))
+        self.root = self.anchor_root(executor_id)
         self.helper = Path(helper)
         require(self.helper.is_absolute() and not self.helper.is_symlink(), "PF_HELPER_INVALID")
         require(self.helper.is_file() and self.helper.stat().st_uid == 0 and
@@ -48,13 +71,24 @@ class PF:
         self.preflight()
         require(command not in self.inventory(), "RULE_ALREADY_EXISTS")
         a, b = ipaddress.IPv4Address(scope["local"]), ipaddress.IPv4Address(scope["peer"])
-        require(re.fullmatch(r"[A-Za-z0-9_.-]{1,15}", scope["interface"]) is not None and
-                type(scope["port"]) is int and 0 < scope["port"] <= 65535, "SCOPE_DENIED")
-        rule = (f'block drop quick on {scope["interface"]} inet proto tcp from {b} to {a} '
-                f'port {scope["port"]} label "hg5-{command}"\n')
+        require(re.fullmatch(r"[A-Za-z0-9_.-]{1,15}", scope["interface"]) is not None,
+                "SCOPE_DENIED")
+        if scope["port"] is None:
+            ranges = inbound_ranges(scope)
+        else:
+            require(set(scope) == {"local", "peer", "port", "interface"} and
+                    type(scope["port"]) is int and 0 < scope["port"] <= 65535, "SCOPE_DENIED")
+            ranges = [[scope["port"], scope["port"]]]
+        rule = "".join(f'block drop quick on {scope["interface"]} inet proto tcp from {b} to {a} '
+                       f'port {first if first == last else f"{first}:{last}"} label "hg5-{command}"\n'
+                       for first, last in ranges)
         require(time.time() <= apply_by, "COMMAND_EXPIRED")
         self.run(["/sbin/pfctl", "-a", self.handle(command), "-f", "-"], rule)
-        self.run([str(self.helper), "kill", str(a), str(b), str(scope["port"]), scope["interface"]])
+        if scope["port"] is None:
+            encoded = ",".join(f"{first}:{last}" for first, last in ranges)
+            self.run([str(self.helper), "kill-ranges", str(a), str(b), encoded, scope["interface"]])
+        else:
+            self.run([str(self.helper), "kill", str(a), str(b), str(scope["port"]), scope["interface"]])
 
     def inventory(self):
         anchors = self.run(["/sbin/pfctl", "-a", self.root, "-s", "Anchors"])
@@ -67,13 +101,30 @@ class PF:
             raw = self.run(["/sbin/pfctl", "-a", handle, "-sr"]).strip()
             if not raw:
                 continue
-            match = re.fullmatch(r'block drop quick on ([A-Za-z0-9_.-]+) inet proto tcp from '
-                                 r'(\d+\.\d+\.\d+\.\d+)(?:/32)? to (\d+\.\d+\.\d+\.\d+)(?:/32)? '
-                                 r'port (?:= )?([A-Za-z0-9_-]+) label "hg5-([0-9a-f-]{36})"', raw)
-            require(match is not None and match[5] == child, "UNKNOWN_OWNED_RULE")
-            port = int(match[4]) if match[4].isdigit() else socket.getservbyname(match[4], "tcp")
-            result[child] = {"handle": handle, "scope": {"interface": match[1], "peer": match[2],
-                                                       "local": match[3], "port": port}}
+            rows = []
+            for line in raw.splitlines():
+                match = re.fullmatch(r'block drop quick on ([A-Za-z0-9_.-]+) inet proto tcp from '
+                                     r'(\d+\.\d+\.\d+\.\d+)(?:/32)? to (\d+\.\d+\.\d+\.\d+)(?:/32)? '
+                                     r'port (?:= )?([A-Za-z0-9_-]+)(?::([0-9]+))? label "hg5-([0-9a-f-]{36})"', line)
+                require(match is not None and match[6] == child, "UNKNOWN_OWNED_RULE")
+                try:
+                    port = int(match[4]) if match[4].isdigit() else socket.getservbyname(match[4], "tcp")
+                    end = int(match[5]) if match[5] else port
+                    ipaddress.IPv4Address(match[2])
+                    ipaddress.IPv4Address(match[3])
+                except (OSError, ValueError) as exc:
+                    raise Rejected("UNKNOWN_OWNED_RULE") from exc
+                require(1 <= port <= end <= 65535, "UNKNOWN_OWNED_RULE")
+                rows.append((match[1], match[2], match[3], port, end))
+            require(len(rows) <= 129 and len({row[:3] for row in rows}) == 1,
+                    "UNKNOWN_OWNED_RULE")
+            interface, peer, local = rows[0][:3]
+            scope = {"interface": interface, "peer": peer, "local": local, "port": rows[0][3]}
+            if len(rows) > 1 or rows[0][3] != rows[0][4]:
+                scope["port"] = None
+                scope["ranges"] = [[row[3], row[4]] for row in rows]
+                inbound_ranges(scope)
+            result[child] = {"handle": handle, "scope": scope}
         return result
 
     def remove(self, command, scope):

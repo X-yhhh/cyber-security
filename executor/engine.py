@@ -46,6 +46,8 @@ class Engine:
         value = {"assetId": payload["assetId"], "environment": payload["environment"],
                  "peer": scope["peer"], "direction": payload["direction"], "transport": "tcp",
                  "servicePort": scope["port"], "addressFamily": "ipv4"}
+        if payload["scope"] == "peer_inbound":
+            value["scope"] = "peer_inbound"
         return hmac.new(self.budget_key, canonical(value), hashlib.sha256).hexdigest()
 
     def target_binding(self, payload, resolved, expires):
@@ -56,7 +58,7 @@ class Engine:
                 "collectorBootId": payload["bootId"], "captureScopeId": payload["captureScopeId"],
                 "targetRef": payload["targetRef"], "peerKey": payload["peerKey"],
                 "keyEpoch": payload["keyEpoch"], "direction": payload["direction"], "transport": "tcp",
-                "servicePort": payload["servicePort"], "addressFamily": "ipv4",
+                "scope": payload["scope"], "servicePort": payload["servicePort"], "addressFamily": "ipv4",
                 "stableTargetToken": token, "scopeDigest": digest({"stableTargetToken": token}),
                 "expiresAt": expires}
 
@@ -346,7 +348,7 @@ class Engine:
     def _receipt(self, row, actual, revocation=None):
         snap = self.snapshot(actual)
         p = row["payload"]
-        receipt = {"contractVersion": p["contractVersion"], "receiptId": ident(), "commandId": p["commandId"],
+        receipt = {"contractVersion": "host-guard/5.0.0-rc.2", "receiptId": ident(), "commandId": p["commandId"],
                    "executorId": p["executorId"], "status": row["status"], "observedAt": snap["observedAt"],
                    "ruleHandle": row["handle"] if p["commandId"] in actual else None,
                    "effectiveBlockUntil": p["blockUntil"] if row["status"] == "applied" else None,

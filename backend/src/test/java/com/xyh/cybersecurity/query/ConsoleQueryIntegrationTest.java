@@ -27,9 +27,10 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.MOCK)
 @AutoConfigureMockMvc
 @EnabledIfEnvironmentVariable(named = "DB_TEST_BASE_URL", matches = ".+")
+@org.junit.jupiter.api.extension.ExtendWith(com.xyh.cybersecurity.database.IsolatedDatabaseSchemas.class)
 class ConsoleQueryIntegrationTest {
 
-    private static final String TEST_SCHEMA = "cyber_security_backend_console_query_20260928";
+    private static final String TEST_SCHEMA = com.xyh.cybersecurity.database.IsolatedDatabaseSchemas.name(ConsoleQueryIntegrationTest.class, "suite");
     private static final String PASSWORD = "console-query-test-password";
     private static final String HASH = new BCryptPasswordEncoder(4).encode(PASSWORD);
 

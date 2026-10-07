@@ -40,8 +40,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.MOCK)
 @AutoConfigureMockMvc
 @EnabledIfEnvironmentVariable(named = "DB_TEST_BASE_URL", matches = ".+")
+@org.junit.jupiter.api.extension.ExtendWith(com.xyh.cybersecurity.database.IsolatedDatabaseSchemas.class)
 class EntityLifecycleIntegrationTest {
-    private static final String TEST_SCHEMA = "cyber_security_backend_entity_lifecycle_20261001";
+    private static final String TEST_SCHEMA = com.xyh.cybersecurity.database.IsolatedDatabaseSchemas.name(EntityLifecycleIntegrationTest.class, "suite");
     private static final String HASH = new BCryptPasswordEncoder(4).encode("admin");
     private static final String CSRF_HEADER = "X-CSRF-TOKEN";
     private static final String V4 = "unsw-nb15-flow-v4";

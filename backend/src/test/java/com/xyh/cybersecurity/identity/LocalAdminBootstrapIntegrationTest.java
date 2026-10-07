@@ -20,9 +20,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 @SpringBootTest
 @ActiveProfiles("local")
 @EnabledIfEnvironmentVariable(named = "DB_TEST_BASE_URL", matches = ".+")
+@org.junit.jupiter.api.extension.ExtendWith(com.xyh.cybersecurity.database.IsolatedDatabaseSchemas.class)
 class LocalAdminBootstrapIntegrationTest {
 
-    private static final String TEST_SCHEMA = "cyber_security_backend_bootstrap_20260923";
+    private static final String TEST_SCHEMA = com.xyh.cybersecurity.database.IsolatedDatabaseSchemas.name(LocalAdminBootstrapIntegrationTest.class, "suite");
 
     @BeforeAll
     static void migrateBootstrapTestSchema() throws Exception {

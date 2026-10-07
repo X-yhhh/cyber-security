@@ -1,0 +1,6 @@
+# 实际安装版本在读取 test 前绑定于 registration.json；两平台分别登记运行时。
+numpy>=2.2.6,<3
+onnxruntime>=1.23.2,<2
+lightgbm==4.7.0
+scipy>=1.10,<2
+jsonschema>=4.23,<5

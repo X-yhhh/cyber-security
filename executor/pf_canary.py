@@ -88,7 +88,7 @@ def run(config_path, signing_key, key_id, output):
         # 输入来自已登记 collector 的短期目标引用；不在此入口制造研究数据或任意地址命令。
         binding = read_private(Path(c["stateDir"]) / "canary-binding.json")
         now = time.time()
-        p = {**binding["binding"], "contractVersion": "host-guard/5.0.0-rc.2", "executorId": c["executorId"],
+        p = {**binding["binding"], "contractVersion": "host-guard/5.0.0-rc.3", "executorId": c["executorId"],
              "executorBootId": engine.boot, "commandId": ident(), "actionId": ident(), "idempotencyKey": ident(),
              "actionType": "temporary_block", "scope": "peer_service", "capabilityId": c["capabilityIds"][0],
              "bundleId": c["bundleIds"][0], "policySha256": c["policyHashes"][0], "evidenceSha256": "0" * 64,

@@ -1,6 +1,7 @@
 """真实 TLS 与 Go IPC 对接；固定命令仅进入故障替身，不写系统防火墙。"""
 import copy
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import os
 from pathlib import Path
 import socket
 import ssl
@@ -101,7 +102,7 @@ class TransportTest(unittest.TestCase):
         self.assertEqual(fixture.store.command(command["payload"]["commandId"])["status"], "revoked")
 
     def test_python_resolves_go_mtls_target_and_rejects_wrong_identity(self):
-        executable = Path(__file__).resolve().parents[1] / "sensor/bin/guardtargets"
+        executable = Path(os.environ.get("P5_GUARDTARGETS", str(Path(__file__).resolve().parents[1] / "sensor/bin/guardtargets")))
         self.assertTrue(executable.is_file(), "先构建 sensor/bin/guardtargets")
         observation = parse((SCHEMAS / "examples/observation.json").read_bytes())
         now = time.time()
@@ -141,12 +142,18 @@ class TransportTest(unittest.TestCase):
         config = {"targetURL": url, "targetCA": str(self.pki / "ca.pem"),
                   "targetCertificate": str(self.pki / "executor.pem"), "targetKey": str(self.pki / "executor.key")}
         resolver = TargetResolver(lambda: config)
-        p = {**observation, "executorBootId": boot, "targetRef": lease["targetRef"]}
+        p = {**observation, "executorBootId": boot, "targetRef": lease["targetRef"], "scope": "peer_service"}
         resolved = resolver.resolve(p)
         self.assertEqual(resolved["endpoints"], endpoints)
         self.assertEqual(resolved["expiresAt"], lease["expiresAt"])
         with self.assertRaises(Rejected):
             resolver.resolve({**p, "bootId": ident()})
+        inbound_lease = collector.post("/v1/targets/lease", {"observation": observation,
+                                                        "endpoints": endpoints, "scope": "peer_inbound"})
+        inbound = {**p, "targetRef": inbound_lease["targetRef"], "scope": "peer_inbound", "servicePort": None}
+        self.assertEqual(resolver.resolve(inbound)["endpoints"], endpoints)
+        with self.assertRaises(Rejected):
+            resolver.resolve({**inbound, "scope": "peer_service", "servicePort": 55001})
         with self.assertRaises(Rejected):
             collector.post("/v1/targets/resolve", {"targetRef": p["targetRef"], "binding": {k: p[k] for k in BINDING_FIELDS}})
         with self.assertRaisesRegex(Rejected, "HTTPS_REQUIRED"):

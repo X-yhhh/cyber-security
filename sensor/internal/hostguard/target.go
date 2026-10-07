@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"reflect"
 	"sync"
 	"time"
 )
@@ -28,18 +29,19 @@ type TargetScope struct {
 	MaxReferences                                          int
 }
 type TargetBinding struct {
-	AssetID        string `json:"assetId"`
-	SensorID       string `json:"sensorId"`
-	BootID         string `json:"bootId"`
-	CaptureScopeID string `json:"captureScopeId"`
-	Environment    string `json:"environment"`
-	ExecutorBootID string `json:"executorBootId"`
-	PeerKey        string `json:"peerKey"`
-	KeyEpoch       int    `json:"keyEpoch"`
-	Direction      string `json:"direction"`
-	Transport      string `json:"transport"`
-	AddressFamily  string `json:"addressFamily"`
-	ServicePort    uint16 `json:"servicePort"`
+	AssetID        string  `json:"assetId"`
+	SensorID       string  `json:"sensorId"`
+	BootID         string  `json:"bootId"`
+	CaptureScopeID string  `json:"captureScopeId"`
+	Environment    string  `json:"environment"`
+	ExecutorBootID string  `json:"executorBootId"`
+	PeerKey        string  `json:"peerKey"`
+	KeyEpoch       int     `json:"keyEpoch"`
+	Direction      string  `json:"direction"`
+	Transport      string  `json:"transport"`
+	AddressFamily  string  `json:"addressFamily"`
+	Scope          string  `json:"scope"`
+	ServicePort    *uint16 `json:"servicePort"`
 }
 type TargetLease struct {
 	Ref       string    `json:"targetRef"`
@@ -91,16 +93,20 @@ func NewTargetRegistry(s TargetScope, now func() time.Time) (*TargetRegistry, er
 	return &TargetRegistry{scope: s, entries: map[string]targetEntry{}, byTarget: map[string]string{}, now: now}, nil
 }
 func Binding(o Observation, executorBoot string) TargetBinding {
-	b := TargetBinding{AssetID: o.AssetID, SensorID: o.SensorID, BootID: o.BootID, CaptureScopeID: o.CaptureScopeID, Environment: o.Environment, ExecutorBootID: executorBoot, PeerKey: o.PeerKey, KeyEpoch: o.KeyEpoch, Direction: o.Direction, Transport: o.Transport, AddressFamily: o.AddressFamily}
-	if o.ServicePort != nil {
-		b.ServicePort = *o.ServicePort
+	return bindingForScope(o, executorBoot, "peer_service")
+}
+func bindingForScope(o Observation, executorBoot, targetScope string) TargetBinding {
+	b := TargetBinding{AssetID: o.AssetID, SensorID: o.SensorID, BootID: o.BootID, CaptureScopeID: o.CaptureScopeID, Environment: o.Environment, ExecutorBootID: executorBoot, PeerKey: o.PeerKey, KeyEpoch: o.KeyEpoch, Direction: o.Direction, Transport: o.Transport, AddressFamily: o.AddressFamily, Scope: targetScope}
+	if targetScope == "peer_service" {
+		b.ServicePort = o.ServicePort
 	}
 	return b
 }
 func (r *TargetRegistry) valid(b TargetBinding) bool {
 	s := r.scope
 	_, err := hex.DecodeString(b.PeerKey)
-	return b.AssetID == s.AssetID && b.SensorID == s.SensorID && b.BootID == s.BootID && b.CaptureScopeID == s.CaptureScopeID && b.Environment == s.Environment && b.ExecutorBootID == s.ExecutorBootID && b.KeyEpoch == s.KeyEpoch && b.Transport == "tcp" && b.AddressFamily == "ipv4" && (b.Direction == "inbound" || b.Direction == "outbound") && b.ServicePort > 0 && len(b.PeerKey) == 64 && err == nil
+	validScope := b.Scope == "peer_service" && b.ServicePort != nil && *b.ServicePort > 0 || b.Scope == "peer_inbound" && b.ServicePort == nil && b.Direction == "inbound"
+	return b.AssetID == s.AssetID && b.SensorID == s.SensorID && b.BootID == s.BootID && b.CaptureScopeID == s.CaptureScopeID && b.Environment == s.Environment && b.ExecutorBootID == s.ExecutorBootID && b.KeyEpoch == s.KeyEpoch && b.Transport == "tcp" && b.AddressFamily == "ipv4" && (b.Direction == "inbound" || b.Direction == "outbound") && validScope && len(b.PeerKey) == 64 && err == nil
 }
 func (r *TargetRegistry) clock() (time.Time, error) {
 	n := r.now()
@@ -128,6 +134,9 @@ func targetKey(b TargetBinding, e Endpoints) string {
 	return hex.EncodeToString(h[:])
 }
 func (r *TargetRegistry) issue(o Observation, end Endpoints) (TargetLease, error) {
+	return r.issueForScope(o, end, "peer_service")
+}
+func (r *TargetRegistry) issueForScope(o Observation, end Endpoints, targetScope string) (TargetLease, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if _, err := ModelVector(o); err != nil || !o.AsOf.Equal(o.LastPacketAt) {
@@ -137,7 +146,7 @@ func (r *TargetRegistry) issue(o Observation, end Endpoints) (TargetLease, error
 	if err != nil {
 		return TargetLease{}, err
 	}
-	b := Binding(o, r.scope.ExecutorBootID)
+	b := bindingForScope(o, r.scope.ExecutorBootID, targetScope)
 	if !r.valid(b) || o.Quality.Defective() || o.Quality.ClockSkewMs == nil || math.Abs(*o.Quality.ClockSkewMs) > 1000 || o.LastPacketAt.After(now) || !now.Before(o.LastPacketAt.Add(15*time.Second)) {
 		return TargetLease{}, ErrTarget
 	}
@@ -148,7 +157,7 @@ func (r *TargetRegistry) issue(o Observation, end Endpoints) (TargetLease, error
 	if !local || end.Protocol != 6 || !end.Peer.Addr().Is4() || end.Peer.Addr().IsUnspecified() || end.Peer.Addr().IsMulticast() || end.Peer.Addr() == end.Local.Addr() {
 		return TargetLease{}, ErrTarget
 	}
-	if b.Direction == "inbound" && b.ServicePort != end.Local.Port() || b.Direction == "outbound" && b.ServicePort != end.Peer.Port() {
+	if o.ServicePort == nil || b.Direction == "inbound" && *o.ServicePort != end.Local.Port() || b.Direction == "outbound" && *o.ServicePort != end.Peer.Port() {
 		return TargetLease{}, ErrTarget
 	}
 	key := targetKey(b, end)
@@ -174,7 +183,7 @@ func (r *TargetRegistry) resolve(ref string, b TargetBinding) (Endpoints, error)
 		return Endpoints{}, err
 	}
 	v, ok := r.entries[ref]
-	if !ok || !r.valid(b) || v.binding != b {
+	if !ok || !r.valid(b) || !reflect.DeepEqual(v.binding, b) {
 		return Endpoints{}, ErrTarget
 	}
 	return v.endpoints, nil
@@ -189,7 +198,7 @@ func (r *TargetRegistry) resolveLease(ref string, b TargetBinding) (any, error) 
 		return nil, err
 	}
 	v, ok := r.entries[ref]
-	if !ok || !r.valid(b) || v.binding != b {
+	if !ok || !r.valid(b) || !reflect.DeepEqual(v.binding, b) {
 		return nil, ErrTarget
 	}
 	return struct {
@@ -244,12 +253,16 @@ func (r *TargetRegistry) ServeHTTP(w http.ResponseWriter, q *http.Request) {
 		var v struct {
 			Observation Observation `json:"observation"`
 			Endpoints   Endpoints   `json:"endpoints"`
+			Scope       string      `json:"scope"`
 		}
 		if !decode(&v) {
 			deny()
 			return
 		}
-		lease, err := r.issue(v.Observation, v.Endpoints)
+		if v.Scope == "" {
+			v.Scope = "peer_service"
+		}
+		lease, err := r.issueForScope(v.Observation, v.Endpoints, v.Scope)
 		if err != nil {
 			deny()
 			return

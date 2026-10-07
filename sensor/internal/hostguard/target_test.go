@@ -105,13 +105,36 @@ func TestTargetMTLSAndBindingFailures(t *testing.T) {
 	if code != 403 {
 		t.Fatal("collector 越权解析")
 	}
-	for _, change := range []func(*TargetBinding){func(b *TargetBinding) { b.AssetID = NewID() }, func(b *TargetBinding) { b.BootID = NewID() }, func(b *TargetBinding) { b.CaptureScopeID = NewID() }, func(b *TargetBinding) { b.Environment = "authorized" }, func(b *TargetBinding) { b.ExecutorBootID = NewID() }, func(b *TargetBinding) { b.KeyEpoch++ }, func(b *TargetBinding) { b.Direction = "outbound" }, func(b *TargetBinding) { b.PeerKey = string(bytes.Repeat([]byte("0"), 64)) }, func(b *TargetBinding) { b.ServicePort = 22 }} {
+	for _, change := range []func(*TargetBinding){func(b *TargetBinding) { b.AssetID = NewID() }, func(b *TargetBinding) { b.BootID = NewID() }, func(b *TargetBinding) { b.CaptureScopeID = NewID() }, func(b *TargetBinding) { b.Environment = "authorized" }, func(b *TargetBinding) { b.ExecutorBootID = NewID() }, func(b *TargetBinding) { b.KeyEpoch++ }, func(b *TargetBinding) { b.Direction = "outbound" }, func(b *TargetBinding) { b.PeerKey = string(bytes.Repeat([]byte("0"), 64)) }, func(b *TargetBinding) { p := uint16(22); b.ServicePort = &p }, func(b *TargetBinding) { b.Scope = "peer_inbound"; b.ServicePort = nil }} {
 		b := binding
 		change(&b)
 		code, _ = post(executor, "/v1/targets/resolve", resolve(b))
 		if code != 403 {
 			t.Fatal("引用串目标")
 		}
+	}
+	inboundRequest := map[string]any{"observation": o, "endpoints": end, "scope": "peer_inbound"}
+	code, data = post(collector, "/v1/targets/lease", inboundRequest)
+	if code != 200 || json.Unmarshal(data, &lease) != nil {
+		t.Fatal("全入站引用登记失败")
+	}
+	inbound := bindingForScope(o, scope.ExecutorBootID, "peer_inbound")
+	if inbound.ServicePort != nil {
+		t.Fatal("全入站引用保留了服务端口")
+	}
+	code, _ = post(executor, "/v1/targets/resolve-lease", resolve(inbound))
+	if code != 200 {
+		t.Fatal("全入站引用解析失败")
+	}
+	code, _ = post(executor, "/v1/targets/resolve-lease", resolve(binding))
+	if code != 403 {
+		t.Fatal("全入站引用可按单端口解析")
+	}
+	badScope := inboundRequest
+	badScope["scope"] = "peer_everywhere"
+	code, _ = post(collector, "/v1/targets/lease", badScope)
+	if code != 403 {
+		t.Fatal("未知范围仍可登记")
 	}
 	cl := &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{RootCAs: roots}}, Timeout: time.Second}
 	defer cl.CloseIdleConnections()

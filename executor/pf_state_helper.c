@@ -1,4 +1,4 @@
-/* P5 PF 精确状态清理。只接受独立执行器已校验的 IPv4 peer/service，
+/* P5 PF 精确状态清理。只接受独立执行器已校验的 IPv4 peer/service 或非保护端口区间，
  * 不提供全局 flush；非匹配内核拒绝运行。须以 root 所有、不可组写的文件部署。
  * ABI 与 P1 实测一致；服务端口由执行器受控配置和保护清单限定。
  */
@@ -41,25 +41,49 @@ int main(int argc,char **argv) {
         printf("{\"kernelMatches\":%s}\n",matched?"true":"false");
         return matched?0:1;
     }
-    if(argc!=6 || strcmp(argv[1],"kill") || !matched || geteuid()!=0)return 2;
+    int ranged=argc==6 && !strcmp(argv[1],"kill-ranges");
+    if(argc!=6 || (strcmp(argv[1],"kill") && !ranged) || !matched || geteuid()!=0)return 2;
     struct in_addr local,peer;
-    char *end=NULL;long port=strtol(argv[4],&end,10);
-    if(!end || *end || port<1 || port>65535 || port==22 || port==53 || port==3389 ||
-       inet_pton(AF_INET,argv[2],&local)!=1 || inet_pton(AF_INET,argv[3],&peer)!=1 ||
+    if(inet_pton(AF_INET,argv[2],&local)!=1 || inet_pton(AF_INET,argv[3],&peer)!=1 ||
        local.s_addr==peer.s_addr || local.s_addr==0 || peer.s_addr==0 ||
        IN_MULTICAST(ntohl(peer.s_addr)) || strlen(argv[5])>=16 || !if_nametoindex(argv[5]))return 2;
-    struct state_kill k={0};
-    k.af=AF_INET;k.proto=IPPROTO_TCP;
-    k.src.addr.v.a.addr[0]=peer.s_addr;k.src.addr.v.a.mask[0]=UINT32_MAX;
-    k.dst.addr.v.a.addr[0]=local.s_addr;k.dst.addr.v.a.mask[0]=UINT32_MAX;
-    k.dst.port.range.port[0]=k.dst.port.range.port[1]=htons((uint16_t)port);
-    k.dst.port.range.op=2;
-    memcpy(k.ifname,argv[5],strlen(argv[5]));
+    uint16_t first[129],last[129];size_t count=0;
+    const char *cursor=argv[4];char *end=NULL;
+    do {
+        long low=strtol(cursor,&end,10);
+        if(end==cursor || low<1 || low>65535 || (ranged && *end!=':') ||
+           (!ranged && *end))return 2;
+        long high=low;
+        if(ranged){
+            cursor=end+1;high=strtol(cursor,&end,10);
+            if(end==cursor || high<low || high>65535 || (*end && *end!=','))return 2;
+        }
+        if(count>=129 || (count && low<=last[count-1]) ||
+           (low<=22 && 22<=high) || (low<=53 && 53<=high) ||
+           (low<=3389 && 3389<=high))return 2;
+        first[count]=(uint16_t)low;last[count]=(uint16_t)high;count++;
+        if(!ranged || !*end)break;
+        cursor=end+1;
+        if(!*cursor)return 2;
+    }while(1);
+    if(ranged && count<2)return 2;
     int fd=open("/dev/pf",O_RDWR|O_CLOEXEC);
     if(fd<0)return 1;
-    int result=ioctl(fd,_IOWR('D',41,struct state_kill),&k);
+    unsigned int killed=0;int result=0;
+    for(size_t i=0;i<count;i++){
+        struct state_kill k={0};
+        k.af=AF_INET;k.proto=IPPROTO_TCP;
+        k.src.addr.v.a.addr[0]=peer.s_addr;k.src.addr.v.a.mask[0]=UINT32_MAX;
+        k.dst.addr.v.a.addr[0]=local.s_addr;k.dst.addr.v.a.mask[0]=UINT32_MAX;
+        k.dst.port.range.port[0]=htons(first[i]);k.dst.port.range.port[1]=htons(last[i]);
+        k.dst.port.range.op=first[i]==last[i]?2:9; /* PF_OP_EQ / PF_OP_RRG */
+        memcpy(k.ifname,argv[5],strlen(argv[5]));
+        result=ioctl(fd,_IOWR('D',41,struct state_kill),&k);
+        if(result)break;
+        killed+=k.af;
+    }
     close(fd);
     if(result)return 1;
-    printf("{\"matchedStatesModulo256\":%u}\n",k.af);
+    printf("{\"matchedStatesModulo256\":%u}\n",killed%256);
     return 0;
 }

@@ -1,6 +1,6 @@
 # P3 数据准备与多分类模型
 
-更新于 2026-10-07。**计划 `p3-multiclass-20261006-v1` 的 P3-A（A1–A6）已完成。P3-B 已于同日修复收口：负责人书面把本轮累计拟合上限调整为 33 次（全部计入），单次复现 `main-lightgbm-seed42` 与 v3 原候选的 train/validation 输出逐位一致，原生模型、完整 train/validation 框架对拍与 Windows/Mac 双端对拍均已补齐（见 5.7）。A7 可选未执行，P3-C 未开始。** 本文件是 P3 的执行入口：记录输入、步骤、出口和当前进度。规则见 [数据与模型方案](../数据与模型方案.md)，指标见 [验证与验收](../验证与验收.md)，阶段依赖见 [开发路线](../开发路线.md)。
+更新于 2026-10-07。**计划 `p3-multiclass-20261006-v1` 的 P3-A（A1–A6）、P3-B、P3-C 已完成；A7 可选未执行。P3-B 累计拟合上限经书面调整为 33 次并已用尽，完整框架与双端对拍通过（见 5.7）。P3-C 冻结了 opset 17 候选与 P6 评估计划（见 5.8），未读取 test。** 本文件是 P3 的执行入口：记录输入、步骤、出口和当前进度。规则见 [数据与模型方案](../数据与模型方案.md)，指标见 [验证与验收](../验证与验收.md)，阶段依赖见 [开发路线](../开发路线.md)。
 
 旧 prefix 慢速路线已终止，摘要见第 6 节。
 
@@ -109,7 +109,7 @@ P3 的产物是冻结候选（ONNX、manifest、阈值和策略参数），交�
 | 输入盘点 | 已完成（2026-10-07） |
 | P3-A | A1–A6 已完成（2026-10-07），A7 可选未执行 |
 | P3-B | **已收口（2026-10-07）**：主矩阵 13 fit + 零拟合审计 + 1 次授权复现；累计 33/33 次，B5 完整框架对拍与双端对拍通过；候选 `candidateOnly`、全部类别 `alert_only` |
-| P3-C | 未开始 |
+| P3-C | **已完成（2026-10-07）**：冻结候选包、逐文件哈希和 P6 评估计划；全部类别仍只告警 |
 
 ### 5.1 A1–A6 完成记录
 
@@ -265,7 +265,23 @@ Windows `run-main-v3` 的 13 个 fit 已结束。当前研究候选为 `main-lig
 
 交付候选为 Windows `.cache/p3b-20261007/run-reproduce-v1/` 的 `model.onnx`（`5a5f8ab3…`）、`preprocessing.json`、`native-model.txt`。Mac 副本与核验分别在 `windows-evidence/run-reproduce-v1/`、`verification-reproduce-mac-v1/`，收口报告在 `closeout-v2/`。32>30 的历史超限作为过程偏差保留，不改写首轮计划；单流参照模型仍排除。训练代码已提交为训练分支 `ca1dd34`。
 
-**出口：P3-B 已收口，validation 门槛与 B5 对拍均通过。** 候选保持 `candidateOnly`、全部类别 `alert_only`；P3-C 未开始，需授权④。
+**当时出口：P3-B 已收口，validation 门槛与 B5 对拍均通过。** 候选保持 `candidateOnly`、全部类别 `alert_only`；后续 P3-C 见 5.8。
+
+### 5.8 P3-C 冻结候选（2026-10-07）
+
+使用 `PYTHONPATH=.cache/p3b-20261007/audit-deps python3 -B scripts/p3/freeze_multiclass_candidate.py --output .cache/p3c-20261007/candidate-v2` 从 B5 复现制品生成冻结包。`candidate-v1/` 原样留存；v2 补齐了评估计划对策略、类别映射、预处理、训练代码清单、提取器及指标定义的哈希绑定。原 B5 图保持原样，包内 `source-model.onnx` 仅用于溯源；绑定 manifest 的 `model.onnx` 将默认 ONNX opset 从 15 转为唯一的 17，`ai.onnx.ml` 仍为 3。ONNX checker、Mac ONNX Runtime 1.27.0 均通过。候选包位于忽略目录，不进 Git；`checksums.json` 登记 15 个文件的 SHA-256 与大小，自身不计入以避免循环哈希。
+
+| 核验 | 冻结结果 |
+|---|---|
+| 转换后模型 SHA-256 | `5fa8cd1721bc5762aa4adae3befd678562469b37b30eea6c650311ea94255a79` |
+| train 全量 234,841 行 | 与 B5 原图最大输出差 0、类别翻转 0；与保存的框架概率最大差 3.47e-6 |
+| validation 全量 106,129 行 | 与 B5 原图最大输出差 0、类别翻转 0；与保存的框架概率最大差 1.36e-6 |
+| Windows 运行时 | 同一 SHA 的图在 `win-dev` ONNX Runtime 1.23.2 加载成功；43+43+3 输入及双输出结构一致，固定零值输入与 Mac 1.27.0 最大输出差约 `6e-8`；这仅验证运行时兼容，不代替 P6 的全量双端核验 |
+| manifest 与策略 | `model-manifest.json` 按 rc.2 Schema 验证；类别顺序、预处理、无额外校准、规则阈值和各类 `autoThreshold`/`minDistinctFlows` 已绑定；`candidateOnly=true`、全部类别 `alert_only`、自动执行关闭；v2 manifest SHA-256 为 `1b31bdfedec969a66e604072e625ada6569806f558b2f2837f89f2c95bc9f582` |
+| P6 计划 | `evaluation-plan.json` SHA-256 为 `d6b0c67bb518c4c2f98b8cf31af63d158d784477bc5d43ad7ee24b52392c68e5`，绑定模型、切分、L1 test、类别映射、策略、预处理、提取器、训练与冻结代码及指标定义哈希；G1 检出率 ≥ 90% / FPR ≤ 2%、G2 macro-F1 ≥ 0.80；最多 3 次，后两次须先登记改动与原因 |
+| test 封存 | 未读取；`test-access.jsonl` SHA-256 仍为 `5c34d83ae60cd87277b780268f6ff9d11b1e2d8090f4d799abd58817b4a1d843`，test 目录权限仍为 `000` |
+
+规则与来源预览只是 validation 研究结果，不构成真实授权、在线策略或防火墙能力。P6 评估程序尚未实现；读取 test 前仍须冻结其代码哈希、核对 v2 包的逐文件哈希，并通过访问入口登记。P6 才能按计划读取 L1 test；L2 的 A7 仍可选，L3 只作测试。P4 多分类接入和 P5 平台实测也仍分别待完成，P3-C 不授予发布或自动封禁资格。
 
 ## 6. 已终止的旧 prefix 慢速路线
 

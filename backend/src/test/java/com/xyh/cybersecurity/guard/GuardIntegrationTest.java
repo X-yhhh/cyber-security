@@ -9,6 +9,7 @@ import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.boot.test.autoconfigure.web.servlet.MockMvcPrint;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -31,12 +32,12 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 
 /** 固定 ONNX、隔离 MySQL、专用测试身份完成 P4 API/事务闭环，不调用真实防火墙。 */
 @SpringBootTest(properties={"cyber.ingest.consumer.enabled=false","cyber.ingest.outbox-relay.enabled=false","cyber.drift.enabled=false","cyber.guard.automation-enabled=true","cyber.security.local-admin-bootstrap.enabled=false"})
-@AutoConfigureMockMvc
+@AutoConfigureMockMvc(print=MockMvcPrint.NONE)
 @EnabledIfEnvironmentVariable(named="DB_TEST_BASE_URL",matches=".+")
 class GuardIntegrationTest {
     static final String SCHEMA="cyber_guard_api_p4_"+UUID.randomUUID().toString().replace("-","");
-    static final Path ROOT=Path.of("target/guard-fixtures").toAbsolutePath();
-    static final JsonNode PROTECTION=object("protectedBudgetTargetIds",List.of(),"protectedServicePorts",List.of(22,3389));
+    static final Path ROOT=Path.of(System.getenv().getOrDefault("P5_RUN_DIR","target/guard-fixtures")).toAbsolutePath();
+    static final JsonNode PROTECTION=object("protectedBudgetTargetIds",List.of(),"protectedServicePorts",List.of(22,53,3389));
     static KeyPair signing;
     @DynamicPropertySource static void props(DynamicPropertyRegistry r)throws Exception{
         Files.createDirectories(ROOT);signing=KeyPairGenerator.getInstance("Ed25519").generateKeyPair();Files.write(ROOT.resolve("signing.der"),signing.getPrivate().getEncoded());Files.setPosixFilePermissions(ROOT.resolve("signing.der"),PosixFilePermissions.fromString("rw-------"));
@@ -83,21 +84,24 @@ class GuardIntegrationTest {
     record Fixture(String asset,String sensor,String sensorCredential,String executor,String executorCredential,String scope,String config,String configHash,String boot,String executorBoot,String capability,String model,String policy,String bundle,String authorization,String target,String token,String targetId,String capabilityHash){}
     Fixture setup()throws Exception{return setup("dos_slow",List.of());}
     Fixture setup(String family,List<JsonNode> rules)throws Exception{return setup(family,rules,false);}
+    String fixtureDirection(boolean scan){return scan?"inbound":"outbound";}
+    String fixtureInterface(){return "fixture0";}
+    String fixtureAdapterVersion(){return "fixture-1";}
     /** exempt=true 时登记带签名豁免报告的 macOS PF 全入站能力（B1.2），其余步骤与普通夹具相同。 */
     Fixture setup(String family,List<JsonNode> rules,boolean exempt)throws Exception{
-        boolean scan=family.equals("port_scan");String direction=scan?"inbound":"outbound";
+        boolean scan=family.equals("port_scan");String direction=fixtureDirection(scan);
         String folder=id();Path dir=ROOT.resolve(folder);Files.createDirectories(dir);
         String asset=human("/assets",object("assetKey",id(),"platform","macos","environment","lab","owner","isolated-p4-test"),operator,null).path("id").asText();
-        ObjectNode cap=object("capabilityKey",id(),"version","fixture-v1","platform","macos","adapterVersion","fixture-1","addressFamily","ipv4","transport","tcp","direction",direction,"family",family,"profile","flow-prefix-v1","behaviorScope",List.of("slowloris","slowhttptest"),"latencyLimits",object("maxMs",10000),"level","lab_auto");
+        ObjectNode cap=object("capabilityKey",id(),"version","fixture-v1","platform","macos","adapterVersion",fixtureAdapterVersion(),"addressFamily","ipv4","transport","tcp","direction",direction,"family",family,"profile","flow-prefix-v1","behaviorScope",List.of("slowloris","slowhttptest"),"latencyLimits",object("maxMs",10000),"level","lab_auto");
         if(exempt){write(dir,"exemption.json",GuardSignatures.sign(object("passed",true,"scope","peer_inbound","platform","macos-pf","protectionSetSha256",hash(PROTECTION)),"fixture-runner",signing.getPrivate()));
             cap.put("scope","peer_inbound").put("protectionSetSha256",hash(PROTECTION)).put("exemptionEvidenceSha256",sha(Files.readAllBytes(dir.resolve("exemption.json"))));}
         JsonNode signed=GuardSignatures.sign(object("passed",true,"protocolVersions",versions(),"capability",cap),"fixture-runner",signing.getPrivate());write(dir,"capability.json",signed);cap.put("evidenceRef",folder+"/capability.json").put("evidenceSha256",sha(Files.readAllBytes(dir.resolve("capability.json")))).put("runnerIdentity","fixture-runner");if(exempt)cap.put("exemptionEvidenceRef",folder+"/exemption.json");
         String capability=human("/capabilities",cap,operator,null).path("id").asText();
         Instant now=Instant.now().truncatedTo(ChronoUnit.MILLIS);
-        String auth=human("/assets/"+asset+"/authorizations",object("interfaces",List.of("fixture0"),"observationAllowed",true,"executionScopes",List.of(object("scope",scan?"peer_inbound":"peer_service","direction",direction,"transport","tcp","servicePort",scan?null:443,"addressFamily","ipv4","capabilityId",capability)),"validFrom",now.minusSeconds(60).toString(),"validUntil",now.plusSeconds(3600).toString(),"evidenceRef","fixture:isolated-test"),operator,null).path("id").asText();
+        String auth=human("/assets/"+asset+"/authorizations",object("interfaces",List.of(fixtureInterface()),"observationAllowed",true,"executionScopes",List.of(object("scope",scan?"peer_inbound":"peer_service","direction",direction,"transport","tcp","servicePort",scan?null:443,"addressFamily","ipv4","capabilityId",capability)),"validFrom",now.minusSeconds(60).toString(),"validUntil",now.plusSeconds(3600).toString(),"evidenceRef","fixture:isolated-test"),operator,null).path("id").asText();
         human("/authorizations/"+auth+"/decisions",object("decision","approve","reason","隔离测试批准"),reviewer,"1");
         String scope=id();JsonNode sensor=human("/sensors",object("assetId",asset,"platform","macos","captureScopeId",scope),operator,null);JsonNode executor=human("/executors",object("assetId",asset,"platform","macos","capabilityProbeRef","fixture:probe"),operator,null);
-        JsonNode config=object("contractVersion",CONTRACT,"profileSha256",contracts.profileHash(),"captureHealthVersion",HEALTH,"interfaceIds",List.of("fixture0"),"limits",object("maxBatchSize",100),"captureScopeId",scope,"addressFamily","ipv4","buildSha256","b".repeat(64));
+        JsonNode config=object("contractVersion",CONTRACT,"profileSha256",contracts.profileHash(),"captureHealthVersion",HEALTH,"interfaceIds",List.of(fixtureInterface()),"limits",object("maxBatchSize",100),"captureScopeId",scope,"addressFamily","ipv4","buildSha256","b".repeat(64));
         String configId=human("/sensors/"+sensor.path("id").asText()+"/configs",config,operator,null).path("id").asText();human("/sensor-configs/"+configId+"/decisions",object("decision","approve","reason","隔离测试配置"),reviewer,"1");
         String boot=id(),eboot=id();machine("/sensors/"+sensor.path("id").asText()+"/heartbeats",object("bootId",boot,"version","fixture-1","configHash",hash(config),"lastSequence",0,"clockSkewMs",0),sensor.path("credential").asText());
         machine("/executors/"+executor.path("id").asText()+"/heartbeats",object("bootId",eboot,"adapterVersion","fixture-1","capabilityHash","c".repeat(64),"pendingRecovery",false,"activeRuleCount",0,"clockSkewMs",0),executor.path("credential").asText());
@@ -267,5 +271,38 @@ class GuardIntegrationTest {
                 .header("Authorization","Bearer "+f.executorCredential).header("Idempotency-Key",id())
                 .contentType("application/json").content(canonical(object("stableTargetToken","9".repeat(64))))).andReturn();
         assertThat(missing.getResponse().getStatus()).isEqualTo(404);
+    }
+    /** 周期墓碑覆盖有/无签名撤销；换引用、keyEpoch、策略或签名身份不清零预算。 */
+    @Test void revokedStableTargetSurvivesRotationAndZeroChargeRecoversOnlyWithHealth()throws Exception{
+        for(boolean signed:List.of(false,true)){
+            Fixture f=setup();accept(f,List.of(observation(f,Instant.now().truncatedTo(ChronoUnit.MICROS),id(),0)),1,true);
+            var asset=store.external("asset",f.asset,false);long aid=number(asset,"id");
+            var action=store.one("guard_action",map("asset_id",aid),false);
+            if(signed)assertThat(machine("/executors/"+f.executor+"/command-claims",object("bootId",f.executorBoot,"capabilityHash",f.capabilityHash,"maxItems",10,"waitSeconds",0),f.executorCredential).path("commands")).hasSize(1);
+            human("/actions/"+action.get("public_id")+"/revocations",object("reason","周期墓碑验证"),reviewer,signed?"2":"1");
+            long tid=number(action,"budget_target_id");assertThat(budget.revoked(tid)).isTrue();
+            var state=store.one("guard_target_budget",map("budget_target_id",tid),false);long charged=number(state,"charged_ms");
+            ObjectNode rebinding=(ObjectNode)targetBody(f.executor,f.sensor,f.scope,f.boot,f.executorBoot,id(),f.token);rebinding.put("keyEpoch",2);
+            assertThat(machine("/executors/"+f.executor+"/target-bindings",rebinding,f.executorCredential).path("budgetTargetId").asText()).isEqualTo(f.targetId);
+            var policy=(ObjectNode)json(store.external("guard_decision_policy",f.policy,false),"definition_json");policy.put("policyVersion","rotated");
+            assertThat(budget.check(aid,tid,policy,store.now(),store.now().plusSeconds(30))).isEqualTo("TARGET_REVOKED");
+            var rotated=new GuardSignatures("rotated-key",ROOT.resolve("signing.der").toString(),ROOT.resolve("trust.json").toString());
+            assertThat(rotated.sign(object("rotation",true)).path("keyId").asText()).isEqualTo("rotated-key");
+            assertThat(number(store.one("guard_target_budget",map("budget_target_id",tid),false),"charged_ms")).isEqualTo(charged);
+            accept(f,List.of(observation(f,Instant.now().truncatedTo(ChronoUnit.MICROS),id(),0)),2,true);
+            assertThat(store.rows("guard_action",map("asset_id",aid),false,10)).hasSize(1);
+            assertThat(store.rows("guard_command",map("action_id",action.get("id")),false,10)).hasSize(signed?1:0);
+            var tx=new TransactionTemplate(manager);assertThat(tx.<Boolean>execute(s->budget.recover(aid,tid,store.now()))).isFalse();
+            if(!signed){
+                assertThat(charged).isZero();Instant end=store.now().minusSeconds(125),through=store.now();
+                jdbc.update("UPDATE guard_target_budget SET last_block_end_at=?,last_evidence_at=? WHERE budget_target_id=?",db(end),db(end),tid);
+                var health=org.mockito.Mockito.mock(GuardHealth.class);
+                org.mockito.Mockito.when(health.proof(org.mockito.ArgumentMatchers.eq(aid),org.mockito.ArgumentMatchers.any(),org.mockito.ArgumentMatchers.any(),org.mockito.ArgumentMatchers.any())).thenReturn(object("through",through.toString(),"windows",List.of("authenticated-test-proof")));
+                var recovered=new GuardBudget(store,null,health);
+                assertThat(tx.<Boolean>execute(s->recovered.recover(aid,tid,through))).isTrue();assertThat(budget.revoked(tid)).isFalse();
+                assertThat(tx.<Boolean>execute(s->recovered.recover(aid,tid,through))).isFalse();
+                assertThat(budget.check(aid,tid,policy,through,through.plusSeconds(30))).isNull();
+            }
+        }
     }
 }

@@ -24,24 +24,27 @@ import numpy as np
 import onnxruntime as ort
 import jsonschema
 
-from metrics import CLASSES, first_decisions, gates_and_eligibility, report
+from metrics import CLASSES, first_decisions, gates_and_eligibility, report, source_eligibility
 from runtime import compare, framework_predict, predict, read, session, sha, write
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts/p3"))
 from access_multiclass_test import evaluation_lock
 from multiclass_common import model_input, micros
+from candidate_plan import check_plan
 
-VERSION = "host-guard-evaluation/2026-10-07.1"
 CODE = ("scripts/p6/evaluate.py", "scripts/p6/metrics.py", "scripts/p6/runtime.py",
         "scripts/p6/closeout.py", "scripts/p6/test_evaluation.py",
-        "scripts/p3/access_multiclass_test.py", "scripts/p3/multiclass_common.py")
+        "scripts/p3/access_multiclass_test.py", "scripts/p3/multiclass_common.py", "scripts/p3/candidate_plan.py")
 SCHEMA_REVISION = "efcbd12"
 SCHEMA_SHA256 = "b24176be2841a5fb3bc4bec65bbc14646a897e54ff302bbe510cbba5e128c2df"
+LEGACY_CHECKSUMS = "29c2ebf328c07cdc9cc6fb11ae382a714e340e5d48e2b35b930607155bafb3ee"
 
 
-def candidate_schema():
-    """冻结候选沿用 P3-C 的 rc.2；独立校验，不回退 P4 当前 rc.3 契约。"""
+def candidate_schema(legacy=False):
+    """新候选使用现行 Schema；历史 Schema 仅供固定 candidate-v2 只读复核。"""
+    if not legacy:
+        return read(ROOT / "docs/contracts/model-manifest.schema.json")
     result = subprocess.run(["git", "show", SCHEMA_REVISION + ":docs/contracts/model-manifest.schema.json"],
                             cwd=ROOT, capture_output=True, check=True)
     if hashlib.sha256(result.stdout).hexdigest() != SCHEMA_SHA256:
@@ -61,25 +64,44 @@ def events(root):
     return [json.loads(value) for value in path.read_text(encoding="utf-8").splitlines()] if path.exists() else []
 
 
-def checked_candidate(candidate):
+def checked_candidate(candidate, *, legacy=False):
     """核验完整包与计划的实际字节绑定；不以可修改的路径名代替哈希。"""
     checksums = read(candidate / "checksums.json")
+    if legacy and sha(candidate / "checksums.json") != LEGACY_CHECKSUMS:
+        raise ValueError("历史复核只允许原始 candidate-v2")
+    required = {"model.onnx", "model-manifest.json", "evaluation-plan.json", "decision-policy.json",
+                "preprocessing.json", "calibration.json", "class-map.json", "split-manifest.json",
+                "training-code-manifest.json", "validation-report.json", "native-model.txt"}
+    if not legacy:
+        # 单对端检查是冻结准入条件（验收第 6 节）；手工组包也不能绕过，P6 入口独立复核。
+        required.add("single-peer-report.json")
+    if not required <= set(checksums["files"]):
+        raise ValueError("候选校验清单缺少必需文件")
     for name, item in checksums["files"].items():
         if Path(name).name != name or (candidate / name).stat().st_size != item["bytes"] \
                 or sha(candidate / name) != item["sha256"]:
             raise ValueError("候选文件哈希不符")
     manifest, plan = read(candidate / "model-manifest.json"), read(candidate / "evaluation-plan.json")
-    jsonschema.Draft202012Validator(candidate_schema(),
+    if not legacy:
+        check_plan(plan)
+    elif plan["evaluationVersion"] != "host-guard-evaluation/2026-10-07.1":
+        raise ValueError("历史评价版本不符")
+    jsonschema.Draft202012Validator(candidate_schema(legacy),
                                    format_checker=jsonschema.FormatChecker()).validate(manifest)
     bindings = {"candidateSha256": "model.onnx", "splitManifestSha256": "split-manifest.json",
-                "classMapSha256": "class-map.json", "decisionPolicySha256": "decision-policy.json",
+                "classMapSha256": "class-map.json",
                 "preprocessingSha256": "preprocessing.json", "calibrationSha256": "calibration.json",
                 "trainingCodeManifestSha256": "training-code-manifest.json"}
     for key, name in bindings.items():
         if plan[key] != sha(candidate / name):
             raise ValueError("P6 计划绑定不符")
+    if legacy and plan["decisionPolicySha256"] != sha(candidate / "decision-policy.json"):
+        raise ValueError("历史策略绑定不符")
+    if not legacy and "decisionPolicySha256" in plan:
+        raise ValueError("计划不能反向绑定策略造成循环哈希；策略由候选清单和登记绑定")
     references = {"artifactSha256": "model.onnx", "preprocessingSha256": "preprocessing.json",
                   "calibrationSha256": "calibration.json", "splitManifestSha256": "split-manifest.json",
+                  "datasetManifestSha256": "split-manifest.json", "trainingCodeSha256": "training-code-manifest.json",
                   "evaluationPlanSha256": "evaluation-plan.json", "validationReportSha256": "validation-report.json"}
     for key, name in references.items():
         if manifest[key] != sha(candidate / name):
@@ -87,24 +109,95 @@ def checked_candidate(candidate):
     feature = read(ROOT / "docs/contracts/feature-profile.json")
     class_map, policy = read(candidate / "class-map.json"), read(candidate / "decision-policy.json")
     pre = read(candidate / "preprocessing.json")
-    if (not manifest["candidateOnly"] or plan["stage"] != "P6" or plan["evaluationVersion"] != VERSION
-            or plan["metricDefinitionSha256"] != sha(ROOT / "docs/验证与验收.md")
+    if (not manifest["candidateOnly"] or plan["stage"] != "P6" or not plan["evaluationVersion"]
+            or (not legacy and plan["metricDefinitionSha256"] != sha(ROOT / "docs/验证与验收.md"))
             or plan["featureProfileSha256"] != sha(ROOT / "docs/contracts/feature-profile.json")
             or manifest["numericFeatures"] != feature["numericFeatures"]
+            or manifest["categoricalFeatures"] != feature["categoricalFeatures"]
             or manifest["outputContract"]["familyScoreOrder"] != list(CLASSES[1:])
-            or class_map["classOrder"] != list(CLASSES) or policy["automaticExecutionEnabled"]
-            or set(policy["classes"]) != set(CLASSES[1:])
-            or any(item["mode"] != "alert_only" for item in policy["classes"].values())
-            or pre["fitRole"] != "train" or pre["numericIndices"] != list(range(43))
+            or class_map["classOrder"] != list(CLASSES)
+            or pre["fitRole"] != "train" or pre["numericIndices"] != numeric_indices(pre["featureSet"], feature)
             or not pre["includeServiceClass"] or read(candidate / "calibration.json")["method"] != "none"
-            or plan["maxTestEvaluations"] != 3):
+            or plan["maxTestEvaluations"] != 3
+            or read(candidate / "split-manifest.json")["datasetSha256"]["test"] != plan["testDatasetSha256"]):
         raise ValueError("冻结评价语义不符")
-    if (not np.isfinite(policy["alertThreshold"]) or not 0 <= policy["alertThreshold"] <= 1
-            or [item["family"] for item in policy["rules"]] != list(CLASSES[1:])
-            or any(item["automatic"] or item["field"] not in feature["numericFeatures"]
-                   or not np.isfinite(item["threshold"]) for item in policy["rules"])):
-        raise ValueError("冻结策略或规则非法")
+    if len(plan["evaluationIds"]) != 3 or len(set(plan["evaluationIds"])) != 3:
+        raise ValueError("评价 ID 必须为三个不同的登记值")
+    if manifest["featureProfileSha256"] != plan["featureProfileSha256"] or manifest["extractorSha256"] != plan["extractorSha256"]:
+        raise ValueError("manifest 与计划版本绑定不符")
+    checked_policy(policy, manifest, plan, candidate, feature, legacy=legacy)
+    if not legacy:
+        checked_single_peer(candidate)
     return manifest, plan, feature, policy, pre
+
+
+def checked_single_peer(candidate):
+    """单对端证据须针对同一源模型、预处理与 validation，四类降幅都不超过 20 个百分点。
+
+    不比对当前工具源码哈希：冻结后 P6 工具的修正不应使已冻结证据失效，源码哈希仍随报告保存。
+    """
+    proof = read(candidate / "single-peer-report.json")
+    split = read(candidate / "split-manifest.json")
+    drops = proof.get("dropByClass")
+    if (proof.get("version") != "host-guard-single-peer-check/1" or proof.get("passed") is not True
+            or proof.get("testRead") is not False or proof.get("newFits") != 0
+            or proof.get("candidateOnly") is not True or proof.get("datasetRole") != "validation"
+            # 单对端在源模型上运行；转换图与源图的逐行对拍已在 prepare 完成并记录在 provenance。
+            or proof.get("candidateSha256") != read(candidate / "provenance.json")["sourceModelSha256"]
+            or proof.get("candidateSha256") != sha(candidate / "source-model.onnx")
+            or proof.get("preprocessingSha256") != sha(candidate / "preprocessing.json")
+            or proof.get("datasetSha256") != split["datasetSha256"]["validation"]
+            or proof.get("threshold") != read(candidate / "validation-report.json")["alertThreshold"]
+            or proof.get("hostRewrite") != {"hostDistinctPeers": 1, "hostFlowStarts": "peerFlowStarts"}
+            or not isinstance(drops, dict) or set(drops) != set(CLASSES[1:])
+            or any(isinstance(value, bool) or not isinstance(value, (int, float)) or not np.isfinite(value)
+                   or value > .20 + 1e-12 for value in drops.values())):
+        raise ValueError("缺少同一候选的单对端通过证据")
+
+
+def numeric_indices(feature_set, feature):
+    """外部张量始终为 43 维；原生模型按冻结的消融选列还原。"""
+    if feature_set not in ("full", "no_host_context"):
+        raise ValueError("未知特征集")
+    return [i for i, name in enumerate(feature["numericFeatures"])
+            if feature_set == "full" or name.split(".")[-1] not in ("hostFlowStarts", "hostDistinctPeers")]
+
+
+def checked_policy(policy, manifest, plan, candidate, feature, *, legacy=False):
+    """校验冻结策略；新策略必须合规且只告警，不从离线成绩授予动作资格。"""
+    if legacy:
+        if (policy["automaticExecutionEnabled"] or set(policy["classes"]) != set(CLASSES[1:])
+                or any(item["mode"] != "alert_only" for item in policy["classes"].values())
+                or any(item["automatic"] for item in policy["rules"])):
+            raise ValueError("历史研究策略非法")
+        return
+    jsonschema.Draft202012Validator(read(ROOT / "docs/contracts/decision-policy.schema.json"),
+                                   format_checker=jsonschema.FormatChecker()).validate(policy)
+    families, rules = policy["familyPolicies"], policy.get("rulePolicies", [])
+    if (policy["modelId"] != manifest["modelId"] or policy["evaluationPlanSha256"] != sha(candidate / "evaluation-plan.json")
+            or policy["mode"] != "alert_only" or len(families) != 4
+            or {item["family"] for item in families} != set(CLASSES[1:])
+            or any(item["autoEligible"] or item["modelAutoEligible"] for item in families)
+            or any(item["autoEligible"] for item in rules)
+            or len({item["ruleId"] for item in rules}) != len(rules)
+            or any(item["field"] not in feature["numericFeatures"] for item in rules)
+            or plan["automaticEligibility"].get("sourceMode") != "model_and_each_rule"):
+        raise ValueError("冻结策略、来源口径或计划绑定非法")
+    if plan["evaluationVersion"] == "host-guard-evaluation/2026-10-07.1":
+        raise ValueError("新来源口径必须另行登记评价版本")
+
+
+def model_decisions(scores, policy):
+    """按 argmax 家族对应的冻结告警阈值判定；旧研究格式保留统一阈值。"""
+    families = np.argmax(scores[:, 1:], axis=1)
+    thresholds = {item["family"]: item["alertThreshold"] for item in policy.get("familyPolicies", [])}
+    cutoffs = np.asarray([thresholds.get(CLASSES[i + 1], policy["alertThreshold"]) for i in families])
+    return np.where(scores[:, 0] >= cutoffs, families + 1, 0)
+
+
+def alert_thresholds(policy):
+    return ({item["family"]: item["alertThreshold"] for item in policy["familyPolicies"]}
+            if "familyPolicies" in policy else policy["alertThreshold"])
 
 
 def prepare(args):
@@ -140,7 +233,7 @@ def prepare(args):
         feed = inputs(development_rows, feature, pre)
         development_parity = compare(predict(session(candidate / "model.onnx"), feed),
                                      framework_predict(feed, pre, candidate / "native-model.txt"),
-                                     policy["alertThreshold"])
+                                     alert_thresholds(policy))
         if not development_parity["passed"]:
             raise ValueError("开发集自检未通过，不准入 test")
         del development_rows, feed
@@ -169,7 +262,10 @@ def prepare(args):
                     "datasetRelativePath": "test/dataset.jsonl" if args.layer == "L1" else "sealed-test/dataset.jsonl",
                     "priorAccessLogSha256": sha(frozen / "test-access.jsonl"),
                     "codeSha256": {name: sha(ROOT / name) for name in CODE}, "observationSources": sources,
-                    "candidateSchemaSha256": SCHEMA_SHA256, "candidateSchemaRevision": SCHEMA_REVISION,
+                    "candidateSchemaSha256": sha(ROOT / "docs/contracts/model-manifest.schema.json"),
+                    "policySchemaSha256": sha(ROOT / "docs/contracts/decision-policy.schema.json"),
+                    "decisionPolicySha256": sha(candidate / "decision-policy.json"),
+                    "evaluationVersion": plan["evaluationVersion"], "candidateSchemaRevision": "current",
                     "changeRecord": {"evaluationId": args.evaluation_id,
                                      "description": args.change_description, "reason": args.change_reason},
                     "packages": {"numpy": np.__version__, "onnxruntime": ort.__version__,
@@ -298,7 +394,10 @@ def inputs(rows, feature, pre):
 
 
 def frozen_rules(feed, metadata_rows, feature, policy):
+    """新策略逐条执行契约操作符；历史研究策略仅用于固定包的复核。"""
     ports = np.asarray([row["servicePort"] for row in metadata_rows])
+    if "familyPolicies" in policy:
+        return rule_hits(feed, feature, policy)
     hits = np.zeros((len(ports), 4), dtype=bool)
     for i, rule in enumerate(policy["rules"]):
         index = feature["numericFeatures"].index(rule["field"])
@@ -307,6 +406,27 @@ def frozen_rules(feed, metadata_rows, feature, policy):
             & (feed["numeric_values"][:, index].astype(np.float64) >= rule["threshold"]) \
             & (feed["numeric_values"][:, 0] >= rule["minElapsedMs"])
     return hits
+
+
+def rule_hits(feed, feature, policy):
+    """返回每条规则的独立命中，避免同一家族多规则互相借用成绩。"""
+    operators = {"gte": np.greater_equal, "gt": np.greater, "lte": np.less_equal,
+                 "lt": np.less, "eq": np.equal}
+    result = np.zeros((len(feed["numeric_values"]), len(policy.get("rulePolicies", []))), dtype=bool)
+    for i, rule in enumerate(policy.get("rulePolicies", [])):
+        index = feature["numericFeatures"].index(rule["field"])
+        result[:, i] = (feed["numeric_missing"][:, index] == 0) & operators[rule["operator"]](
+            feed["numeric_values"][:, index].astype(np.float64), rule["threshold"])
+    return result
+
+
+def family_hits(hits, policy):
+    if "familyPolicies" not in policy:
+        return hits
+    result = np.zeros((len(hits), 4), dtype=bool)
+    for i, rule in enumerate(policy.get("rulePolicies", [])):
+        result[:, CLASSES.index(rule["family"]) - 1] |= hits[:, i]
+    return result
 
 
 def run(args):
@@ -330,9 +450,17 @@ def run(args):
                                         "lightgbm": lightgbm.__version__}:
             raise ValueError("准入后运行时依赖改变")
         if (sha(candidate / "checksums.json") != registration["candidateChecksumsSha256"]
+                or sha(candidate / "evaluation-plan.json") != registration["evaluationPlanSha256"]
                 or sha(frozen / "manifest.json") != registration["datasetManifestSha256"]
                 or sha(frozen / "test-access.jsonl") != registration["priorAccessLogSha256"]):
             raise ValueError("准入后清单或访问状态改变")
+        if (
+                registration["evaluationVersion"] != plan["evaluationVersion"]
+                or registration["decisionPolicySha256"] != sha(candidate / "decision-policy.json")
+                or registration["modelManifestSha256"] != sha(candidate / "model-manifest.json")
+                or registration["candidateSchemaSha256"] != sha(ROOT / "docs/contracts/model-manifest.schema.json")
+                or registration["policySchemaSha256"] != sha(ROOT / "docs/contracts/decision-policy.schema.json")):
+            raise ValueError("准入后策略、manifest 或 Schema 改变")
         data = load_registered(registration, output)
         meta = metadata(data, registration)
         feed = inputs(data, feature, pre)
@@ -340,7 +468,7 @@ def run(args):
         inference_start = time.perf_counter()
         scores = predict(runtime, feed)
         inference_seconds = time.perf_counter() - inference_start
-        parity = compare(scores, framework_predict(feed, pre, candidate / "native-model.txt"), policy["alertThreshold"])
+        parity = compare(scores, framework_predict(feed, pre, candidate / "native-model.txt"), alert_thresholds(policy))
         labels = np.asarray([CLASSES.index(row["label"]) for row in data])
         sources = np.asarray(["website" if row.get("websiteSupplement") else "internal" for row in data])
         scenarios = np.asarray([row["activityId"] for row in data])
@@ -353,15 +481,24 @@ def run(args):
         hits = frozen_rules(feed, meta, feature, policy)
         first, decisions = first_decisions(parents, [row["time"] for row in meta],
                                             [row["sequence"] for row in meta],
-                                            [row["observationId"] for row in data], scores, hits, policy["alertThreshold"])
+                                            [row["observationId"] for row in data], scores, family_hits(hits, policy),
+                                            policy["alertThreshold"], model_decisions(scores, policy))
         reports = [report(labels[first], decision, sources[first], scenarios[first], l1=registration["layer"] == "L1")
                    for decision in decisions]
+        per_rule = {}
+        for i, rule in enumerate(policy.get("rulePolicies", [])):
+            detected = {parent for parent, hit in zip(parents, hits[:, i]) if hit}
+            selected = [CLASSES.index(rule["family"]) if parents[index] in detected else 0 for index in first]
+            per_rule[rule["ruleId"]] = report(labels[first], selected, sources[first], scenarios[first],
+                                              l1=registration["layer"] == "L1")
         dataset_manifest = read(frozen / "manifest.json")
         if registration["layer"] == "L1":
             if (dict(Counter(row["label"] for row in data)) != dataset_manifest["snapshotCounts"]["test"]
                     or dict(Counter(CLASSES[index] for index in labels[first])) != dataset_manifest["connectionCounts"]["test"]):
                 raise ValueError("测试样本量与冻结清单不符")
             gates, eligibility = gates_and_eligibility(reports[0], plan)
+            if "familyPolicies" in policy:
+                eligibility = source_eligibility(reports[0], per_rule, policy, plan)
         else:
             gates, eligibility = {"G1": "report_only", "G2": "report_only", "G3": "not_evaluated"}, {}
         bundle = output / "runtime-bundle"
@@ -372,20 +509,24 @@ def run(args):
         write(bundle / "runtime-bundle.json", {"version": "p6-runtime-bundle/1",
                                                "evaluationId": registration["evaluationId"],
                                                "referencePlatform": platform.system(),
-                                               "alertThreshold": policy["alertThreshold"],
+                                               "alertThreshold": alert_thresholds(policy),
                                                "runtimeCodeSha256": registration["codeSha256"]["scripts/p6/runtime.py"],
                                                "files": {name: sha(bundle / name) for name in
                                                          ("model.onnx", "feed.npz", "mac-output.npy")},
                                                "containsLabelsOrIdentifiers": False})
-        result = {"version": VERSION, "stage": "P6", "layer": registration["layer"],
+        result = {"version": plan["evaluationVersion"], "stage": "P6", "layer": registration["layer"],
                   "evaluationId": registration["evaluationId"], "snapshots": len(data),
                   "registrationSha256": sha(args.registration),
                   "modelSha256": plan["candidateSha256"], "datasetSha256": registration["datasetSha256"],
                   "evaluationPlanSha256": registration["evaluationPlanSha256"],
-                  "modelOnly": reports[0], "ruleOnly": reports[1], "combinedOr": reports[2],
+                  "decisionPolicySha256": registration.get("decisionPolicySha256"),
+                  "modelManifestSha256": registration.get("modelManifestSha256"),
+                  "modelOnly": reports[0], "ruleOnly": reports[1], "ruleOnlyById": per_rule, "combinedOr": reports[2],
                   "modelAdditionalAttacks": int(((labels[first] > 0) & (decisions[0] > 0) & (decisions[1] == 0)).sum()),
                   "ruleFalseAlarmsNotRaisedByModel": int(((labels[first] == 0) & (decisions[1] > 0) & (decisions[0] == 0)).sum()),
                   "orCorrectedRuleFalseAlarms": 0, "gates": gates, "classEligibility": eligibility,
+                  "sourceEligibility": {family: {"model": values["modelOnly"], "rules": values["ruleOnly"]}
+                                        for family, values in eligibility.items()} if "familyPolicies" in policy else {},
                   "frameworkParity": parity, "crossPlatformParity": "pending_runtime_bundle",
                   "candidateOnly": True, "automaticExecutionEnabled": False,
                   "testEvaluationsUsed": len({item["evaluationId"] for item in events(frozen)
@@ -424,8 +565,16 @@ def main():
     ready.add_argument("--change-reason")
     evaluate = commands.add_parser("run")
     evaluate.add_argument("--registration", type=Path, required=True)
+    review = commands.add_parser("check")
+    review.add_argument("--candidate", type=Path, required=True)
+    review.add_argument("--legacy-candidate-v2", action="store_true")
     args = parser.parse_args()
-    prepare(args) if args.command == "prepare" else run(args)
+    if args.command == "check":
+        manifest, plan, _, _, _ = checked_candidate(args.candidate.resolve(), legacy=args.legacy_candidate_v2)
+        print(json.dumps({"checked": True, "modelVersion": manifest["modelVersion"],
+                          "evaluationVersion": plan["evaluationVersion"], "testRead": False}))
+    else:
+        prepare(args) if args.command == "prepare" else run(args)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,60 @@
+{
+  "stage": "P6",
+  "layer": "L1",
+  "version": "test-source-evaluation/1",
+  "evaluationId": "synthetic-p6-l1",
+  "evaluationPlanSha256": "f47363253afc863b73e43d26a3d3fa37cb190f6627f3800d51334cc205ca85d0",
+  "decisionPolicySha256": "f351183b58522ea88bd7d6eb35526ea5f11874d2348a92c64dd3622570b9a51c",
+  "modelSha256": "3333333333333333333333333333333333333333333333333333333333333333",
+  "gates": {
+    "G1": true,
+    "G2": true,
+    "G3": "not_evaluated"
+  },
+  "classEligibility": {
+    "port_scan": {
+      "modelOnly": {
+        "offlineEligible": false
+      },
+      "ruleOnly": {
+        "scan-ports": {
+          "offlineEligible": true
+        }
+      },
+      "offlineEligible": true,
+      "requiresG3": true,
+      "automaticExecutionEnabled": false,
+      "mode": "alert_only"
+    },
+    "brute_force": {
+      "modelOnly": {
+        "offlineEligible": false
+      },
+      "ruleOnly": {},
+      "offlineEligible": false,
+      "requiresG3": true,
+      "automaticExecutionEnabled": false,
+      "mode": "alert_only"
+    },
+    "dos_flood": {
+      "modelOnly": {
+        "offlineEligible": false
+      },
+      "ruleOnly": {},
+      "offlineEligible": false,
+      "requiresG3": true,
+      "automaticExecutionEnabled": false,
+      "mode": "alert_only"
+    },
+    "dos_slow": {
+      "modelOnly": {
+        "offlineEligible": false
+      },
+      "ruleOnly": {},
+      "offlineEligible": false,
+      "requiresG3": true,
+      "automaticExecutionEnabled": false,
+      "mode": "alert_only"
+    }
+  }
+}

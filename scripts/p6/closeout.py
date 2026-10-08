@@ -7,6 +7,7 @@ from pathlib import Path
 import numpy as np
 
 from runtime import compare, read, sha, write
+from evaluate import checked_candidate, source_eligibility, gates_and_eligibility
 
 
 def closeout(run, cross_platform, l3_run, output):
@@ -16,7 +17,32 @@ def closeout(run, cross_platform, l3_run, output):
     bundle = run / "runtime-bundle"
     runtime_manifest = read(bundle / "runtime-bundle.json")
     remote = read(cross_platform / "runtime-report.json")
+    candidate = Path(registration["candidate"])
+    _, plan, _, policy, _ = checked_candidate(candidate)
+    gates, eligibility = gates_and_eligibility(report["modelOnly"], plan)
+    eligibility = source_eligibility(report["modelOnly"], report["ruleOnlyById"], policy, plan)
+    sources = {family: {"model": values["modelOnly"], "rules": values["ruleOnly"]}
+               for family, values in eligibility.items()}
+    if gates != report["gates"] or eligibility != report["classEligibility"] or sources != report["sourceEligibility"]:
+        raise ValueError("来源资格或门槛与指标不一致")
     if (registration["layer"] != "L1" or report["registrationSha256"] != sha(run / "registration.json")
+            or read(run / "registration-receipt.json")["sha256"] != sha(run / "registration.json")
+            or report["evaluationPlanSha256"] != sha(candidate / "evaluation-plan.json")
+            or registration["evaluationPlanSha256"] != report["evaluationPlanSha256"]
+            or registration["candidateChecksumsSha256"] != sha(candidate / "checksums.json")
+            or registration["modelManifestSha256"] != sha(candidate / "model-manifest.json")
+            or registration["decisionPolicySha256"] != sha(candidate / "decision-policy.json")
+            or report["modelManifestSha256"] != registration["modelManifestSha256"]
+            or report["decisionPolicySha256"] != registration["decisionPolicySha256"]
+            or report["version"] != plan["evaluationVersion"]
+            or registration["evaluationVersion"] != report["version"]
+            or report["evaluationId"] != registration["evaluationId"]
+            or runtime_manifest["evaluationId"] != report["evaluationId"]
+            or runtime_manifest["alertThreshold"] != {item["family"]: item["alertThreshold"] for item in policy["familyPolicies"]}
+            or report["modelSha256"] != plan["candidateSha256"]
+            or report["datasetSha256"] != registration["datasetSha256"]
+            or report["datasetSha256"] != plan["testDatasetSha256"]
+            or report["evaluationId"] not in plan["evaluationIds"]
             or remote["bundleSha256"] != sha(bundle / "runtime-bundle.json")
             or remote["runtimeCodeSha256"] != registration["codeSha256"]["scripts/p6/runtime.py"]
             or remote["modelSha256"] != report["modelSha256"]
@@ -32,9 +58,17 @@ def closeout(run, cross_platform, l3_run, output):
     if any(remote[key] != parity[key] for key in ("rows", "maxProbabilityAbsError", "classFlips", "alertFlips", "passed")):
         raise ValueError("对拍报告与全量输出不一致")
     l3 = read(l3_run / "report.json")
+    l3_registration = read(l3_run / "registration.json")
     if (l3["layer"] != "L3" or l3["modelSha256"] != report["modelSha256"]
             or l3["version"] != report["version"]
-            or l3["registrationSha256"] != sha(l3_run / "registration.json")):
+            or l3["registrationSha256"] != sha(l3_run / "registration.json")
+            or read(l3_run / "registration-receipt.json")["sha256"] != l3["registrationSha256"]
+            or l3["evaluationId"] != l3_registration["evaluationId"]
+            or any(l3[key] != report[key] or l3_registration[key] != registration[key] for key in
+                   ("evaluationPlanSha256", "modelManifestSha256", "decisionPolicySha256"))
+            or l3_registration["layer"] != "L3" or l3_registration["evaluationVersion"] != report["version"]
+            or l3["datasetSha256"] != l3_registration["datasetSha256"]
+            or l3_registration["candidateChecksumsSha256"] != registration["candidateChecksumsSha256"]):
         raise ValueError("L3 未使用同一冻结组合")
     complete = (report["gates"]["G1"] is True and report["gates"]["G2"] is True
                 and report["frameworkParity"]["passed"] and parity["passed"] and l3["frameworkParity"]["passed"])
@@ -43,6 +77,7 @@ def closeout(run, cross_platform, l3_run, output):
               "evaluationPlanSha256": report["evaluationPlanSha256"],
               "codeSha256": registration["codeSha256"],
               "gates": report["gates"], "classEligibility": report["classEligibility"],
+              "sourceEligibility": sources,
               "testEvaluationsUsed": report["testEvaluationsUsed"], "crossPlatformParity": parity,
               "l3": {"connections": l3["modelOnly"]["connections"],
                      "dosSlowDetection": l3["modelOnly"]["attackDetectionByClass"]["dos_slow"],
@@ -58,7 +93,7 @@ def closeout(run, cross_platform, l3_run, output):
                                  "l3Report": sha(l3_run / "report.json")},
               "candidateOnly": True, "automaticExecutionEnabled": False,
               "remaining": ["P5 platform required scenarios", "P7 G3", "P8 asset authorization",
-                            "L2 optional A7 cross-dataset evaluation", "P7 rc.2 candidate to rc.3 manifest migration"]}
+                            "L2 optional A7 cross-dataset evaluation"]}
     write(output, result)
     return result
 

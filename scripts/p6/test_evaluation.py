@@ -140,6 +140,17 @@ class InputTest(unittest.TestCase):
         feed["numeric_missing"][0, self.feature["numericFeatures"].index("contexts.30.peerFlowStarts")] = 1
         self.assertFalse(frozen_rules(feed, [{"servicePort": 22}], self.feature, policy).any())
 
+    def test_current_rule_operators_and_missing_mask(self):
+        feed = inputs([self.row], self.feature, self.pre)
+        operators = ("gte", "gt", "lte", "lt", "eq")
+        policy = {"familyPolicies": [], "rulePolicies": [
+            {"ruleId": name, "family": "port_scan", "field": "contexts.30.peerFlowStarts",
+             "operator": name, "threshold": 1} for name in operators]}
+        self.assertEqual(frozen_rules(feed, [{"servicePort": 80}], self.feature, policy).tolist(),
+                         [[True, False, True, False, True]])
+        feed["numeric_missing"][0, self.feature["numericFeatures"].index("contexts.30.peerFlowStarts")] = 1
+        self.assertFalse(frozen_rules(feed, [{"servicePort": 80}], self.feature, policy).any())
+
 
 class RuntimeTest(unittest.TestCase):
     def test_small_probability_error_cannot_hide_threshold_flip(self):
@@ -260,6 +271,7 @@ class PipelineTest(unittest.TestCase):
         for index, label in enumerate(labels):
             identifier, parent = str(uuid.uuid4()), str(uuid.uuid4())
             value = json.loads(json.dumps(base.row))
+            value["input"]["features"]["elapsedMs"] = index
             value.update({"observationId": identifier, "parentConnectionId": parent,
                           "label": label, "activityId": "synthetic", "profile": "flow-final-v1",
                           "websiteSupplement": index == 1})
@@ -310,11 +322,14 @@ class PipelineTest(unittest.TestCase):
             (candidate / "model.onnx").write_bytes(b"synthetic-model")
             (candidate / "checksums.json").write_text("{}")
             plan = {**PLAN_METRICS, "plan": PLAN, "stage": "P6", "maxTestEvaluations": 3,
+                    "evaluationVersion": "host-guard-evaluation/synthetic-2",
                     "candidateSha256": sha(candidate / "model.onnx"),
                     "splitManifestSha256": sha(frozen / "manifest.json"),
                     "testDatasetSha256": sha(frozen / "test/dataset.jsonl"),
                     "evaluationIds": ["p6-l1-01", "p6-l1-02", "p6-l1-03"]}
             write(candidate / "evaluation-plan.json", plan)
+            write(candidate / "decision-policy.json", {"synthetic": True})
+            write(candidate / "model-manifest.json", {"synthetic": True})
             (frozen / "test-access.jsonl").write_text("")
             registration = {**source_registration, "layer": "L1", "evaluationId": "p6-l1-01", "evaluationOrdinal": 1,
                             "candidate": str(candidate), "frozen": str(frozen),
@@ -322,6 +337,11 @@ class PipelineTest(unittest.TestCase):
                             "candidateChecksumsSha256": sha(candidate / "checksums.json"),
                             "datasetManifestSha256": sha(frozen / "manifest.json"),
                             "evaluationPlanSha256": sha(candidate / "evaluation-plan.json"),
+                            "evaluationVersion": plan["evaluationVersion"],
+                            "decisionPolicySha256": sha(candidate / "decision-policy.json"),
+                            "modelManifestSha256": sha(candidate / "model-manifest.json"),
+                            "candidateSchemaSha256": sha(ROOT / "docs/contracts/model-manifest.schema.json"),
+                            "policySchemaSha256": sha(ROOT / "docs/contracts/decision-policy.schema.json"),
                             "priorAccessLogSha256": sha(frozen / "test-access.jsonl"),
                             "codeSha256": {name: sha(ROOT / name) for name in CODE},
                             "packages": {"numpy": np.__version__, "onnxruntime": __import__("onnxruntime").__version__,
@@ -330,7 +350,13 @@ class PipelineTest(unittest.TestCase):
             write(output / "registration-receipt.json", {"sha256": sha(output / "registration.json")})
             scores = np.array([[.01, .0025, .0025, .0025, .0025]] * 2 +
                               [[.99, *[.99 if i == c else 0 for i in range(4)]] for c in range(4)])
-            policy = {"alertThreshold": .9, "rules": []}
+            policy = {"alertThreshold": .9,
+                      "familyPolicies": [{"family": name, "alertThreshold": .9} for name in CLASSES[1:]],
+                      "rulePolicies": [
+                          {"ruleId": "scan-exact", "family": "port_scan", "field": "features.elapsedMs",
+                           "operator": "eq", "threshold": 2},
+                          {"ruleId": "scan-overbroad", "family": "port_scan", "field": "features.elapsedMs",
+                           "operator": "gte", "threshold": 0}]}
             try:
                 with patch("evaluate.checked_candidate", return_value=({}, plan, base.feature, policy, base.pre)), \
                      patch("evaluate.session", return_value=object()), \
@@ -342,6 +368,13 @@ class PipelineTest(unittest.TestCase):
                 result = read(output / "report.json")
                 self.assertEqual(result["testEvaluationsUsed"], 1)
                 self.assertTrue(result["gates"]["G1"] and result["gates"]["G2"])
+                self.assertEqual(result["version"], plan["evaluationVersion"])
+                rules = result["classEligibility"]["port_scan"]["ruleOnly"]
+                self.assertTrue(rules["scan-exact"]["offlineEligible"])
+                self.assertFalse(rules["scan-overbroad"]["offlineEligible"])
+                self.assertEqual(result["ruleOnlyById"]["scan-exact"]["perClass"]["port_scan"]["precision"], 1)
+                self.assertLess(result["ruleOnlyById"]["scan-overbroad"]["perClass"]["port_scan"]["precision"], .9)
+                self.assertEqual(result["sourceEligibility"]["port_scan"]["rules"], rules)
                 self.assertFalse(result["automaticExecutionEnabled"])
                 self.assertIsNone(result["snapshotsPerSecond"])
                 self.assertTrue((output / "runtime-bundle/feed.npz").exists())

@@ -1,0 +1,12 @@
+{
+  "rules": [
+    {
+      "ruleId": "scan-ports",
+      "family": "port_scan",
+      "field": "contexts.5.peerDistinctServicePorts",
+      "operator": "gte",
+      "threshold": 39,
+      "automatic": false
+    }
+  ]
+}

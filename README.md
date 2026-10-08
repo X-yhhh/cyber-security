@@ -15,6 +15,16 @@ P3-A 已在应用仓库完成冻结。当前训练分支新增 `multiclass_train
 
 代码回归：`scripts/run_step.cmd B1`（14 项）。B0/B2/B3/B4/B5 只输出审计说明并拒绝；零拟合验证入口为 `python -m cyber_training.host_guard.multiclass_audit` 和 `python -m cyber_training.host_guard.verify_multiclass`，输出目录必须新建。
 
+## T3.5a rc.4 规则重表达（2026-10-08）
+
+实现与验证通过临时分支 `Xyhhh/t3-5a-rc4-rules` 的独立 PR 交付到 `training/windows-cuda`。新增 `multiclass_audit --mode rules`：必须显式提供 `--baseline-rules` / `--baseline-rules-sha256`、`--validation-output` / `--validation-output-sha256`、`--alert-threshold`，以及 `--frozen`、`--sidecars`、唯一新 `--output` 目录；只读取 validation 和保存的分数，不推理、不拟合、不搜索阈值。普通 `audit` 模式仍会选择阈值，不能用来执行本任务。
+
+每条规则仅输出 `{ruleId,family,field,operator,threshold,automatic:false}`，`ruleMetrics` 与 `validationFpr` 位于顶层。原阈值 39、5、41260、21 保持不变；旧端口与时长条件全部移除，告警覆盖所有端口，执行端口由有效授权 `executionScopes.servicePort`（`peer_service`）限定。每条规则按 parentConnection 独立计算，其他攻击类别命中也计为 FP；缺失/非有限字段不触发。
+
+win-dev 新产物位于 `.cache/t3-5a-20261008/validation-rc4-v1/`，`rules-comparison.json` SHA-256 为 `64cca776008dffd39463f21a7fe0e0c1cabb7e98985affa9ef380ff830825273`。旧 → rc.4 precision：扫描 100% → 100%、暴力破解 89.444% → 1.653%、洪泛 98.765% → 9.650%、慢速 75.909% → 0.527%。全部只告警；后三条低于 90% 已登记在 main 的实施计划 9.4，不能沿用历史汇总资格。
+
+Mac 29 项相关测试通过（含真实产物对当前 main `scripts/p7/compose_policy.py` 的 CLI 接受及旧格式拒绝）；Windows 28 项通过，P7 对接在 Mac 验证。`execution-evidence.json` 记录访问清单、拟合/阈值搜索拒绝检查及 test/L3 打开拒绝检查，拟合台账前后哈希相同。本任务无新增拟合、无 test/L3 读取、无正式策略生成或激活。
+
 # 已终止的 P3 prefix 路线（历史 2026-10-05）
 
 P1/P2 已收口。P3-A 已接入严格 plannedRole、公共组固定角色、共同早期轨迹、原始活动起点评价、连续目标预算与认证健康链验证。实际入口仍为 `cyber_training.host_guard.prefix_runner check/run`，运行计划已原位更新为 `docs/host-guard-p3/experiment-plan.json`。

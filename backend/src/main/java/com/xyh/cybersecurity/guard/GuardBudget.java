@@ -51,8 +51,24 @@ public class GuardBudget {
     public Instant monotonic(long asset){var b=store.one("guard_asset_budget",map("asset_id",asset),true);Instant now=store.now();if(b!=null&&instant(b.get("last_monotonic_at")).isAfter(now))return instant(b.get("last_monotonic_at"));return now;}
     public void evidence(long target,Instant at){var b=store.one("guard_target_budget",map("budget_target_id",target),true);Instant old=instant(b.get("last_evidence_at"));if(old!=null&&!at.isAfter(old))return;
         var after=map("last_evidence_at",db(at),"revision",number(b,"revision")+1);event(b,after,"evidence",object("evidenceAt",at.toString()));store.update("guard_target_budget",number(b,"id"),after);}
-    /** 先 TTL 去重，再连续时长、资产并发、资产速率；返回明确细分原因。 */
+    /** 撤销事实绑定稳定目标的预算周期；策略、签名密钥和短期引用轮换不解除墓碑。 */
+    public boolean revoked(long target){
+        var b=store.one("guard_target_budget",map("budget_target_id",target),false);
+        var tombstone=store.one("guard_budget_event",map("budget_target_id",target,"event_kind","revoked"),false);
+        return b!=null&&tombstone!=null&&instant(b.get("cycle_started_at")).toString().equals(json(tombstone,"proof_json").path("cycleStartedAt").asText());
+    }
+    /** 在资产→目标锁内追加撤销墓碑；未签发动作也保留事实，重复撤销不重复写入。 */
+    public void revoke(Map<String,Object> action,String reason){
+        long target=number(action,"budget_target_id");var b=lock(number(action,"asset_id"),target);
+        if(revoked(target))return;
+        var next=map("revision",number(b,"revision")+1);
+        event(b,next,"revoked",object("actionId",action.get("public_id"),"reasonCode",reason,
+                "cycleStartedAt",instant(b.get("cycle_started_at")).toString()));
+        store.update("guard_target_budget",number(b,"id"),next);
+    }
+    /** 先周期墓碑与 TTL 去重，再连续时长、资产并发、资产速率；返回明确细分原因。 */
     public String check(long asset,long target,JsonNode policy,Instant now,Instant until){
+        if(revoked(target))return "TARGET_REVOKED";
         var actions=store.rows("guard_action",map("asset_id",asset),false,10000);int active=0,recent=0;
         for(var a:actions){if(!TERMINAL.contains(str(a,"observed_state"))){active++;if(number(a,"budget_target_id")==target)return "TTL_OR_UNCERTAIN_DEDUP";}
             if(instant(a.get("created_at")).isAfter(now.minusSeconds(60)))recent++;}
@@ -82,7 +98,7 @@ public class GuardBudget {
         Instant last=instant(b.get("last_block_end_at"));if(last!=null&&last.isAfter(at))at=last;
         var next=map("last_block_end_at",db(at),"charged_ms",Math.min(120000,charge(target,null,null)),"revision",number(b,"revision")+1);event(b,next,"reconcile",object("stateSha256",proof,"notApplied",neverApplied));store.update("guard_target_budget",number(b,"id"),next);}
     /** 仅由健康处理/核对事务触发；没有任意客户端清零入口。 */
-    public boolean recover(long asset,long target,Instant now){var b=lock(asset,target);if(number(b,"charged_ms")==0||b.get("last_block_end_at")==null)return false;
+    public boolean recover(long asset,long target,Instant now){var b=lock(asset,target);if((number(b,"charged_ms")==0&&!revoked(target))||b.get("last_block_end_at")==null)return false;
         for(var a:store.rows("guard_action",map("budget_target_id",target),true,10000))if(!TERMINAL.contains(str(a,"observed_state")))return false;
         Instant end=instant(b.get("last_block_end_at")),last=instant(b.get("last_evidence_at"));Instant anchor=last!=null&&last.isAfter(end)?last:end;if(now.isBefore(anchor.plusSeconds(120)))return false;
         JsonNode proof;try{proof=health.proof(asset,end,anchor.plusSeconds(120),now);}catch(com.xyh.cybersecurity.common.api.ApiRequestException e){return false;}

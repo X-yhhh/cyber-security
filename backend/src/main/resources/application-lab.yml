@@ -1,0 +1,29 @@
+# 仅联合 lab 显式启用；密钥和制品必须位于仓库外受控目录。
+spring:
+  datasource:
+    url: ${LAB_DB_URL}
+    username: ${DB_TEST_USERNAME}
+    password: ${DB_TEST_PASSWORD}
+server:
+  address: 127.0.0.1
+  ssl:
+    enabled: true
+    certificate: ${LAB_TLS_CERTIFICATE}
+    certificate-private-key: ${LAB_TLS_KEY}
+    enabled-protocols: TLSv1.3
+  servlet:
+    session:
+      cookie:
+        secure: true
+cyber:
+  guard:
+    automation-enabled: ${LAB_AUTOMATION_ENABLED:false}
+    signing-key-id: ${LAB_SIGNING_KEY_ID}
+    signing-key-file: ${LAB_SIGNING_KEY_FILE}
+    report-trust-file: ${LAB_REPORT_TRUST_FILE}
+    protection-file: ${LAB_PROTECTION_FILE}
+    artifact-root: ${LAB_ARTIFACT_ROOT}
+# 联合编排读取此路径并交给执行器 trustFile；后端报告验签仍使用 report-trust-file。
+lab:
+  executor:
+    trust-file: ${LAB_EXECUTOR_TRUST_FILE}

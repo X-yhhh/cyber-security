@@ -300,6 +300,41 @@ class EngineTest(unittest.TestCase):
             self.accept(keyEpoch=10)
         self.assertEqual(len({r["token"] for r in self.store.commands() if r["token"]}), 1)
 
+    def test_e4_signing_key_and_policy_rotation_keep_budget_and_tombstone(self):
+        """真实换签名密钥/策略哈希仍绑定同一稳定目标，不产生新的 120 秒额度。"""
+        tokens = set()
+        for index in range(4):
+            key = Ed25519PrivateKey.generate()
+            key_id = "rotated-" + str(index)
+            self.trust[key_id] = {"status": "active", "notBefore": stamp(self.clock.time() - 1),
+                "notAfter": stamp(self.clock.time() + 1000), "publicKeyDer": public_der(key.public_key())}
+            policy = digest({"policyVersion": index})
+            self.config["policyHashes"].append(policy)
+            p = self.payload(keyEpoch=index + 1, policySha256=policy)
+            signed = {"payload": p, "keyId": key_id, "algorithm": "Ed25519",
+                "signature": base64.urlsafe_b64encode(key.sign(canonical(p))).rstrip(b"=").decode()}
+            self.engine.pulse("recovery")
+            self.assertEqual(self.engine.accept(signed), "applied")
+            tokens.add(self.store.command(p["commandId"])["token"])
+            self.clock.advance(30)
+            self.engine.recover()
+        self.assertEqual(len(tokens), 1)
+        self.engine.pulse("recovery")
+        fresh = copy.deepcopy(p)
+        fresh.update(commandId=ident(), actionId=ident(), targetRef=ident(), idempotencyKey=ident(),
+                     issuedAt=stamp(self.clock.time()), applyBy=stamp(self.clock.time() + 5),
+                     blockUntil=stamp(self.clock.time() + 30), leaseExpiresAt=stamp(self.clock.time() + 30))
+        signed["payload"] = fresh
+        signed["signature"] = base64.urlsafe_b64encode(key.sign(canonical(fresh))).rstrip(b"=").decode()
+        with self.assertRaisesRegex(Rejected, "TARGET_CONTINUOUS_BUDGET"):
+            self.engine.accept(signed)
+        self.engine.revoke(self.revocation(p))
+        fresh.update(commandId=ident(), actionId=ident(), idempotencyKey=ident())
+        signed["signature"] = base64.urlsafe_b64encode(key.sign(canonical(fresh))).rstrip(b"=").decode()
+        with self.assertRaisesRegex(Rejected, "TARGET_REVOKED"):
+            self.engine.accept(signed)
+        self.assertEqual(self.firewall.installs, 4)
+
     def test_unknown_rule_not_deleted_and_no_new_command(self):
         unknown = ident()
         self.firewall.rules[unknown] = {"handle": "alien", "scope": {}}

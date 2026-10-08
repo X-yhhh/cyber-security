@@ -33,6 +33,9 @@ SIDECAR_HASHES = {
 
 def load_development(frozen, sidecars, role):
     """先核验开发旁路与冻结文件，身份只用于评估，禁止进入模型输入。"""
+    if role not in HASHES or any('test' in part.lower() or 'l3' in part.lower()
+                                for path in (frozen, sidecars) for part in path.parts):
+        raise ValueError('禁止访问 test/L3')
     metadata = sidecars / role / 'metadata.jsonl'
     if sha256(metadata) != SIDECAR_HASHES[role]:
         raise ValueError('旁路哈希不符')
@@ -208,14 +211,112 @@ def policy_preview(data, output, alert):
     return result
 
 
+RULE_DEFINITIONS = (
+    ('scan-ports', 'port_scan', 'contexts.5.peerDistinctServicePorts', None, 0),
+    ('brute-starts', 'brute_force', 'contexts.30.peerFlowStarts', [21, 22], 0),
+    ('flood-bytes', 'dos_flood', 'contexts.1.peerBytesInbound', [80, 443], 0),
+    ('slow-starts', 'dos_slow', 'contexts.30.peerFlowStarts', [80, 443], 10000),
+)
+
+
+def legacy_rules(comparison):
+    """只接受明确登记的旧四规则；未知字段/条件/非有限阈值均拒绝，不推定迁移语义。"""
+    rules = comparison['rules']
+    names = [rule['family'] for rule in rules]
+    if len(names) != 4 or set(names) != set(CLASSES[1:]):
+        raise ValueError('旧规则类别不完整或重复')
+    by_family = {rule['family']: rule for rule in rules}
+    ordered = []
+    for _, family, field, ports, elapsed in RULE_DEFINITIONS:
+        rule = by_family[family]
+        if (set(rule) != {'family', 'field', 'threshold', 'servicePorts', 'minElapsedMs',
+                         'validationFpr', 'automatic'} or rule['field'] != field
+                or rule['servicePorts'] != ports or rule['minElapsedMs'] != elapsed
+                or rule['automatic'] is not False):
+            raise ValueError('旧规则条件不符合登记结构')
+        threshold = rule['threshold']
+        if isinstance(threshold, bool) or not isinstance(threshold, (int, float)) or not np.isfinite(threshold) or threshold < 0:
+            raise ValueError('规则阈值非法')
+        ordered.append(rule)
+    return ordered
+
+
+def rule_metrics(index, hit, family):
+    """按 parentConnection 去重，其他攻击类别也计入该规则 FP；正常 FPR 两来源等权。"""
+    _, exists = index.selected(hit)
+    target = index.labels == CLASSES.index(family)
+    tp, fp = int((exists & target).sum()), int((exists & ~target).sum())
+    fn = int((~exists & target).sum())
+    fprs = {source: float(exists[(index.labels == 0) & (index.sources == source)].mean())
+            for source in ('internal', 'website') if np.any((index.labels == 0) & (index.sources == source))}
+    if len(fprs) != 2 or not target.any():
+        raise ValueError('validation 缺少规则目标类别或正常来源')
+    return {'truePositives': tp, 'falsePositives': fp, 'falseNegatives': fn,
+            'predictedConnections': tp + fp, 'targetConnections': int(target.sum()),
+            'precision': tp / (tp + fp) if tp + fp else 0.0,
+            'recall': tp / (tp + fn), 'validationFpr': float(np.mean(list(fprs.values()))),
+            'normalSourceFpr': fprs}
+
+
+def compare_rules(data, index, model_output, alert, baseline):
+    """rc.4 告警不带端口/时长条件，原阈值不变；旧/新独立逐规则统计，不授予自动资格。
+
+    端口限制只由执行时有效的 executionScopes.servicePort 承担；此处不创建授权。
+    缺失与非有限字段记为不适用，不能用预处理填零触发规则。
+    """
+    old_rules = legacy_rules(baseline)
+    ports = np.asarray([m['servicePort'] for m in data.metadata])
+    matched = np.zeros((len(ports), 4), dtype=bool)
+    parameters, metrics = [], {}
+    for column, (definition, old) in enumerate(zip(RULE_DEFINITIONS, old_rules)):
+        rule_id, family, field, service_ports, elapsed = definition
+        offset = NUMERIC.index(field)
+        values = data.values[:, offset].astype(np.float64)
+        applicable = (data.missing[:, offset] == 0) & np.isfinite(values)
+        hit = applicable & (values >= old['threshold'])
+        legacy_hit = hit.copy()
+        if service_ports is not None:
+            legacy_hit &= np.isin(ports, service_ports)
+        if elapsed:
+            duration = NUMERIC.index('features.elapsedMs')
+            legacy_hit &= (data.missing[:, duration] == 0) & (data.values[:, duration] >= elapsed)
+        before, after = rule_metrics(index, legacy_hit, family), rule_metrics(index, hit, family)
+        matched[:, column] = hit
+        parameters.append({'ruleId': rule_id, 'family': family, 'field': field, 'operator': 'gte',
+                           'threshold': old['threshold'], 'automatic': False})
+        metrics[rule_id] = {'family': family, 'before': before, 'after': after,
+                            'precisionDelta': after['precision'] - before['precision'],
+                            'removedConditions': {'servicePorts': service_ports, 'minElapsedMs': elapsed},
+                            'notApplicableSnapshots': int((~applicable).sum()),
+                            'precisionBelow90': after['precision'] < .9, 'mode': 'alert_only'}
+    rule_hit = matched.any(axis=1)
+    chosen, exists = index.selected(rule_hit)
+    rule_prediction = np.where(exists, matched[chosen].argmax(axis=1) + 1, 0)
+    model_hit = model_output[:, 0].astype(np.float64) >= alert
+    chosen, exists = index.selected(rule_hit | model_hit)
+    combined = np.where(exists, np.where(model_hit[chosen], model_output[chosen, 1:].argmax(axis=1) + 1,
+                                         matched[chosen].argmax(axis=1) + 1), 0)
+    model = index.decisions(model_output, alert)
+    return {'version': 'host-guard-rules/1-rc4-validation-preview', 'rules': parameters,
+            'ruleMetrics': metrics, 'validationFpr': {key: value['after']['validationFpr'] for key, value in metrics.items()},
+            'precisionBelow90RuleIds': [key for key, value in metrics.items() if value['precisionBelow90']],
+            'role': 'validation', 'newFits': 0, 'newThresholdSearch': False, 'finalTestRead': False,
+            'executionPortConstraint': 'authorized executionScopes.servicePort for peer_service; not an alert condition',
+            'metricUnit': 'parentConnection; each rule independently; other attack families count as FP',
+            'tieBreak': 'model at same instant; rule class order otherwise',
+            'ruleOnly': index.report(rule_prediction), 'modelOnly': index.report(model), 'combinedOr': index.report(combined),
+            'modelAdditionalAttacks': int(((index.labels > 0) & (model > 0) & (rule_prediction == 0)).sum()),
+            'ruleFalseAlarmsNotRaisedByModel': int(((index.labels == 0) & (rule_prediction > 0) & (model == 0)).sum()),
+            'orDoesNotCorrectRuleFalseAlarms': True}
+
+
 def tune_rules(data, index, model_output, alert):
-    """固定四条规则结构，validation 搜阈值；每条分配 0.25% FPR 预算。"""
+    """旧口径选阈值后显式重新表达 rc.4，并报告新口径；独立 rules 模式不调用此搜索。"""
     ports = np.asarray([m['servicePort'] for m in data.metadata])
     rules = [(1, 'contexts.5.peerDistinctServicePorts', np.ones(len(ports), dtype=bool)),
              (2, 'contexts.30.peerFlowStarts', np.isin(ports, [21, 22])),
              (3, 'contexts.1.peerBytesInbound', np.isin(ports, [80, 443])),
              (4, 'contexts.30.peerFlowStarts', np.isin(ports, [80, 443]) & (data.values[:, 0] >= 10000))]
-    matched = np.zeros((len(ports), 4), dtype=bool)
     parameters = []
     for c, field, gate in rules:
         values = data.values[:, NUMERIC.index(field)].astype(np.float64)
@@ -227,24 +328,12 @@ def tune_rules(data, index, model_output, alert):
             recall = float(exists[index.labels == c].mean())
             if fpr <= .0025 and (best is None or recall > best[0]):
                 best = (recall, threshold, hit, float(fpr))
-        matched[:, c - 1] = best[2]
         parameters.append({'family': CLASSES[c], 'field': field, 'threshold': best[1],
                            'servicePorts': None if c == 1 else ([21, 22] if c == 2 else [80, 443]),
                            'minElapsedMs': 10000 if c == 4 else 0, 'validationFpr': best[3], 'automatic': False})
-    rule_hit = matched.any(axis=1)
-    chosen, exists = index.selected(rule_hit)
-    rule_prediction = np.where(exists, matched[chosen].argmax(axis=1) + 1, 0)
-    model_hit = model_output[:, 0].astype(np.float64) >= alert
-    chosen, exists = index.selected(rule_hit | model_hit)
-    combined = np.where(exists, np.where(model_hit[chosen], model_output[chosen, 1:].argmax(axis=1) + 1,
-                                         matched[chosen].argmax(axis=1) + 1), 0)
-    model = index.decisions(model_output, alert)
-    return {'version': 'host-guard-rules/1-validation-preview', 'rules': parameters,
-            'tieBreak': 'model at same instant; rule class order otherwise',
-            'ruleOnly': index.report(rule_prediction), 'modelOnly': index.report(model), 'combinedOr': index.report(combined),
-            'modelAdditionalAttacks': int(((index.labels > 0) & (model > 0) & (rule_prediction == 0)).sum()),
-            'ruleFalseAlarmsNotRaisedByModel': int(((index.labels == 0) & (rule_prediction > 0) & (model == 0)).sum()),
-            'orDoesNotCorrectRuleFalseAlarms': True}
+    comparison = compare_rules(data, index, model_output, alert, {'rules': parameters})
+    comparison['newThresholdSearch'] = True
+    return comparison
 
 
 def distribution(index, output):
@@ -299,12 +388,48 @@ def compare_outputs(expected, actual, alert):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--run', type=Path, required=True)
+    parser.add_argument('--run', type=Path)
     parser.add_argument('--frozen', type=Path, required=True)
     parser.add_argument('--sidecars', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
-    parser.add_argument('--mode', choices=['audit', 'runtime'], default='audit')
+    parser.add_argument('--mode', choices=['audit', 'runtime', 'rules'], default='audit')
+    parser.add_argument('--baseline-rules', type=Path)
+    parser.add_argument('--baseline-rules-sha256')
+    parser.add_argument('--validation-output', type=Path)
+    parser.add_argument('--validation-output-sha256')
+    parser.add_argument('--alert-threshold', type=float)
     args = parser.parse_args()
+    if args.mode == 'rules':
+        if any(value is None for value in (args.baseline_rules, args.baseline_rules_sha256,
+               args.validation_output, args.validation_output_sha256, args.alert_threshold)):
+            parser.error('rules 模式必须显式绑定旧规则、validation 分数哈希及告警阈值')
+        if any('test' in part.lower() or 'l3' in part.lower()
+               for path in (args.baseline_rules, args.validation_output) for part in path.parts):
+            raise ValueError('禁止访问 test/L3')
+        if not np.isfinite(args.alert_threshold) or not 0 <= args.alert_threshold <= 1:
+            raise ValueError('告警阈值非法')
+        if sha256(args.baseline_rules) != args.baseline_rules_sha256 or sha256(args.validation_output) != args.validation_output_sha256:
+            raise ValueError('规则或 validation 分数哈希不符')
+        baseline = json.loads(args.baseline_rules.read_text(encoding='utf-8'))
+        legacy_rules(baseline)
+        validation = load_development(args.frozen, args.sidecars, 'validation')
+        output = np.load(args.validation_output, allow_pickle=False)
+        if output.shape != (len(validation.rows), 5) or not np.isfinite(output).all() or np.any(output < 0) or np.any(output > 1):
+            raise ValueError('validation 分数形状或数值非法')
+        report = compare_rules(validation, Connections(validation), output, args.alert_threshold, baseline)
+        report['provenance'] = {'baselineRulesSha256': args.baseline_rules_sha256,
+                                'validationOutputSha256': args.validation_output_sha256,
+                                'validationDatasetSha256': HASHES['validation'],
+                                'validationMetadataSha256': SIDECAR_HASHES['validation'],
+                                'auditCodeSha256': sha256(Path(__file__)), 'alertThreshold': args.alert_threshold,
+                                'runtime': {'os': platform.system(), 'python': platform.python_version()}}
+        args.output.mkdir(parents=True, exist_ok=False)
+        write_new(args.output / 'rules-comparison.json', report)
+        print(json.dumps({'stage': 'rules-complete', 'newFits': 0, 'finalTestRead': False,
+                          'precisionBelow90RuleIds': report['precisionBelow90RuleIds']}), flush=True)
+        return
+    if args.run is None:
+        parser.error('audit/runtime 模式必须提供 --run')
     args.output.mkdir(parents=True, exist_ok=False)
     summary = json.loads((args.run / 'run-summary.json').read_text(encoding='utf-8'))
     selected = summary['selected']

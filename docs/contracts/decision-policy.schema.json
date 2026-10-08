@@ -7,7 +7,7 @@
   "additionalProperties": false,
   "properties": {
     "contractVersion": {
-      "const": "host-guard/5.0.0-rc.3"
+      "const": "host-guard/5.0.0-rc.4"
     },
     "policyId": {
       "type": "string",
@@ -42,12 +42,13 @@
         "properties": {
           "family": {"type": "string", "enum": ["port_scan", "brute_force", "dos_flood", "dos_slow"]},
           "autoEligible": {"type": "boolean"},
+          "modelAutoEligible": {"type": "boolean", "$comment": "模型来源是否可进入自动路径；须 autoEligible=true 才可为 true。规则来源由 rulePolicies[].autoEligible 单独控制"},
           "alertThreshold": {"type": "number", "minimum": 0, "maximum": 1},
           "autoThreshold": {"type": "number", "minimum": 0, "maximum": 1},
           "minDistinctFlows": {"type": "integer", "minimum": 1, "maximum": 1000},
           "scope": {"type": "string", "enum": ["peer_service", "peer_inbound"]}
         },
-        "required": ["family", "autoEligible", "alertThreshold", "autoThreshold", "minDistinctFlows", "scope"]
+        "required": ["family", "autoEligible", "modelAutoEligible", "alertThreshold", "autoThreshold", "minDistinctFlows", "scope"]
       },
       "minItems": 4,
       "maxItems": 4

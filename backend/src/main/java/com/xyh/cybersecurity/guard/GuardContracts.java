@@ -56,11 +56,12 @@ public class GuardContracts {
         for(JsonNode scope:n.get("supportedScope"))require(scope.path("minimumCoverageMs").asLong()<=scope.path("coverageWindowSeconds").asLong()*1000,"CONTEXT_CONDITION_UNMET");
     }
     /** 四类参数完整且唯一；规则只允许访问已冻结的观察数值字段，不能引用标签或身份。 */
-    public void policy(JsonNode n){validate("decision-policy",n);
+    public void policy(JsonNode n){validate("decision-policy",n);require(POLICY_CONTRACT.equals(n.path("contractVersion").asText()),"CONTRACT_UNSUPPORTED");
         Set<String> families=new HashSet<>();for(JsonNode p:n.get("familyPolicies")){
             String family=p.path("family").asText();require(families.add(family),"INVALID_FAMILY_POLICIES");
             require(p.path("scope").asText().equals(family.equals("port_scan")?"peer_inbound":"peer_service"),"INVALID_FAMILY_SCOPE");
             require(p.path("autoThreshold").asDouble()>=p.path("alertThreshold").asDouble(),"INVALID_POLICY_THRESHOLDS");
+            require(!p.path("modelAutoEligible").asBoolean()||p.path("autoEligible").asBoolean(),"INVALID_FAMILY_POLICIES");
         }
         require(families.equals(Set.of("port_scan","brute_force","dos_flood","dos_slow")),"INVALID_FAMILY_POLICIES");
         Set<String> ids=new HashSet<>();for(JsonNode r:n.path("rulePolicies")){

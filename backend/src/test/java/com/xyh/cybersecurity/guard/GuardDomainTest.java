@@ -39,7 +39,7 @@ class GuardDomainTest {
     }
     static ObjectNode autoPolicy(int flows)throws Exception{
         ObjectNode p=(ObjectNode)example("decision-policy");p.put("family","dos_slow");
-        for(var fp:p.path("familyPolicies"))if(fp.path("family").asText().equals("dos_slow"))((ObjectNode)fp).put("autoEligible",true).put("minDistinctFlows",flows);
+        for(var fp:p.path("familyPolicies"))if(fp.path("family").asText().equals("dos_slow"))((ObjectNode)fp).put("autoEligible",true).put("modelAutoEligible",true).put("minDistinctFlows",flows);
         return p;
     }
     @Test void sourceIsolationFamilyDowngradeAndRuleNonHitFailClosed()throws Exception{
@@ -57,6 +57,24 @@ class GuardDomainTest {
         assertThat(GuardDecisionEngine.evaluate(p,List.of(rule),now,gates,"dos_slow","rule","r").decision()).isEqualTo("block_candidate");
         var nonHit=new GuardDecisionEngine.Evidence(other,null,"dos_slow","rule","r",false,"b");
         assertThat(GuardDecisionEngine.evaluate(p,List.of(nonHit),now,gates,"dos_slow","rule","r").decision()).isEqualTo("observe");
+    }
+    /** A11：类别可自动时仍可关闭模型来源，只保留达标规则；字段缺失或与类别开关矛盾均拒绝。 */
+    @Test void modelSourceCanBeDisabledWhileRuleSourceStaysAutomatic()throws Exception{
+        Instant now=Instant.parse("2026-10-08T00:00:00Z");var p=autoPolicy(1);p.put("minEvidenceSpanMs",0);
+        for(var fp:p.path("familyPolicies"))if(fp.path("family").asText().equals("dos_slow"))((ObjectNode)fp).put("modelAutoEligible",false);
+        p.set("rulePolicies",node(List.of(object("ruleId","r","family","dos_slow","field","features.elapsedMs","operator","gte","threshold",1,"autoEligible",true))));
+        var o=observation(now);var other=o.deepCopy().put("observationId",id()).put("parentConnectionId",id());
+        var gates=new GuardDecisionEngine.Gates(true,true,true,true,null);
+        var model=GuardDecisionEngine.evaluate(p,List.of(new GuardDecisionEngine.Evidence(o,1d,"dos_slow","model","",false,"a")),now,gates,"dos_slow","model","");
+        assertThat(model.reason()).isEqualTo("MODEL_AUTO_DISABLED");assertThat(model.decision()).isEqualTo("alert");
+        assertThat(GuardDecisionEngine.evaluate(p,List.of(new GuardDecisionEngine.Evidence(other,null,"dos_slow","rule","r",true,"b")),now,gates,"dos_slow","rule","r").decision()).isEqualTo("block_candidate");
+        var c=new GuardContracts();c.policy(p);
+        var contradictory=autoPolicy(1);for(var fp:contradictory.path("familyPolicies"))((ObjectNode)fp).put("autoEligible",false);
+        assertThatThrownBy(()->c.policy(contradictory)).hasMessageContaining("INVALID_FAMILY_POLICIES");
+        var missing=autoPolicy(1);((ObjectNode)missing.path("familyPolicies").get(0)).remove("modelAutoEligible");
+        assertThatThrownBy(()->c.policy(missing)).hasMessageContaining("CONTRACT_INVALID");
+        var old=autoPolicy(1);old.put("contractVersion","host-guard/5.0.0-rc.3");
+        assertThatThrownBy(()->c.policy(old)).hasMessageContaining("CONTRACT_INVALID");
     }
     @Test void contractRejectsDuplicateFamilyRuleIdentityAndUnsafeScopes()throws Exception{
         var c=new GuardContracts();var p=autoPolicy(2);c.policy(p);

@@ -32,6 +32,8 @@ public final class GuardDecisionEngine {
         var fresh=chosen.stream().filter(e->family.equals(e.effectiveFamily(policy))).filter(e->{long ms=Duration.between(time(e.observation(),"asOf"),now).toMillis();return ms>=0&&ms<=age;}).toList();
         if(fresh.isEmpty())return reject(fallback,"EVIDENCE_STALE",null,false,chosen);
         if(!fp.path("autoEligible").asBoolean(true))return reject(fallback,"FAMILY_AUTO_DISABLED",family,false,fresh);
+        // 类别可自动不代表每个来源可自动：模型来源单独由 modelAutoEligible 开启，缺失按关闭处理。
+        if(source.equals("model")&&!fp.path("modelAutoEligible").asBoolean(false))return reject(fallback,"MODEL_AUTO_DISABLED",family,false,fresh);
         double autoThreshold=fp.path("autoThreshold").asDouble(policy.path("autoThreshold").asDouble());
         var scoring=fresh.stream().filter(e->e.source().equals("rule")?e.ruleMatched()&&ruleAutoEligible(policy,e):e.score()!=null&&e.score()>=autoThreshold).toList();
         if(scoring.isEmpty())return reject(fallback,"SCORE_BELOW_AUTO",null,false,fresh);

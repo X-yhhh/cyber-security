@@ -6,6 +6,10 @@
 
 2026-10-08 的 T1 工具参数化与 Windows 零拟合参照已完成，见 [T1 使用说明](t1-tooling.md)。训练修改已经 PR #13 合入 `training/windows-cuda`，main 侧随 T1/B2 PR 合入；正式第二轮拟合、冻结与评价未执行，第一轮 33/33 和已用 test 1/3 不变。
 
+2026-10-08 T2 第二轮第 1 次（A1 授权）完成：win-dev `training/windows-cuda`（797a0fa）上以 `multiclass_reproduce fit` 训练 `ablation-no-host-context`，特征集 `no_host_context`，种子 42，第二轮独立台账 `fit-ledger-round2.jsonl`（budget 1/1）。与 run-main-v3 参照输出逐位一致（`bitIdentical=true`），`validationExitPassed=true`，`macroF1=0.9906`，`attackDetection=0.9860`，`falsePositiveRate=0.0`。随后 `multiclass_reproduce verify` 跨平台复验通过（`platformParityPassed=true`，Windows ONNX vs 本机 ONNX maxAbsError=0.0）。产物位于 win-dev `.cache/p3b-20261007/run-t5-round2-v1/`，复验报告在 `verify-t5-round2-v1/`。第一轮台账 33/33 与已用 test 1/3 不变。
+
+2026-10-08 T3.5a 已在 `training/windows-cuda` 的临时分支 `Xyhhh/t3-5a-rc4-rules` 完成工作区实现并在 win-dev 执行。`multiclass_audit --mode rules` 只复用哈希绑定的旧规则/validation 分数，以原阈值移除端口与时长条件，逐规则统计；输出可被 main 当前 P7 组合器接受。三条低 precision 规则保持只告警，数值与证据在[后续实施计划 9.4 节](../后续实施计划.md#94-已知风险)；报告位于忽略目录 `.cache/t3-5a-20261008/validation-rc4-v1/`。未拟合、未搜索阈值、未读取 test/L3、未生成正式策略或激活，修改尚未提交。
+
 ## 1. 范围
 
 入站 IPv4/TCP 流量 5 类分类：`normal`、`port_scan`、`brute_force`、`dos_flood`、`dos_slow`。类别映射、标签规则、切分和训练规则分别见 [数据与模型方案](../数据与模型方案.md) 第 1、3、4、5 节，本文不重复。

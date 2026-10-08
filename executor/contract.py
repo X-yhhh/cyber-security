@@ -17,13 +17,43 @@ BINDING_FIELDS = "assetId sensorId bootId captureScopeId environment executorBoo
 TERMINAL = {"rejected", "revoked", "expired"}
 
 
+IMPLICIT_PROTECTED_PORTS = (22, 53, 3389)
+
+
+def protected_ports(protected):
+    """管理、解析和远程桌面端口始终保护；P4 与 P5 用同一升序集合算摘要和封禁区间。"""
+    require(all(type(port) is int and 1 <= port <= 65535 for port in protected), "CONFIG_SCOPE_INVALID")
+    ports = sorted(set(protected) | set(IMPLICIT_PROTECTED_PORTS))
+    require(len(ports) <= 128, "CONFIG_SCOPE_INVALID")
+    return ports
+
+
+def protected_ports_sha256(protected):
+    """保护端口清单摘要：含隐式端口的升序 JCS 数组，与控制面 Java 实现逐字节一致。"""
+    return digest(protected_ports(protected))
+
+
+def capability_items_sha256(items):
+    """能力集合摘要按 capabilityId 排序后取 JCS 摘要；控制面从 guard_capability 独立重算比对。"""
+    return digest(sorted(items, key=lambda item: item["capabilityId"]))
+
+
+def capability_set_sha256(config):
+    """由本机登记推出心跳上报的 capabilityHash；全入站项绑定保护集与保护端口摘要。"""
+    inbound = {item["capabilityId"]: item for item in config.get("inboundCapabilities", [])}
+    items = []
+    for capability in sorted(set(config["capabilityIds"])):
+        registered = inbound.get(capability)
+        items.append({"capabilityId": capability, "scope": "peer_inbound" if registered else "peer_service",
+                      "protectionSetSha256": registered["protectionSetSha256"] if registered else None,
+                      "protectedPortsSha256": registered["protectedPortsSha256"] if registered else None})
+    return capability_items_sha256(items)
+
+
 def unprotected_ranges(protected):
     """把保护端口从可封禁的 TCP 端口全集中扣除，供规则和状态清理共用。"""
-    ports = sorted(set(protected) | {22, 53, 3389})
-    require(len(ports) <= 128 and all(type(port) is int and 1 <= port <= 65535 for port in ports),
-            "CONFIG_SCOPE_INVALID")
     ranges, start = [], 1
-    for port in ports:
+    for port in protected_ports(protected):
         if start < port:
             ranges.append([start, port - 1])
         start = port + 1
@@ -58,25 +88,30 @@ def verify(envelope, trust, now):
     return envelope["payload"]
 
 
-def authorize(payload, config, boot, now, *, loopback_canary=False):
+def inbound_exemption(payload, config):
+    """全入站规则覆盖保护端口以外的全部端口，只按本机登记的能力放行。
+
+    条件：命令能力 ID 已在 inboundCapabilities 登记、平台为 PF、环境为 lab，且登记时的保护端口摘要
+    与当前配置重算一致。未登记保持正式默认拒绝；没有配置项以外的开关。
+    """
+    registered = [item for item in config.get("inboundCapabilities", [])
+                  if item["capabilityId"] == payload["capabilityId"]]
+    require(len(registered) == 1, "PROTECTED_TARGET")
+    require(config.get("platform") == "pf" and config["environment"] == "lab", "CAPABILITY_NOT_SUPPORTED")
+    require(registered[0]["protectedPortsSha256"] == protected_ports_sha256(config["protectedServicePorts"]),
+            "PROTECTION_SET_UNVERIFIED")
+    require(payload["servicePort"] is None and payload["addressFamily"] == "ipv4" and
+            payload["transport"] == "tcp", "SCOPE_DENIED")
+
+
+def authorize(payload, config, boot, now):
     for field in ("assetId", "executorId", "environment", "sensorId", "captureScopeId"):
         require(payload[field] == config[field], "SCOPE_DENIED")
     require(payload["executorBootId"] == boot, "BOOT_ID_MISMATCH")
     require(payload["direction"] == "inbound", "CAPABILITY_NOT_SUPPORTED")
-    # 全入站规则会覆盖受保护管理端口；平台豁免和恢复未验收前拒绝安装。
     inbound = payload["scope"] == "peer_inbound"
-    if inbound and loopback_canary:
-        # 仅独立验收入口可使用；没有配置项或正式 CLI 开关可以打开该例外。
-        ports = config["servicePorts"]
-        require(config.get("platform") == "pf" and config["environment"] == "lab" and
-                config["interface"] == "lo0" and config["localAddresses"] == ["127.0.0.1"] and
-                config["peerAddresses"] == ["127.0.0.2"] and len(ports) == 1 and
-                49152 <= ports[0] <= 65533 and ports[0] + 1 in config["protectedServicePorts"] and
-                ports[0] not in config["protectedServicePorts"] and payload["servicePort"] is None and
-                payload["addressFamily"] == "ipv4" and payload["transport"] == "tcp",
-                "CANARY_SCOPE_REQUIRED")
-    else:
-        require(not inbound, "PROTECTED_TARGET")
+    if inbound:
+        inbound_exemption(payload, config)
     require(payload["capabilityId"] in config["capabilityIds"] and
             payload["bundleId"] in config["bundleIds"] and
             payload["policySha256"] in config["policyHashes"], "CAPABILITY_NOT_SUPPORTED")

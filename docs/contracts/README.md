@@ -17,7 +17,7 @@ Schema 只能证明结构，不能证明时间先后、算术、归属、授权�
 
 ## 结构示例
 
-[观察](examples/observation.json)、[模型 manifest](examples/model-manifest.json)、[策略](examples/decision-policy.json)、[命令](examples/action-command.json)、[回执](examples/action-receipt.json) 均为合成结构样例。零哈希、固定时间和故意无效的签名不构成真实制品或执行资格；阈值也不是新 P3 的选型结果。
+[观察](examples/observation.json)、[模型 manifest](examples/model-manifest.json)、[策略](examples/decision-policy.json)、[命令](examples/action-command.json)、[回执](examples/action-receipt.json) 均为合成结构样例。零哈希、固定时间和故意无效的签名不构成真实制品或执行资格；阈值也不是新 P3 的选型结果。[能力绑定对拍向量](examples/capability-binding-vectors.json)（B1.6）固定保护端口有效集合、可封禁区间、保护端口摘要与能力集合摘要，P4 Java 与 P5 Python 测试共同读取；它不是 Schema，不进入契约哈希。
 
 ## 验证与版本
 

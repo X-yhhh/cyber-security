@@ -1,4 +1,4 @@
-"""回环 lab 的签名命令/PF/独立恢复器 canary；正式执行门禁不变。"""
+"""回环 lab 的签名命令/PF/独立恢复器 canary；与正式入口使用同一授权门禁，不设例外。"""
 import argparse
 import base64
 from concurrent.futures import ThreadPoolExecutor
@@ -15,18 +15,9 @@ from cryptography.hazmat.primitives import serialization
 
 from .__main__ import build, cycle, flush
 from .common import Rejected, canonical, digest, ident, instant, parse, private_file, require, stamp, write_new
-from .contract import authorize
-from .engine import Engine
 from .pf_canary import canary_scope
 from .canary_targets import CanaryTargets
 from .canary_control import CanaryControl
-
-
-class LoopbackCanaryEngine(Engine):
-    """仅在固定 PF 回环范围验收全入站；生产 build/run 不构造该类。"""
-
-    def authorize_command(self, payload, config, now):
-        authorize(payload, config, self.boot, now, loopback_canary=True)
 
 
 SCENARIOS = ("ttl", "revoke", "before_ledger", "after_ledger", "after_install", "parallel", "reject",
@@ -51,11 +42,13 @@ def run(config_path, signing_key, key_id, output, mode="peer_service", guardtarg
     require(not output.exists(), "CANARY_OUTPUT_EXISTS")
     require(scenario in SCENARIOS, "CANARY_SCENARIO_INVALID")
     require(mode == "peer_service" or guardtargets is not None, "CANARY_REAL_TARGET_REQUIRED")
-    original = build(config_path, resolver=False)
-    engine = LoopbackCanaryEngine(original.store, original.adapter, original.resolver,
-                                 original.config, original.trust, original.budget_key)
+    engine = build(config_path, resolver=False)
     config = engine.config()
     port, _ = canary_scope(config, mode)
+    # 全入站验收走正式授权：命令使用的首个能力必须已在 inboundCapabilities 登记。
+    require(mode == "peer_service" or any(item["capabilityId"] == config["capabilityIds"][0]
+                                          for item in config.get("inboundCapabilities", [])),
+            "CANARY_SCOPE_REQUIRED")
     require(port + 1 in set(config["protectedServicePorts"]), "CANARY_SCOPE_REQUIRED")
     require(port + 2 not in set(config["protectedServicePorts"]), "CANARY_SCOPE_REQUIRED")
     with socket.socket() as source:

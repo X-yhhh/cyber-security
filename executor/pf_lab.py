@@ -9,7 +9,8 @@ import sys
 import time
 
 from .__main__ import keys
-from .common import canonical, ident, parse, require, stamp, write_new
+from .common import canonical, digest, ident, parse, require, stamp, write_new
+from .contract import capability_set_sha256, protected_ports_sha256
 from .pf_engine_canary import SCENARIOS, run
 from .platform import PF
 
@@ -61,7 +62,7 @@ def main(directory, guardtargets):
             c.update(platform="pf", environment="lab", interface="lo0", localAddresses=["127.0.0.1"],
                      peerAddresses=["127.0.0.2"], servicePorts=[port], protectedServicePorts=[22, 53, 3389, port + 1],
                      protectedPeers=[], stateDir=str(root / "state"), pfHelper=str(helper),
-                     capabilityIds=[ident()], bundleIds=[ident()], policyHashes=["a" * 64], capabilityHash="b" * 64,
+                     capabilityIds=[ident()], bundleIds=[ident()], policyHashes=["a" * 64],
                      authorization={"id": ident(), "revision": 1, "status": "active",
                                     "validFrom": stamp(now - 1), "validUntil": stamp(now + 180)},
                      limits={"maxTtlSeconds": 60, "maxContinuousBlockSeconds": 120,
@@ -70,6 +71,10 @@ def main(directory, guardtargets):
                      controlPlaneURL="https://127.0.0.1:1", credentialFile=str(root / "unused-credential"),
                      targetURL="https://127.0.0.1:1", targetCA=str(root / "unused-ca"),
                      targetCertificate=str(root / "unused-cert"), targetKey=str(root / "unused-key"))
+            # lab 没有 P4 保护文件：按同一格式自建保护集，并像正式配置一样登记全入站能力。
+            protection = {"protectedBudgetTargetIds": [], "protectedServicePorts": c["protectedServicePorts"]}
+            c["inboundCapabilities"] = [{"capabilityId": c["capabilityIds"][0], "protectionSetSha256": digest(protection),
+                                         "protectedPortsSha256": protected_ports_sha256(c["protectedServicePorts"])}]
             path = root / "config.json"
             if scenario == "asset_limit":
                 c["limits"]["maxActiveRulesPerAsset"] = 1
@@ -77,6 +82,7 @@ def main(directory, guardtargets):
                 c["limits"]["maxNewActionsPerMinute"] = 1
             elif scenario == "renewal_limit":
                 c["limits"]["maxContinuousBlockSeconds"] = 6
+            c["capabilityHash"] = capability_set_sha256(c)
             write_new(path, canonical(c))
             rules = original + f'anchor "{PF.anchor_root(c["executorId"])}/*" all\n'
             command(["/sbin/pfctl", "-n", "-R", "-f", "-"], rules)

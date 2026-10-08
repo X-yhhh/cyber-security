@@ -50,7 +50,7 @@ public interface GuardMapper {
             COLUMNS.put("guard_dataset",Set.of("id","public_id","created_at","dataset_key","version","manifest_ref","manifest_sha256","payload_json"));
             COLUMNS.put("guard_model",Set.of("id","public_id","created_at","model_key","version","manifest_ref","manifest_sha256","artifact_sha256","contract_id","manifest_json","validation_status","validation_json","created_by"));
             COLUMNS.put("guard_evaluation_plan",Set.of("id","public_id","created_at","plan_key","version","plan_sha256","payload_json","created_by"));
-            COLUMNS.put("guard_capability",Set.of("id","public_id","created_at","capability_key","version","platform","level","payload_json","created_by"));
+            COLUMNS.put("guard_capability",Set.of("id","public_id","created_at","capability_key","version","platform","level","payload_json","created_by","scope","protection_set_sha256","exemption_evidence_sha256"));
             COLUMNS.put("guard_decision_policy",Set.of("id","public_id","created_at","policy_key","version","model_id","plan_id","decision_contract_version","definition_json","definition_sha256","status","created_by","reviewed_by","revision"));
             COLUMNS.put("guard_release_bundle",Set.of("id","public_id","created_at","bundle_key","version","model_id","policy_id","contract_id","plan_id","environment","subject_sha256","subject_json","sealed_manifest_sha256","sealed_manifest_json","status","requested_by","approved_by","revision"));
             COLUMNS.put("guard_bundle_capability",Set.of("id","public_id","created_at","bundle_id","capability_id"));

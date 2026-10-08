@@ -4,6 +4,8 @@
 
 旧 prefix 慢速路线已终止，摘要见第 6 节。
 
+2026-10-08 的 T1 工具参数化与 Windows 零拟合参照已完成，见 [T1 使用说明](t1-tooling.md)。训练修改已经 PR #13 合入 `training/windows-cuda`，main 侧随 T1/B2 PR 合入；正式第二轮拟合、冻结与评价未执行，第一轮 33/33 和已用 test 1/3 不变。
+
 ## 1. 范围
 
 入站 IPv4/TCP 流量 5 类分类：`normal`、`port_scan`、`brute_force`、`dos_flood`、`dos_slow`。类别映射、标签规则、切分和训练规则分别见 [数据与模型方案](../数据与模型方案.md) 第 1、3、4、5 节，本文不重复。

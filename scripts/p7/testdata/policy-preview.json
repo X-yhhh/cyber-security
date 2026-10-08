@@ -1,0 +1,34 @@
+{
+  "alertThreshold": 0.6,
+  "maxEvidenceAgeMs": 10000,
+  "classes": {
+    "port_scan": {
+      "parameters": {
+        "alertThreshold": 0.6,
+        "autoThreshold": 0.9,
+        "minDistinctFlows": 2
+      }
+    },
+    "brute_force": {
+      "parameters": {
+        "alertThreshold": 0.6,
+        "autoThreshold": 0.9,
+        "minDistinctFlows": 2
+      }
+    },
+    "dos_flood": {
+      "parameters": {
+        "alertThreshold": 0.6,
+        "autoThreshold": 0.9,
+        "minDistinctFlows": 2
+      }
+    },
+    "dos_slow": {
+      "parameters": {
+        "alertThreshold": 0.6,
+        "autoThreshold": 0.9,
+        "minDistinctFlows": 2
+      }
+    }
+  }
+}

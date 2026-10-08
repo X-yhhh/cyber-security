@@ -14,20 +14,25 @@
 
 ```sh
 python3 -B scripts/p6/evaluate.py prepare \
-  --candidate .cache/p3c-20261007/candidate-v2 \
+  --candidate .cache/p3-round-2/candidate \
   --frozen .cache/p3-a-20261007/frozen \
   --extract .cache/p3-a-20261007/extract \
-  --output .cache/p6-20261007/l1-01 \
-  --layer L1 --evaluation-id p6-l1-01
+  --output .cache/p6-round-2/l1 \
+  --layer L1 --evaluation-id NEW_REGISTERED_ID \
+  --change-description '已登记的候选与评价口径变化' \
+  --change-reason '已登记的根因与修正依据'
 python3 -B scripts/p6/evaluate.py run \
-  --registration .cache/p6-20261007/l1-01/registration.json
+  --registration .cache/p6-round-2/l1/registration.json
 ```
 
-若依赖安装在本次受控目录，调用时通过 `PYTHONPATH` 引用，不能修改全局 Python 或已有环境。Windows L3 使用其已冻结的 `sealed-test/dataset.jsonl`，只报告受控慢速攻击与困难良性；不宣称全新独立 holdout。L2 的可选 A7 未完成时显式记为未准备，不生成占位成绩。
+示例是 T4 调用形态，不是运行授权；`NEW_REGISTERED_ID` 须取新计划登记值，真实读取须先获授权。本次 T1 没有运行该流程。准备新包见 [T1 使用说明](../../docs/p3/t1-tooling.md)。若依赖安装在本次受控目录，调用时通过 `PYTHONPATH` 引用，不能修改全局 Python 或已有环境。Windows L3 使用其已冻结的 `sealed-test/dataset.jsonl`，只报告受控慢速攻击与困难良性；不宣称全新独立 holdout。L2 的可选 A7 未完成时显式记为未准备，不生成占位成绩。
 
 ## 冻结与读取边界
 
-- P3-C 候选仍使用 rc.2 manifest，P4 当前为 rc.3。工具从固定 Git 修订 `efcbd12` 读取历史 Schema，并校验其 SHA-256；另行严格校验五类输出顺序。仓库历史必须可读，不能修改 P4 的现行契约来让旧候选通过。P7 接入时另行完成显式版本迁移。注意：工具只校验 manifest；候选 `decision-policy.json` 是 P3 研究格式，对历史 Schema 和当前 rc.3 均不合规（分别 20、21 处），P7 前须另行生成合规的契约策略，见 [P6 诊断](../../docs/p6/README.md)。
+- 新候选同时校验现行 rc.3 manifest 和 rc.4 decision-policy，核对制品、类别、特征选列、只告警状态及计划绑定。评价版本从计划读取，指标定义须绑定现行验收文档；新来源口径不能复用历史 `2026-10-07.1`。
+- 历史 candidate-v2 保留 rc.2 manifest 和研究格式策略，只允许 `evaluate.py check --candidate .cache/p3c-20261007/candidate-v2 --legacy-candidate-v2` 只读检查。该模式绑定原包校验清单及 `efcbd12` Schema 的固定 SHA，不开放 prepare/run，也不改写旧成绩或资格。
+- 新计划不含 `decisionPolicySha256`：策略引用准备包计划的 SHA，候选校验清单及 P6 登记再绑定策略 SHA，避免循环哈希。登记同时锁定现行两个 Schema、模型、计划、策略和评价代码，run 在打开 test 前复核。
+- `modelOnly`、`ruleOnlyById.<ruleId>` 各自保存连接级指标；`classEligibility.<family>.modelOnly` 和 `ruleOnly.<ruleId>` 各自对照召回 ≥80% / 精确 ≥90%，不用 OR 成绩代替任何来源。`sourceEligibility.<family>.model/rules` 提供同一资格的策略合成接口；closeout 独立复算两者并拒绝篡改。聚合 `ruleOnly` 仅为报告对比项。
 - 事件时间、服务端口和标签为评价旁路。原始观察必须逐字段等于冻结模型输入；旁路缺失、文件变动、重复 ID 或同 parent 标签/来源冲突均失败，不按文件顺序猜测时间，不重新生成测试特征。
 - L1 从第一次打开（包括哈希核验）即记 `access_started`，失败也消耗一次。最多三次、不能重用 ID；第 2/3 次必须在准入前登记改动与原因，入口持久化后才开放文件。登记后代码、依赖或访问状态改变则拒绝运行。
 - 原始 test 读取后恢复目录和文件权限 `000`。解析失败时 runner 排空子进程输出，让入口完成重封存；并发或崩溃残留锁拒绝继续读取，须先核对状态。Windows 只读属性不是对同账户强制隔离。

@@ -6,7 +6,7 @@ import numpy as np
 CLASSES = ("normal", "port_scan", "brute_force", "dos_flood", "dos_slow")
 
 
-def first_decisions(parents, times, sequence, identifiers, scores, rule_hits, threshold):
+def first_decisions(parents, times, sequence, identifiers, scores, rule_hits, threshold, model_labels=None):
     """按事件时间选择首个命中；同观察模型优先，规则平局按冻结类别顺序。
 
     时间和身份只用来排序及去重，绝不输入模型；续段不能重置 parent。
@@ -17,7 +17,8 @@ def first_decisions(parents, times, sequence, identifiers, scores, rule_hits, th
     for i in ordered:
         parent = parents[i]
         first.setdefault(parent, i)
-        model = int(np.argmax(scores[i, 1:])) + 1 if float(scores[i, 0]) >= threshold else 0
+        model = (int(model_labels[i]) if model_labels is not None else
+                 int(np.argmax(scores[i, 1:])) + 1 if float(scores[i, 0]) >= threshold else 0)
         rule = int(np.argmax(rule_hits[i])) + 1 if rule_hits[i].any() else 0
         for selected, value in zip(predictions, (model, rule, model or rule)):
             if value:
@@ -94,3 +95,23 @@ def gates_and_eligibility(metrics, plan):
                              "automaticExecutionEnabled": False, "mode": "alert_only",
                              "reason": "G3_PENDING" if eligible else "OFFLINE_CLASS_METRICS_INSUFFICIENT"}
     return {"G1": bool(g1), "G2": bool(g2), "G3": "not_evaluated"}, eligibility
+
+
+def source_eligibility(model, rules, policy, plan):
+    """每条规则独立计分，不用规则 OR 或其他来源的成绩代替其资格。"""
+    _, model_eligible = gates_and_eligibility(model, plan)
+    result = {}
+    for family in CLASSES[1:]:
+        by_rule = {}
+        for rule in policy.get("rulePolicies", []):
+            if rule["family"] == family:
+                _, values = gates_and_eligibility(rules[rule["ruleId"]], plan)
+                by_rule[rule["ruleId"]] = values[family] | {
+                    "recall": rules[rule["ruleId"]]["perClass"][family]["recall"],
+                    "precision": rules[rule["ruleId"]]["perClass"][family]["precision"]}
+        result[family] = {"modelOnly": model_eligible[family] | {
+            "recall": model["perClass"][family]["recall"], "precision": model["perClass"][family]["precision"]},
+            "ruleOnly": by_rule,
+            "offlineEligible": model_eligible[family]["offlineEligible"] or any(v["offlineEligible"] for v in by_rule.values()),
+            "requiresG3": True, "automaticExecutionEnabled": False, "mode": "alert_only"}
+    return result

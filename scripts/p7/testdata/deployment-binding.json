@@ -1,0 +1,10 @@
+{
+  "maxTtlSeconds": 30,
+  "maxContinuousBlockSeconds": 60,
+  "maxActiveRulesPerAsset": 5,
+  "maxNewActionsPerMinute": 2,
+  "supportedCapabilityIds": [
+    "00000000-0000-4000-8000-000000000023"
+  ],
+  "protectionSetSha256": "f60afa434444fefef6982d1a5366f8339b28f001f2bf7ce1ffe3b0b0a2468cf2"
+}

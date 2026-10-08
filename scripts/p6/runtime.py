@@ -81,22 +81,36 @@ def framework_predict(feed, preprocessing, model):
     logged = np.log1p(values)
     filled = np.where(feed["numeric_missing"] == 1, mean, logged)
     numeric = ((filled - mean) / scale).astype(np.float32)
-    matrix = np.column_stack((numeric, feed["numeric_missing"],
-                              feed["categorical_codes"].astype(np.float32)))
+    indices = preprocessing["numericIndices"]
+    if not indices or len(set(indices)) != len(indices) or any(type(i) is not int or not 0 <= i < 43 for i in indices):
+        raise ValueError("冻结特征选列非法")
+    categories = feed["categorical_codes"].astype(np.float32)
+    if not preprocessing["includeServiceClass"]:
+        categories = categories[:, :2]
+    matrix = np.column_stack((numeric[:, indices], feed["numeric_missing"][:, indices], categories))
     result = np.asarray(lgb.Booster(model_file=str(model)).predict(matrix, num_threads=8))
     if result.shape != (len(values), 5) or not np.isfinite(result).all():
         raise ValueError("框架概率非法")
     return np.column_stack((1.0 - result[:, 0], result[:, 1:]))
 
 
+def decision_labels(output, threshold):
+    """按冻结家族阈值决定告警；跨端对拍与连接统计共用同一规则。"""
+    families = np.argmax(output[:, 1:], axis=1)
+    if isinstance(threshold, dict):
+        names = ("port_scan", "brute_force", "dos_flood", "dos_slow")
+        cutoffs = np.asarray([threshold[names[i]] for i in families])
+    else:
+        cutoffs = threshold
+    return np.where(output[:, 0] >= cutoffs, families + 1, 0)
+
+
 def compare(actual, expected, threshold):
     """同时报告分差、逐快照类别翻转及告警翻转，后者不能被 argmax 掩盖。"""
     if actual.shape != expected.shape or not np.isfinite(expected).all() or not np.isfinite(actual).all():
         raise ValueError("对拍维度或数值不符")
-    hit = actual[:, 0].astype(np.float64) >= threshold
-    old_hit = expected[:, 0].astype(np.float64) >= threshold
-    labels = np.where(hit, np.argmax(actual[:, 1:], axis=1) + 1, 0)
-    old_labels = np.where(old_hit, np.argmax(expected[:, 1:], axis=1) + 1, 0)
+    labels, old_labels = decision_labels(actual, threshold), decision_labels(expected, threshold)
+    hit, old_hit = labels > 0, old_labels > 0
     error = float(np.abs(actual.astype(np.float64) - expected.astype(np.float64)).max())
     flips = int((labels != old_labels).sum())
     return {"rows": len(actual), "maxProbabilityAbsError": error, "classFlips": flips,

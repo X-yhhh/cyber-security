@@ -1,0 +1,68 @@
+{
+  "policyId": "00000000-0000-4000-8000-000000000024",
+  "policyVersion": "host-guard-decision/2026-10-08.1",
+  "modelId": "00000000-0000-4000-8000-000000000022",
+  "family": "port_scan",
+  "profile": "flow-prefix-v1",
+  "alertThreshold": 0.6,
+  "autoThreshold": 0.9,
+  "minDistinctFlows": 2,
+  "minEvidenceSpanMs": 1000,
+  "episodeSeconds": 30,
+  "contextWindowSeconds": 5,
+  "minPeerFlowStarts": 1,
+  "maxEvidenceAgeMs": 10000,
+  "evaluationPlanSha256": "f47363253afc863b73e43d26a3d3fa37cb190f6627f3800d51334cc205ca85d0",
+  "familyPolicies": [
+    {
+      "family": "port_scan",
+      "alertThreshold": 0.6,
+      "autoThreshold": 0.9,
+      "minDistinctFlows": 2,
+      "scope": "peer_inbound",
+      "modelAutoRequested": false
+    },
+    {
+      "family": "brute_force",
+      "alertThreshold": 0.6,
+      "autoThreshold": 0.9,
+      "minDistinctFlows": 2,
+      "scope": "peer_service",
+      "modelAutoRequested": false
+    },
+    {
+      "family": "dos_flood",
+      "alertThreshold": 0.6,
+      "autoThreshold": 0.9,
+      "minDistinctFlows": 2,
+      "scope": "peer_service",
+      "modelAutoRequested": false
+    },
+    {
+      "family": "dos_slow",
+      "alertThreshold": 0.6,
+      "autoThreshold": 0.9,
+      "minDistinctFlows": 2,
+      "scope": "peer_service",
+      "modelAutoRequested": false
+    }
+  ],
+  "rulePolicies": [
+    {
+      "ruleId": "scan-ports",
+      "family": "port_scan",
+      "field": "contexts.5.peerDistinctServicePorts",
+      "operator": "gte",
+      "threshold": 39,
+      "autoRequested": true
+    }
+  ],
+  "sourceSha256": {
+    "policyPreview": "29618cefcc9aae7acd529bbf2e5a5bb2e8334bc2e3e67657c99bce2ade58a585",
+    "rulesComparison": "1f3b0e52d29f4f2d9157f47f66d71f7b2865058ca1fa03223ef3ba379b67dc85",
+    "evaluationPlan": "f47363253afc863b73e43d26a3d3fa37cb190f6627f3800d51334cc205ca85d0",
+    "featureProfile": "3bdeb637e46a9fde6192a20e58eacbe56563a9d21339860c54db4907fb8853b5",
+    "sourceEligibility": "0e0450c079dd98b022f3d3fa10b763a26dc0780a703c3c14d8fa129e15afb766",
+    "evaluatedPolicy": "f351183b58522ea88bd7d6eb35526ea5f11874d2348a92c64dd3622570b9a51c"
+  }
+}

@@ -1,0 +1,74 @@
+{
+  "contractVersion": "host-guard/5.0.0-rc.4",
+  "policyId": "00000000-0000-4000-8000-000000000021",
+  "policyVersion": "host-guard-decision/2026-10-08.1",
+  "modelId": "00000000-0000-4000-8000-000000000022",
+  "family": "port_scan",
+  "profile": "flow-prefix-v1",
+  "alertThreshold": 0.6,
+  "autoThreshold": 0.9,
+  "minDistinctFlows": 2,
+  "minEvidenceSpanMs": 1000,
+  "episodeSeconds": 30,
+  "contextWindowSeconds": 5,
+  "minPeerFlowStarts": 1,
+  "maxEvidenceAgeMs": 10000,
+  "evaluationPlanSha256": "f47363253afc863b73e43d26a3d3fa37cb190f6627f3800d51334cc205ca85d0",
+  "maxTtlSeconds": 30,
+  "maxContinuousBlockSeconds": 60,
+  "maxActiveRulesPerAsset": 5,
+  "maxNewActionsPerMinute": 2,
+  "supportedCapabilityIds": [
+    "00000000-0000-4000-8000-000000000023"
+  ],
+  "protectionSetSha256": "f60afa434444fefef6982d1a5366f8339b28f001f2bf7ce1ffe3b0b0a2468cf2",
+  "familyPolicies": [
+    {
+      "family": "port_scan",
+      "alertThreshold": 0.6,
+      "autoThreshold": 0.9,
+      "minDistinctFlows": 2,
+      "scope": "peer_inbound",
+      "autoEligible": false,
+      "modelAutoEligible": false
+    },
+    {
+      "family": "brute_force",
+      "alertThreshold": 0.6,
+      "autoThreshold": 0.9,
+      "minDistinctFlows": 2,
+      "scope": "peer_service",
+      "autoEligible": false,
+      "modelAutoEligible": false
+    },
+    {
+      "family": "dos_flood",
+      "alertThreshold": 0.6,
+      "autoThreshold": 0.9,
+      "minDistinctFlows": 2,
+      "scope": "peer_service",
+      "autoEligible": false,
+      "modelAutoEligible": false
+    },
+    {
+      "family": "dos_slow",
+      "alertThreshold": 0.6,
+      "autoThreshold": 0.9,
+      "minDistinctFlows": 2,
+      "scope": "peer_service",
+      "autoEligible": false,
+      "modelAutoEligible": false
+    }
+  ],
+  "rulePolicies": [
+    {
+      "ruleId": "scan-ports",
+      "family": "port_scan",
+      "field": "contexts.5.peerDistinctServicePorts",
+      "operator": "gte",
+      "threshold": 39,
+      "autoEligible": false
+    }
+  ],
+  "mode": "alert_only"
+}

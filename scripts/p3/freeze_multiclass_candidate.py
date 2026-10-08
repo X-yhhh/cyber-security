@@ -20,11 +20,12 @@ import numpy as np
 import onnx
 import onnxruntime as ort
 from onnx import version_converter
+from candidate_plan import check_plan
 
 
 ROOT = Path(__file__).resolve().parents[2]
 CLASSES = ("normal", "port_scan", "brute_force", "dos_flood", "dos_slow")
-SOURCE_HASH = "5a5f8ab34366ce2e70c3e6ad32bdc9b4e3aeb3937d32efea387b6d1310c2d613"
+# 仅供已收口 T1.7 探针兼容；新冻结入口使用 split manifest 的数据绑定。
 DATA_HASHES = {"train": "9f2a19313725b373b774e796a6523cbec37d46727ceecb55bb925596ad873572",
                "validation": "2e168dfac592207e0448529ff93d8a6ccbcbeec265253dd0354bfc463940d568"}
 
@@ -58,8 +59,9 @@ def checked_copy(source: Path, target: Path, expected: str):
 def converted_model(source: Path, target: Path):
     model = onnx.load(source)
     original = [(item.domain, item.version) for item in model.opset_import]
-    if ("", 15) not in original:
-        raise ValueError("B5 原图默认 opset 已改变")
+    defaults = [version for domain, version in original if not domain]
+    if len(defaults) != 1 or defaults[0] not in (15, 16, 17):
+        raise ValueError("源图默认 opset 不在已验证转换范围")
     model = version_converter.convert_version(model, 17)
     # 当前转换器会保留 15 并追加 17；单一默认域声明避免运行时歧义。
     imports = [(item.domain, item.version) for item in model.opset_import if item.domain]
@@ -105,9 +107,9 @@ def batches(path: Path, numeric: list[str], vocab: list[list[str]], size=4096):
 
 def verify_role(role: str, frozen: Path, source: Path, converted: Path,
                 numeric: list[str], vocab: list[list[str]], expected_hashes: dict,
-                threshold: float):
+                threshold: float, data_hashes: dict):
     dataset = frozen / role / "dataset.jsonl"
-    if sha(dataset) != DATA_HASHES[role]:
+    if sha(dataset) != data_hashes[role]:
         raise ValueError(f"{role} 冻结数据哈希不符")
     expected_path = source / f"framework-{role}.npy"
     if sha(expected_path) != expected_hashes[expected_path.name]:
@@ -143,140 +145,184 @@ def verify_role(role: str, frozen: Path, source: Path, converted: Path,
             "maxOriginalOnnxAbsError": max_original, "classFlips": flips}
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--output", type=Path, required=True)
-    args = parser.parse_args()
-    output = args.output.resolve()
-    if output.exists() or ROOT / ".cache" not in output.parents:
-        raise ValueError("目标必须是本仓库 .cache 下不存在的新目录")
-    frozen = ROOT / ".cache/p3-a-20261007/frozen"
-    source = ROOT / ".cache/p3b-20261007/windows-evidence/run-reproduce-v1"
-    audit = ROOT / ".cache/p3b-20261007/verification-reproduce-mac-v1"
-    summary = read(source / "reproduction-summary.json")
-    split = read(frozen / "manifest.json")
-    policy_preview = read(audit / "policy-preview.json")
-    if (summary["artifacts"]["model.onnx"] != SOURCE_HASH or sha(source / "model.onnx") != SOURCE_HASH
-            or split["finalTestRead"] or summary["finalTestRead"] or summary["fitCountAfter"] != 33
-            or not summary["frameworkParityPassed"] or not summary["validationExitPassed"]
-            or split["classOrder"] != list(CLASSES) or split["datasetSha256"] != DATA_HASHES | {"test": split["datasetSha256"]["test"]}
-            or policy_preview["automaticExecutionEnabled"]):
-        raise ValueError("P3-A/B 收口证据不匹配")
-    schema = read(ROOT / "docs/contracts/model-manifest.schema.json")
-    feature = read(ROOT / "docs/contracts/feature-profile.json")
-    preprocessing = read(source / "preprocessing.json")
-    threshold = float(summary["alertThreshold"])
-    if (not np.isfinite(threshold) or not 0 <= threshold <= 1
-            or threshold != policy_preview["alertThreshold"] or preprocessing["fitRole"] != "train"
-            or set(policy_preview["classes"]) != set(CLASSES[1:])):
-        raise ValueError("预处理或阈值版本不一致")
+def new_output(output):
+    output = output.resolve()
+    if output.exists() or not any(part in (".cache", "artifacts") for part in output.parts):
+        raise ValueError("目标必须为受控的新目录")
     output.parent.mkdir(parents=True, exist_ok=True)
+    return output
+
+
+def checksums(target):
+    return {"version": "p3-candidate-checksums/1",
+            "files": {p.name: {"sha256": sha(p), "bytes": p.stat().st_size}
+                      for p in sorted(target.iterdir()) if p.is_file() and p.name != "checksums.json"},
+            "selfExcluded": "checksums.json"}
+
+
+def prepare(args):
+    """零拟合准备 rc.3 制品与计划；没有外部策略的准备包不能进入 P6。"""
+    output = new_output(args.output)
+    source, frozen, audit = args.source.resolve(), args.frozen.resolve(), args.audit.resolve()
+    summary, split = read(source / "reproduction-summary.json"), read(frozen / "manifest.json")
+    plan = read(args.plan)
+    check_plan(plan)
+    feature = read(ROOT / "docs/contracts/feature-profile.json")
+    pre = read(source / "preprocessing.json")
+    threshold = float(summary["alertThreshold"])
+    report, verification = read(audit / "validation-report.json"), read(audit / "verification.json")
+    if (summary["finalTestRead"] or split["finalTestRead"] or not summary["candidateOnly"]
+            or summary["fitCountAfter"] < 1 or summary["fitCountAfter"] > summary["budget"]
+            or not summary["frameworkParityPassed"] or not summary["validationExitPassed"]
+            or split["classOrder"] != list(CLASSES)
+            or any(summary["datasetSha256"][r] != split["datasetSha256"][r] for r in ("train", "validation"))
+            or summary["artifacts"]["model.onnx"] != args.source_sha256
+            or sha(source / "model.onnx") != args.source_sha256
+            or report["modelSha256"] != args.source_sha256 or report["newFits"] != 0
+            or report["finalTestRead"] or not verification["platformParityPassed"]
+            or verification["modelSha256"] != args.source_sha256 or verification["finalTestRead"]
+            or verification["newFits"] != 0 or not verification["candidateOnly"]
+            or verification["alertThreshold"] != threshold
+            or not verification["validationExitPassed"] or not verification["alertMatchesWindows"]
+            or pre["fitRole"] != "train" or not pre["includeServiceClass"]
+            or summary["featureSet"] != pre["featureSet"]
+            or not np.isfinite(threshold) or not 0 <= threshold <= 1
+            or report["alertThreshold"] != threshold):
+        raise ValueError("登记 run、开发数据或审计不符")
+    import sys
+    sys.path.insert(0, str(ROOT / "scripts/p6"))
+    from evaluate import numeric_indices
+    if pre["numericIndices"] != numeric_indices(pre["featureSet"], feature):
+        raise ValueError("预处理选列不符")
+    scope = read(args.scope)
+    if not scope or any(item["transport"] != "tcp" or item["direction"] != "inbound" for item in scope):
+        raise ValueError("适用范围超出开发数据的实测方向/协议")
+    uuid.UUID(args.training_run_id)
     with tempfile.TemporaryDirectory(prefix="p3c-", dir=output.parent) as temporary:
         target = Path(temporary)
-        checked_copy(source / "model.onnx", target / "source-model.onnx", SOURCE_HASH)
+        checked_copy(source / "model.onnx", target / "source-model.onnx", args.source_sha256)
         original_imports = converted_model(source / "model.onnx", target / "model.onnx")
         parity = {role: verify_role(role, frozen, source, target / "model.onnx",
-                                    feature["numericFeatures"], preprocessing["vocabularies"],
-                                    summary["artifacts"], threshold)
-                  for role in DATA_HASHES}
-        checked_copy(source / "preprocessing.json", target / "preprocessing.json",
-                     summary["artifacts"]["preprocessing.json"])
-        checked_copy(source / "native-model.txt", target / "native-model.txt",
-                     summary["artifacts"]["native-model.txt"])
+                                   feature["numericFeatures"], pre["vocabularies"],
+                                   summary["artifacts"], threshold, split["datasetSha256"])
+                  for role in ("train", "validation")}
+        for name in ("preprocessing.json", "native-model.txt"):
+            checked_copy(source / name, target / name, summary["artifacts"][name])
         checked_copy(source / "code-manifest.json", target / "training-code-manifest.json",
                      summary["codeManifestSha256"])
-        checked_copy(frozen / "manifest.json", target / "split-manifest.json", sha(frozen / "manifest.json"))
-        checked_copy(frozen / "split-ledger.jsonl", target / "split-ledger.jsonl",
-                     split["splitLedgerSha256"])
-        checked_copy(audit / "validation-report.json", target / "validation-report.json",
-                     sha(audit / "validation-report.json"))
-        checked_copy(audit / "rules-comparison.json", target / "rules-comparison.json",
-                     sha(audit / "rules-comparison.json"))
+        for name in ("validation-report.json", "verification.json", "policy-preview.json", "rules-comparison.json"):
+            checked_copy(audit / name, target / name, sha(audit / name))
+        for name, digest in (("manifest.json", sha(frozen / "manifest.json")),
+                             ("split-ledger.jsonl", split["splitLedgerSha256"])):
+            checked_copy(frozen / name, target / ("split-manifest.json" if name == "manifest.json" else name), digest)
         write(target / "calibration.json", {"version": "p3-calibration/none", "method": "none",
-                                             "fitRole": None, "modelOutput": "raw_lightgbm_softmax"})
+                                           "fitRole": None, "modelOutput": "raw_lightgbm_softmax"})
         write(target / "class-map.json", {"version": split["classMappingVersion"], "classOrder": CLASSES,
-                                           "labelRuleVersion": split["labelRuleVersion"]})
-        rules = read(target / "rules-comparison.json")
-        write(target / "decision-policy.json", {
-            "policyVersion": "host-guard-decision/2026-10-06.1", "ruleVersion": "host-guard-rules/1",
-            "ruleSourceVersion": rules["version"], "rules": rules["rules"],
-            "alertThreshold": threshold, "maxEvidenceAgeMs": policy_preview["maxEvidenceAgeMs"],
-            "automaticExecutionEnabled": False,
-            "classes": {name: {"mode": "alert_only", "autoThreshold": item["parameters"]["autoThreshold"],
-                               "minDistinctFlows": item["parameters"]["minDistinctFlows"]}
-                        for name, item in policy_preview["classes"].items()}})
-        model_hash = sha(target / "model.onnx")
-        plan = {"plan": split["plan"], "stage": "P6", "candidateSha256": model_hash,
-                "splitManifestSha256": sha(frozen / "manifest.json"),
-                "testDatasetSha256": split["datasetSha256"]["test"],
-                "classMapSha256": sha(target / "class-map.json"),
-                "decisionPolicySha256": sha(target / "decision-policy.json"),
-                "preprocessingSha256": sha(target / "preprocessing.json"),
-                "calibrationSha256": sha(target / "calibration.json"),
-                "trainingCodeManifestSha256": sha(target / "training-code-manifest.json"),
-                "freezeCodeSha256": sha(Path(__file__)),
-                "featureProfileSha256": sha(ROOT / "docs/contracts/feature-profile.json"),
-                "extractorSha256": sha(ROOT / ".cache/p3-a-20261007/bin/guardextract"),
-                "evaluationVersion": "host-guard-evaluation/2026-10-07.1",
-                "metricDefinitionSha256": sha(ROOT / "docs/验证与验收.md"),
-                "statisticalUnit": "parentConnection",
-                "connectionDecision": "first_snapshot_at_alert_threshold_then_argmax_family",
-                "attackDetectionAggregation": "equal_weight_four_attack_classes",
-                "falsePositiveAggregation": "equal_weight_internal_and_website_normal",
-                "automaticEligibility": {"recallMin": 0.80, "precisionMin": 0.90,
-                                         "requiresG3": True},
-                "evaluationIds": ["p6-l1-01", "p6-l1-02", "p6-l1-03"], "maxTestEvaluations": 3,
-                "repeatPolicy": "第 2/3 次须先登记改动及原因，不得逐条或逐时段针对 test 调参",
-                "gates": {"G1": {"attackDetectionMin": 0.90, "falsePositiveRateMax": 0.02},
-                          "G2": {"macroF1Min": 0.80}},
-                "otherDatasets": {"L2": "report_only_optional_A7", "L3": "test_only_report"},
-                "noTestReadBeforeP6": True}
+                                         "labelRuleVersion": split["labelRuleVersion"]})
+        model_hash, extractor_hash = sha(target / "model.onnx"), sha(args.extractor)
+        bindings = {"candidateSha256": model_hash, "splitManifestSha256": sha(target / "split-manifest.json"),
+                    "testDatasetSha256": split["datasetSha256"]["test"],
+                    "featureProfileSha256": sha(ROOT / "docs/contracts/feature-profile.json"),
+                    "extractorSha256": extractor_hash, "freezeCodeSha256": sha(Path(__file__))}
+        bindings.update({key: sha(target / name) for key, name in {
+            "classMapSha256": "class-map.json", "preprocessingSha256": "preprocessing.json",
+            "calibrationSha256": "calibration.json", "trainingCodeManifestSha256": "training-code-manifest.json"}.items()})
+        if any(key in plan and plan[key] != value for key, value in bindings.items()):
+            raise ValueError("计划预置的制品绑定与实际字节冲突")
+        plan.update(bindings)
         write(target / "evaluation-plan.json", plan)
         code = read(target / "training-code-manifest.json")
-        created = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
         manifest = {
-            "contractVersion": "host-guard/5.0.0-rc.2", "modelId": str(uuid.uuid5(uuid.NAMESPACE_URL, model_hash)),
-            "modelVersion": "p3-multiclass-20261007-candidate-2", "candidateOnly": True,
-            "artifactSha256": model_hash, "featureProfileSha256": sha(ROOT / "docs/contracts/feature-profile.json"),
-            "extractorSha256": sha(ROOT / ".cache/p3-a-20261007/bin/guardextract"),
-            "preprocessingSha256": sha(target / "preprocessing.json"),
-            "calibrationSha256": sha(target / "calibration.json"),
-            "datasetManifestSha256": sha(frozen / "manifest.json"),
-            "splitManifestSha256": sha(target / "split-manifest.json"),
+            "contractVersion": "host-guard/5.0.0-rc.3", "modelId": str(uuid.uuid5(uuid.NAMESPACE_URL, model_hash)),
+            "modelVersion": args.model_version, "candidateOnly": True,
+            "artifactSha256": model_hash, "featureProfileSha256": bindings["featureProfileSha256"],
+            "extractorSha256": extractor_hash, "preprocessingSha256": bindings["preprocessingSha256"],
+            "calibrationSha256": bindings["calibrationSha256"],
+            "datasetManifestSha256": bindings["splitManifestSha256"],
+            "splitManifestSha256": bindings["splitManifestSha256"],
             "evaluationPlanSha256": sha(target / "evaluation-plan.json"),
             "validationReportSha256": sha(target / "validation-report.json"),
-            "createdAt": created, "algorithm": "lightgbm",
-            "profiles": feature["profiles"], "numericFeatures": feature["numericFeatures"],
-            "categoricalFeatures": feature["categoricalFeatures"],
-            "supportedScope": [{"addressFamily": "ipv4", "transport": "tcp", "direction": "inbound",
-                                "family": family, "minimumCoverageMs": 0, "coverageWindowSeconds": 1}
-                               for family in CLASSES[1:]],
-            "scoreCalibration": "none", "runtime": {"format": "onnx", "opset": 17,
-                                                      "maxProbabilityAbsError": 0.0001,
-                                                      "runtimeVersion": ort.__version__},
-            "finalEvaluationReportSha256": None,
-            "trainingRunId": str(uuid.uuid5(uuid.NAMESPACE_URL, SOURCE_HASH + ":run-reproduce-v1")),
-            "algorithmVersion": code["packages"]["lightgbm"],
-            "trainingCodeSha256": summary["codeManifestSha256"],
-            "outputContract": {"attackScoreName": "attack_score",
-                               "binaryLabels": {"benign": 0, "attack": 1},
+            "createdAt": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
+            "algorithm": "lightgbm", "profiles": feature["profiles"],
+            "numericFeatures": feature["numericFeatures"], "categoricalFeatures": feature["categoricalFeatures"],
+            "supportedScope": scope, "scoreCalibration": "none",
+            "runtime": {"format": "onnx", "opset": 17, "maxProbabilityAbsError": .0001,
+                        "runtimeVersion": ort.__version__},
+            "finalEvaluationReportSha256": None, "trainingRunId": args.training_run_id,
+            "algorithmVersion": code["packages"]["lightgbm"], "trainingCodeSha256": summary["codeManifestSha256"],
+            "outputContract": {"attackScoreName": "attack_score", "binaryLabels": {"benign": 0, "attack": 1},
                                "familyScoreOrder": list(CLASSES[1:])}}
+        schema = read(ROOT / "docs/contracts/model-manifest.schema.json")
         jsonschema.Draft202012Validator(schema, format_checker=jsonschema.FormatChecker()).validate(manifest)
         write(target / "model-manifest.json", manifest)
-        write(target / "provenance.json", {"stage": "P3-C", "sourceModelSha256": SOURCE_HASH,
-                                           "originalOpsetImports": original_imports,
-                                           "convertedModelSha256": model_hash,
-                                           "converterVersion": onnx.__version__,
-                                           "runtimeVersion": ort.__version__, "parity": parity,
-                                           "freezeCodeSha256": sha(Path(__file__)),
-                                           "fitCount": 33, "newFits": 0, "testRead": False,
-                                           "automaticExecutionEnabled": False})
-        files = {path.name: {"sha256": sha(path), "bytes": path.stat().st_size}
-                 for path in sorted(target.iterdir()) if path.is_file()}
-        write(target / "checksums.json", {"version": "p3-candidate-checksums/1", "files": files,
-                                          "selfExcluded": "checksums.json"})
+        write(target / "provenance.json", {"stage": "P3-C-prepared", "sourceModelSha256": args.source_sha256,
+              "convertedModelSha256": model_hash, "originalOpsetImports": original_imports, "parity": parity,
+              "fitCount": summary["fitCountAfter"], "budget": summary["budget"], "roundId": summary["roundId"],
+              "runSummarySha256": sha(source / "reproduction-summary.json"),
+              "freezeCodeSha256": sha(Path(__file__)), "newFits": 0, "testRead": False,
+              "automaticExecutionEnabled": False})
+        write(target / "checksums.json", checksums(target))
         target.rename(output)
-    print(json.dumps({"output": str(output), "modelSha256": model_hash, "parity": parity}, ensure_ascii=False))
+    print(json.dumps({"prepared": True, "frozen": False, "modelSha256": model_hash,
+                      "evaluationPlanSha256": sha(output / "evaluation-plan.json")}, ensure_ascii=False))
+
+
+def seal(args):
+    """外部策略与单对端开发证据通过后，才生成不可覆盖的完整候选。"""
+    import sys
+    sys.path.insert(0, str(ROOT / "scripts/p6"))
+    from evaluate import checked_candidate
+    output = new_output(args.output)
+    prepared = args.prepared.resolve()
+    listing = read(prepared / "checksums.json")
+    if (prepared / "decision-policy.json").exists():
+        raise ValueError("只能封口尚未绑定策略的准备包")
+    for name, item in listing["files"].items():
+        if Path(name).name != name or sha(prepared / name) != item["sha256"] or (prepared / name).stat().st_size != item["bytes"]:
+            raise ValueError("准备包内容变动")
+    if set(listing["files"]) != {p.name for p in prepared.iterdir() if p.is_file() and p.name != "checksums.json"}:
+        raise ValueError("准备包校验清单不完整")
+    proof = read(args.single_peer_report)
+    policy = read(args.policy)
+    provenance, split = read(prepared / "provenance.json"), read(prepared / "split-manifest.json")
+    if (provenance["stage"] != "P3-C-prepared" or not proof["passed"] or proof["testRead"] or proof["newFits"] != 0
+            or proof["candidateSha256"] != provenance["sourceModelSha256"]
+            or proof["preprocessingSha256"] != sha(prepared / "preprocessing.json")
+            or proof["datasetSha256"] != split["datasetSha256"]["validation"]
+            or proof["threshold"] != read(prepared / "validation-report.json")["alertThreshold"]
+            or any(item["alertThreshold"] != proof["threshold"] for item in policy["familyPolicies"])
+            or proof["datasetRole"] != "validation" or not proof["candidateOnly"]
+            or proof["codeSha256"] != {name: sha(ROOT / name) for name in
+                ("scripts/p3/single_peer_check.py", "scripts/p6/evaluate.py", "scripts/p6/runtime.py")}
+            or proof["hostRewrite"] != {"hostDistinctPeers": 1, "hostFlowStarts": "peerFlowStarts"}
+            or set(proof["dropByClass"]) != set(CLASSES[1:])
+            or any(not np.isfinite(v) or v > .20 + 1e-12 for v in proof["dropByClass"].values())):
+        raise ValueError("缺少同一 run 的单对端通过证据")
+    with tempfile.TemporaryDirectory(prefix="p3c-seal-", dir=output.parent) as temporary:
+        target = Path(temporary)
+        for name, item in listing["files"].items():
+            checked_copy(prepared / name, target / name, item["sha256"])
+        checked_copy(args.policy, target / "decision-policy.json", sha(args.policy))
+        checked_copy(args.single_peer_report, target / "single-peer-report.json", sha(args.single_peer_report))
+        write(target / "checksums.json", checksums(target))
+        checked_candidate(target)
+        target.rename(output)
+    print(json.dumps({"frozen": True, "candidateOnly": True, "testRead": False}))
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    sub = parser.add_subparsers(dest="command", required=True)
+    ready = sub.add_parser("prepare")
+    for name in ("source", "frozen", "audit", "extractor", "plan", "scope", "output"):
+        ready.add_argument("--" + name, type=Path, required=True)
+    for name in ("source-sha256", "model-version", "training-run-id"):
+        ready.add_argument("--" + name, required=True)
+    sealing = sub.add_parser("seal")
+    for name in ("prepared", "policy", "single-peer-report", "output"):
+        sealing.add_argument("--" + name, type=Path, required=True)
+    args = parser.parse_args()
+    {"prepare": prepare, "seal": seal}[args.command](args)
 
 
 if __name__ == "__main__":

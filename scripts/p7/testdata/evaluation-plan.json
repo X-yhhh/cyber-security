@@ -1,0 +1,12 @@
+{
+  "stage": "P6",
+  "evaluationVersion": "test-source-evaluation/1",
+  "evaluationIds": [
+    "synthetic-p6-l1"
+  ],
+  "candidateSha256": "3333333333333333333333333333333333333333333333333333333333333333",
+  "featureProfileSha256": "3bdeb637e46a9fde6192a20e58eacbe56563a9d21339860c54db4907fb8853b5",
+  "automaticEligibility": {
+    "sourceMode": "model_and_each_rule"
+  }
+}

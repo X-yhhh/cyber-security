@@ -123,7 +123,7 @@ class PlatformTest(unittest.TestCase):
                  f'port {first}:{last} label "hg5-{command}"' for first, last in ranges]
         pf = object.__new__(PF)
         pf.root = PF.anchor_root(str(uuid.uuid4()))
-        pf.run = lambda args: command if args[-1] == "Anchors" else "\n".join(lines)
+        pf.run = lambda args: command if args[-1] == "Anchors" else "" if args[-2] == pf.root else "\n".join(lines)
         scope = pf.inventory()[command]["scope"]
         self.assertEqual(scope, {"local": "127.0.0.1", "peer": "127.0.0.2", "interface": "lo0",
                                  "port": None, "ranges": ranges})
@@ -136,6 +136,18 @@ class PlatformTest(unittest.TestCase):
                 lines[0] = original.replace("1:21", invalid)
                 with self.assertRaisesRegex(Rejected, "UNKNOWN_OWNED_RULE"):
                     pf.inventory()
+
+    def test_namespace_root_rule_is_unknown_and_never_removed(self):
+        pf = object.__new__(PF)
+        pf.root = PF.anchor_root(str(uuid.uuid4()))
+        calls = []
+        def run(args, data=None):
+            calls.append((args, data))
+            return 'pass all label "unknown"\n'
+        pf.run = run
+        with self.assertRaisesRegex(Rejected, "UNKNOWN_OWNED_RULE"):
+            pf.inventory()
+        self.assertEqual(calls, [(["/sbin/pfctl", "-a", pf.root, "-sr"], None)])
 
     def test_pf_install_uses_identical_ranges_for_rules_and_state_cleanup(self):
         command = str(uuid.uuid4())

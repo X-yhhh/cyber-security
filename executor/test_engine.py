@@ -6,11 +6,13 @@ import hmac
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import tempfile
+import threading
 import unittest
+from unittest.mock import patch
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
-from .common import Rejected, canonical, digest, ident, parse, public_der, stamp
+from .common import Rejected, canonical, digest, ident, instant, parse, public_der, stamp
 from .contract import scope_hash, verify
 from .engine import Engine
 from .storage import Store
@@ -37,12 +39,14 @@ class Firewall:
         self.installs = 0
         self.crash = False
         self.fail_remove = False
+        self.max_rules = 0
 
     def handle(self, command): return "fixture:" + command
 
     def install(self, command, scope, apply_by=None):
         self.rules[command] = {"handle": self.handle(command), "scope": copy.deepcopy(scope)}
         self.installs += 1
+        self.max_rules = max(self.max_rules, len(self.rules))
         if self.crash:
             raise Crash()
 
@@ -106,6 +110,17 @@ class EngineTest(unittest.TestCase):
     def signed(self, p):
         return {"payload": p, "keyId": "test", "algorithm": "Ed25519",
                 "signature": base64.urlsafe_b64encode(self.key.sign(canonical(p))).rstrip(b"=").decode()}
+
+    def keep_recovery_alive(self):
+        """真实 TLS 测试持续提供恢复器存活旁证；不放宽正式的一秒心跳门禁。"""
+        stop = threading.Event()
+        self.engine.pulse("recovery")
+        def heartbeat():
+            while not stop.wait(.1):
+                self.engine.pulse("recovery")
+        thread = threading.Thread(target=heartbeat, daemon=True)
+        thread.start()
+        self.addCleanup(lambda: (stop.set(), thread.join(2)))
 
     def accept(self, **changes):
         p = self.payload(**changes)
@@ -290,9 +305,38 @@ class EngineTest(unittest.TestCase):
         self.firewall.rules[unknown] = {"handle": "alien", "scope": {}}
         self.engine.recover()
         self.assertIn(unknown, self.firewall.rules)
-        self.assertTrue(self.engine.snapshot()["recoveryErrors"])
+        self.assertIn("STATE_RECONCILIATION_FAILED", self.engine.snapshot()["recoveryErrors"])
+        self.assertTrue(self.store.get("paused"))
         with self.assertRaisesRegex(Rejected, "RECOVERY_PENDING"):
             self.accept()
+
+    def test_unknown_rule_on_accept_or_snapshot_pauses_without_deletion(self):
+        for entry in ("accept", "snapshot"):
+            with self.subTest(entry=entry):
+                self.store.set("paused", False)
+                unknown = ident()
+                self.firewall.rules[unknown] = {"handle": "alien", "scope": {}}
+                before = self.firewall.inventory()
+                if entry == "accept":
+                    p = self.payload()
+                    with self.assertRaisesRegex(Rejected, "STATE_RECONCILIATION_FAILED"):
+                        self.engine.accept(self.signed(p))
+                    self.assertEqual(self.store.command(p["commandId"])["error"], "STATE_RECONCILIATION_FAILED")
+                else:
+                    self.assertIn("STATE_RECONCILIATION_FAILED", self.engine.snapshot()["recoveryErrors"])
+                self.assertTrue(self.store.get("paused"))
+                self.assertEqual(before, self.firewall.inventory())
+                self.assertEqual(self.firewall.installs, 0)
+
+    def test_inventory_failure_on_accept_keeps_rejection_and_pause(self):
+        p = self.payload()
+        with patch.object(self.firewall, "inventory", side_effect=Rejected("UNKNOWN_OWNED_RULE")):
+            with self.assertRaisesRegex(Rejected, "STATE_RECONCILIATION_FAILED"):
+                self.engine.accept(self.signed(p))
+            self.assertIn("STATE_RECONCILIATION_FAILED", self.engine.snapshot()["recoveryErrors"])
+        self.assertEqual(self.store.command(p["commandId"])["status"], "rejected")
+        self.assertTrue(self.store.get("paused"))
+        self.assertEqual(self.firewall.installs, 0)
 
     def test_recovery_heartbeat_is_required(self):
         self.clock.advance(2)
@@ -348,6 +392,177 @@ class EngineTest(unittest.TestCase):
         self.engine.budget_key = b"different-test-only-key-of-32bytes"
         with self.assertRaisesRegex(Rejected, "LEDGER_IDENTITY_CHANGED"):
             self.engine.start()
+
+    def test_revoked_target_requires_budget_recovery_proof_before_new_cycle(self):
+        p, _ = self.accept()
+        self.engine.revoke(self.revocation(p))
+        row = self.store.command(p["commandId"])
+        self.clock.advance(121)
+        self.engine.pulse("recovery")
+        with self.assertRaisesRegex(Rejected, "TARGET_REVOKED"):
+            self.accept(keyEpoch=2)
+        proof = {"stableTargetToken": row["token"], "chargedMs": 0, "healthProofSha256": None,
+                 "cycleStartedAt": stamp(self.clock.time()), "budgetTargetId": ident()}
+        with self.assertRaisesRegex(Rejected, "BUDGET_RECOVERY_UNVERIFIED"):
+            self.engine.reset_budget(row["token"], proof)
+        proof["healthProofSha256"] = "e" * 64
+        self.engine.reset_budget(row["token"], proof)
+        new, status = self.accept(keyEpoch=2)
+        self.assertEqual(status, "applied")
+        self.assertEqual(self.store.command(new["commandId"])["token"], row["token"])
+        self.assertEqual(self.store.command(p["commandId"]), row)
+        self.assertEqual(self.engine.accept(self.signed(p)), "revoked")
+        self.assertEqual(len(self.firewall.rules), 1)
+
+
+class RenewalCases:
+    """E2 五组组合复用于普通执行器和全入站 canary；时钟、规则均为替身。
+
+    检查点核对物理规则数、不可变租约/单调截止、已预留动作数及累计秒数。
+    撤销只释放活动槽，不冲销累计预算；续封必须是新动作。
+    """
+
+    def renewal_payload(self, **changes):
+        return self.fixture.payload(**changes)
+
+    def assert_budget(self, rules, actions, seconds):
+        f = self.fixture
+        rows = [r for r in f.store.commands() if r["token"] is not None]
+        self.assertEqual(len(f.firewall.inventory()), rules)
+        self.assertEqual(len(rows), actions)
+        self.assertEqual(sum(instant(r["payload"]["blockUntil"]) - r["created"] for r in rows), seconds)
+        self.assertEqual(len([r for r in rows if r["status"] not in ("revoked", "expired", "rejected")]), rules)
+        with f.store.db() as db:
+            self.assertEqual(db.execute("SELECT count(*) FROM audit WHERE event='command.prepared'").fetchone()[0], actions)
+        previous = getattr(self, "budget_checkpoint", (0, 0, {}))
+        self.assertGreaterEqual(actions, previous[0])
+        self.assertGreaterEqual(seconds, previous[1])
+        deadlines = {}
+        for row in rows:
+            p = row["payload"]
+            self.assertLessEqual(instant(p["blockUntil"]), instant(p["leaseExpiresAt"]))
+            self.assertLessEqual(row["deadline"], f.clock.monotonic() + instant(p["leaseExpiresAt"]) - f.clock.time())
+            value = (row["deadline"], p["blockUntil"], p["leaseExpiresAt"])
+            if p["commandId"] in previous[2]:
+                self.assertEqual(value, previous[2][p["commandId"]])
+            deadlines[p["commandId"]] = value
+        self.budget_checkpoint = actions, seconds, deadlines
+
+    def submit(self, p):
+        try:
+            return self.engine.accept(self.fixture.signed(p))
+        except Rejected as exc:
+            return str(exc)
+
+    def parallel(self, *operations):
+        gate = threading.Barrier(len(operations))
+        def invoke(operation):
+            gate.wait(timeout=5)
+            return operation()
+        with ThreadPoolExecutor(max_workers=len(operations)) as pool:
+            return list(pool.map(invoke, operations))
+
+    def test_e2_simultaneous_revoke_and_renewal(self):
+        f = self.fixture
+        p = self.renewal_payload()
+        self.assertEqual(self.submit(p), "applied")
+        self.assert_budget(1, 1, 30)
+        renewal = self.renewal_payload()
+        outcomes = self.parallel(lambda: self.engine.revoke(f.revocation(p)), lambda: self.submit(renewal))
+        self.assertIsNone(outcomes[0])
+        self.assertIn(outcomes[1], ("TARGET_BUDGET_BUSY", "TARGET_REVOKED"))
+        self.assertEqual(f.store.command(p["commandId"])["status"], "revoked")
+        self.assertEqual(self.submit(self.renewal_payload()), "TARGET_REVOKED")
+        self.assert_budget(0, 1, 30)
+        self.assertEqual(f.firewall.max_rules, 1)
+        self.assertEqual(f.firewall.installs, 1)
+
+    def test_e2_revoke_before_renewal_survives_restart(self):
+        f = self.fixture
+        p = self.renewal_payload()
+        self.assertEqual(self.submit(p), "applied")
+        self.assert_budget(1, 1, 30)
+        self.engine.revoke(f.revocation(p))
+        self.assert_budget(0, 1, 30)
+        for restart in (False, True):
+            if restart:
+                self.engine.start()
+                f.engine.boot = self.engine.boot
+                self.engine.pulse("recovery")
+            self.assertEqual(self.submit(self.renewal_payload(keyEpoch=2, peerKey="d" * 64)), "TARGET_REVOKED")
+            self.assert_budget(0, 1, 30)
+        self.assertEqual(f.firewall.installs, 1)
+
+    def test_e2_duplicate_renewal_charged_once_without_extension(self):
+        f = self.fixture
+        first = self.renewal_payload()
+        self.assertEqual(self.submit(first), "applied")
+        self.assert_budget(1, 1, 30)
+        f.clock.advance(30)
+        self.engine.recover()
+        self.assert_budget(0, 1, 30)
+        self.engine.pulse("recovery")
+        renewal = self.renewal_payload()
+        self.assertEqual(self.parallel(lambda: self.submit(renewal), lambda: self.submit(renewal)), ["applied"] * 2)
+        self.assert_budget(1, 2, 60)
+        f.clock.advance(3)
+        self.assertEqual(self.submit(renewal), "applied")
+        self.assertEqual(self.submit({**renewal, "blockUntil": stamp(f.clock.time() + 30)}), "IDEMPOTENCY_CONFLICT")
+        self.assert_budget(1, 2, 60)
+        f.clock.advance(27)
+        self.engine.recover()
+        self.assert_budget(0, 2, 60)
+        self.assertEqual(f.firewall.installs, 2)
+        self.assertEqual(f.firewall.max_rules, 1)
+
+    def test_e2_over_budget_renewal_keeps_original_deadline(self):
+        f = self.fixture
+        f.config["limits"]["maxContinuousBlockSeconds"] = 45
+        p = self.renewal_payload()
+        self.assertEqual(self.submit(p), "applied")
+        self.assert_budget(1, 1, 30)
+        f.clock.advance(2)
+        self.engine.pulse("recovery")
+        self.assertEqual(self.submit(self.renewal_payload()), "TARGET_BUDGET_BUSY")
+        self.assert_budget(1, 1, 30)
+        f.clock.advance(28)
+        self.engine.recover()
+        self.assertEqual(f.store.command(p["commandId"])["clearedAt"], instant(p["blockUntil"]))
+        self.assert_budget(0, 1, 30)
+        self.engine.pulse("recovery")
+        self.assertEqual(self.submit(self.renewal_payload()), "TARGET_CONTINUOUS_BUDGET")
+        self.assert_budget(0, 1, 30)
+        self.assertEqual(f.firewall.installs, 1)
+
+    def other_target(self):
+        self.fixture.resolver.result["Peer"] = "192.0.2.3:55002"
+        return self.renewal_payload()
+
+    def test_e2_different_targets_concurrent_revocation(self):
+        f = self.fixture
+        f.config["limits"]["maxActiveRulesPerAsset"] = 2
+        first = self.renewal_payload()
+        self.assertEqual(self.submit(first), "applied")
+        self.assert_budget(1, 1, 30)
+        second = self.other_target()
+        self.assertEqual(self.submit(second), "applied")
+        self.assertNotEqual(f.store.command(first["commandId"])["token"], f.store.command(second["commandId"])["token"])
+        self.assert_budget(2, 2, 60)
+        self.parallel(lambda: self.engine.revoke(f.revocation(first)), lambda: self.engine.revoke(f.revocation(second)))
+        self.assert_budget(0, 2, 60)
+        for p in (first, second):
+            self.assertEqual(f.store.command(p["commandId"])["status"], "revoked")
+            self.assertEqual(self.submit(p), "revoked")
+        self.assert_budget(0, 2, 60)
+        self.assertEqual(f.firewall.max_rules, 2)
+
+
+class RenewalEngineTest(RenewalCases, unittest.TestCase):
+    def setUp(self):
+        self.fixture = EngineTest()
+        self.fixture.setUp()
+        self.addCleanup(self.fixture.doCleanups)
+        self.engine = self.fixture.engine
 
 
 if __name__ == "__main__":

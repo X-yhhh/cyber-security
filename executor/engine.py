@@ -87,7 +87,13 @@ class Engine:
                            "token": None, "handle": self.adapter.handle(p["commandId"]), "created": now,
                            "deadline": 0, "installed": False, "clearedAt": now, "error": str(exc)}
                     self.store.save(row)
-                    self._receipt(row, self.adapter.inventory())
+                    try:
+                        actual = self.adapter.inventory()
+                    except Exception:
+                        # 此命令尚未写入规则；枚举失败仍须保存拒绝回执和暂停证据。
+                        self._reconciliation_failed()
+                        actual = {}
+                    self._receipt(row, actual)
             raise
 
     def authorize_command(self, payload, config, now):
@@ -115,8 +121,12 @@ class Engine:
             scope, target_deadline = self._resolve(p, resolved)
             token = self.stable_target(p, scope)
             self._budget(p, token, config, now)
-            actual = self.adapter.inventory()
-            require(not self._unknown(actual), "STATE_RECONCILIATION_FAILED")
+            try:
+                actual = self.adapter.inventory()
+                require(not self._unknown(actual), "STATE_RECONCILIATION_FAILED")
+            except Exception as exc:
+                self._reconciliation_failed()
+                raise Rejected("STATE_RECONCILIATION_FAILED") from exc
             # IPC、枚举可能耗时：在持久化前再次核验租约、配置和恢复器。
             self.authorize_command(p, self.config(), self.clock.time())
             require(self.trusted_clock() and self.healthy_recovery(), "RECOVERY_PENDING")
@@ -146,13 +156,17 @@ class Engine:
 
     def _budget(self, p, token, config, now):
         rows = [r for r in self.store.commands() if r["status"] != "rejected"]
+        cycle = self.store.get("cycle:" + token, 0)
+        revoked = {r["commandId"] for r in self.store.revocations()}
+        # 同一预算周期的撤销不能靠更换动作、引用或幂等键绕过；重启也不清除墓碑。
+        require(not any(r["token"] == token and r["created"] >= cycle and
+                        r["payload"]["commandId"] in revoked for r in rows), "TARGET_REVOKED")
         live = [r for r in rows if r["status"] not in TERMINAL]
         require(not any(r["token"] == token for r in live), "TARGET_BUDGET_BUSY")
         limits = config["limits"]
         require(len(live) < min(10, limits["maxActiveRulesPerAsset"]), "ASSET_CONCURRENT_LIMIT")
         require(sum(r["created"] > now - 60 for r in rows) < min(5, limits["maxNewActionsPerMinute"]),
                 "ASSET_RATE_LIMIT")
-        cycle = self.store.get("cycle:" + token, 0)
         intervals = [(r["created"], max(instant(r["payload"]["blockUntil"]), r.get("clearedAt") or 0)) for r in rows
                      if r["token"] == token and r["created"] >= cycle]
         intervals.append((now, instant(p["blockUntil"])))
@@ -254,13 +268,13 @@ class Engine:
         try:
             actual = self.adapter.inventory()
         except Exception:
-            self.store.set("paused", True)
-            self.store.set("inventoryError", "STATE_RECONCILIATION_FAILED")
+            self._reconciliation_failed()
             return
         unknown = self._unknown(actual)
-        self.store.set("inventoryError", "UNKNOWN_OWNED_RULE" if unknown else None)
         if unknown:
-            self.store.set("paused", True)
+            self._reconciliation_failed()
+        else:
+            self.store.set("inventoryError", None)
         for row in self.store.commands():
             p = row["payload"]
             command = p["commandId"]
@@ -315,6 +329,14 @@ class Engine:
         known = {r["payload"]["commandId"]: r for r in self.store.commands()}
         return any(key not in known or not self._matches(known[key], actual) for key in actual)
 
+    def _reconciliation_failed(self):
+        """归属或枚举无法证明时持久暂停并追加脱敏证据，绝不删除未知规则。"""
+        self.store.set("paused", True)
+        if self.store.get("inventoryError") != "STATE_RECONCILIATION_FAILED":
+            self.store.audit("state.reconciliation_failed", self.boot,
+                             errorCode="STATE_RECONCILIATION_FAILED")
+        self.store.set("inventoryError", "STATE_RECONCILIATION_FAILED")
+
     def snapshot(self, actual=None):
         """跨进程锁内枚举和读取账本，避免恢复与上报交错形成虚假的空规则摘要。"""
         if actual is not None:
@@ -330,8 +352,10 @@ class Engine:
             except Exception:
                 actual = {}
                 errors.append("RULE_ENUMERATION_FAILED")
+                self._reconciliation_failed()
         if self._unknown(actual):
             errors.append("UNKNOWN_OWNED_RULE")
+            self._reconciliation_failed()
         if self.store.get("inventoryError"):
             errors.append(self.store.get("inventoryError"))
         rules = []

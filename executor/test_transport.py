@@ -38,9 +38,8 @@ class TransportTest(unittest.TestCase):
         fixture.trust["test"].update(notBefore=stamp(time.time() - 60), notAfter=stamp(time.time() + 600))
         fixture.engine.start()
         fixture.engine.pulse("recovery")
-        command = fixture.signed(fixture.payload())
         requests, receipts = [], {}
-        state = {"failReceiptOnce": True, "revocations": []}
+        state = {"failReceiptOnce": True, "revocations": [], "command": None}
 
         class Handler(BaseHTTPRequestHandler):
             def log_message(self, *_): pass
@@ -55,7 +54,11 @@ class TransportTest(unittest.TestCase):
                 if operation == "heartbeats":
                     data = {"serverTime": stamp(time.time()), "status": "active"}
                 elif operation == "command-claims":
-                    data = {"commands": [] if state["revocations"] else [command], "revocations": state["revocations"], "serverTime": stamp(time.time())}
+                    # 控制面在领取时签发，后续领取复用相同载荷；不让 TLS 启动消耗应用窗口。
+                    if state["command"] is None:
+                        state["command"] = fixture.signed(fixture.payload())
+                    data = {"commands": [] if state["revocations"] else [state["command"]],
+                            "revocations": state["revocations"], "serverTime": stamp(time.time())}
                 elif operation == "receipts":
                     key = body["receiptId"]
                     if key in receipts:
@@ -87,9 +90,12 @@ class TransportTest(unittest.TestCase):
         fixture.config.update(controlPlaneURL=f"https://127.0.0.1:{server.server_port}",
                               controlPlaneCA=str(self.pki / "ca.pem"), credentialFile=str(credential), capabilityHash="c" * 64)
         control = ControlPlane(lambda: fixture.config)
+        # 真实 TLS 往返期间持续模拟独立恢复器；心跳过期仍由其他单元测试覆盖。
+        fixture.keep_recovery_alive()
         with self.assertRaisesRegex(Rejected, "CONTROL_PLANE_UNAVAILABLE"):
             cycle(fixture.engine, control)
-        self.assertEqual(fixture.firewall.installs, 1)
+        command = state["command"]
+        self.assertEqual(fixture.firewall.installs, 1, fixture.store.command(command["payload"]["commandId"]))
         self.assertTrue(fixture.store.get("paused"))
         self.assertFalse(fixture.firewall.rules)
         row = fixture.store.command(command["payload"]["commandId"])

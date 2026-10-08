@@ -38,7 +38,9 @@ class LoopbackResolver:
                 "lastPacketAt": stamp(now), "expiresAt": stamp(now + 15)}
 
 
-def run(config_path, signing_key, key_id, output, mode="peer_service", guardtargets=None, scenario="ttl"):
+def run(config_path, signing_key, key_id, output, mode="peer_service", guardtargets=None, scenario="ttl",
+        checkpoint=None):
+    """检查点供 lab 比对既有规则；失败进入相同清理路径，不改变正式执行门禁。"""
     require(not output.exists(), "CANARY_OUTPUT_EXISTS")
     require(scenario in SCENARIOS, "CANARY_SCENARIO_INVALID")
     require(mode == "peer_service" or guardtargets is not None, "CANARY_REAL_TARGET_REQUIRED")
@@ -215,6 +217,8 @@ def run(config_path, signing_key, key_id, output, mode="peer_service", guardtarg
                                        else row is not None and row["status"] == "uncertain" and row["clearedAt"] is not None}
                     report["passed"] = all(report["after"].values())
                     report["finalState"] = engine.snapshot()
+                    if checkpoint is not None:
+                        checkpoint(scenario + "_recovered")
                     require(report["passed"], "CANARY_FAULT_RECOVERY_FAILED")
                     return
                 if scenario == "reject":
@@ -244,6 +248,8 @@ def run(config_path, signing_key, key_id, output, mode="peer_service", guardtarg
                     require(report["passed"], "CANARY_REJECTION_FAILED")
                     return
                 require(engine.accept(signed) == "applied", "CANARY_APPLY_FAILED")
+                if checkpoint is not None:
+                    checkpoint("installed")
                 report["appliedState"] = engine.snapshot()
                 first_deadline = engine.store.command(signed["payload"]["commandId"])["deadline"]
                 duplicate = engine.accept(signed) == "applied" and (
@@ -347,6 +353,8 @@ def run(config_path, signing_key, key_id, output, mode="peer_service", guardtarg
                       during["control"] and during["establishedControl"] and during["normalPeer"] and all(after.values()))
             report.update(after=after, passed=passed, clearedAt=stamp(row["clearedAt"]) if row["clearedAt"] else None,
                           finalState=engine.snapshot())
+            if checkpoint is not None:
+                checkpoint(scenario + "_recovered")
             require(passed, "CANARY_EFFECT_OR_RECOVERY_FAILED")
         finally:
             stop.set()

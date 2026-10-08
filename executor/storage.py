@@ -49,8 +49,8 @@ class Store:
         with open(path, "a+b") as stream:
             if os.name == "nt":
                 import msvcrt
-                stream.seek(0)
-                if stream.read(1) == b"":
+                # Windows 字节锁禁止其他句柄读取锁定字节；用元数据检查长度后直接竞争锁。
+                if os.fstat(stream.fileno()).st_size == 0:
                     stream.write(b"0"); stream.flush()
                 stream.seek(0)
                 msvcrt.locking(stream.fileno(), msvcrt.LK_LOCK if blocking else msvcrt.LK_NBLCK, 1)

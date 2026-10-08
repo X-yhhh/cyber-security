@@ -95,6 +95,8 @@ class PF:
             self.run([str(self.helper), "kill", str(a), str(b), str(scope["port"]), scope["interface"]])
 
     def inventory(self):
+        # 执行器只在命令子 anchor 写规则；命名空间根上的规则也必须报告未知归属。
+        require(not self.run(["/sbin/pfctl", "-a", self.root, "-sr"]).strip(), "UNKNOWN_OWNED_RULE")
         anchors = self.run(["/sbin/pfctl", "-a", self.root, "-s", "Anchors"])
         result = {}
         for anchor in anchors.splitlines():

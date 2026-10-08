@@ -16,7 +16,7 @@
 
 ### 本轮修复与验收
 
-采用“先验执行器，再开放签发”。`canary_targets.py` 使用新建本地 PKI 和真实 Go `guardtargets`，collector/executor 身份分离；签名命令绑定实际短期引用和稳定目标 token。`pf_lab.py` 仅接受初始 Disabled 且只有预期 Apple 根规则的主机，用 `pfctl -R` 只临时调整过滤规则，不重载 NAT 等其他规则集。源文件/程序/配置哈希、规则状态摘要、清理时刻及失败记录保存在仓库外的新运行目录。
+采用“先验执行器，再开放签发”。`canary_targets.py` 使用新建本地 PKI 和真实 Go `guardtargets`，collector/executor 身份分离；签名命令绑定实际短期引用和稳定目标 token。`pf_lab.py` 要求初始 Disabled，根规则只允许预期 Apple 默认值，或默认值加固定的 `p5-user-root` 回环 ICMP 规则和 `p5-user-fixture` 用户 anchor；后者的内容须与代码夹具逐字节一致，其他组合均拒绝。默认根模式会临时添加同一用户夹具。入口用 `pfctl -R` 只临时调整过滤规则，不重载 NAT 等其他规则集。源文件/程序/配置哈希、规则状态摘要、清理时刻及失败记录保存在仓库外的新运行目录。
 
 修复控制面断连/回执响应丢失只记审计的问题：`cycle` 现在把原动作记为 `uncertain`、暂停新动作并核对清理；仍保留原命令 ID、截止时刻及预算，回执重试同一 ID/内容。恢复失败继续为 `recovery_failed`。网络恢复不会静默重开自动能力，须先核对并重新启动执行器；旧命令不能重新应用。
 
@@ -25,6 +25,16 @@
 回归：Python 26 项、JDK 25 领域测试 10 项及两种 scope 的 Java/Python 对拍 2 项、Go 目标包测试、5 Schema/8 负例/55 观察、C helper 严格语法与 `git diff --check` 均通过。仍需收口自定义既有规则保护、并发撤销/续封组合及真实 P4 联合链路，保护清单和平台能力须显式绑定后才能讨论开放正式签发。未验证项不能由这 14 项通过替代。
 
 首轮尝试因根规则规范化文字不同在系统改动前拒绝；第二轮新编译 helper 首次加载超过 0.5 秒并完整回滚。现先在挂接 PF 前完成 helper ABI 预热检查，执行期 0.5 秒上限不变；随后多轮实测通过。空子 anchor 名称可由 PF 保留，不代表活动规则。
+
+### 2026-10-08 任务 4：E1/E2 实现
+
+E1 新增根规则、用户 anchor 与 Apple anchor 的原始字节及 SHA-256 检查点，覆盖安装、TTL、撤销和三个崩溃点恢复。固定用户夹具的原始内容写入运行目录；结束恢复原根、释放本轮 token、移除别名，临时用户夹具只在内容仍完全匹配时移除。运行期间根规则发生外部改动时不覆盖，保留现场并报告失败。`hg5` 根中的无账本规则现在也纳入归属检查：执行器持久暂停、报告 `STATE_RECONCILIATION_FAILED`，不代删。lab 未知规则探针独立记录诊断，只有原封不动的本次注入才由夹具清理；不属于执行器恢复逻辑。
+
+E2 在普通引擎和全入站 canary 中复用五组组合测试：同时撤销/续封、撤销后续封、重复续封、累计超额和不同稳定目标并发撤销。逐检查点断言规则数、TTL/租约、不可变截止、预留动作数与累计秒数。撤销墓碑阻止同一稳定目标在当前预算周期创建新动作，重启、keyEpoch 或新动作 ID 不能绕过；只有现有认证预算恢复证明开始新周期后才可接受新动作。清理释放活动槽位，不清除累计消耗。Windows 字节锁改为检查文件长度，避免竞争锁之前读取已被其他句柄锁定的字节。
+
+本轮仅代码和离线验证（先在 Windows、迁回后在 Mac），防火墙、PF 系统命令、clang 和 ifconfig 均为替身；TLS/Go 目标解析测试走本地真实协议。新用户夹具的 PF 语法、规范化输出及 E1/E2 真实效果尚未在 Mac 验证，须每轮取得 A4 授权后运行。未执行 sudo、真实防火墙、部署、训练或 P4 联合验收，P5 出口未达成。
+
+验证：独立 Python 3.12 环境下 `unittest discover -s executor -t . -p 'test_*.py' -v` 全部 47 项通过；`scripts/p2/validate_contracts.py` 通过 5 Schema、8 负例、55 观察，`git diff --check` 通过。Go 目标程序按 `sensor/go.mod` 的 1.26.4 工具链构建成功；产物与执行器虚拟环境均已忽略。迁回 Mac 并叠加 B1 后，全入站 canary 的 E2 组合改由正式 `Engine` 与 `inboundCapabilities` 登记放行，`unittest discover` 49 项、契约校验与 `go test ./internal/hostguard` 通过。Java、真实数据库、PF/WFP 平台与 E3 联合链路本轮未验证。
 
 ### 2026-10-07 暂停与恢复记录
 
@@ -47,6 +57,15 @@ go -C sensor build -o bin/guardtargets ./cmd/guardtargets
 sh executor/python.sh -m unittest executor.test_engine executor.test_platform executor.test_transport executor.test_canary -v
 go -C sensor test ./internal/hostguard ./cmd/guardtargets
 ```
+
+Windows 使用独立 Python 3.12+ 环境构建 `sensor/bin/guardtargets.exe` 后运行离线套件：
+
+```powershell
+$env:P5_GUARDTARGETS = (Resolve-Path sensor/bin/guardtargets.exe).Path
+executor/.venv/Scripts/python.exe -m unittest discover -s executor -t . -p 'test_*.py' -v
+```
+
+TLS 测试夹具持续提供恢复器心跳并使用契约允许的时间窗口，避免 Windows 锁竞争与 TLS 往返消耗旧的亚秒租约；正式心跳、目标引用与命令期限门禁保持不变。
 
 后端使用JDK 25。`P5_EXECUTOR_INTEROP=true`启用Java/Python真实签名兼容测试，需要上述Python环境；普通后端构建不强制依赖Python。数据库测试使用已有 `DB_TEST_*`，只写专用测试schema。
 

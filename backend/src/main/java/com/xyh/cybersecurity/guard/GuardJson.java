@@ -16,11 +16,13 @@ import java.util.*;
 /** v2 的严格 JSON、UTC 时间和 RFC8785 摘要边界；异常只返回字段名/稳定码。 */
 public final class GuardJson {
     public static final ObjectMapper JSON = new ObjectMapper().enable(JsonParser.Feature.STRICT_DUPLICATE_DETECTION);
-    /** 观测结构保持 rc.2；模型、策略和命令的多分类结构使用 rc.3。 */
+    /** 观测结构保持 rc.2；模型与命令的多分类结构使用 rc.3；策略因按来源开关自动（modelAutoEligible）单独升至 rc.4。 */
     public static final String CONTRACT = "host-guard/5.0.0-rc.2";
     public static final String MODEL_CONTRACT = "host-guard/5.0.0-rc.3";
     public static final String ACTION_CONTRACT = MODEL_CONTRACT;
-    public static final String DECISION = "host-guard-decision/2026-10-06.1";
+    public static final String POLICY_CONTRACT = "host-guard/5.0.0-rc.4";
+    /** 2026-10-08.1：模型来源须 familyPolicies[].modelAutoEligible=true 才进入自动路径；旧版本策略不再可激活。 */
+    public static final String DECISION = "host-guard-decision/2026-10-08.1";
     public static final String HEALTH = "host-guard-capture-health/1.0.0";
     public static final String EVALUATION = "host-guard-evaluation/2026-10-07.1";
     private GuardJson() { }

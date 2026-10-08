@@ -73,6 +73,7 @@ P3 的产物是冻结候选（ONNX、manifest、阈值和策略参数），交�
 |---|---|
 | 提取配置生成、标签关联、切分脚本 | main 仓库 `scripts/p3/*multiclass*.py`（新增当前入口，旧 prefix 脚本只作历史复现） |
 | 训练、选型、导出、对拍 | `training/windows-cuda` 分支 `src/cyber_training/host_guard/`（`multiclass_train`、`multiclass_audit`、`verify_multiclass`、`multiclass_reproduce`） |
+| 候选接口探针（零拟合） | main 仓库 `scripts/p3/probe_candidate_interface.py`，后端 `GuardCandidateProbeTest`（需 `-Dguard.probe.dir`）；见 [后续实施计划 T1.7](../后续实施计划.md#t1-工具参数化零拟合) |
 | 原始数据、特征、模型、报告 | 两台机器的受控目录，不进 Git |
 
 ### 授权点

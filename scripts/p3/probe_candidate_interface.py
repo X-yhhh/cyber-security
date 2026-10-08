@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 import sys
 import tempfile
 import uuid
@@ -30,6 +31,61 @@ INPUTS = {"numeric_values": (onnx.TensorProto.FLOAT, 43), "numeric_missing": (on
           "categorical_codes": (onnx.TensorProto.INT64, 3)}
 OUTPUTS = {"attack_score": 1, "family_scores": 4}
 TOLERANCE = 1e-6
+
+
+def source_binding(source: Path, name: str, run_events: Path | None = None,
+                   reproduction_summary: Path | None = None, fit_ledger: Path | None = None) -> dict:
+    """绑定研究制品来源；复现摘要须逐项验哈希，并由台账中唯一的完成记录背书。
+
+    新方式只接受已知 train/validation 制品名，避免摘要引导读取封存角色或目录外文件。
+    旧 run-events 方式保留原先模型哈希与实验计划绑定。
+    """
+    if (run_events is None) == (reproduction_summary is None):
+        raise ValueError("必须且只能指定一种 run 绑定方式")
+    if run_events is not None:
+        if fit_ledger is not None:
+            raise ValueError("fit-ledger 仅用于复现 run")
+        events = [json.loads(line) for line in run_events.read_text(encoding="utf-8").splitlines() if line.strip()]
+        records = [event["record"] for event in events if event.get("event") == "fit-completed"
+                   and event["record"].get("name") == name]
+        if len(records) != 1 or records[0]["artifactSha256"] != sha(source / "model.onnx"):
+            raise ValueError("制品哈希与 run 记录不符")
+        return {"record": records[0], "metricsPath": source / "validation-metrics.json",
+                "trainingCodeSha256": sha(run_events.parent / "experiment-plan.json"),
+                "evidence": {"mode": "run-events", "runEventsSha256": sha(run_events)}}
+    if fit_ledger is None:
+        raise ValueError("复现 run 必须提供 fit-ledger")
+    summary = read(reproduction_summary)
+    if summary.get("target") != name:
+        raise ValueError("复现摘要目标名不符")
+    events = [json.loads(line) for line in fit_ledger.read_text(encoding="utf-8").splitlines() if line.strip()]
+    records = [event for event in events if event.get("event") == "fit-completed"
+               and event.get("run") == summary.get("run") and event.get("target") == name]
+    if len(records) != 1:
+        raise ValueError("台账没有唯一匹配的 fit-completed 记录")
+    summary_hash = sha(reproduction_summary)
+    if records[0].get("summarySha256") != summary_hash:
+        raise ValueError("复现摘要哈希与台账不符")
+    artifacts = summary.get("artifacts", {})
+    allowed = {"model.onnx", "preprocessing.json", "native-model.txt",
+               "framework-train.npy", "framework-validation.npy", "onnx-train.npy", "onnx-validation.npy"}
+    if not {"model.onnx", "preprocessing.json"} <= artifacts.keys() or artifacts.keys() - allowed:
+        raise ValueError("复现摘要制品清单不符")
+    for filename, digest in artifacts.items():
+        path = source / filename
+        if path.resolve().parent != source.resolve() or sha(path) != digest:
+            raise ValueError(f"复现制品哈希不符: {filename}")
+    code_hash = sha(source / "code-manifest.json")
+    if code_hash != summary.get("codeManifestSha256"):
+        raise ValueError("复现代码清单哈希不符")
+    if summary.get("finalTestRead") is not False or summary.get("candidateOnly") is not True:
+        raise ValueError("复现 run 的数据或候选边界不符")
+    return {"record": {"artifactSha256": artifacts["model.onnx"], "featureSet": summary["featureSet"],
+                       "algorithm": summary["fit"]["algorithm"]},
+            "metricsPath": reproduction_summary, "trainingCodeSha256": code_hash,
+            "evidence": {"mode": "reproduction-summary", "run": summary["run"], "target": name,
+                         "summarySha256": summary_hash, "fitLedgerSha256": sha(fit_ledger),
+                         "artifacts": artifacts, "codeManifestSha256": code_hash}}
 
 
 def host_indices(numeric: list[str]) -> list[int]:
@@ -142,7 +198,7 @@ def compare_role(role: str, frozen: Path, original: Path, probe: Path, numeric: 
             record["maxAbsError"] = max(record["maxAbsError"], float(np.max(np.abs(changed.astype(np.float64) - actual))))
             record["bitIdentical"] &= bool(np.array_equal(changed, actual))
         rows += len(actual)
-    if not rows or max_error > TOLERANCE or flips or not all(r["bitIdentical"] for r in host.values()):
+    if not rows or not identical or max_error > TOLERANCE or flips or not all(r["bitIdentical"] for r in host.values()):
         raise ValueError(f"{role} 对拍或主机上下文不变性未通过")
     return {"rows": rows, "maxOriginalAbsError": max_error, "bitIdenticalToOriginal": identical,
             "classFlips": flips, "hostContextInvariance": host}
@@ -160,6 +216,8 @@ def backend_samples(frozen: Path, probe: Path, numeric: list[str], vocab: list[l
                                             | {"_label": row["label"]})
             if all(len(items) == per_class for items in chosen.values()):
                 break
+    if per_class < 1 or any(len(items) != per_class for items in chosen.values()):
+        raise ValueError("validation 各类抽样数不足")
     observations = [item for name in CLASSES for item in chosen[name]]
     path = probe.parent / "samples-input.jsonl"
     with path.open("x", encoding="utf-8") as stream:
@@ -176,8 +234,11 @@ def backend_samples(frozen: Path, probe: Path, numeric: list[str], vocab: list[l
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source", type=Path, required=True, help="含 model.onnx、preprocessing.json 的研究制品目录")
-    parser.add_argument("--run-events", type=Path, required=True, help="登记该制品哈希的 run-events.jsonl")
-    parser.add_argument("--name", required=True, help="run-events 中 fit-completed 记录的模型名")
+    binding_group = parser.add_mutually_exclusive_group(required=True)
+    binding_group.add_argument("--run-events", type=Path, help="登记该制品哈希的 run-events.jsonl")
+    binding_group.add_argument("--reproduction-summary", type=Path, help="复现 run 的 reproduction-summary.json")
+    parser.add_argument("--fit-ledger", type=Path, help="绑定复现摘要的 fit-ledger-round2.jsonl")
+    parser.add_argument("--name", required=True, help="run-events 模型名或复现摘要的 target")
     parser.add_argument("--frozen", type=Path, default=ROOT / ".cache/p3-a-20261007/frozen")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--samples-per-class", type=int, default=20)
@@ -185,16 +246,12 @@ def main():
     output = args.output.resolve()
     if output.exists() or ROOT / ".cache" not in output.parents:
         raise ValueError("目标必须是本仓库 .cache 下不存在的新目录")
-    records = [json.loads(line)["record"] for line in args.run_events.read_text(encoding="utf-8").splitlines()
-               if line.strip() and json.loads(line).get("event") == "fit-completed"]
-    record = [item for item in records if item.get("name") == args.name]
     model_path, preprocessing_path = args.source / "model.onnx", args.source / "preprocessing.json"
-    if len(record) != 1 or record[0]["artifactSha256"] != sha(model_path):
-        raise ValueError("制品哈希与 run 记录不符")
-    record = record[0]
+    binding = source_binding(args.source, args.name, args.run_events, args.reproduction_summary, args.fit_ledger)
+    record = binding["record"]
     split = read(args.frozen / "manifest.json")
     preprocessing = read(preprocessing_path)
-    metrics = read(args.source / "validation-metrics.json")
+    metrics = read(binding["metricsPath"])
     threshold = float(metrics["alertThreshold"])
     if (split["finalTestRead"] or split["classOrder"] != list(CLASSES)
             or {role: split["datasetSha256"][role] for role in DATA_HASHES} != DATA_HASHES
@@ -234,7 +291,7 @@ def main():
             "datasetManifestSha256": sha(args.frozen / "manifest.json"),
             "splitManifestSha256": sha(args.frozen / "manifest.json"),
             "evaluationPlanSha256": sha(target / "probe-plan.json"),
-            "validationReportSha256": sha(args.source / "validation-metrics.json"),
+            "validationReportSha256": sha(binding["metricsPath"]),
             "createdAt": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
             "algorithm": record["algorithm"], "profiles": feature["profiles"], "numericFeatures": numeric,
             "categoricalFeatures": feature["categoricalFeatures"],
@@ -247,13 +304,20 @@ def main():
             "finalEvaluationReportSha256": None,
             "trainingRunId": str(uuid.uuid5(uuid.NAMESPACE_URL, record["artifactSha256"] + ":" + args.name)),
             "algorithmVersion": f"{record['algorithm']} (version not recorded in source run)",
-            # 源 run 未保存代码清单；探针以实验计划哈希占位，正式冻结须用 T2 的代码清单。
-            "trainingCodeSha256": sha(args.run_events.parent / "experiment-plan.json"),
+            # 复现 run 使用真实代码清单；旧 run 保留实验计划的探针占位绑定。
+            "trainingCodeSha256": binding["trainingCodeSha256"],
             "outputContract": {"attackScoreName": "attack_score", "binaryLabels": {"benign": 0, "attack": 1},
                                "familyScoreOrder": list(CLASSES[1:])}}
         schema = read(ROOT / "docs/contracts/model-manifest.schema.json")
         jsonschema.Draft202012Validator(schema, format_checker=jsonschema.FormatChecker()).validate(manifest)
         write(target / "manifest.json", manifest)
+        # 反向对照只替换模型字节及其哈希；保持相同后端契约，实测原图是否被拒绝。
+        control = target / "unpatched"
+        control.mkdir()
+        shutil.copyfile(model_path, control / "model.onnx")
+        for filename in ("preprocessing.json", "calibration.json"):
+            shutil.copyfile(target / filename, control / filename)
+        write(control / "manifest.json", manifest | {"artifactSha256": record["artifactSha256"]})
         samples = backend_samples(args.frozen, target / "model.onnx", numeric, preprocessing["vocabularies"],
                                   args.samples_per_class)
         with (target / "backend-samples.jsonl").open("x", encoding="utf-8") as stream:
@@ -264,16 +328,16 @@ def main():
             "source": {"name": args.name, "modelSha256": record["artifactSha256"],
                        "preprocessingSha256": sha(preprocessing_path), "originalOpsetImports": original_imports,
                        "categoricalWasFloat": float_categories},
+            "sourceBinding": binding["evidence"],
             "probeModelSha256": model_hash, "contract": contract, "featureSelection": selection,
             "alertThreshold": threshold, "parity": parity, "backendSamples": len(samples),
-            "manifestPlaceholders": {"trainingCodeSha256": "experiment-plan.json of source run",
-                                     "evaluationPlanSha256": "probe-plan.json",
-                                     "validationReportSha256": "source validation-metrics.json"},
+            "manifestPlaceholders": {"evaluationPlanSha256": "probe-plan.json"}
+                | ({"trainingCodeSha256": "experiment-plan.json of source run"} if args.run_events else {}),
             "runtime": {"onnx": onnx.__version__, "onnxruntime": ort.__version__,
                         "provider": "CPUExecutionProvider"},
             "probeCodeSha256": sha(Path(__file__))})
-        files = {path.name: {"sha256": sha(path), "bytes": path.stat().st_size}
-                 for path in sorted(target.iterdir()) if path.is_file()}
+        files = {path.relative_to(target).as_posix(): {"sha256": sha(path), "bytes": path.stat().st_size}
+                 for path in sorted(target.rglob("*")) if path.is_file()}
         write(target / "checksums.json", {"version": "t17-probe-checksums/1", "files": files,
                                           "selfExcluded": "checksums.json"})
         target.chmod(0o755)

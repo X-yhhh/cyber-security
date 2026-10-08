@@ -50,7 +50,30 @@ public class GuardModelRuntime {
         JsonNode preprocessing=artifacts.json(GuardArtifacts.sibling(ref,"preprocessing.json"),text(manifest,"preprocessingSha256"));artifacts.read(GuardArtifacts.sibling(ref,"calibration.json"),text(manifest,"calibrationSha256"),1024*1024);
         require("train".equals(preprocessing.path("fitRole").asText())&&preprocessing.path("vocabularies").isArray()&&preprocessing.path("vocabularies").size()==3,"PREPROCESSING_INVALID");
         var order=new ArrayList<String>();for(JsonNode f:manifest.at("/outputContract/familyScoreOrder"))order.add(f.asText());
-        return new Loaded(artifacts.read(GuardArtifacts.sibling(ref,"model.onnx"),text(manifest,"artifactSha256"),128L*1024*1024),preprocessing,manifest,order);}
+        byte[] onnx=artifacts.read(GuardArtifacts.sibling(ref,"model.onnx"),text(manifest,"artifactSha256"),128L*1024*1024);
+        require(Long.valueOf(manifest.at("/runtime/opset").asLong()).equals(opsetImports(onnx).get("")),"ONNX_CONTRACT_INVALID");
+        return new Loaded(onnx,preprocessing,manifest,order);}
+    /** 只读 ModelProto.opset_import（字段 8）。ORT Java 不暴露图内 opset，manifest 声明须与图一致；同域重复声明（含同版本）即拒绝，"ai.onnx" 视同默认域。 */
+    static Map<String,Long> opsetImports(byte[] b){
+        var result=new LinkedHashMap<String,Long>();int[] p={0};
+        while(p[0]<b.length){long key=varint(b,p,b.length);int wire=(int)(key&7);
+            if(key>>>3!=8){skip(b,p,wire,b.length);continue;}
+            require(wire==2,"ONNX_CONTRACT_INVALID");int size=length(b,p,b.length),end=p[0]+size;String domain="";Long version=null;
+            while(p[0]<end){long k=varint(b,p,end);int w=(int)(k&7);
+                if(k>>>3==1&&w==2){int n=length(b,p,end);domain=new String(b,p[0],n,java.nio.charset.StandardCharsets.UTF_8);p[0]+=n;}
+                else if(k>>>3==2&&w==0)version=varint(b,p,end);
+                else skip(b,p,w,end);}
+            require(version!=null&&result.put(domain.equals("ai.onnx")?"":domain,version)==null,"ONNX_CONTRACT_INVALID");}
+        return result;}
+    private static long varint(byte[] b,int[] p,int end){long v=0;
+        for(int shift=0;shift<64;shift+=7){require(p[0]<end,"ONNX_CONTRACT_INVALID");int x=b[p[0]++]&0xff;v|=(long)(x&127)<<shift;if(x<128)return v;}
+        throw error(422,"ONNX_CONTRACT_INVALID");}
+    private static int length(byte[] b,int[] p,int end){long n=varint(b,p,end);require(n>=0&&n<=end-p[0],"ONNX_CONTRACT_INVALID");return (int)n;}
+    /** 组（3/4）已废弃且无法安全跳过，与非法线型一并拒绝。长度须先读出再移动位置，不能写成 p[0]+=length(...)。 */
+    private static void skip(byte[] b,int[] p,int wire,int end){
+        switch(wire){case 0->varint(b,p,end);case 1->{require(end-p[0]>=8,"ONNX_CONTRACT_INVALID");p[0]+=8;}
+            case 2->{int n=length(b,p,end);p[0]+=n;}case 5->{require(end-p[0]>=4,"ONNX_CONTRACT_INVALID");p[0]+=4;}
+            default->throw error(422,"ONNX_CONTRACT_INVALID");}}
     private OrtSession.SessionOptions options()throws OrtException{var o=new OrtSession.SessionOptions();o.setIntraOpNumThreads(1);o.setInterOpNumThreads(1);return o;}
     private void shape(OrtSession session,JsonNode manifest)throws OrtException{
         require(session.getInputNames().equals(Set.of("numeric_values","numeric_missing","categorical_codes"))&&session.getOutputNames().equals(Set.of("attack_score","family_scores")),"ONNX_CONTRACT_INVALID");

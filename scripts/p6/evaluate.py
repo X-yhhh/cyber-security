@@ -72,6 +72,15 @@ def checked_candidate(candidate, *, legacy=False):
     required = {"model.onnx", "model-manifest.json", "evaluation-plan.json", "decision-policy.json",
                 "preprocessing.json", "calibration.json", "class-map.json", "split-manifest.json",
                 "training-code-manifest.json", "validation-report.json", "native-model.txt"}
+    if not legacy and checksums.get("version") == "p3-candidate-checksums/2":
+        # T3.4 的 manifest 不列入 checksums；改由被清单绑定的 provenance 单向核验。
+        required.remove("model-manifest.json")
+        required.update(("provenance.json", "freeze-record.json"))
+        if ("model-manifest.json" in checksums["files"]
+                or checksums.get("excluded") != ["checksums.json", "model-manifest.json"]
+                or read(candidate / "provenance.json")["modelManifestSha256"] != sha(candidate / "model-manifest.json")
+                or read(candidate / "provenance.json")["freezeRecordSha256"] != sha(candidate / "freeze-record.json")):
+            raise ValueError("manifest 或冻结说明绑定不符")
     if not legacy:
         # 单对端检查是冻结准入条件（验收第 6 节）；手工组包也不能绕过，P6 入口独立复核。
         required.add("single-peer-report.json")
@@ -83,6 +92,8 @@ def checked_candidate(candidate, *, legacy=False):
             raise ValueError("候选文件哈希不符")
     manifest, plan = read(candidate / "model-manifest.json"), read(candidate / "evaluation-plan.json")
     if not legacy:
+        if plan.get("registrationStatus") == "t34_preparation_only":
+            raise ValueError("T3.4 准备计划尚未完成 T3.6 登记")
         check_plan(plan)
     elif plan["evaluationVersion"] != "host-guard-evaluation/2026-10-07.1":
         raise ValueError("历史评价版本不符")

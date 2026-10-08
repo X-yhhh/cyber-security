@@ -1,6 +1,7 @@
 package com.xyh.cybersecurity.guard;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.xyh.cybersecurity.common.api.ApiRequestException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import java.nio.file.*;
@@ -27,6 +28,8 @@ class GuardCandidateProbeTest {
             assertThat(validated.path("status").asText()).isEqualTo("validated");
             var families=List.of("port_scan","brute_force","dos_flood","dos_slow");
             int count=0;double maxError=0;
+            var labelCounts=new HashMap<String,Integer>();
+            double threshold=parse(Files.readString(root.resolve("probe-report.json"))).path("alertThreshold").asDouble();
             for(String line:Files.readAllLines(root.resolve("backend-samples.jsonl"))){
                 JsonNode sample=parse(line);
                 var result=runtime.infer(model,sample.path("observation"),Instant.EPOCH);
@@ -37,11 +40,31 @@ class GuardCandidateProbeTest {
                     maxError=Math.max(maxError,Math.abs(result.familyScores().get(families.get(i))-expected));
                     if(expected>sample.path("familyScores").path(selected).asDouble())selected=i;}
                 assertThat(result.family()).isEqualTo(families.get(selected));
+                assertThat(result.score()>=threshold).isEqualTo(sample.path("attackScore").asDouble()>=threshold);
+                labelCounts.merge(sample.path("label").asText(),1,Integer::sum);
                 count++;
             }
-            assertThat(count).isPositive();
-            assertThat(maxError).isLessThanOrEqualTo(1e-5);
+            assertThat(count).isEqualTo(100);
+            assertThat(labelCounts).containsExactlyInAnyOrderEntriesOf(Map.of(
+                    "normal",20,"port_scan",20,"brute_force",20,"dos_flood",20,"dos_slow",20));
+            assertThat(maxError).isLessThanOrEqualTo(1e-6);
             System.out.printf("T1.7 backend probe: validated, samples=%d, maxAbsError=%.3g%n",count,maxError);
+            // 新探针附带未经修改的源图；旧探针目录仍可用于单独的正向复验。
+            if(Files.exists(root.resolve("unpatched/manifest.json"))){
+                String originalManifest=Files.readString(root.resolve("unpatched/manifest.json"));
+                var original=map("manifest_ref","unpatched/manifest.json",
+                        "manifest_sha256",sha(Files.readAllBytes(root.resolve("unpatched/manifest.json"))),
+                        "manifest_json",originalManifest,"artifact_sha256",parse(originalManifest).path("artifactSha256").asText(),
+                        "validation_status","validated");
+                String originalStatus;
+                try{runtime.validate(original);originalStatus="validated";}
+                catch(ApiRequestException e){originalStatus=e.code();}
+                Files.writeString(root.resolve("backend-probe-result.json"),object(
+                        "validated",true,"samples",count,"labelCounts",labelCounts,"maxAbsError",maxError,
+                        "classFlips",0,"unpatchedStatus",originalStatus).toPrettyString()+"\n");
+                System.out.printf("T1.7 unpatched source: %s%n",originalStatus);
+                assertThat(originalStatus).isEqualTo("ONNX_CONTRACT_INVALID");
+            }
         }finally{runtime.close();}
     }
 }

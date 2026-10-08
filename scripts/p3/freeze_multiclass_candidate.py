@@ -59,9 +59,18 @@ def checked_copy(source: Path, target: Path, expected: str):
 def converted_model(source: Path, target: Path):
     model = onnx.load(source)
     original = [(item.domain, item.version) for item in model.opset_import]
-    defaults = [version for domain, version in original if not domain]
+    # 导出器可能重复声明相同域/版本；先去重，冲突版本必须拒绝，不能任取其一。
+    versions = {}
+    for domain, version in original:
+        if domain in versions and versions[domain] != version:
+            raise ValueError("源图同一域存在冲突 opset")
+        versions[domain] = version
+    defaults = [version for domain, version in versions.items() if not domain]
     if len(defaults) != 1 or defaults[0] not in (15, 16, 17):
         raise ValueError("源图默认 opset 不在已验证转换范围")
+    del model.opset_import[:]
+    for domain, version in versions.items():
+        model.opset_import.add(domain=domain, version=version)
     model = version_converter.convert_version(model, 17)
     # 当前转换器会保留 15 并追加 17；单一默认域声明避免运行时歧义。
     imports = [(item.domain, item.version) for item in model.opset_import if item.domain]
@@ -154,10 +163,39 @@ def new_output(output):
 
 
 def checksums(target):
-    return {"version": "p3-candidate-checksums/1",
+    """manifest 不进入文件清单；其摘要由 provenance 单向绑定，不形成循环。"""
+    return {"version": "p3-candidate-checksums/2",
             "files": {p.name: {"sha256": sha(p), "bytes": p.stat().st_size}
-                      for p in sorted(target.iterdir()) if p.is_file() and p.name != "checksums.json"},
-            "selfExcluded": "checksums.json"}
+                      for p in sorted(target.iterdir()) if p.is_file()
+                      and p.name not in ("checksums.json", "model-manifest.json")},
+            "selfExcluded": "checksums.json", "excluded": ["checksums.json", "model-manifest.json"]}
+
+
+def checked_selection(path, source, summary):
+    """R4 冻结记录必须绑定本 run/validation，且不能借说明文件启用自动化。"""
+    if path is None:
+        return None
+    value = read(path)
+    selected = value["selected"]
+    if (value.get("version") != "host-guard-dos-slow-selection/1"
+            or value.get("modelSha256") != sha(source / "model.onnx")
+            or value.get("preprocessingSha256") != sha(source / "preprocessing.json")
+            or value.get("runSummarySha256") != sha(source / "reproduction-summary.json")
+            or value.get("datasetSha256") != summary["datasetSha256"]["validation"]
+            or value.get("metadataSha256") != summary["metadataSha256"]["validation"]
+            or value.get("datasetRole") != "validation" or value.get("testRead") is not False
+            or value.get("l3Read") is not False or value.get("newFits") != 0
+            or value.get("automaticExecutionEnabled") is not False
+            or value.get("candidateOnly") is not True or value.get("mode") != "alert_only"
+            or type(selected["minDistinctFlows"]) is not int or selected["minDistinctFlows"] < 5
+            or selected not in value["alternatives"] or selected["autoThreshold"] != summary["alertThreshold"]
+            or not 0 <= selected["falsePositiveRate"] <= .01
+            or not 0 <= selected["maxObservedNormalSourceFpr"] <= .01
+            or selected["coveredAttackOpportunities"] <= 0
+            or value["outsideCoverage"]["claimAllowed"] is not False
+            or value["outsideCoverage"]["excludedFromEvaluation"] is not False):
+        raise ValueError("dos_slow 选值记录不满足冻结绑定")
+    return value
 
 
 def prepare(args):
@@ -194,6 +232,8 @@ def prepare(args):
     from evaluate import numeric_indices
     if pre["numericIndices"] != numeric_indices(pre["featureSet"], feature):
         raise ValueError("预处理选列不符")
+    selection_path = getattr(args, "dos_slow_selection", None)
+    selection = checked_selection(selection_path, source, summary)
     scope = read(args.scope)
     if not scope or any(item["transport"] != "tcp" or item["direction"] != "inbound" for item in scope):
         raise ValueError("适用范围超出开发数据的实测方向/协议")
@@ -255,11 +295,35 @@ def prepare(args):
         schema = read(ROOT / "docs/contracts/model-manifest.schema.json")
         jsonschema.Draft202012Validator(schema, format_checker=jsonschema.FormatChecker()).validate(manifest)
         write(target / "model-manifest.json", manifest)
+        hosts = [name for name in feature["numericFeatures"]
+                 if name.rsplit(".", 1)[-1] in ("hostFlowStarts", "hostDistinctPeers")]
+        used = [feature["numericFeatures"][i] for i in pre["numericIndices"]]
+        record = {"version": "p3-candidate-freeze-record/1", "modelManifestSha256": sha(target / "model-manifest.json"),
+            "modelSha256": args.source_sha256, "artifactSha256": model_hash,
+            "sourceRun": summary.get("run"), "featureSet": pre["featureSet"],
+            "hostContextFields": [name for name in hosts if name in used],
+            "excludedHostContextFields": [name for name in hosts if name not in used],
+            "interfaceNumericFeatureCount": len(feature["numericFeatures"]), "usedNumericFeatureCount": len(used),
+            "preprocessingSha256": bindings["preprocessingSha256"], "trainingCodeSha256": summary["codeManifestSha256"],
+            "fitCount": summary["fitCountAfter"], "budget": summary["budget"], "roundId": summary["roundId"],
+            "candidateOnly": True, "automaticExecutionEnabled": False, "newFits": 0, "testRead": False,
+            "familyModes": {family: "alert_only" for family in CLASSES[1:]},
+            "evaluationPlanStatus": plan.get("registrationStatus", "provided_by_caller"),
+            "packageStatus": "prepared_not_sealed", "p6Ready": False,
+            "schemaFieldMapping": {"modelSha256": "source-model.onnx; rc.3 artifactSha256 binds converted model.onnx",
+                "featureSet_hostContextFields_fitCount": "freeze-record.json; current rc.3 forbids additional properties"}}
+        if selection is not None:
+            checked_copy(selection_path, target / "dos-slow-selection.json", sha(selection_path))
+            record["dosSlowSelectionSha256"] = sha(target / "dos-slow-selection.json")
+            record["dosSlow"] = {"capability": selection["capability"], "scope": selection["scope"],
+                                 "parameters": selection["selected"], "outsideCoverage": selection["outsideCoverage"]}
+        write(target / "freeze-record.json", record)
         write(target / "provenance.json", {"stage": "P3-C-prepared", "sourceModelSha256": args.source_sha256,
               "convertedModelSha256": model_hash, "originalOpsetImports": original_imports, "parity": parity,
               "fitCount": summary["fitCountAfter"], "budget": summary["budget"], "roundId": summary["roundId"],
               "runSummarySha256": sha(source / "reproduction-summary.json"),
-              "freezeCodeSha256": sha(Path(__file__)), "newFits": 0, "testRead": False,
+              "freezeCodeSha256": sha(Path(__file__)), "modelManifestSha256": sha(target / "model-manifest.json"),
+              "freezeRecordSha256": sha(target / "freeze-record.json"), "newFits": 0, "testRead": False,
               "automaticExecutionEnabled": False})
         write(target / "checksums.json", checksums(target))
         target.rename(output)
@@ -274,13 +338,20 @@ def seal(args):
     from evaluate import checked_candidate
     output = new_output(args.output)
     prepared = args.prepared.resolve()
+    if read(prepared / "evaluation-plan.json").get("registrationStatus") == "t34_preparation_only":
+        raise ValueError("T3.4 计划仅为 manifest 依赖，须经 T3.6 正式登记并重新准备后封口")
     listing = read(prepared / "checksums.json")
     if (prepared / "decision-policy.json").exists():
         raise ValueError("只能封口尚未绑定策略的准备包")
     for name, item in listing["files"].items():
         if Path(name).name != name or sha(prepared / name) != item["sha256"] or (prepared / name).stat().st_size != item["bytes"]:
             raise ValueError("准备包内容变动")
-    if set(listing["files"]) != {p.name for p in prepared.iterdir() if p.is_file() and p.name != "checksums.json"}:
+    exclusions = {"checksums.json"}
+    if listing.get("version") == "p3-candidate-checksums/2":
+        exclusions.add("model-manifest.json")
+        if read(prepared / "provenance.json")["modelManifestSha256"] != sha(prepared / "model-manifest.json"):
+            raise ValueError("准备包 manifest 哈希不符")
+    if set(listing["files"]) != {p.name for p in prepared.iterdir() if p.is_file() and p.name not in exclusions}:
         raise ValueError("准备包校验清单不完整")
     proof = read(args.single_peer_report)
     policy = read(args.policy)
@@ -298,10 +369,18 @@ def seal(args):
             or set(proof["dropByClass"]) != set(CLASSES[1:])
             or any(not np.isfinite(v) or v > .20 + 1e-12 for v in proof["dropByClass"].values())):
         raise ValueError("缺少同一 run 的单对端通过证据")
+    if (prepared / "dos-slow-selection.json").exists():
+        selected = read(prepared / "dos-slow-selection.json")["selected"]
+        slow = [item for item in policy["familyPolicies"] if item["family"] == "dos_slow"]
+        if len(slow) != 1 or any(slow[0][key] != selected[key] for key in ("minDistinctFlows", "autoThreshold")):
+            raise ValueError("策略未保留 T3.3 的 dos_slow 冻结参数")
     with tempfile.TemporaryDirectory(prefix="p3c-seal-", dir=output.parent) as temporary:
         target = Path(temporary)
         for name, item in listing["files"].items():
             checked_copy(prepared / name, target / name, item["sha256"])
+        if "model-manifest.json" in exclusions:
+            checked_copy(prepared / "model-manifest.json", target / "model-manifest.json",
+                         provenance["modelManifestSha256"])
         checked_copy(args.policy, target / "decision-policy.json", sha(args.policy))
         checked_copy(args.single_peer_report, target / "single-peer-report.json", sha(args.single_peer_report))
         write(target / "checksums.json", checksums(target))
@@ -314,6 +393,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
     ready = sub.add_parser("prepare")
+    ready.add_argument("--dos-slow-selection", type=Path,
+                       help="T3.3 validation 选值记录，绑定本 run 并写入冻结说明")
     for name in ("source", "frozen", "audit", "extractor", "plan", "scope", "output"):
         ready.add_argument("--" + name, type=Path, required=True)
     for name in ("source-sha256", "model-version", "training-run-id"):

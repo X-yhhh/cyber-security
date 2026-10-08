@@ -120,6 +120,14 @@ class T1ToolsTest(unittest.TestCase):
                 checked_candidate(args.output)
             manifest = read(args.output / 'model-manifest.json')
             self.assertEqual(manifest['contractVersion'], 'host-guard/5.0.0-rc.3')
+            listing = read(args.output / 'checksums.json')
+            self.assertNotIn('model-manifest.json', listing['files'])
+            record = read(args.output / 'freeze-record.json')
+            self.assertEqual(record['featureSet'], 'no_host_context')
+            self.assertEqual(record['hostContextFields'], [])
+            self.assertEqual(len(record['excludedHostContextFields']), 6)
+            self.assertEqual(record['fitCount'], 1)
+            self.assertEqual(record['modelManifestSha256'], sha(args.output / 'model-manifest.json'))
             policy = read(freeze.ROOT / 'docs/contracts/examples/decision-policy.json')
             policy.update(modelId=manifest['modelId'], evaluationPlanSha256=sha(args.output / 'evaluation-plan.json'), alertThreshold=.9)
             for item in policy['familyPolicies']:
@@ -129,6 +137,13 @@ class T1ToolsTest(unittest.TestCase):
                 single_peer_report=root / 'single-peer/report.json', output=root / 'sealed')
             freeze.seal(sealing)
             checked_candidate(sealing.output)
+            manifest_copy = root / 'manifest-tamper'
+            shutil.copytree(sealing.output, manifest_copy)
+            value = read(manifest_copy / 'model-manifest.json')
+            value['modelVersion'] = 'tampered'
+            (manifest_copy / 'model-manifest.json').write_text(json.dumps(value))
+            with self.assertRaisesRegex(ValueError, '绑定不符'):
+                checked_candidate(manifest_copy)
             # P6 入口独立复核单对端证据：删除或篡改后即使重算清单也拒绝。
             for name, edit in (("missing", None), ("failedDrop", lambda v: v["dropByClass"].update(dos_flood=.21)),
                                ("otherModel", lambda v: v.update(candidateSha256="c" * 64))):
@@ -184,6 +199,22 @@ class T1ToolsTest(unittest.TestCase):
                             plan | {'plan': 'p3-multiclass-renamed'}):
                 with self.assertRaises(ValueError):
                     freeze.check_plan(changed)
+
+    def test_duplicate_identical_opsets_normalized_conflicts_rejected(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / 'source.onnx'
+            graph(source)
+            model = onnx.load(source)
+            model.opset_import.add(domain='', version=17)
+            onnx.save(model, source)
+            freeze.converted_model(source, root / 'normalized.onnx')
+            actual = onnx.load(root / 'normalized.onnx')
+            self.assertEqual([(x.domain, x.version) for x in actual.opset_import], [('', 17)])
+            model.opset_import.add(domain='', version=15)
+            onnx.save(model, source)
+            with self.assertRaisesRegex(ValueError, '冲突 opset'):
+                freeze.converted_model(source, root / 'rejected.onnx')
 
     def test_each_rule_and_model_use_independent_metrics(self):
         labels = [0, 0, 1, 2, 3, 4]

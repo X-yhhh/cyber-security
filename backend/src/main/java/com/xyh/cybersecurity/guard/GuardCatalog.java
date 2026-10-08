@@ -30,12 +30,22 @@ public class GuardCatalog {
         require(b.path("splitHashes").has("train")&&b.path("splitHashes").has("selection")&&b.path("splitHashes").has("calibration")&&b.path("splitHashes").has("development"),"EVALUATION_PLAN_MISMATCH");
         for(String role:List.of("train","selection","calibration","development"))digest(b.get("splitHashes"),role);
         var r=store.add("guard_evaluation_plan",map("plan_key",text(b,"planKey"),"version",text(b,"version"),"plan_sha256",hash(b),"payload_json",canonical(b),"created_by",access.human()));return object("id",r.get("public_id"),"planSha256",hash(b));}
-    public JsonNode capability(JsonNode b){access.permission("bundle.request",null);fields(b,"capabilityKey version platform adapterVersion addressFamily transport direction family profile behaviorScope latencyLimits level evidenceRef evidenceSha256 runnerIdentity","");
+    /**
+     * 登记平台能力。scope 缺省为 peer_service，且不得携带保护集或豁免字段；peer_inbound 只接受 macOS（PF）入站能力，
+     * 须带保护集摘要和签名的 E1—E3 豁免报告：报告 passed、scope=peer_inbound、platform=macos-pf 且保护集摘要一致。
+     * 平台报告的 capability 须等于去掉证据位置后的请求体，因此范围、保护集与豁免摘要同样受平台报告签名约束。
+     */
+    public JsonNode capability(JsonNode b){access.permission("bundle.request",null);fields(b,"capabilityKey version platform adapterVersion addressFamily transport direction family profile behaviorScope latencyLimits level evidenceRef evidenceSha256 runnerIdentity","scope protectionSetSha256 exemptionEvidenceRef exemptionEvidenceSha256");
         require(Set.of("research","alert_only","lab_auto","authorized_auto").contains(text(b,"level")),"CAPABILITY_NOT_SUPPORTED");
+        String scope=b.has("scope")?text(b,"scope"):"peer_service",protectionSet=null,exemption=null;
+        if("peer_inbound".equals(scope)){require("macos".equals(text(b,"platform"))&&"inbound".equals(text(b,"direction")),"CAPABILITY_NOT_SUPPORTED");protectionSet=digest(b,"protectionSetSha256");exemption=digest(b,"exemptionEvidenceSha256");
+            var proof=signatures.report(artifacts.json(text(b,"exemptionEvidenceRef"),exemption),text(b,"runnerIdentity"));
+            require(proof.path("passed").asBoolean()&&"peer_inbound".equals(proof.path("scope").asText())&&"macos-pf".equals(proof.path("platform").asText())&&protectionSet.equals(proof.path("protectionSetSha256").asText()),"CAPABILITY_NOT_SUPPORTED");}
+        else require("peer_service".equals(scope)&&!b.has("protectionSetSha256")&&!b.has("exemptionEvidenceRef")&&!b.has("exemptionEvidenceSha256"),"CAPABILITY_NOT_SUPPORTED");
         if(!"research".equals(text(b,"level"))){var report=signatures.report(artifacts.json(text(b,"evidenceRef"),digest(b,"evidenceSha256")),text(b,"runnerIdentity"));
             require(report.path("passed").asBoolean()&&report.path("capability").equals(withoutEvidence(b)),"CAPABILITY_NOT_SUPPORTED");versions(report.path("protocolVersions"));}
-        var r=store.add("guard_capability",map("capability_key",text(b,"capabilityKey"),"version",text(b,"version"),"platform",text(b,"platform"),"level",text(b,"level"),"payload_json",canonical(b),"created_by",access.human()));return object("id",r.get("public_id"),"level",text(b,"level"));}
-    private JsonNode withoutEvidence(JsonNode b){var n=b.deepCopy();((com.fasterxml.jackson.databind.node.ObjectNode)n).remove(List.of("evidenceRef","evidenceSha256","runnerIdentity"));return n;}
+        var r=store.add("guard_capability",map("capability_key",text(b,"capabilityKey"),"version",text(b,"version"),"platform",text(b,"platform"),"level",text(b,"level"),"scope",scope,"protection_set_sha256",protectionSet,"exemption_evidence_sha256",exemption,"payload_json",canonical(b),"created_by",access.human()));return object("id",r.get("public_id"),"level",text(b,"level"),"scope",scope);}
+    private JsonNode withoutEvidence(JsonNode b){var n=b.deepCopy();((com.fasterxml.jackson.databind.node.ObjectNode)n).remove(List.of("evidenceRef","evidenceSha256","runnerIdentity","exemptionEvidenceRef"));return n;}
     public JsonNode policy(JsonNode b){access.permission("policy.draft",null);contracts.policy(b);var m=store.external("guard_model",uuid(b,"modelId"),false);var plan=store.one("guard_evaluation_plan",map("plan_sha256",text(b,"evaluationPlanSha256")),false);
         require(plan!=null&&json(m,"manifest_json").path("evaluationPlanSha256").asText().equals(text(b,"evaluationPlanSha256")),"EVALUATION_PLAN_MISMATCH");
         for(var cid:b.path("supportedCapabilityIds"))store.external("guard_capability",uuid(cid.asText()),false);

@@ -10,7 +10,7 @@
 - 独立恢复：`recover` 与 `run` 分开；到期、撤销、进程崩溃、时钟异常、密钥/授权撤销触发清理。启动先清理旧规则，未知归属不代删；不能确认时暂停并保留 uncertain/recovery_failed 和预算。
 - P4 对接：HTTPS机器身份、心跳、命令/撤销领取、回执持久重试、guard-state/1实态核对、目标绑定和预算恢复证明。历史清零时刻单独追加审计，不能用补报提前恢复额度。
 
-正式自动执行仍限 **IPv4/TCP 入站 peer_service**。P4 对全入站仍拒签，正式 P5 `build/run` 仍以 `PROTECTED_TARGET` 拒绝；没有新增配置开关。独立 `LoopbackCanaryEngine` 只允许 PF、lab、lo0、127.0.0.1/127.0.0.2、指定高端口和相邻保护端口，复用正式验签、授权、预算、持久账本、规则安装和独立恢复器。全入站签名、真实 Go/mTLS 引用、TTL、撤销和进程崩溃已在此范围实测；不构成 authorized 自动资格。PF 使用专用 `hg5<executorId 的 URL-safe Base64 无填充编码>/*`，保护端口（含固定 22/53/3389）从 1—65535 拆成闭区间，规则、枚举和精确状态清理共用区间。WFP 仍只有单端口实现，未在目标平台验收。
+自动执行默认仍限 **IPv4/TCP 入站 peer_service**。B1（2026-10-08，代码与单元测试）把原 `LoopbackCanaryEngine` 硬编码例外改为正式校验：`peer_inbound` 命令只有在其 `capabilityId` 已登记在本机 `inboundCapabilities`、平台为 PF、环境为 lab，且登记的 `protectedPortsSha256` 等于按当前 `protectedServicePorts` 重算的值时才通过；未登记仍以 `PROTECTED_TARGET` 拒绝，平台/环境不符为 `CAPABILITY_NOT_SUPPORTED`，保护端口漂移为 `PROTECTION_SET_UNVERIFIED`。没有配置项以外的绕过开关，回环 canary 与正式 `build/run` 使用同一 `Engine` 门禁。此前在 PF/lo0/127.0.0.1—127.0.0.2 回环范围实测的全入站签名、真实 Go/mTLS 引用、TTL、撤销和进程崩溃结果仍有效；正式校验后的 lab 真实运行待 A4 授权，不构成 authorized 自动资格。PF 使用专用 `hg5<executorId 的 URL-safe Base64 无填充编码>/*`，保护端口（含固定 22/53/3389）从 1—65535 拆成闭区间，规则、枚举和精确状态清理共用区间。WFP 仍只有单端口实现，未在目标平台验收。
 
 **Mac 全入站签名命令及主要恢复场景已实测；P5 整阶段未收口。** 本轮不重启主机，未安装常驻服务或接入真实业务库。PF 仅在回环测试期间临时挂接，结束恢复原过滤规则、释放本次 enable token、移除本次别名，并验证回到 Disabled。Windows 自动执行保持关闭。
 
@@ -75,10 +75,10 @@ P5_EXECUTOR_INTEROP=true mvn -f backend/pom.xml -Dtest=GuardDomainTest,GuardExec
 | authorization | id、revision、status、validFrom、validUntil；UTC时间，status为active/revoked |
 | limits | maxTtlSeconds、maxContinuousBlockSeconds、maxActiveRulesPerAsset、maxNewActionsPerMinute，不大于60/120/10/5 |
 | trustFile / budgetKeyFile / credentialFile | 公钥清单、稳定预算密钥、executor专用bearer文件绝对路径 |
-| controlPlaneURL / capabilityHash | HTTPS控制面根URL；登记的能力集合摘要 |
+| controlPlaneURL / capabilityHash | HTTPS控制面根URL；能力集合摘要，加载时须等于由 capabilityIds 与 inboundCapabilities 推出的值（算法见 `contract.capability_set_sha256` 与[对拍向量](../docs/contracts/examples/capability-binding-vectors.json)），控制面领取时按 guard_capability 独立重算 |
 | targetURL / targetCA / targetCertificate / targetKey | HTTPS回环解析器、CA、执行器证书和私钥路径 |
 
-可选controlPlaneCA；PF须提供pfHelper。禁止HTTP、继承代理环境或跟随重定向；验证服务端证书。身份、预算密钥、状态目录、平台和连接地址变更须重启进程。不得删除账本或更换预算密钥取得新额度。
+可选controlPlaneCA；PF须提供pfHelper。可选 `inboundCapabilities` 为 `[{capabilityId,protectionSetSha256,protectedPortsSha256}]`：capabilityId 必须在 capabilityIds 内且不重复，仅 PF lab 可填；protectionSetSha256 为 P4 保护文件摘要，protectedPortsSha256 为含 22/53/3389 的升序保护端口 JCS 摘要。改动保护端口后须重新登记并更新 capabilityHash，否则全入站命令被拒、控制面停止下发新命令。禁止HTTP、继承代理环境或跟随重定向；验证服务端证书。身份、预算密钥、状态目录、平台和连接地址变更须重启进程。不得删除账本或更换预算密钥取得新额度。
 
 `guardtargets -config <绝对路径>` 使用listen、certificateFile、keyFile、caFile、authorizedUntil、scope；scope为P2 TargetScope的AssetID、SensorID、BootID、CaptureScopeID、Environment、ExecutorBootID、KeyEpoch、LocalAddresses、CollectorCertSHA256、ExecutorCertSHA256。`executor status`提供当前executorBootId；执行器每次启动后，目标服务/collector须采用新身份。
 

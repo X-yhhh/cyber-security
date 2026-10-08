@@ -4,9 +4,10 @@ from pathlib import Path
 import uuid
 
 from .common import instant, read_private, require
+from .contract import capability_set_sha256
 
 REQUIRED = set("platform stateDir assetId executorId sensorId captureScopeId environment interface localAddresses peerAddresses servicePorts protectedPeers protectedServicePorts capabilityIds bundleIds policyHashes authorization limits trustFile budgetKeyFile controlPlaneURL credentialFile targetURL targetCA targetCertificate targetKey capabilityHash".split())
-OPTIONAL = {"controlPlaneCA", "pfHelper"}
+OPTIONAL = {"controlPlaneCA", "pfHelper", "inboundCapabilities"}
 
 
 def load(path):
@@ -33,6 +34,17 @@ def load(path):
     require(isinstance(c["policyHashes"], list) and c["policyHashes"] and
             all(re.fullmatch("[0-9a-f]{64}", value) for value in c["policyHashes"] + [c["capabilityHash"]]),
             "CONFIG_HASH_INVALID")
+    # 全入站登记只在 PF lab 有效；每项绑定控制面保护集摘要和本机保护端口摘要，后者在授权时按现配置重算。
+    inbound = c.get("inboundCapabilities", [])
+    require(isinstance(inbound, list) and all(
+        isinstance(item, dict) and set(item) == {"capabilityId", "protectionSetSha256", "protectedPortsSha256"} and
+        item["capabilityId"] in c["capabilityIds"] and
+        all(isinstance(item[k], str) and re.fullmatch("[0-9a-f]{64}", item[k])
+            for k in ("protectionSetSha256", "protectedPortsSha256")) for item in inbound) and
+        len({item["capabilityId"] for item in inbound}) == len(inbound), "CONFIG_CAPABILITY_INVALID")
+    require(not inbound or (c["platform"] == "pf" and c["environment"] == "lab"), "CONFIG_SCOPE_INVALID")
+    # capabilityHash 不是自由填写的值：必须等于本机登记推出的能力集合摘要，控制面领取时再独立比对。
+    require(c["capabilityHash"] == capability_set_sha256(c), "CONFIG_HASH_INVALID")
     grant = c["authorization"]
     require(set(grant) == {"id", "revision", "status", "validFrom", "validUntil"} and
             type(grant["revision"]) is int and grant["revision"] > 0 and

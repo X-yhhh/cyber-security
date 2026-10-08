@@ -91,7 +91,7 @@ class Engine:
             raise
 
     def authorize_command(self, payload, config, now):
-        """正式入口维持平台验收门禁；受控回环验收使用独立子类。"""
+        """正式入口与回环验收共用同一门禁；全入站只认本机 inboundCapabilities 登记。"""
         authorize(payload, config, self.boot, now)
 
     def _accept(self, p, signing):

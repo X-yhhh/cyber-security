@@ -8,7 +8,8 @@ import unittest
 
 from .canary_targets import CanaryTargets
 from .common import Rejected, ident, stamp
-from .pf_engine_canary import LoopbackCanaryEngine
+from .contract import authorize, protected_ports_sha256
+from .engine import Engine
 from . import test_engine
 
 
@@ -20,25 +21,41 @@ class CanaryTest(unittest.TestCase):
         f.config.update(platform="pf", localAddresses=["127.0.0.1"], peerAddresses=["127.0.0.2"],
                         protectedServicePorts=[22, 53, 3389, 55002])
         f.resolver.result.update(Local="127.0.0.1:55001", Peer="127.0.0.2:55003")
-        self.engine = LoopbackCanaryEngine(f.store, f.firewall, f.resolver, lambda: f.config,
-                                          lambda: f.trust, f.engine.budget_key, f.clock)
+        f.config["inboundCapabilities"] = [{"capabilityId": f.config["capabilityIds"][0], "protectionSetSha256": "e" * 64,
+                                            "protectedPortsSha256": protected_ports_sha256(f.config["protectedServicePorts"])}]
+        # 回环验收与正式入口是同一个 Engine，不存在专用子类或授权例外。
+        self.engine = Engine(f.store, f.firewall, f.resolver, lambda: f.config,
+                             lambda: f.trust, f.engine.budget_key, f.clock)
 
-    def test_loopback_exception_does_not_change_production_gate(self):
+    def test_inbound_requires_registered_lab_pf_capability_and_unchanged_protection(self):
+        """B1.5：全入站只按本机登记放行；未登记仍是正式默认拒绝，任一条件不符都不安装规则。"""
         f = self.fixture
-        p = f.payload(scope="peer_inbound", servicePort=None)
-        with self.assertRaisesRegex(Rejected, "PROTECTED_TARGET"):
-            f.engine.accept(f.signed(p))
         good = copy.deepcopy(f.config)
-        for field, value in [("environment", "authorized"), ("platform", "wfp"), ("interface", "en0"),
-                             ("localAddresses", ["192.0.2.1"]), ("peerAddresses", ["192.0.2.2"]),
-                             ("servicePorts", [80]), ("protectedServicePorts", [22, 53, 3389])]:
-            with self.subTest(field=field):
+        other = ident()
+        cases = [("unregistered", {"inboundCapabilities": []}, "PROTECTED_TARGET"),
+                 ("otherCapability", {"capabilityIds": [good["capabilityIds"][0], other],
+                                      "inboundCapabilities": [{**good["inboundCapabilities"][0], "capabilityId": other}]},
+                  "PROTECTED_TARGET"),
+                 ("wfp", {"platform": "wfp"}, "CAPABILITY_NOT_SUPPORTED"),
+                 ("protectionChanged", {"protectedServicePorts": [22, 53, 3389, 55002, 55004]},
+                  "PROTECTION_SET_UNVERIFIED"),
+                 ("controlPortDropped", {"protectedServicePorts": [22, 53, 3389]}, "PROTECTION_SET_UNVERIFIED")]
+        for name, changes, code in cases:
+            with self.subTest(case=name):
                 f.config.clear()
-                f.config.update(copy.deepcopy(good))
-                f.config[field] = value
-                with self.assertRaises(Rejected):
-                    self.engine.accept(f.signed(f.payload(scope="peer_inbound", servicePort=None)))
+                f.config.update(copy.deepcopy(good), **copy.deepcopy(changes))
+                with self.assertRaisesRegex(Rejected, code):
+                    f.engine.accept(f.signed(f.payload(scope="peer_inbound", servicePort=None)))
+        # 环境属于账本身份，引擎会先以 LEDGER_IDENTITY_CHANGED 拒绝；这里直接覆盖授权门禁本身。
+        authorized = {**copy.deepcopy(good), "environment": "authorized"}
+        p = {**f.payload(scope="peer_inbound", servicePort=None), "environment": "authorized"}
+        with self.assertRaisesRegex(Rejected, "CAPABILITY_NOT_SUPPORTED"):
+            authorize(p, authorized, f.engine.boot, f.clock.time())
         self.assertEqual(f.firewall.installs, 0)
+        f.config.clear()
+        f.config.update(copy.deepcopy(good))
+        self.assertEqual(f.engine.accept(f.signed(f.payload(scope="peer_inbound", servicePort=None))), "applied")
+        self.assertEqual(f.firewall.installs, 1)
 
     def test_inbound_real_mtls_signature_binding_budget_and_recovery(self):
         f = self.fixture

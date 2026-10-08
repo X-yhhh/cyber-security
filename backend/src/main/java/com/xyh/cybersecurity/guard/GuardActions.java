@@ -48,7 +48,9 @@ public class GuardActions {
         store.update("asset_authorization",number(a,"id"),map("status","revoked","revision",number(a,"revision")+1,"revoked_by",access.human(),"revoked_at",db(store.now()),"revoke_reason",text(b,"reason")));stop(aid,"AUTHORIZATION_REVOKED",true,access.human(),null);return object("id",id,"status","revoked","revision",number(a,"revision")+1);}
     public JsonNode claims(String executorId,JsonNode b){fields(b,"bootId capabilityHash maxItems waitSeconds","");var e=access.executor(executorId,"machine.command.claim");long aid=number(e,"asset_id");store.lockAsset(aid);e=store.external("guard_executor",executorId,true);require(uuid(b,"bootId").equals(str(e,"boot_id")),"BOOT_ID_MISMATCH");require(digest(b,"capabilityHash").equals(str(e,"capability_hash")),"CAPABILITY_NOT_SUPPORTED");int limit=(int)integer(b,"maxItems",1,10);integer(b,"waitSeconds",0,5);
         var revocations=JSON.createArrayNode();for(var r:store.rows("guard_revocation",map("executor_id",e.get("id"),"status","pending"),true,limit))revocations.add(json(r,"payload_json"));var commands=JSON.createArrayNode();
-        if(revocations.size()<limit)for(var a:store.rows("guard_action",map("executor_id",e.get("id"),"desired_state","active"),true,1000)){
+        // B1.4：上报的能力集合须等于控制面按 guard_capability 重算的摘要；不符时只下发撤销，不签发也不重放命令。
+        boolean bound=eligibility.executorCapabilityHash(e).equals(str(e,"capability_hash"));
+        if(bound&&revocations.size()<limit)for(var a:store.rows("guard_action",map("executor_id",e.get("id"),"desired_state","active"),true,1000)){
             if(commands.size()+revocations.size()>=limit)break;if(GuardBudget.TERMINAL.contains(str(a,"observed_state"))||"uncertain".equals(str(a,"observed_state"))||"recovery_failed".equals(str(a,"observed_state")))continue;
             if("manual".equals(str(a,"mode"))&&a.get("approved_by")==null)continue;
             Instant now=store.now();var old=store.one("guard_command",map("action_id",a.get("id")),true);
@@ -67,6 +69,8 @@ public class GuardActions {
                 var command=store.insert("guard_command",map("public_id",commandId,"action_id",a.get("id"),"executor_boot_id",e.get("boot_id"),"payload_json",canonical(payload),"payload_sha256",hash(payload),"key_id",text(signed,"keyId"),"signature",text(signed,"signature"),"issued_at",db(now),"apply_by",db(apply),"lease_expires_at",db(until)));
                 store.add("guard_authorization_lease",map("command_id",command.get("id"),"authorization_id",auth.get("id"),"revision",auth.get("revision"),"expires_at",db(until),"status","active"));
                 store.update("guard_action",number(a,"id"),map("observed_state","dispatched","revision",number(a,"revision")+1));store.audit(null,"guard.command.issued",commandId,aid,null,payload);commands.add(signed);
+                // B1.6：全入站命令同时登记预期封禁区间摘要，执行器按同一保护端口重算的结果必须一致。
+                if(scope.equals("peer_inbound"))store.audit(null,"guard.command.inbound_ranges",commandId,aid,null,eligibility.inboundRanges(commandId,checked.capability));
             }catch(com.xyh.cybersecurity.common.api.ApiRequestException ex){terminateUnsigned(a,"rejected");store.audit(null,"guard.command.rejected",str(a,"public_id"),aid,null,object("reasonCode",ex.code()));}
         }
         return object("commands",commands,"revocations",revocations,"serverTime",store.now().toString());}
@@ -103,7 +107,7 @@ public class GuardActions {
             healthy&=health.current(number(row,"capture_scope_id"),now)&&!mapper.batchGap(number(row,"sensor_id"),str(row,"boot_id"));
             validTarget&=eligibility.target(target,current,now,policy,family);
             authorized&=eligibility.authorized(asset,bundle,binding,policy,current,executor,now,family);
-            String protection=eligibility.protection(policy,target,current,family);if(protectionReason==null)protectionReason=protection;
+            String protection=eligibility.protection(bundle,policy,target,current,family);if(protectionReason==null)protectionReason=protection;
             selected.add(new GuardDecisionEngine.Evidence(current,latest.get("score")==null?null:((Number)latest.get("score")).doubleValue(),str(latest,"family"),source,ruleId,matched,str(row,"content_sha256")));
         }
         require(current!=null,"EVIDENCE_STALE");

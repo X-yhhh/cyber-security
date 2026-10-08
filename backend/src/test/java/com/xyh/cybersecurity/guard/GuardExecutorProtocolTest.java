@@ -1,5 +1,6 @@
 package com.xyh.cybersecurity.guard;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -10,6 +11,7 @@ import java.security.*;
 import java.time.*;
 import java.time.temporal.ChronoUnit;
 import java.util.Base64;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 import static com.xyh.cybersecurity.guard.GuardJson.*;
 import static org.assertj.core.api.Assertions.*;
@@ -37,6 +39,11 @@ class GuardExecutorProtocolTest {
         Files.writeString(temporary.resolve("trust.json"),canonical(trust));
         Files.writeString(temporary.resolve("vector.json"),canonical(vector));
         Files.write(temporary.resolve("key.der"),key.getPrivate().getEncoded());
+        var ports=node(List.of(55002,22,3389,55002));String service=id(),inbound=id();
+        var inboundItem=object("capabilityId",inbound,"scope","peer_inbound","protectionSetSha256","e".repeat(64),"protectedPortsSha256",GuardEligibility.protectedPortsSha256(ports));
+        var items=List.<JsonNode>of(object("capabilityId",service,"scope","peer_service","protectionSetSha256",null,"protectedPortsSha256",null),inboundItem);
+        Files.writeString(temporary.resolve("binding.json"),canonical(object("protectedServicePorts",ports,"config",object("capabilityIds",List.of(service,inbound),
+                "inboundCapabilities",List.of(object("capabilityId",inbound,"protectionSetSha256","e".repeat(64),"protectedPortsSha256",inboundItem.get("protectedPortsSha256")))))));
         Path root=Path.of("..").toAbsolutePath().normalize();
         var process=new ProcessBuilder("/bin/sh",root.resolve("executor/python.sh").toString(),
                 "-m","executor.interop",temporary.toString()).directory(root.toFile()).redirectErrorStream(true).start();
@@ -47,5 +54,8 @@ class GuardExecutorProtocolTest {
         assertThat(result.path("signature")).isEqualTo(command.path("signature"));
         assertThat(result.path("scopeHash").asText()).isEqualTo(GuardReceipts.scopeHash(payload));
         assertThat(result.path("vectorHash").asText()).isEqualTo(hash(vector));
+        assertThat(result.get("ranges")).isEqualTo(node(GuardEligibility.unprotectedRanges(ports)));
+        assertThat(result.path("protectedPortsSha256").asText()).isEqualTo(GuardEligibility.protectedPortsSha256(ports));
+        assertThat(result.path("capabilitySetSha256").asText()).isEqualTo(GuardEligibility.capabilitySetSha256(items));
     }
 }

@@ -6,16 +6,15 @@ from pathlib import Path
 from .__main__ import build
 from .common import canonical, read_private, require, write_new
 from .pf_canary import canary_scope
-from .pf_engine_canary import LoopbackCanaryEngine
+from .engine import Engine
 from .transport import TargetResolver
 
 
 def run(config, envelope, resolver_config, marker, stage):
     original = build(config, resolver=False)
     canary_scope(original.config(), "peer_inbound")
-    engine = LoopbackCanaryEngine(original.store, original.adapter,
-                                 TargetResolver(lambda: read_private(resolver_config)),
-                                 original.config, original.trust, original.budget_key)
+    engine = Engine(original.store, original.adapter, TargetResolver(lambda: read_private(resolver_config)),
+                    original.config, original.trust, original.budget_key)
     require(stage in ("before_ledger", "after_ledger", "after_install"), "CANARY_FAULT_INVALID")
 
     def crash():

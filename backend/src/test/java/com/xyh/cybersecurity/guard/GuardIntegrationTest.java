@@ -80,14 +80,18 @@ class GuardIntegrationTest {
     JsonNode machine(String path,JsonNode body,String credential)throws Exception{return machine(path,body,credential,id());}
     JsonNode machine(String path,JsonNode body,String credential,String key)throws Exception{return result(mvc.perform(post("/api/v2/machine"+path).header("Authorization","Bearer "+credential).header("Idempotency-Key",key).contentType("application/json").content(canonical(body))).andReturn());}
     JsonNode result(MvcResult r) throws Exception {JsonNode n=parse(r.getResponse().getContentAsString());assertThat(r.getResponse().getStatus()).withFailMessage("HTTP %s: %s",r.getResponse().getStatus(),n).isBetween(200,299);assertThat(n.path("requestId").asText()).isNotBlank();return n.get("data");}
-    record Fixture(String asset,String sensor,String sensorCredential,String executor,String executorCredential,String scope,String config,String configHash,String boot,String executorBoot,String capability,String model,String policy,String bundle,String authorization,String target,String token,String targetId){}
+    record Fixture(String asset,String sensor,String sensorCredential,String executor,String executorCredential,String scope,String config,String configHash,String boot,String executorBoot,String capability,String model,String policy,String bundle,String authorization,String target,String token,String targetId,String capabilityHash){}
     Fixture setup()throws Exception{return setup("dos_slow",List.of());}
-    Fixture setup(String family,List<JsonNode> rules)throws Exception{
+    Fixture setup(String family,List<JsonNode> rules)throws Exception{return setup(family,rules,false);}
+    /** exempt=true 时登记带签名豁免报告的 macOS PF 全入站能力（B1.2），其余步骤与普通夹具相同。 */
+    Fixture setup(String family,List<JsonNode> rules,boolean exempt)throws Exception{
         boolean scan=family.equals("port_scan");String direction=scan?"inbound":"outbound";
         String folder=id();Path dir=ROOT.resolve(folder);Files.createDirectories(dir);
         String asset=human("/assets",object("assetKey",id(),"platform","macos","environment","lab","owner","isolated-p4-test"),operator,null).path("id").asText();
         ObjectNode cap=object("capabilityKey",id(),"version","fixture-v1","platform","macos","adapterVersion","fixture-1","addressFamily","ipv4","transport","tcp","direction",direction,"family",family,"profile","flow-prefix-v1","behaviorScope",List.of("slowloris","slowhttptest"),"latencyLimits",object("maxMs",10000),"level","lab_auto");
-        JsonNode signed=GuardSignatures.sign(object("passed",true,"protocolVersions",versions(),"capability",cap),"fixture-runner",signing.getPrivate());write(dir,"capability.json",signed);cap.put("evidenceRef",folder+"/capability.json").put("evidenceSha256",sha(Files.readAllBytes(dir.resolve("capability.json")))).put("runnerIdentity","fixture-runner");
+        if(exempt){write(dir,"exemption.json",GuardSignatures.sign(object("passed",true,"scope","peer_inbound","platform","macos-pf","protectionSetSha256",hash(PROTECTION)),"fixture-runner",signing.getPrivate()));
+            cap.put("scope","peer_inbound").put("protectionSetSha256",hash(PROTECTION)).put("exemptionEvidenceSha256",sha(Files.readAllBytes(dir.resolve("exemption.json"))));}
+        JsonNode signed=GuardSignatures.sign(object("passed",true,"protocolVersions",versions(),"capability",cap),"fixture-runner",signing.getPrivate());write(dir,"capability.json",signed);cap.put("evidenceRef",folder+"/capability.json").put("evidenceSha256",sha(Files.readAllBytes(dir.resolve("capability.json")))).put("runnerIdentity","fixture-runner");if(exempt)cap.put("exemptionEvidenceRef",folder+"/exemption.json");
         String capability=human("/capabilities",cap,operator,null).path("id").asText();
         Instant now=Instant.now().truncatedTo(ChronoUnit.MILLIS);
         String auth=human("/assets/"+asset+"/authorizations",object("interfaces",List.of("fixture0"),"observationAllowed",true,"executionScopes",List.of(object("scope",scan?"peer_inbound":"peer_service","direction",direction,"transport","tcp","servicePort",scan?null:443,"addressFamily","ipv4","capabilityId",capability)),"validFrom",now.minusSeconds(60).toString(),"validUntil",now.plusSeconds(3600).toString(),"evidenceRef","fixture:isolated-test"),operator,null).path("id").asText();
@@ -111,9 +115,13 @@ class GuardIntegrationTest {
         JsonNode bundle=human("/release-bundles",object("modelId",model,"policyId",pid,"featureProfileSha256",contracts.profileHash(),"extractorSha256",manifest.get("extractorSha256"),"protocolVersions",versions(),"evaluationPlanId",registeredPlan.get("id"),"capabilityIds",List.of(capability),"environment","lab"),operator,null);String bid=bundle.path("id").asText();var evaluationIds=new ArrayList<String>();
         for(String kind:List.of("final","platform","canary")){write(dir,kind+".json",GuardSignatures.sign(object("protocolVersions",versions(),"subjectSha256",bundle.get("subjectSha256"),"evaluationPlanSha256",registeredPlan.get("planSha256"),"runKind",kind,"passed",true),"fixture-runner",signing.getPrivate()));evaluationIds.add(human("/release-bundles/"+bid+"/imports",object("reportRef",folder+"/"+kind+".json","sha256",sha(Files.readAllBytes(dir.resolve(kind+".json"))),"runnerIdentity","fixture-runner"),operator,null).path("id").asText());}
         human("/release-bundles/"+bid+"/sealings",object("evaluationIds",evaluationIds),operator,"1");human("/release-bundles/"+bid+"/decisions",object("decision","approve","reason","隔离固定夹具批准"),reviewer,"2");human("/release-bundles/"+bid+"/activations",object("assetIds",List.of(asset),"authorizationIds",List.of(auth)),reviewer,"3");
+        // 执行器按本机登记上报能力集合摘要；控制面领取时按 guard_capability 独立重算（B1.4）。
+        JsonNode item=exempt?object("capabilityId",capability,"scope","peer_inbound","protectionSetSha256",hash(PROTECTION),"protectedPortsSha256",GuardEligibility.protectedPortsSha256(PROTECTION.get("protectedServicePorts")))
+                :object("capabilityId",capability,"scope","peer_service","protectionSetSha256",null,"protectedPortsSha256",null);String capabilityHash=GuardEligibility.capabilitySetSha256(List.of(item));
+        machine("/executors/"+eid+"/heartbeats",object("bootId",eboot,"adapterVersion","fixture-1","capabilityHash",capabilityHash,"pendingRecovery",false,"activeRuleCount",0,"clockSkewMs",0),executor.path("credential").asText());
         String target=id(),token=sha(id().getBytes());ObjectNode binding=(ObjectNode)targetBody(eid,sensor.path("id").asText(),scope,boot,eboot,target,token);binding.put("scope",scan?"peer_inbound":"peer_service").put("direction",direction);if(scan)binding.putNull("servicePort");
         String targetId=machine("/executors/"+eid+"/target-bindings",binding,executor.path("credential").asText()).path("budgetTargetId").asText();
-        Fixture f=new Fixture(asset,sensor.path("id").asText(),sensor.path("credential").asText(),eid,executor.path("credential").asText(),scope,configId,hash(config),boot,eboot,capability,model,pid,bid,auth,target,token,targetId);
+        Fixture f=new Fixture(asset,sensor.path("id").asText(),sensor.path("credential").asText(),eid,executor.path("credential").asText(),scope,configId,hash(config),boot,eboot,capability,model,pid,bid,auth,target,token,targetId,capabilityHash);
         var h=GuardDomainTest.health(Instant.now().truncatedTo(ChronoUnit.MICROS),1,null);h.put("assetId",asset).put("sensorId",f.sensor).put("captureScopeId",scope).put("configSha256",hash(config));machine("/sensors/"+f.sensor+"/health-windows",h,f.sensorCredential);return f;
     }
     JsonNode targetBody(String eid,String sensor,String scope,String boot,String eboot,String target,String token){return object("bindingId",id(),"executorBootId",eboot,"sensorId",sensor,"collectorBootId",boot,"captureScopeId",scope,"targetRef",target,"peerKey","d".repeat(64),"keyEpoch",1,"direction","outbound","transport","tcp","servicePort",443,"addressFamily","ipv4","stableTargetToken",token,"scopeDigest",sha(token.getBytes()),"expiresAt",Instant.now().plusSeconds(14).truncatedTo(ChronoUnit.MICROS).toString());}
@@ -124,7 +132,7 @@ class GuardIntegrationTest {
         Fixture f=setup();Instant at=Instant.now().truncatedTo(ChronoUnit.MICROS);JsonNode b=batch(f,List.of(observation(f,at,id(),0)),1);String requestKey=id();JsonNode accepted=machine("/sensors/"+f.sensor+"/observation-batches",b,f.sensorCredential,requestKey);assertThat(accepted.path("acceptedCount").asInt()).isEqualTo(1);assertThat(machine("/sensors/"+f.sensor+"/observation-batches",b,f.sensorCredential,requestKey)).isEqualTo(accepted);
         String event=id();detection.consume(event,"guard.observation.accepted",object("batchId",b.get("batchId")));detection.consume(event,"guard.observation.accepted",object("batchId",b.get("batchId")));
         var asset=store.external("asset",f.asset,false);var decisions=store.rows("guard_decision",map("asset_id",asset.get("id")),false,20);assertThat(decisions).hasSize(1);assertThat(str(decisions.getFirst(),"decision")).withFailMessage("decision: %s",json(decisions.getFirst(),"evidence_json")).isEqualTo("block_candidate");
-        var action=store.one("guard_action",map("asset_id",asset.get("id")),false);assertThat(action).isNotNull();JsonNode claimBody=object("bootId",f.executorBoot,"capabilityHash","c".repeat(64),"maxItems",10,"waitSeconds",0);String claimKey=id();var claims=machine("/executors/"+f.executor+"/command-claims",claimBody,f.executorCredential,claimKey);assertThat(claims.path("commands")).hasSize(1);JsonNode command=claims.path("commands").get(0);contracts.validate("action-command",command);
+        var action=store.one("guard_action",map("asset_id",asset.get("id")),false);assertThat(action).isNotNull();JsonNode claimBody=object("bootId",f.executorBoot,"capabilityHash",f.capabilityHash(),"maxItems",10,"waitSeconds",0);String claimKey=id();var claims=machine("/executors/"+f.executor+"/command-claims",claimBody,f.executorCredential,claimKey);assertThat(claims.path("commands")).hasSize(1);JsonNode command=claims.path("commands").get(0);contracts.validate("action-command",command);
         assertThat(machine("/executors/"+f.executor+"/command-claims",claimBody,f.executorCredential,claimKey).get("commands")).isEqualTo(claims.get("commands"));
         String aid=str(action,"public_id");human("/actions/"+aid+"/revocations",object("reason","隔离测试撤销"),reviewer,"2");assertThat(machine("/executors/"+f.executor+"/command-claims",claimBody,f.executorCredential,claimKey).get("commands")).isEmpty();
         var revoked=machine("/executors/"+f.executor+"/command-claims",claimBody,f.executorCredential);assertThat(revoked.path("revocations")).hasSize(1);assertThat(str(store.external("guard_action",aid,false),"observed_state")).isEqualTo("dispatched");
@@ -157,6 +165,52 @@ class GuardIntegrationTest {
         var target=store.one("guard_target_binding",map("target_ref",f.target),false);var policy=json(store.external("guard_decision_policy",f.policy,false),"definition_json");
         assertThat(new GuardEligibility(store,true,ROOT.resolve("protection.json").toString()).target(target,first,store.now(),policy,"dos_slow")).isFalse();
     }
+    /** B1：全入站豁免五条件满足时 lab 可签发全入站命令并审计预期区间；能力集合不符只下发撤销。 */
+    @Test void exemptInboundCapabilityIssuesCommandWithAuditedRangesInLab()throws Exception{
+        Fixture f=setup("port_scan",List.of(),true);var cap=store.external("guard_capability",f.capability(),false);
+        assertThat(str(cap,"scope")).isEqualTo("peer_inbound");assertThat(str(cap,"protection_set_sha256")).isEqualTo(hash(PROTECTION));assertThat(str(cap,"exemption_evidence_sha256")).isNotNull();
+        Instant at=Instant.now().truncatedTo(ChronoUnit.MICROS);
+        accept(f,List.of(observation(f,at,id(),0).put("direction","inbound").put("servicePort",80),observation(f,at,id(),0).put("direction","inbound").put("servicePort",22)),1,true);
+        var asset=store.external("asset",f.asset(),false);var actions=store.rows("guard_action",map("asset_id",asset.get("id")),false,10);
+        assertThat(actions).withFailMessage("decisions: %s",store.rows("guard_decision",map("asset_id",asset.get("id")),false,10)).hasSize(1);
+        JsonNode body=object("bootId",f.executorBoot(),"capabilityHash",f.capabilityHash(),"maxItems",10,"waitSeconds",0);
+        var claims=machine("/executors/"+f.executor()+"/command-claims",body,f.executorCredential());assertThat(claims.path("commands")).hasSize(1);
+        JsonNode command=claims.path("commands").get(0);contracts.validate("action-command",command);var payload=command.path("payload");
+        assertThat(payload.path("scope").asText()).isEqualTo("peer_inbound");assertThat(payload.path("servicePort").isNull()).isTrue();assertThat(payload.path("capabilityId").asText()).isEqualTo(f.capability());
+        // 审计只存摘要：用对拍向量同一算法重算 P4 预期区间，P5 侧由同一保护端口得到相同结果。
+        String commandId=payload.path("commandId").asText();var ports=PROTECTION.get("protectedServicePorts");
+        JsonNode expected=object("commandId",commandId,"capabilityId",f.capability(),"protectionSetSha256",hash(PROTECTION),"protectedPortsSha256",GuardEligibility.protectedPortsSha256(ports),"ranges",List.of(List.of(1,21),List.of(23,52),List.of(54,3388),List.of(3390,65535)));
+        assertThat(jdbc.queryForList("SELECT reason FROM audit_log WHERE action='guard.command.inbound_ranges' AND resource_id=?",String.class,commandId)).containsExactly(hash(expected));
+        // 上报摘要与控制面重算不符：不再签发或重放命令，但撤销照常下发。
+        machine("/executors/"+f.executor()+"/heartbeats",object("bootId",f.executorBoot(),"adapterVersion","fixture-1","capabilityHash","c".repeat(64),"pendingRecovery",false,"activeRuleCount",1,"clockSkewMs",0),f.executorCredential());
+        JsonNode drifted=object("bootId",f.executorBoot(),"capabilityHash","c".repeat(64),"maxItems",10,"waitSeconds",0);
+        assertThat(machine("/executors/"+f.executor()+"/command-claims",drifted,f.executorCredential()).path("commands")).isEmpty();
+        human("/actions/"+str(actions.getFirst(),"public_id")+"/revocations",object("reason","隔离测试撤销"),reviewer,"2");
+        var revoked=machine("/executors/"+f.executor()+"/command-claims",drifted,f.executorCredential());assertThat(revoked.path("commands")).isEmpty();assertThat(revoked.path("revocations")).hasSize(1);
+    }
+    /** B1.2：全入站能力须为 macOS 入站并带签名豁免报告，单服务能力不得夹带保护集或豁免字段。 */
+    @Test void inboundCapabilityRegistrationRequiresSignedExemptionForSameProtectionSet()throws Exception{
+        String folder=id();Path dir=ROOT.resolve(folder);Files.createDirectories(dir);
+        ObjectNode valid=object("passed",true,"scope","peer_inbound","platform","macos-pf","protectionSetSha256",hash(PROTECTION));
+        Map<String,ObjectNode> exemptions=new LinkedHashMap<>(),changes=new LinkedHashMap<>();
+        exemptions.put("otherProtection",valid.deepCopy().put("protectionSetSha256","f".repeat(64)));exemptions.put("failedReport",valid.deepCopy().put("passed",false));
+        exemptions.put("serviceReport",valid.deepCopy().put("scope","peer_service"));exemptions.put("windowsReport",valid.deepCopy().put("platform","windows-wfp"));
+        changes.put("windows",object("platform","windows"));changes.put("outbound",object("direction","outbound"));changes.put("serviceWithProtection",object("scope","peer_service"));
+        int before=jdbc.queryForObject("SELECT COUNT(*) FROM guard_capability",Integer.class);
+        for(String name:List.of("otherProtection","failedReport","serviceReport","windowsReport","windows","outbound","serviceWithProtection","missingExemption")){
+            ObjectNode cap=object("capabilityKey",id(),"version","fixture-v1","platform","macos","adapterVersion","fixture-1","addressFamily","ipv4","transport","tcp","direction","inbound","family","port_scan","profile","flow-prefix-v1","behaviorScope",List.of("scan"),"latencyLimits",object("maxMs",10000),"level","lab_auto","scope","peer_inbound","protectionSetSha256",hash(PROTECTION));
+            write(dir,name+"-exemption.json",GuardSignatures.sign(exemptions.getOrDefault(name,valid),"fixture-runner",signing.getPrivate()));
+            if(!name.equals("missingExemption"))cap.put("exemptionEvidenceSha256",sha(Files.readAllBytes(dir.resolve(name+"-exemption.json"))));cap.setAll(changes.getOrDefault(name,object()));
+            // 平台报告签名覆盖完整能力声明，确保拒绝来自豁免规则本身而不是平台报告不符。
+            write(dir,name+"-capability.json",GuardSignatures.sign(object("passed",true,"protocolVersions",versions(),"capability",cap.deepCopy()),"fixture-runner",signing.getPrivate()));
+            cap.put("evidenceRef",folder+"/"+name+"-capability.json").put("evidenceSha256",sha(Files.readAllBytes(dir.resolve(name+"-capability.json")))).put("runnerIdentity","fixture-runner").put("exemptionEvidenceRef",folder+"/"+name+"-exemption.json");
+            var session=humanSession(operator);var r=mvc.perform(post("/api/v2/capabilities").cookie(session.cookie()).header("X-CSRF-TOKEN",session.csrfToken()).header("Idempotency-Key",id()).contentType("application/json").content(canonical(cap))).andReturn();
+            boolean missing=name.equals("missingExemption");assertThat(r.getResponse().getStatus()).as(name).isEqualTo(missing?400:422);
+            assertThat(parse(r.getResponse().getContentAsString()).at("/error/code").asText()).as(name).isEqualTo(missing?"INVALID_REQUEST":"CAPABILITY_NOT_SUPPORTED");}
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM guard_capability",Integer.class)).isEqualTo(before);
+        // 绕过服务直接写库同样受 V22 约束：全入站缺保护集或豁免摘要的行无法落库。
+        assertThatThrownBy(()->jdbc.update("INSERT INTO guard_capability(public_id,capability_key,version,platform,level,payload_json,created_by,scope) SELECT UUID(),?,'v','macos','lab_auto','{}',MIN(id),'peer_inbound' FROM sys_user",id())).hasMessageContaining("ck_guard_capability_scope");
+    }
     @Test void rulesAlertOnInferenceFailureAndNonHitInvalidatesPriorEvidence()throws Exception{
         var rule=object("ruleId","slow-duration","family","dos_slow","field","features.elapsedMs","operator","gte","threshold",4000,"autoEligible",false);
         Fixture f=setup("dos_slow",List.of(rule));jdbc.update("UPDATE guard_model SET validation_status='failed' WHERE public_id=?",f.model);
@@ -170,7 +224,7 @@ class GuardIntegrationTest {
         Fixture f=setup();String parent=id();accept(f,List.of(observation(f,Instant.now().truncatedTo(ChronoUnit.MICROS),parent,0)),1,true);
         var asset=store.external("asset",f.asset,false);var action=store.one("guard_action",map("asset_id",asset.get("id")),false);assertThat(action).isNotNull();
         accept(f,List.of(observation(f,Instant.now().truncatedTo(ChronoUnit.MICROS),parent,1)),2,false);
-        var claim=machine("/executors/"+f.executor+"/command-claims",object("bootId",f.executorBoot,"capabilityHash","c".repeat(64),"maxItems",10,"waitSeconds",0),f.executorCredential);
+        var claim=machine("/executors/"+f.executor+"/command-claims",object("bootId",f.executorBoot,"capabilityHash",f.capabilityHash(),"maxItems",10,"waitSeconds",0),f.executorCredential);
         assertThat(claim.path("commands")).isEmpty();assertThat(str(store.get("guard_action",number(action,"id")),"observed_state")).isEqualTo("rejected");assertThat(store.rows("guard_command",map("action_id",action.get("id")),false,10)).isEmpty();
     }
     @Test void outboundScanRuleRemainsAlertOnly()throws Exception{

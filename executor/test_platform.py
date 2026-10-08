@@ -6,13 +6,88 @@ import subprocess
 import sys
 import time
 
-from .common import Rejected
-from .contract import unprotected_ranges
+import tempfile
+
+from .common import Rejected, canonical, digest, parse, write_new
+from .config import load
+from .contract import (capability_items_sha256, capability_set_sha256, protected_ports, protected_ports_sha256,
+                       unprotected_ranges)
 from .pf_canary import canary_scope
 from .platform import PF, inbound_ranges
 
 
+VECTORS = Path(__file__).resolve().parents[1] / "docs" / "contracts" / "examples" / "capability-binding-vectors.json"
+
+
 class PlatformTest(unittest.TestCase):
+    def test_protected_ports_and_capability_set_match_shared_java_vectors(self):
+        """B1.6：与后端 GuardCapabilityBindingTest 读取同一向量，任一侧算法漂移即失败。"""
+        vectors = parse(VECTORS.read_bytes())
+        self.assertEqual(vectors["implicitProtectedPorts"], [22, 53, 3389])
+        for case in vectors["protectedPorts"]:
+            with self.subTest(ports=case["input"]):
+                self.assertEqual(protected_ports(case["input"]), case["effective"])
+                self.assertEqual(unprotected_ranges(case["input"]), case["ranges"])
+                self.assertEqual(protected_ports_sha256(case["input"]), case["protectedPortsSha256"])
+        for ports in vectors["invalidProtectedPorts"]:
+            with self.subTest(invalid=ports[:3]), self.assertRaisesRegex(Rejected, "CONFIG_SCOPE_INVALID"):
+                protected_ports(ports)
+        for case in vectors["capabilitySets"]:
+            with self.subTest(items=len(case["items"])):
+                self.assertEqual(capability_items_sha256(case["items"]), case["capabilitySetSha256"])
+                if case["items"]:
+                    config = {"capabilityIds": [item["capabilityId"] for item in case["items"]],
+                              "inboundCapabilities": [{k: item[k] for k in ("capabilityId", "protectionSetSha256",
+                                                                            "protectedPortsSha256")}
+                                                      for item in case["items"] if item["scope"] == "peer_inbound"]}
+                    self.assertEqual(capability_set_sha256(config), case["capabilitySetSha256"])
+
+    def test_config_binds_capability_hash_and_restricts_inbound_registration(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            ids = [str(uuid.uuid4()) for _ in range(7)]
+            base = {"platform": "pf", "stateDir": str(root / "state"), "assetId": ids[0], "executorId": ids[1],
+                    "sensorId": ids[2], "captureScopeId": ids[3], "environment": "lab", "interface": "lo0",
+                    "localAddresses": ["127.0.0.1"], "peerAddresses": ["127.0.0.2"], "servicePorts": [55001],
+                    "protectedPeers": [], "protectedServicePorts": [55002], "capabilityIds": [ids[4]],
+                    "bundleIds": [ids[5]], "policyHashes": ["a" * 64],
+                    "authorization": {"id": ids[6], "revision": 1, "status": "active",
+                                      "validFrom": "2026-10-08T00:00:00Z", "validUntil": "2026-10-09T00:00:00Z"},
+                    "limits": {"maxTtlSeconds": 60, "maxContinuousBlockSeconds": 120,
+                               "maxActiveRulesPerAsset": 10, "maxNewActionsPerMinute": 5},
+                    **{k: str(root / k) for k in ("trustFile", "budgetKeyFile", "credentialFile", "targetCA",
+                                                  "targetCertificate", "targetKey")},
+                    "controlPlaneURL": "https://127.0.0.1:1", "targetURL": "https://127.0.0.1:1",
+                    "inboundCapabilities": [{"capabilityId": ids[4], "protectionSetSha256": "e" * 64,
+                                             "protectedPortsSha256": protected_ports_sha256([55002])}]}
+            counter = iter(range(100))
+
+            def written(config):
+                path = root / f"config-{next(counter)}.json"
+                write_new(path, canonical(config))
+                return path
+
+            good = {**base, "capabilityHash": capability_set_sha256(base)}
+            self.assertEqual(load(written(good))["capabilityHash"], capability_set_sha256(base))
+            peer_service = {k: v for k, v in base.items() if k != "inboundCapabilities"}
+            self.assertNotEqual(capability_set_sha256(peer_service), good["capabilityHash"])
+            cases = {"CONFIG_HASH_INVALID": [{"capabilityHash": "c" * 64},
+                                             {"inboundCapabilities": [], "capabilityHash": good["capabilityHash"]}],
+                     "CONFIG_SCOPE_INVALID": [{"environment": "authorized"}, {"platform": "wfp"}],
+                     "CONFIG_CAPABILITY_INVALID": [
+                         {"inboundCapabilities": [{**base["inboundCapabilities"][0], "capabilityId": ids[5]}]},
+                         {"inboundCapabilities": base["inboundCapabilities"] * 2},
+                         {"inboundCapabilities": [{**base["inboundCapabilities"][0], "bypass": True}]}]}
+            for code, changes in cases.items():
+                for change in changes:
+                    config = {**base, **change}
+                    if "capabilityHash" not in change and code != "CONFIG_CAPABILITY_INVALID":
+                        config["capabilityHash"] = capability_set_sha256(config)
+                    config.setdefault("capabilityHash", good["capabilityHash"])
+                    with self.subTest(code=code, change=sorted(change)), self.assertRaisesRegex(Rejected, code):
+                        load(written(config))
+            self.assertEqual(digest([22, 53, 3389, 55002]), protected_ports_sha256([55002]))
+
     def test_protected_ports_are_excluded_and_ranges_cover_every_other_port(self):
         ranges = unprotected_ranges([443, 53, 443, 65535])
         scope = {"port": None, "ranges": ranges}

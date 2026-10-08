@@ -59,7 +59,7 @@ public class GuardDetection {
         List<GuardDecisionEngine.Evidence> evidence=new ArrayList<>();boolean modelAvailable=true;for(var e:store.rows("guard_episode_evidence",map("episode_id",episode.get("id")),false,10000)){
             var source=store.get("guard_observation",number(e,"observation_id"));if(!latest(source))continue;modelAvailable&="succeeded".equals(str(store.get("guard_inference",number(e,"inference_id")),"status"));evidence.add(new GuardDecisionEngine.Evidence(json(source,"payload_json"),e.get("score")==null?null:((Number)e.get("score")).doubleValue(),str(e,"family"),str(e,"source"),str(e,"rule_id"),flag(e.get("rule_matched")),str(source,"content_sha256")));}
         var executor=target==null?null:store.get("guard_executor",number(target,"executor_id"));boolean healthy=health.current(number(observation,"capture_scope_id"),now)&&!mapper.batchGap(number(observation,"sensor_id"),str(observation,"boot_id"));
-        String budgetReason=target==null?null:eligibility.protection(policy,target,o,family);
+        String budgetReason=target==null?null:eligibility.protection(bundle,policy,target,o,family);
         if(budgetReason==null&&target!=null)budgetReason=budget.check(aid,number(target,"budget_target_id"),policy,now,now.plusSeconds(policy.path("maxTtlSeconds").asLong()));
         boolean capable=eligibility.capability(bundle,policy,o,family)&&modelAvailable;
         boolean validTarget=eligibility.target(target,o,now,policy,family);

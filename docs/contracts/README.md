@@ -11,7 +11,7 @@ P1/P2 已收口。此目录提供当前 **5 个 Schema、1 个特征 profile、5
 | [action-command.schema.json](action-command.schema.json) | 不可变 payload 及签名封装 |
 | [action-receipt.schema.json](action-receipt.schema.json) | 执行、拒绝、核对与恢复回执 |
 
-结构版本与决策/评价版本分别绑定。当前 `host-guard-decision/2026-10-08.1`、`host-guard-evaluation/2026-10-07.1` 和 `host-guard-capture-health/1.0.0` 由计划、policyVersion 和发布组合绑定。P4 已实现对应多分类和规则决策；结构验证不代表 P6/G1—G2、P7/G3 或现场部署通过。
+结构版本与决策/评价版本分别绑定。当前 `host-guard-decision/2026-10-08.1`、第二轮 `host-guard-evaluation/2026-10-08.1` 和 `host-guard-capture-health/1.0.0` 由计划、policyVersion 和发布组合绑定；旧评价 `2026-10-07.1` 仅保留 candidate-v2 的历史解释。新评价登记单对端冻结准入及按模型/每条规则判定资格，完整策略仍待真实部署绑定，尚未封口或评价。P4 已实现对应多分类和规则决策；结构验证不代表 P6/G1—G2、P7/G3 或现场部署通过。
 
 Schema 只能证明结构，不能证明时间先后、算术、归属、授权、签名、预算或实际 OS 效果。`contexts.5.*` 指 `windowSeconds=5` 的对象，不是数组第五项。正文和结构必须同时满足。
 
@@ -48,3 +48,7 @@ observation、feature-profile 与 action-receipt 不变；默认策略示例所�
 | examples/decision-policy.json | 同步为 rc.4，四类 `modelAutoEligible=false` |
 
 新增必填字段是不兼容变更，因此升版本，不使用默认值：默认 true 会在缺字段时放开自动，默认 false 会静默改变旧策略含义。决策版本同步升为 `host-guard-decision/2026-10-08.1`；rc.3 策略和 `2026-10-06.1` 决策版本的策略保留为历史，P4 不再接受登记或激活。
+
+## 图内 opset 核验（2026-10-08）
+
+不改 Schema、不升结构版本，是对现有 `runtime.opset` 字段的消费方语义收紧。此前 `GuardModelRuntime` 只核对 manifest 声明的 `runtime.opset=17`，不读图本身；T2 原始导出图默认域重复声明 `[15, 15]`，与声明 17 的 manifest 组合时仍被接受（R1 反向对照发现）。现在加载前只解析 ModelProto 第 8 字段 `opset_import`：默认域须唯一且等于声明值，任一域重复或字节损坏时返回 `ONNX_CONTRACT_INVALID`，不新增错误码。冻结工具产出的单一默认域 17 图（含 candidate-v2、T1.7 探针和第二轮候选）不受影响。

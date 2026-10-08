@@ -19,6 +19,76 @@ NUMERIC = json.loads(Path(__file__).resolve().parents[2].joinpath("docs/contract
                      .read_text(encoding="utf-8"))["numericFeatures"]
 
 
+@unittest.skipUnless(HAS_ONNX, "需要 onnx、onnxruntime 与 jsonschema")
+class SourceBindingTest(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory(prefix="probe-binding-")
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        self.summary_path = self.root / "reproduction-summary.json"
+        self.ledger = self.root / "fit-ledger-round2.jsonl"
+        for filename in ("model.onnx", "preprocessing.json", "code-manifest.json"):
+            (self.root / filename).write_text("{}", encoding="utf-8")
+        self.summary = {"run": "synthetic-run", "target": "ablation-no-host-context",
+                        "featureSet": "no_host_context", "fit": {"algorithm": "lightgbm"},
+                        "finalTestRead": False, "candidateOnly": True,
+                        "artifacts": {name: probe.sha(self.root / name)
+                                      for name in ("model.onnx", "preprocessing.json")},
+                        "codeManifestSha256": probe.sha(self.root / "code-manifest.json")}
+        probe.write(self.summary_path, self.summary)
+        self.event = {"event": "fit-completed", "run": "synthetic-run", "target": self.summary["target"],
+                      "summarySha256": probe.sha(self.summary_path)}
+        self.ledger.write_text(json.dumps(self.event) + "\n", encoding="utf-8")
+
+    def bind(self):
+        return probe.source_binding(self.root, self.summary["target"],
+                                    reproduction_summary=self.summary_path, fit_ledger=self.ledger)
+
+    def test_reproduction_binds_artifacts_summary_and_ledger(self):
+        result = self.bind()
+        self.assertEqual(result["record"]["artifactSha256"], probe.sha(self.root / "model.onnx"))
+        self.assertEqual(result["evidence"]["summarySha256"], probe.sha(self.summary_path))
+        self.assertEqual(result["evidence"]["fitLedgerSha256"], probe.sha(self.ledger))
+
+    def test_summary_hash_mismatch_is_rejected(self):
+        self.ledger.write_text(json.dumps(self.event | {"summarySha256": "0" * 64}) + "\n", encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "摘要哈希"):
+            self.bind()
+
+    def test_missing_completed_record_is_rejected(self):
+        self.ledger.write_text(json.dumps(self.event | {"event": "fit-reserved"}) + "\n", encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "fit-completed"):
+            self.bind()
+
+    def test_target_mismatch_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "目标名"):
+            probe.source_binding(self.root, "another-model", reproduction_summary=self.summary_path,
+                                 fit_ledger=self.ledger)
+        self.ledger.write_text(json.dumps(self.event | {"target": "another-model"}) + "\n", encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "fit-completed"):
+            self.bind()
+
+    def test_artifact_hash_mismatch_is_rejected(self):
+        (self.root / "preprocessing.json").write_text("changed", encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "制品哈希"):
+            self.bind()
+
+    def test_duplicate_completed_record_is_rejected(self):
+        self.ledger.write_text(json.dumps(self.event) + "\n" + json.dumps(self.event) + "\n", encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "唯一"):
+            self.bind()
+
+    def test_run_events_binding_is_preserved(self):
+        events = self.root / "run-events.jsonl"
+        record = {"name": self.summary["target"], "artifactSha256": probe.sha(self.root / "model.onnx"),
+                  "featureSet": "no_host_context", "algorithm": "lightgbm"}
+        events.write_text(json.dumps({"event": "fit-completed", "record": record}) + "\n", encoding="utf-8")
+        probe.write(self.root / "experiment-plan.json", {"purpose": "synthetic-test"})
+        result = probe.source_binding(self.root, self.summary["target"], run_events=events)
+        self.assertEqual(result["record"], record)
+        self.assertEqual(result["metricsPath"], self.root / "validation-metrics.json")
+
+
 def wrapper_model(indices, categorical=None, numeric_width=43):
     """仿现行导出包装：43+3 输入，图内按 feature_indices 选列，线性层加 softmax 代替树。"""
     categorical = TensorProto.FLOAT if categorical is None else categorical

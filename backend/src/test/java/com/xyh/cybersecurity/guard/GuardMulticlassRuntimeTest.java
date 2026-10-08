@@ -39,4 +39,30 @@ class GuardMulticlassRuntimeTest {
             var valid=model(GuardOnnxFixture.model(.9f));Files.write(root.resolve("model.onnx"),new byte[]{1,2,3});assertThat(runtime.infer(valid,GuardDomainTest.observation(Instant.EPOCH),Instant.EPOCH).error()).isEqualTo("ARTIFACT_HASH_MISMATCH");
         }finally{runtime.close();}
     }
+    @Test void graphOpsetMustMatchManifestDeclaration()throws Exception{
+        var runtime=new GuardModelRuntime(new GuardArtifacts(root.toString()),new GuardContracts(),2000);
+        try{
+            assertThat(runtime.validate(model(GuardOnnxFixture.withOpsets(GuardOnnxFixture.opset("",17),GuardOnnxFixture.opset("ai.onnx.ml",3)))).path("status").asText()).isEqualTo("validated");
+            assertThat(runtime.validate(model(GuardOnnxFixture.withOpsets(GuardOnnxFixture.opset("ai.onnx",17)))).path("status").asText()).isEqualTo("validated");
+            // T2 原始导出图的形态：默认域重复声明 15，manifest 却声明 17。
+            for(byte[] bad:List.of(
+                    GuardOnnxFixture.withOpsets(GuardOnnxFixture.opset("",15),GuardOnnxFixture.opset("",15)),
+                    GuardOnnxFixture.withOpsets(GuardOnnxFixture.opset("",15)),
+                    GuardOnnxFixture.withOpsets(GuardOnnxFixture.opset("",17),GuardOnnxFixture.opset("",17)),
+                    GuardOnnxFixture.withOpsets(GuardOnnxFixture.opset("",17),GuardOnnxFixture.opset("ai.onnx",17)),
+                    GuardOnnxFixture.withOpsets(GuardOnnxFixture.opset("",17),GuardOnnxFixture.opset("ai.onnx.ml",3),GuardOnnxFixture.opset("ai.onnx.ml",4)),
+                    GuardOnnxFixture.withOpsets(GuardOnnxFixture.opset("ai.onnx.ml",3)))){
+                var model=model(bad);
+                assertThatThrownBy(()->runtime.validate(model)).hasMessageContaining("ONNX_CONTRACT_INVALID");
+                assertThat(runtime.infer(model,GuardDomainTest.observation(Instant.EPOCH),Instant.EPOCH).error()).isEqualTo("ONNX_CONTRACT_INVALID");
+            }
+        }finally{runtime.close();}
+    }
+    @Test void malformedOpsetBytesAreRejected(){
+        byte[] valid=GuardOnnxFixture.model(.9f);
+        assertThat(GuardModelRuntime.opsetImports(valid)).containsExactly(Map.entry("",17L));
+        for(byte[] bad:List.of(Arrays.copyOf(valid,valid.length-1),new byte[]{(byte)0x42,(byte)0x05,0x10},new byte[]{(byte)0x42,0x02,0x0a,0x00},
+                new byte[]{0x0b},new byte[]{(byte)0x80,(byte)0x80,(byte)0x80,(byte)0x80,(byte)0x80,(byte)0x80,(byte)0x80,(byte)0x80,(byte)0x80,(byte)0x80,0x01}))
+            assertThatThrownBy(()->GuardModelRuntime.opsetImports(bad)).hasMessageContaining("ONNX_CONTRACT_INVALID");
+    }
 }

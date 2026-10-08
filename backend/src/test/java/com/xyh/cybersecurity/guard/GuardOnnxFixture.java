@@ -10,6 +10,16 @@ final class GuardOnnxFixture {
         return model(score,score,0,0,0);
     }
     static byte[] model(float score,float... families){
+        return build(opset("",17),score,families);
+    }
+    /** 自定义 opset_import 声明，验证后端按图内真实 opset 拒绝；模型主体与 model(.9f) 相同。 */
+    static byte[] withOpsets(byte[]... opsets){
+        return build(concat(opsets),.9f,.9f,0,0,0);
+    }
+    static byte[] opset(String domain,long version){
+        return bytes(8,domain.isEmpty()?integer(2,version):concat(text(1,domain),integer(2,version)));
+    }
+    private static byte[] build(byte[] opsets,float score,float... families){
         byte[] attackTensor=concat(integer(1,1),integer(1,1),integer(2,1),bytes(9,ByteBuffer.allocate(4).order(ByteOrder.LITTLE_ENDIAN).putFloat(score).array()));
         byte[] familyTensor=concat(integer(1,1),integer(1,families.length),integer(2,1),bytes(9,floats(families)));
         byte[] attackAttr=concat(text(1,"value"),integer(20,4),bytes(5,attackTensor));
@@ -17,7 +27,7 @@ final class GuardOnnxFixture {
         byte[] attackNode=concat(text(2,"attack_score"),text(4,"Constant"),bytes(5,attackAttr));
         byte[] familyNode=concat(text(2,"family_scores"),text(4,"Constant"),bytes(5,familyAttr));
         byte[] graph=concat(bytes(1,attackNode),bytes(1,familyNode),text(2,"p4-fixed-fixture"),bytes(11,input("numeric_values",1,43)),bytes(11,input("numeric_missing",1,43)),bytes(11,input("categorical_codes",7,3)),bytes(12,input("attack_score",1,1)),bytes(12,input("family_scores",1,families.length)));
-        return concat(integer(1,8),text(2,"p4-test-only"),bytes(7,graph),bytes(8,integer(2,17)));
+        return concat(integer(1,8),text(2,"p4-test-only"),bytes(7,graph),opsets);
     }
     private static byte[] floats(float... values){var b=ByteBuffer.allocate(values.length*4).order(ByteOrder.LITTLE_ENDIAN);for(float v:values)b.putFloat(v);return b.array();}
     private static byte[] input(String name,int type,int width){byte[] shape=concat(bytes(1,integer(1,1)),bytes(1,integer(1,width)));return concat(text(1,name),bytes(2,bytes(1,concat(integer(1,type),bytes(2,shape)))));}

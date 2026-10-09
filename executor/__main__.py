@@ -110,9 +110,14 @@ def serve(path, role):
 
     signal.signal(signal.SIGTERM, stopping)
     signal.signal(signal.SIGINT, stopping)
+    # 屏蔽字随 exec 继承；若启动方屏蔽了终止信号，服务将无法按 SIGTERM 先清理再退出，只能被 SIGKILL。
+    previously = signal.pthread_sigmask(signal.SIG_UNBLOCK, {signal.SIGTERM, signal.SIGINT})
     with ExitStack() as stack:
         stack.callback(engine.adapter.close)
         stack.enter_context(engine.store.lock(role, blocking=False))
+        inherited = sorted(s.name for s in previously & {signal.SIGTERM, signal.SIGINT})
+        if inherited:
+            engine.store.audit("service.signals_unblocked", role, signals=inherited)
         try:
             if role == "run":
                 engine.start()

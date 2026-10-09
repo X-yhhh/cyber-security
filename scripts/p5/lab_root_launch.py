@@ -12,6 +12,7 @@ import hashlib
 import json
 import os
 import re
+import signal
 import stat
 import subprocess
 import sys
@@ -106,7 +107,8 @@ def main():
     evidence = os.path.join(run, "evidence")
     record = {"runId": args.run_id, "task": args.task, "commit": manifest["commit"],
               "manifestSha256": args.manifest_sha256, "authorizationReference": args.authorization_reference,
-              "kernelVersion": os.uname().version}
+              "kernelVersion": os.uname().version,
+              "launcherBlockedSignals": sorted(str(x) for x in signal.pthread_sigmask(signal.SIG_BLOCK, []))}
     if args.task == "p1-probe":
         helper = os.path.join(run, "pf-state-helper")
         subprocess.run(["/usr/bin/clang", "-O2", "-Wall", "-Wextra", "-Werror",

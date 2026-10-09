@@ -431,8 +431,11 @@ def run(config_path, signing_key, key_id, output, mode="peer_service", guardtarg
                 updated = engine.store.root / "updated-config.json"
                 write_new(updated, canonical(changed))
                 os.replace(updated, config_path)
+                # 独立恢复器先删规则再写账本；须同时等到两者收敛，不能只看规则已空就读状态。
                 deadline = time.monotonic() + 2
-                while time.monotonic() < deadline and engine.adapter.inventory():
+                while time.monotonic() < deadline and (
+                        engine.adapter.inventory() or
+                        engine.store.command(signed["payload"]["commandId"])["status"] != "uncertain"):
                     time.sleep(.05)
                 row = engine.store.command(signed["payload"]["commandId"])
                 report["authorizationCleanup"] = not engine.adapter.inventory() and row["status"] == "uncertain"

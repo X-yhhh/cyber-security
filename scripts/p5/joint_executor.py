@@ -184,15 +184,25 @@ def run(directory, work=None, owner=None):
         stack.callback(stop_heartbeat)
         if mode == "pf":
             log = stack.enter_context((work / "recovery.log").open("xb"))
-            process = subprocess.Popen([sys.executable, "-m", "executor", "recover", "--config", str(config_path)],
-                cwd=ROOT, stdout=log, stderr=subprocess.STDOUT)
+            # faulthandler：若停止超时，SIGABRT 会把所有线程栈写入 recovery.log，便于定位。
+            process = subprocess.Popen([sys.executable, "-X", "faulthandler", "-u", "-m", "executor", "recover",
+                                        "--config", str(config_path)], cwd=ROOT, stdout=log, stderr=subprocess.STDOUT)
             def stop_recovery():
+                started, outcome = time.monotonic(), "exited"
                 process.terminate()
                 try:
-                    process.wait(timeout=5)
+                    process.wait(timeout=10)
                 except subprocess.TimeoutExpired:
-                    process.kill()
-                    process.wait(timeout=5)
+                    outcome = "aborted_after_timeout"
+                    process.send_signal(signal.SIGABRT)
+                    try:
+                        process.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        outcome = "killed_after_timeout"
+                        process.kill()
+                        process.wait(timeout=5)
+                pf_facts["recoveryStop"] = {"returnCode": process.returncode, "outcome": outcome,
+                                            "seconds": round(time.monotonic() - started, 3)}
                 require(process.returncode == 0, "LAB_RECOVERY_PROCESS_FAILED")
             stack.callback(stop_recovery)
         # 在恢复进程存活后进入机器协议；退出顺序先清规则再停恢复器。

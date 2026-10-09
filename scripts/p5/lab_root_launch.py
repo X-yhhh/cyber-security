@@ -69,6 +69,7 @@ def main():
     parser.add_argument("--rendezvous", help="e3-executor：orchestrate.py --mode pf 的运行目录")
     parser.add_argument("--scope", choices=("peer_service", "peer_inbound"))
     parser.add_argument("--scenario", choices=("revoke", "disconnect", "receipt_loss"))
+    parser.add_argument("--ready-marker", help="e3-executor：副本核验完成后创建的就绪标记（新绝对路径），用户侧据此再启动后端")
     args = parser.parse_args()
     if (args.task == "e3-executor") != bool(args.rendezvous and args.scope and args.scenario):
         fail("E3_ROUND_ARGUMENTS_REQUIRED")
@@ -122,6 +123,13 @@ def main():
         if not os.path.isabs(args.rendezvous) or os.path.realpath(args.rendezvous) != args.rendezvous:
             fail("E3_RENDEZVOUS_INVALID")
         round_dir = os.path.join(args.rendezvous, args.scope + "-" + args.scenario)
+        if args.ready_marker:
+            # 副本已核验、即将等待管道：交给用户侧的就绪信号，避免后端在 root 侧就绪前超时。
+            if not os.path.isabs(args.ready_marker) or os.path.lexists(args.ready_marker):
+                fail("E3_READY_MARKER_INVALID")
+            marker = os.open(args.ready_marker, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+            os.fchown(marker, args.owner_uid, -1)
+            os.close(marker)
         deadline = time.monotonic() + 900
         while not all(os.path.exists(os.path.join(round_dir, n)) for n in ("from-executor.fifo", "to-executor.fifo")):
             if time.monotonic() > deadline:

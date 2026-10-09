@@ -109,8 +109,22 @@ def main():
     else:
         command = [python, "-B", "-s", "-m", "executor.pf_lab", "--directory", evidence,
                    "--guardtargets", os.path.join(bundle, "guardtargets")]
-    result = subprocess.run(command, cwd=app, env=env, timeout=1800)
-    record["exitCode"] = result.returncode
+    alias = False
+    if args.task == "p1-probe":
+        # P1 探针只用回环 127.0.0.2 作对端；仅在原先不存在时临时添加，结束只移除本次添加的别名。
+        loopback = subprocess.run(["/sbin/ifconfig", "lo0"], capture_output=True, text=True, check=True).stdout
+        if "inet 127.0.0.2 " in loopback:
+            fail("LAB_ALIAS_ALREADY_PRESENT")
+        subprocess.run(["/sbin/ifconfig", "lo0", "alias", "127.0.0.2", "netmask", "255.255.255.255"], check=True)
+        alias = True
+    try:
+        result = subprocess.run(command, cwd=app, env=env, timeout=1800)
+    finally:
+        if alias:
+            removed = subprocess.run(["/sbin/ifconfig", "lo0", "-alias", "127.0.0.2"]).returncode == 0
+            loopback = subprocess.run(["/sbin/ifconfig", "lo0"], capture_output=True, text=True).stdout
+            record["aliasRemoved"] = removed and "inet 127.0.0.2 " not in loopback
+    record["exitCode"] = result.returncode if record.get("aliasRemoved", True) else 3
     with open(os.path.join(run, "launch-record.json"), "x") as stream:
         json.dump(record, stream, sort_keys=True, indent=1)
     copy = args.evidence_copy

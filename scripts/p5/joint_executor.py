@@ -275,5 +275,7 @@ if __name__ == "__main__":
             open_pipes(args.directory, args.owner_uid)
         run(args.directory, args.work, args.owner_uid)
     except Exception as exc:
+        import traceback
+        traceback.print_exc()
         reply({"error": str(exc) if isinstance(exc, Rejected) else "LAB_LOCAL_FAILURE"})
         raise SystemExit(1)

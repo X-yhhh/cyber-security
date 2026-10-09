@@ -145,7 +145,9 @@ def main():
         subprocess.run(["/sbin/ifconfig", "lo0", "alias", "127.0.0.2", "netmask", "255.255.255.255"], check=True)
         alias = True
     try:
-        result = subprocess.run(command, cwd=app, env=env, timeout=1800)
+        # 子任务输出另存一份随证据交回，便于定位失败；原 launch.log 仍保留在 root 目录。
+        with open(os.path.join(run, "task.log"), "xb") as task_log:
+            result = subprocess.run(command, cwd=app, env=env, timeout=1800, stdout=task_log, stderr=subprocess.STDOUT)
     finally:
         if alias:
             removed = subprocess.run(["/sbin/ifconfig", "lo0", "-alias", "127.0.0.2"]).returncode == 0
@@ -162,6 +164,7 @@ def main():
         if os.path.lexists(path):
             os.remove(path)
     subprocess.run(["/bin/cp", os.path.join(run, "launch-record.json"), copy + "/launch-record.json"], check=True)
+    subprocess.run(["/bin/cp", os.path.join(run, "task.log"), copy + "/task.log"], check=False)
     subprocess.run(["/usr/sbin/chown", "-R", str(args.owner_uid), copy], check=True)
     subprocess.run(["/bin/chmod", "-R", "u+rX,go-rwx", copy], check=True)
     print(json.dumps(record, sort_keys=True))

@@ -91,7 +91,9 @@ def main():
     python = os.path.join(bundle, manifest["python"])
     env = {"PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "HOME": "/var/root", "LANG": "en_US.UTF-8",
            "PYTHONPATH": app + ":" + os.path.join(bundle, "site"), "PYTHONNOUSERSITE": "1",
-           "PYTHONDONTWRITEBYTECODE": "1", "HOSTGUARD_LAB_AUTHORIZATION": args.authorization_reference}
+           "PYTHONDONTWRITEBYTECODE": "1", "HOSTGUARD_LAB_AUTHORIZATION": args.authorization_reference,
+           "DYLD_LIBRARY_PATH": os.path.join(bundle, manifest["dyldLibraryPath"]),
+           "DYLD_FRAMEWORK_PATH": os.path.join(bundle, manifest["dyldFrameworkPath"])}
     evidence = os.path.join(run, "evidence")
     record = {"runId": args.run_id, "task": args.task, "commit": manifest["commit"],
               "manifestSha256": args.manifest_sha256, "authorizationReference": args.authorization_reference,

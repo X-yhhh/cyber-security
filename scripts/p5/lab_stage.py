@@ -56,6 +56,9 @@ def main():
     copy_tree(base / "lib" / executable, framework / "lib" / executable, STDLIB_SKIP)
     # 框架版 bin/pythonX.Y 是桩程序，会转执行 Resources/Python.app 内的真实解释器。
     copy_tree(base / "Resources" / "Python.app", framework / "Resources" / "Python.app")
+    # _ssl 等扩展按安装时绝对路径引用 lib 下的 OpenSSL 等动态库；启动器以 DYLD 路径指向副本。
+    for library in sorted((base / "lib").glob("*.dylib")):
+        shutil.copy2(library, framework / "lib" / library.name, follow_symlinks=False)
     site = next(Path(p) for p in sys.path if p.endswith("site-packages") and Path(p).is_dir()
                 and Path(p).resolve().is_relative_to(Path(sys.prefix).resolve()))
     copy_tree(site, stage / "site")
@@ -73,7 +76,9 @@ def main():
             files[relative] = {"sha256": sha(path), "executable": os.access(path, os.X_OK)}
     manifest = {"kind": "hostguard-lab-root-stage/1", "commit": commit, "appPaths": list(APP_PATHS),
                 "python": f"python/Python.framework/Versions/{base.name}/bin/{executable}",
-                "pythonVersion": sys.version.split()[0], "files": files, "symlinks": links}
+                "pythonVersion": sys.version.split()[0], "files": files, "symlinks": links,
+                "dyldLibraryPath": f"python/Python.framework/Versions/{base.name}/lib",
+                "dyldFrameworkPath": "python"}
     path = output / "manifest.json"
     path.write_text(json.dumps(manifest, sort_keys=True, indent=1) + "\n")
     print(json.dumps({"commit": commit, "files": len(files), "manifestSha256": sha(path)}))

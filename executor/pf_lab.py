@@ -11,7 +11,7 @@ import time
 from .__main__ import build, keys
 from .common import Rejected, canonical, digest, ident, parse, require, stamp, write_new
 from .contract import capability_set_sha256, protected_ports_sha256
-from .pf_engine_canary import SCENARIOS, run
+from .pf_engine_canary import E2_LIMITS, SCENARIOS, run
 from .platform import PF
 
 
@@ -163,6 +163,7 @@ def main(directory, guardtargets):
                 c["limits"]["maxNewActionsPerMinute"] = 1
             elif scenario == "renewal_limit":
                 c["limits"]["maxContinuousBlockSeconds"] = 6
+            c["limits"].update(E2_LIMITS.get(scenario, {}))
             c["capabilityHash"] = capability_set_sha256(c)
             write_new(path, canonical(c))
             rules = USER_ROOT.decode() + f'anchor "{PF.anchor_root(c["executorId"])}/*" all\n'

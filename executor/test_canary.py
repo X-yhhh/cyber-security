@@ -209,6 +209,23 @@ class LabRulesTest(unittest.TestCase):
         self.assertFalse(self.enabled or self.alias)
         self.assertFalse(any("-F" in args or "-d" in args for args, _ in self.calls))
 
+    def test_e2_real_matrix_runs_every_combination_with_its_limits(self):
+        """E2 真实组合进入 lab 矩阵；越额续封组合单独收紧累计上限，其余沿用 lab 预算。"""
+        from .pf_engine_canary import E2_SCENARIOS
+        seen = {}
+
+        def capture(config, key, key_id, output, mode, targets, scenario, checkpoint):
+            seen[scenario] = parse(Path(config).read_bytes())["limits"]
+            self.fake_run(config, key, key_id, output, mode, targets, scenario, checkpoint)
+        self.run_lab(capture)
+        self.assertTrue(set(E2_SCENARIOS) <= set(seen))
+        self.assertEqual(seen["e2_over_budget_renewal"]["maxContinuousBlockSeconds"], 8)
+        for name in set(E2_SCENARIOS) - {"e2_over_budget_renewal"}:
+            self.assertEqual(seen[name], {"maxTtlSeconds": 60, "maxContinuousBlockSeconds": 120,
+                                          "maxActiveRulesPerAsset": 10, "maxNewActionsPerMinute": 5})
+        summary = parse((self.directory / "run/summary.json").read_bytes())
+        self.assertTrue(summary["passed"])
+
     def test_e1_default_root_gets_fixed_recorded_fixture_then_restores(self):
         self.run_lab()
         summary = parse((self.directory / "run/summary.json").read_bytes())

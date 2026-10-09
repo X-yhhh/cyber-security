@@ -44,10 +44,21 @@ static int private_v4(struct in_addr ip) {
            (x>>16)==0xc0a8 || (x>>22)==0x191;
 }
 
+/* 已逐项实测的内核构建；每项须有静态证据与本探针实机通过记录，只精确匹配 "root:<构建>/"。
+ * 40.177.0.3~56 为 2026-10-08 系统更新后的构建，静态证据已过，本探针用于其实机验收。 */
+static const char *const VERIFIED_XNU[]={"root:xnu-13432.40.162~92/","root:xnu-13432.40.177.0.3~56/"};
+
+static int verified_kernel(const struct utsname *u) {
+    if(strcmp(u->release,"27.2.0"))return 0;
+    for(size_t i=0;i<sizeof(VERIFIED_XNU)/sizeof(VERIFIED_XNU[0]);i++)
+        if(strstr(u->version,VERIFIED_XNU[i]))return 1;
+    return 0;
+}
+
 int main(int argc,char **argv) {
     struct utsname u;
     if(uname(&u))return 1;
-    int matched=!strcmp(u.release,"27.2.0") && strstr(u.version,"xnu-13432.40.162~92");
+    int matched=verified_kernel(&u);
     if(argc==2 && !strcmp(argv[1],"--abi")) {
         printf("{\"size\":216,\"ioctl\":\"0xc0d84429\",\"kernelMatches\":%s}\n",matched?"true":"false");
         return matched?0:1;

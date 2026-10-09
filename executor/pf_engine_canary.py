@@ -190,8 +190,12 @@ def run(config_path, signing_key, key_id, output, mode="peer_service", guardtarg
         sampling = threading.Event()
 
         def sample():
+            # 并发安装/清理期间的瞬时读取失败只跳过本次采样；规则数断言仍由各检查点承担。
             while not sampling.is_set():
-                state["maxRules"] = max(state["maxRules"], len(engine.adapter.inventory()))
+                try:
+                    state["maxRules"] = max(state["maxRules"], len(engine.adapter.inventory()))
+                except Exception:
+                    state["sampleErrors"] = state.get("sampleErrors", 0) + 1
                 sampling.wait(.02)
 
         def check(stage, rules, actions, **facts):
@@ -270,6 +274,7 @@ def run(config_path, signing_key, key_id, output, mode="peer_service", guardtarg
             sampler.join(1)
         limit = 2 if combination == "e2_different_targets_revoke" else 1
         return {"combination": combination, "trace": trace, "maxRules": state["maxRules"],
+                "sampleErrors": state.get("sampleErrors", 0),
                 "passed": state["passed"] and state["maxRules"] <= limit}
 
     with ExitStack() as stack:

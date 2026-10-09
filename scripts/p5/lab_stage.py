@@ -54,6 +54,8 @@ def main():
     executable = f"python{sys.version_info.major}.{sys.version_info.minor}"
     shutil.copy2(base / "bin" / executable, framework / "bin" / executable)
     copy_tree(base / "lib" / executable, framework / "lib" / executable, STDLIB_SKIP)
+    # 框架版 bin/pythonX.Y 是桩程序，会转执行 Resources/Python.app 内的真实解释器。
+    copy_tree(base / "Resources" / "Python.app", framework / "Resources" / "Python.app")
     site = next(Path(p) for p in sys.path if p.endswith("site-packages") and Path(p).is_dir()
                 and Path(p).resolve().is_relative_to(Path(sys.prefix).resolve()))
     copy_tree(site, stage / "site")

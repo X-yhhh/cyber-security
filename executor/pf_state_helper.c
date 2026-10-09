@@ -33,10 +33,22 @@ _Static_assert(offsetof(struct state_kill,dst.port)==124, "PF port offset");
 _Static_assert(offsetof(struct state_kill,ifname)==136, "PF interface offset");
 _Static_assert(_IOWR('D',41,struct state_kill)==0xc0d84429UL, "PF native ioctl");
 
+/* 已实机验证的内核构建，只精确匹配 "root:<构建>/"。新增构建须先有 pf_abi_evidence.py 静态证据
+ * 与 P1 探针实机通过：40.177.0.3~56 于 2026-10-09 通过（result.json SHA b5465ff2de886dff7a4bc72a8c2cd28318fa69ff068f58297c7a82469ba77dbb，
+ * 启动记录 SHA dd7851f7197e9682e32ced0f9abd1c161464400de19a7890ff29ad3ef0e0fdea）。 */
+static const char *const VERIFIED_XNU[]={"root:xnu-13432.40.162~92/","root:xnu-13432.40.177.0.3~56/"};
+
+static int verified_kernel(const struct utsname *u) {
+    if(strcmp(u->release,"27.2.0"))return 0;
+    for(size_t i=0;i<sizeof(VERIFIED_XNU)/sizeof(VERIFIED_XNU[0]);i++)
+        if(strstr(u->version,VERIFIED_XNU[i]))return 1;
+    return 0;
+}
+
 int main(int argc,char **argv) {
     struct utsname u;
     if(uname(&u))return 1;
-    int matched=!strcmp(u.release,"27.2.0") && strstr(u.version,"xnu-13432.40.162~92");
+    int matched=verified_kernel(&u);
     if(argc==2 && !strcmp(argv[1],"--abi")) {
         printf("{\"kernelMatches\":%s}\n",matched?"true":"false");
         return matched?0:1;

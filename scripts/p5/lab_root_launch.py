@@ -12,11 +12,14 @@ import hashlib
 import json
 import os
 import re
+import stat
 import subprocess
 import sys
+import time
 
 RUNS = "/private/var/root/hostguard-lab"
-TASKS = ("p1-probe", "e1e2-lab")
+TASKS = ("p1-probe", "e1e2-lab", "e3-executor")
+E3_SECRETS = ("credential", "budget.key")
 
 
 def sha(path):
@@ -63,7 +66,12 @@ def main():
     parser.add_argument("--authorization-reference", required=True)
     parser.add_argument("--owner-uid", type=int, required=True)
     parser.add_argument("--evidence-copy", required=True)
+    parser.add_argument("--rendezvous", help="e3-executor：orchestrate.py --mode pf 的运行目录")
+    parser.add_argument("--scope", choices=("peer_service", "peer_inbound"))
+    parser.add_argument("--scenario", choices=("revoke", "disconnect", "receipt_loss"))
     args = parser.parse_args()
+    if (args.task == "e3-executor") != bool(args.rendezvous and args.scope and args.scenario):
+        fail("E3_ROUND_ARGUMENTS_REQUIRED")
     if os.geteuid() != 0 or sys.flags.isolated != 1:
         fail("ROOT_ISOLATED_PYTHON_REQUIRED")
     if not re.fullmatch(r"[a-z0-9][a-z0-9-]{5,62}", args.run_id) or not re.fullmatch(r"[0-9a-f]{64}", args.manifest_sha256):
@@ -106,9 +114,28 @@ def main():
         record["helperSha256"] = sha(helper)
         command = [python, "-B", "-s", os.path.join(app, "scripts/p1/pf_probe.py"), "probe",
                    "--output", evidence, "--helper", helper, "--port", "55231"]
-    else:
+    elif args.task == "e1e2-lab":
         command = [python, "-B", "-s", "-m", "executor.pf_lab", "--directory", evidence,
                    "--guardtargets", os.path.join(bundle, "guardtargets")]
+    else:
+        # 单轮 E3：等待用户态中继建好管道；只读其数据文件的副本，root 工作目录即证据目录。
+        if not os.path.isabs(args.rendezvous) or os.path.realpath(args.rendezvous) != args.rendezvous:
+            fail("E3_RENDEZVOUS_INVALID")
+        round_dir = os.path.join(args.rendezvous, args.scope + "-" + args.scenario)
+        deadline = time.monotonic() + 900
+        while not all(os.path.exists(os.path.join(round_dir, n)) for n in ("from-executor.fifo", "to-executor.fifo")):
+            if time.monotonic() > deadline:
+                fail("E3_RELAY_NOT_READY")
+            time.sleep(.5)
+        info = os.lstat(round_dir)
+        if not stat.S_ISDIR(info.st_mode) or info.st_uid != args.owner_uid:
+            fail("E3_RENDEZVOUS_UNTRUSTED")
+        os.mkdir(evidence, 0o700)
+        env.update(P5_FIREWALL="pf", P5_A4_REFERENCE=args.authorization_reference,
+                   P5_GUARDTARGETS=os.path.join(bundle, "guardtargets"))
+        record.update(scope=args.scope, scenario=args.scenario, rendezvous=round_dir)
+        command = [python, "-B", "-s", os.path.join(app, "scripts/p5/joint_executor.py"), "--directory", round_dir,
+                   "--work", evidence, "--owner-uid", str(args.owner_uid)]
     alias = False
     if args.task == "p1-probe":
         # P1 探针只用回环 127.0.0.2 作对端；仅在原先不存在时临时添加，结束只移除本次添加的别名。
@@ -130,6 +157,10 @@ def main():
     copy = args.evidence_copy
     os.makedirs(copy, 0o700)
     subprocess.run(["/usr/bin/ditto", run + "/evidence", copy + "/evidence"], check=False)
+    for secret in E3_SECRETS:
+        path = os.path.join(copy, "evidence", secret)
+        if os.path.lexists(path):
+            os.remove(path)
     subprocess.run(["/bin/cp", os.path.join(run, "launch-record.json"), copy + "/launch-record.json"], check=True)
     subprocess.run(["/usr/sbin/chown", "-R", str(args.owner_uid), copy], check=True)
     subprocess.run(["/bin/chmod", "-R", "u+rX,go-rwx", copy], check=True)

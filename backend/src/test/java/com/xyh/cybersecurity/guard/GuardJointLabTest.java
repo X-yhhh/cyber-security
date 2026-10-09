@@ -70,7 +70,9 @@ class GuardJointLabTest extends GuardIntegrationTest {
                     "authorization",object("id",f.authorization(),"revision",auth.get("revision"),"status","active",
                             "validFrom",instant(auth.get("valid_from")).toString(),"validUntil",instant(auth.get("valid_until")).toString()),
                     "scope",scope,"scenario",scenario));
-            Process process=new ProcessBuilder("/bin/bash","executor/python.sh","-u","scripts/p5/joint_executor.py","--directory",dir.toString())
+            // 真实 PF 时执行端在 root 暂存副本中运行，本进程只启动用户态中继；协议与演练模式相同。
+            String endpoint="true".equals(System.getenv("P5_EXTERNAL_EXECUTOR"))?"scripts/p5/joint_relay.py":"scripts/p5/joint_executor.py";
+            Process process=new ProcessBuilder("/bin/bash","executor/python.sh","-u",endpoint,"--directory",dir.toString())
                     .directory(Path.of("..").toFile()).redirectError(dir.resolve("executor.log").toFile()).start();
             try(var reader=new BufferedReader(new InputStreamReader(process.getInputStream(),StandardCharsets.UTF_8));
                 var writer=new BufferedWriter(new OutputStreamWriter(process.getOutputStream(),StandardCharsets.UTF_8))){

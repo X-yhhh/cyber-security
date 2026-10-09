@@ -5,6 +5,7 @@ import copy
 import os
 from pathlib import Path
 import signal
+import stat
 import subprocess
 import sys
 import threading
@@ -71,8 +72,48 @@ class FaultTransport:
         return result
 
 
+CHANNEL = {"in": sys.stdin, "out": sys.stdout}
+FIFOS = ("from-executor.fifo", "to-executor.fifo")
+
+
 def reply(value):
-    print(canonical(value).decode(), flush=True)
+    CHANNEL["out"].write(canonical(value).decode() + "\n")
+    CHANNEL["out"].flush()
+
+
+def owned(path, owner, kind):
+    """不跟随软链接打开，按打开后的 fstat 核对类型与属主，避免检查与使用之间被替换。"""
+    fd = os.open(path, (os.O_RDONLY if kind != stat.S_IFIFO else os.O_RDONLY | os.O_NONBLOCK) | os.O_NOFOLLOW)
+    info = os.fstat(fd)
+    if stat.S_IFMT(info.st_mode) != kind or info.st_uid != owner:
+        os.close(fd)
+        raise Rejected("LAB_EXTERNAL_INPUT_UNTRUSTED")
+    return fd
+
+
+def import_inputs(directory, work, owner):
+    """root 侧只把用户目录中的数据文件复制到 root 专属工作目录后使用；不执行其中任何内容。"""
+    def take(source, name, size=1 << 20):
+        fd = owned(source, owner, stat.S_IFREG)
+        with os.fdopen(fd, "rb") as stream:
+            raw = stream.read(size + 1)
+        require(len(raw) <= size, "LAB_EXTERNAL_INPUT_UNTRUSTED")
+        write_new(work / name, raw)
+        return work / name
+    os.close(owned(directory, owner, stat.S_IFDIR))
+    data = parse(take(directory / "input.json", "input.json").read_bytes())
+    data["commandTrustFile"] = str(take(data["commandTrustFile"], "command-trust.json"))
+    data["controlPlaneCA"] = str(take(data["controlPlaneCA"], "control-ca.pem"))
+    return data
+
+
+def open_pipes(directory, owner):
+    """与 joint_relay.py 相同顺序打开命名管道（先输出后输入），避免双方互等。"""
+    for name in FIFOS:
+        os.close(owned(directory / name, owner, stat.S_IFIFO))
+    out = os.open(directory / FIFOS[0], os.O_WRONLY | os.O_NOFOLLOW)
+    inp = os.open(directory / FIFOS[1], os.O_RDONLY | os.O_NOFOLLOW)
+    CHANNEL.update(out=os.fdopen(out, "w", encoding="utf-8"), **{"in": os.fdopen(inp, "r", encoding="utf-8")})
 
 
 def interrupted(*_):
@@ -82,19 +123,21 @@ def interrupted(*_):
     raise Rejected("LAB_INTERRUPTED")
 
 
-def run(directory):
+def run(directory, work=None, owner=None):
+    """work 为 root 专属工作目录（外部执行器模式）；默认与 directory 相同，保持原子进程模式不变。"""
     os.umask(0o077)
-    data = read_private(directory / "input.json")
+    work = work or directory
+    data = import_inputs(directory, work, owner) if owner is not None else read_private(directory / "input.json")
     mode = os.environ.get("P5_FIREWALL", "rehearse")
     require(mode in ("pf", "rehearse"), "LAB_MODE_REQUIRED")
     c = {k: data[k] for k in ("assetId", "executorId", "sensorId", "captureScopeId", "authorization", "controlPlaneURL", "controlPlaneCA")}
     c.update(platform="pf", environment="lab", interface="lo0", localAddresses=["127.0.0.1"],
         peerAddresses=["127.0.0.2"], servicePorts=[443], protectedServicePorts=data["protection"]["protectedServicePorts"],
-        protectedPeers=[], stateDir=str(directory / "state"), capabilityIds=[data["capabilityId"]],
+        protectedPeers=[], stateDir=str(work / "state"), capabilityIds=[data["capabilityId"]],
         bundleIds=[data["bundleId"]], policyHashes=[data["policySha256"]],
         limits={"maxTtlSeconds": 60, "maxContinuousBlockSeconds": 120, "maxActiveRulesPerAsset": 10, "maxNewActionsPerMinute": 5},
-        trustFile=data["commandTrustFile"], budgetKeyFile=str(directory / "budget.key"),
-        credentialFile=str(directory / "credential"))
+        trustFile=data["commandTrustFile"], budgetKeyFile=str(work / "budget.key"),
+        credentialFile=str(work / "credential"))
     if data["scope"] == "peer_inbound":
         c["inboundCapabilities"] = [{"capabilityId": data["capabilityId"], "protectionSetSha256": digest(data["protection"]),
             "protectedPortsSha256": protected_ports_sha256(c["protectedServicePorts"])}]
@@ -108,7 +151,7 @@ def run(directory):
               "realControlPlaneHTTPS": True, "realGoMTLS": True, "recovery": "separate_process" if mode == "pf" else "thread_fixture"}
     with ExitStack() as stack:
         if mode == "pf":
-            helper, check, pf_facts = stack.enter_context(session(directory, c["executorId"], os.environ.get("P5_A4_REFERENCE")))
+            helper, check, pf_facts = stack.enter_context(session(work, c["executorId"], os.environ.get("P5_A4_REFERENCE")))
             c["pfHelper"] = str(helper)
             adapter = PF(c["executorId"], str(helper))
             stack.callback(adapter.close)
@@ -123,7 +166,7 @@ def run(directory):
         stack.callback(targets.close)
         c.update(targets.resolver_config)
         engine.resolver = targets.resolver
-        config_path = directory / "executor-config.json"
+        config_path = work / "executor-config.json"
         write_new(config_path, canonical(c))
         engine.config = RuntimeConfig(config_path)
         stop = threading.Event()
@@ -140,7 +183,7 @@ def run(directory):
             thread.join(3)
         stack.callback(stop_heartbeat)
         if mode == "pf":
-            log = stack.enter_context((directory / "recovery.log").open("xb"))
+            log = stack.enter_context((work / "recovery.log").open("xb"))
             process = subprocess.Popen([sys.executable, "-m", "executor", "recover", "--config", str(config_path)],
                 cwd=ROOT, stdout=log, stderr=subprocess.STDOUT)
             def stop_recovery():
@@ -162,7 +205,7 @@ def run(directory):
         control = FaultTransport(ControlPlane(engine.config), data["scenario"])
         cycle(engine, control)
         reply({"executorBoot": engine.boot, "collectorBoot": targets.boot})
-        for line in sys.stdin:
+        for line in CHANNEL["in"]:
             operation = parse(line)["operation"]
             if operation == "lease":
                 binding, registered = targets.lease(data["scope"], 443, 55123)
@@ -209,18 +252,28 @@ def run(directory):
         require(result["passed"], "LAB_PROTOCOL_INCOMPLETE")
     if mode == "pf":
         result["passed"] = result["passed"] and pf_facts["passed"]
-    write_new(directory / "result.json", canonical(result))
+    write_new(work / "result.json", canonical(result))
+    if owner is not None:
+        # JUnit 只需读取结果；交回副本并改为调用方所有，root 工作目录保留原件与账本。
+        write_new(directory / "result.json", canonical(result))
+        os.chown(directory / "result.json", owner, -1)
     reply({"cleaned": result["passed"]})
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--directory", required=True, type=Path)
+    parser.add_argument("--work", type=Path, help="外部执行器模式：root 专属工作目录（须已存在且为空）")
+    parser.add_argument("--owner-uid", type=int, help="外部执行器模式：运行目录、输入与管道的属主")
     args = parser.parse_args()
+    require((args.work is None) == (args.owner_uid is None), "LAB_EXTERNAL_MODE_INCOMPLETE")
     signal.signal(signal.SIGTERM, interrupted)
     signal.signal(signal.SIGINT, interrupted)
     try:
-        run(args.directory)
+        if args.owner_uid is not None:
+            require(args.work.is_dir() and not any(args.work.iterdir()), "LAB_WORK_DIRECTORY_INVALID")
+            open_pipes(args.directory, args.owner_uid)
+        run(args.directory, args.work, args.owner_uid)
     except Exception as exc:
         reply({"error": str(exc) if isinstance(exc, Rejected) else "LAB_LOCAL_FAILURE"})
         raise SystemExit(1)

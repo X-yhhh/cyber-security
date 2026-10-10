@@ -7,6 +7,8 @@ import jakarta.servlet.http.Cookie;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.autoconfigure.web.servlet.MockMvcPrint;
@@ -166,9 +168,10 @@ class GuardIntegrationTest {
     void write(Path dir,String name,JsonNode n)throws Exception{Files.writeString(dir.resolve(name),canonical(n));}
 
     /** B3：CLI 经本机 HTTP 桥进入真实 MVC/鉴权/事务链，制品与报告均在隔离测试目录合成。 */
-    @Test
+    @ParameterizedTest
+    @ValueSource(booleans={false,true})
     @EnabledIfEnvironmentVariable(named="P7_IMPORT_IT_ENABLED",matches="true")
-    void syntheticBundleCliRequiresIndependentReviewAndStopsBeforeApproval()throws Exception{
+    void syntheticBundleCliRequiresIndependentReviewAndStopsBeforeApproval(boolean reuseCapabilities)throws Exception{
         String folder=id();Path dir=ROOT.resolve(folder);Files.createDirectories(dir);
         ObjectNode plan=(ObjectNode)parse(Files.readString(Path.of("../scripts/p7/testdata/import-bundle-plan.json")));
         write(dir,"dataset.json",object("datasetKey",id(),"version","synthetic-b3"));
@@ -183,6 +186,26 @@ class GuardIntegrationTest {
         ((ObjectNode)manifest.get("runtime")).put("runtimeVersion","1.23.2");write(dir,"manifest.json",manifest);
         plan.set("model",object("manifestRef",folder+"/manifest.json","manifestSha256",sha(Files.readAllBytes(dir.resolve("manifest.json")))));
         ((ObjectNode)plan.get("capability")).put("capabilityKey",id());
+        if(reuseCapabilities){
+            var refs=node(List.of());
+            for(String family:List.of("port_scan","bruteforce","dos_flood","dos_slow")){
+                ObjectNode cap=(ObjectNode)plan.get("capability").deepCopy();
+                cap.put("capabilityKey",id()).put("family",family).put("level","lab_auto").put("direction","inbound");
+                if(family.equals("port_scan")){
+                    write(dir,"exemption.json",GuardSignatures.sign(object("passed",true,"scope","peer_inbound","platform","macos-pf","protectionSetSha256",hash(PROTECTION)),"fixture-runner",signing.getPrivate()));
+                    cap.put("scope","peer_inbound").put("protectionSetSha256",hash(PROTECTION)).put("exemptionEvidenceSha256",sha(Files.readAllBytes(dir.resolve("exemption.json"))));
+                }
+                ObjectNode signedPayload=cap.deepCopy();signedPayload.remove(List.of("evidenceRef","evidenceSha256","runnerIdentity"));
+                write(dir,family+"-capability.json",GuardSignatures.sign(object("passed",true,"protocolVersions",versions(),"capability",signedPayload),"fixture-runner",signing.getPrivate()));
+                cap.put("evidenceRef",folder+"/"+family+"-capability.json").put("evidenceSha256",sha(Files.readAllBytes(dir.resolve(family+"-capability.json")))).put("runnerIdentity","fixture-runner");
+                if(family.equals("port_scan"))cap.put("exemptionEvidenceRef",folder+"/exemption.json");
+                String cid=human("/capabilities",cap,operator,null).path("id").asText();
+                ((com.fasterxml.jackson.databind.node.ArrayNode)refs).add(object("id",cid,"payload",cap,"payloadSha256",hash(cap)));
+            }
+            plan.remove("capability");plan.set("existingCapabilities",refs);
+            ((ObjectNode)plan.get("decisionPolicy")).put("supportedCapabilityIds","${capabilityIds}");
+            ((ObjectNode)plan.get("releaseBundle")).put("capabilityIds","${capabilityIds}");
+        }
         ((ObjectNode)plan.get("decisionPolicy")).put("policyId",id()).put("policyVersion",folder).put("protectionSetSha256",hash(PROTECTION));
         ObjectNode release=(ObjectNode)plan.get("releaseBundle");release.put("featureProfileSha256",contracts.profileHash()).put("extractorSha256",manifest.path("extractorSha256").asText()).set("protocolVersions",versions());
         write(dir,"plan.json",plan);
@@ -208,25 +231,28 @@ class GuardIntegrationTest {
         try{
             String base="http://127.0.0.1:"+server.getAddress().getPort()+"/api/v2";
             runImportCli(dir,base,0,"--plan",dir.resolve("plan.json").toString(),"--state",dir.resolve("state.json").toString());
-            JsonNode state=parse(Files.readString(dir.resolve("state.json")));String model=state.path("modelId").asText(),policy=state.path("policyId").asText(),capability=state.path("capabilityId").asText();
-            assertThat(writes).containsExactly("/models","/models/"+model+"/validations","/evaluation-plans","/capabilities","/decision-policies");
+            JsonNode state=parse(Files.readString(dir.resolve("state.json")));String model=state.path("modelId").asText(),policy=state.path("policyId").asText();
+            JsonNode capabilities=state.get("capabilityIds");
+            int prepareWrites=reuseCapabilities?4:5;
+            if(reuseCapabilities){assertThat(writes).containsExactly("/models","/models/"+model+"/validations","/evaluation-plans","/decision-policies");assertThat(capabilities).hasSize(4);}
+            else assertThat(writes).containsExactly("/models","/models/"+model+"/validations","/evaluation-plans","/capabilities","/decision-policies");
             assertThat(state.path("phase").asText()).isEqualTo("awaiting-policy-review");
             // 未审核恢复、直接跳到发布组合、自审和无权身份均由真实权限/状态服务拒绝。
-            runImportCli(dir,base,1,"--resume-state",dir.resolve("state.json").toString());assertThat(writes).hasSize(5);
-            ObjectNode bundleBody=release.deepCopy();bundleBody.put("modelId",model).put("policyId",policy).put("evaluationPlanId",state.path("evaluationPlanId").asText()).set("capabilityIds",node(List.of(capability)));
+            runImportCli(dir,base,1,"--resume-state",dir.resolve("state.json").toString());assertThat(writes).hasSize(prepareWrites);
+            ObjectNode bundleBody=release.deepCopy();bundleBody.put("modelId",model).put("policyId",policy).put("evaluationPlanId",state.path("evaluationPlanId").asText()).set("capabilityIds",capabilities);
             assertThat(rejectedHuman("/release-bundles",bundleBody,operator,null,422).at("/error/code").asText()).isEqualTo("RELEASE_COMBINATION_INVALID");
             jdbc.update("INSERT INTO sys_user_role(user_id,role_id,scope_type,scope_id) SELECT ?,id,'global','*' FROM sys_role WHERE role_key='security_reviewer'",operator.id());
             assertThat(rejectedHuman("/decision-policies/"+policy+"/reviews",object("decision","approve","reason","拒绝自审"),operator,"1",403).at("/error/code").asText()).isEqualTo("APPROVAL_SEPARATION_REQUIRED");
             var outsider=identity("b3-outsider",List.of());rejectedHuman("/models",plan.get("model"),outsider,null,403);
             ObjectNode badManifest=(ObjectNode)plan.get("model").deepCopy();badManifest.put("manifestSha256","0".repeat(64));assertThat(rejectedHuman("/models",badManifest,operator,null,422).at("/error/code").asText()).isEqualTo("ARTIFACT_HASH_MISMATCH");
             human("/decision-policies/"+policy+"/reviews",object("decision","approve","reason","独立测试审查"),reviewer,"1");
-            JsonNode subject=object("contractVersion",MODEL_CONTRACT,"protocolVersions",versions(),"modelId",model,"manifestSha256",plan.at("/model/manifestSha256"),"policyId",policy,"policySha256",state.get("policySha256"),"featureProfileSha256",contracts.profileHash(),"extractorSha256",manifest.get("extractorSha256"),"evaluationPlanSha256",hash(evaluation),"capabilityIds",List.of(capability),"environment","research");
+            JsonNode subject=object("contractVersion",MODEL_CONTRACT,"protocolVersions",versions(),"modelId",model,"manifestSha256",plan.at("/model/manifestSha256"),"policyId",policy,"policySha256",state.get("policySha256"),"featureProfileSha256",contracts.profileHash(),"extractorSha256",manifest.get("extractorSha256"),"evaluationPlanSha256",hash(evaluation),"capabilityIds",capabilities,"environment","research");
             write(dir,"final.json",GuardSignatures.sign(object("protocolVersions",versions(),"subjectSha256",hash(subject),"evaluationPlanSha256",hash(evaluation),"runKind","final","passed",true),"fixture-runner",signing.getPrivate()));
             write(dir,"reports.json",object("imports",List.of(object("reportRef",folder+"/final.json","sha256",sha(Files.readAllBytes(dir.resolve("final.json"))),"runnerIdentity","fixture-runner"))));
             session=humanSession(operator);Files.writeString(dir.resolve("cookie"),"SESSION="+session.cookie().getValue());Files.writeString(dir.resolve("csrf"),session.csrfToken());
             runImportCli(dir,base,0,"--resume-state",dir.resolve("state.json").toString(),"--reports",dir.resolve("reports.json").toString());
             state=parse(Files.readString(dir.resolve("state.json")));String bundle=state.path("bundleId").asText();
-            assertThat(writes.subList(5,writes.size())).containsExactly("/release-bundles","/release-bundles/"+bundle+"/imports","/release-bundles/"+bundle+"/sealings");
+            assertThat(writes.subList(prepareWrites,writes.size())).containsExactly("/release-bundles","/release-bundles/"+bundle+"/imports","/release-bundles/"+bundle+"/sealings");
             assertThat(state.path("phase").asText()).isEqualTo("awaiting-bundle-decision");
             assertThat(str(store.external("guard_release_bundle",bundle,false),"status")).isEqualTo("evaluated");
             assertThat(rejectedHuman("/release-bundles/"+bundle+"/decisions",object("decision","approve","reason","拒绝自审"),operator,"2",403).at("/error/code").asText()).isEqualTo("APPROVAL_SEPARATION_REQUIRED");

@@ -4,12 +4,57 @@ import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import java.sql.*;
-import java.util.UUID;
+import java.util.*;
 import static org.assertj.core.api.Assertions.*;
 
 /** 在独立 MySQL 8 schema 验证 V20→V23 升级、历史校验和、原账号及既有能力行的保留。 */
 @EnabledIfEnvironmentVariable(named="DB_TEST_BASE_URL",matches=".+")
 class GuardMigrationIntegrationTest {
+    /** V22 单步追加 V23；比较旧迁移整行、全部账号与四条既有 lab_auto 能力，避免升级隐式改写。 */
+    @Test void v22ToV23PreservesHistoryAccountsAndExistingCapabilities() throws Exception {
+        String schema="cyber_guard_mig_v23_"+UUID.randomUUID().toString().replace("-","");
+        String base=System.getenv("DB_TEST_BASE_URL").replaceAll("/+$","");
+        String user=System.getenv("DB_TEST_USERNAME"),pass=System.getenv("DB_TEST_PASSWORD");
+        try {
+            try(var c=DriverManager.getConnection(base,user,pass);var st=c.createStatement()){
+                st.execute("CREATE DATABASE "+schema+" CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin");
+            }
+            String url=base+"/"+schema+"?connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true";
+            Flyway.configure().dataSource(url,user,pass).locations("classpath:db/migration").target("22").load().migrate();
+            try(var c=DriverManager.getConnection(url,user,pass);var st=c.createStatement()){
+                st.execute("INSERT INTO sys_user(user_key,username,display_name,password_hash,status) VALUES ('v23-preserved','v23-preserved','迁移哨兵','not-a-real-password-hash','active')");
+                for(int i=1;i<=4;i++){
+                    String scope=i==1?"peer_inbound":"peer_service";
+                    String protection=i==1?"REPEAT('a',64)":"NULL",exemption=i==1?"REPEAT('b',64)":"NULL";
+                    st.execute("INSERT INTO guard_capability(public_id,capability_key,version,platform,level,payload_json,created_by,scope,protection_set_sha256,exemption_evidence_sha256) SELECT 'b1000000-0000-4000-8000-00000000000"+i+"','v23-preserved-"+i+"','1','macos','lab_auto','{\"sentinel\":"+i+"}',id,'"+scope+"',"+protection+","+exemption+" FROM sys_user WHERE user_key='v23-preserved'");
+                }
+                var history=snapshot(c,"SELECT * FROM flyway_schema_history WHERE installed_rank<=22 ORDER BY installed_rank");
+                var accounts=snapshot(c,"SELECT * FROM sys_user ORDER BY id");
+                var capabilities=snapshot(c,"SELECT * FROM guard_capability ORDER BY id");
+                var flyway=Flyway.configure().dataSource(url,user,pass).locations("classpath:db/migration").load();
+                assertThat(flyway.migrate().migrationsExecuted).isEqualTo(1);flyway.validate();
+                assertThat(snapshot(c,"SELECT * FROM flyway_schema_history WHERE installed_rank<=22 ORDER BY installed_rank")).isEqualTo(history);
+                assertThat(snapshot(c,"SELECT * FROM sys_user ORDER BY id")).isEqualTo(accounts);
+                assertThat(snapshot(c,"SELECT * FROM guard_capability ORDER BY id")).isEqualTo(capabilities);
+                assertThat(snapshot(c,"SELECT version,success FROM flyway_schema_history WHERE version='23'")).containsExactly(List.of("23","1"));
+                assertThat(snapshot(c,"SELECT COUNT(*) FROM guard_replay_run")).containsExactly(List.of("0"));
+            }
+        } finally {
+            try(var c=DriverManager.getConnection(base,user,pass);var st=c.createStatement()){st.execute("DROP DATABASE IF EXISTS "+schema);}
+        }
+    }
+    /** 只在随机隔离 schema 内比较原行；测试不读取或修改业务库。 */
+    private List<List<String>> snapshot(Connection c,String sql)throws SQLException{
+        List<List<String>> rows=new ArrayList<>();
+        try(var st=c.createStatement();var r=st.executeQuery(sql)){
+            while(r.next()){
+                List<String> row=new ArrayList<>();
+                for(int i=1;i<=r.getMetaData().getColumnCount();i++)row.add(r.getString(i));
+                rows.add(row);
+            }
+        }
+        return rows;
+    }
     @Test void migrationPreservesPriorSchemaAndEnforcesGuardConstraints() throws Exception {
         String schema="cyber_guard_mig_p4_"+UUID.randomUUID().toString().replace("-","");
         String base=System.getenv("DB_TEST_BASE_URL").replaceAll("/+$","");String user=System.getenv("DB_TEST_USERNAME"),pass=System.getenv("DB_TEST_PASSWORD");

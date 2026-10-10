@@ -69,13 +69,13 @@ class FakeApi(BaseHTTPRequestHandler):
             cls.resources["/models/model-id"] = {"id": "model-id", "manifestSha256": body["manifestSha256"], "validationStatus": "pending", "artifactSha256": "f" * 64,
                 "manifest": {"modelId": "model-id", "artifactSha256": "f" * 64, "evaluationPlanSha256": cls.plan_hash, "contractVersion": "host-guard/5.0.0-rc.3"}}
         if self.path == "/capabilities":
-            cls.resources["/capabilities/capability-id"] = {"id": "capability-id", "payload": body}
+            cls.resources["/capabilities/capability-id"] = {"id": "capability-id", "payload": body, "level": body["level"], "scope": body.get("scope", "peer_service")}
         if self.path == "/decision-policies":
             cls.resources["/decision-policies/policy-id"] = {"id": "policy-id", "status": "draft", "modelId": "model-id", "definitionSha256": MODULE.sha256(body)}
         if self.path == "/release-bundles":
             subject = {"contractVersion": "host-guard/5.0.0-rc.3", "protocolVersions": body["protocolVersions"], "modelId": "model-id", "manifestSha256": "a" * 64,
                 "policyId": "policy-id", "policySha256": cls.resources["/decision-policies/policy-id"]["definitionSha256"], "featureProfileSha256": body["featureProfileSha256"],
-                "extractorSha256": body["extractorSha256"], "evaluationPlanSha256": cls.plan_hash, "capabilityIds": ["capability-id"], "environment": "research"}
+                "extractorSha256": body["extractorSha256"], "evaluationPlanSha256": cls.plan_hash, "capabilityIds": sorted(body["capabilityIds"]), "environment": "research"}
             responses[self.path]["subjectSha256"] = MODULE.sha256(subject)
             cls.resources["bundle"] = responses[self.path]
         if self.path.endswith("/imports"):
@@ -182,6 +182,74 @@ class ImportBundleTest(unittest.TestCase):
 
     def test_canonical_digest_uses_jcs_numeric_encoding(self) -> None:
         self.assertEqual(MODULE.sha256({"number": 1.0}), MODULE.sha256({"number": 1}))
+
+    def existing_capabilities(self) -> list[dict]:
+        payload = self.plan.pop("capability")
+        refs = []
+        for index, family in enumerate(("port_scan", "bruteforce", "dos_flood", "dos_slow"), 1):
+            identifier = f"b1000000-0000-4000-8000-{index:012d}"
+            cap = dict(payload, capabilityKey=family, family=family, level="lab_auto")
+            if family == "port_scan":
+                cap.update(scope="peer_inbound", protectionSetSha256="b" * 64,
+                           exemptionEvidenceRef="fixture:exemption", exemptionEvidenceSha256="c" * 64)
+            ref = {"id": identifier, "payload": cap, "payloadSha256": MODULE.sha256(cap)}
+            refs.append(ref)
+            FakeApi.resources[f"/capabilities/{identifier}"] = dict(id=identifier, payload=cap,
+                level=cap["level"], scope=cap.get("scope", "peer_service"))
+        self.plan["existingCapabilities"] = refs
+        self.plan["decisionPolicy"]["supportedCapabilityIds"] = "${capabilityIds}"
+        self.plan["releaseBundle"]["capabilityIds"] = "${capabilityIds}"
+        return refs
+
+    def test_reuses_four_lab_auto_capabilities_without_registration(self) -> None:
+        refs = self.existing_capabilities()
+        MODULE.prepare(self.api, self.plan, self.state)
+        self.assertEqual(MODULE.load(self.state)["capabilityIds"], sorted(ref["id"] for ref in refs))
+        FakeApi.policy_status = "reviewed"
+        MODULE.resume(self.api, self.state)
+        self.assertNotIn(("POST", "/capabilities"), FakeApi.requests)
+        self.assertEqual(MODULE.load(self.state)["phase"], "awaiting-bundle-decision")
+
+    def test_existing_payload_drift_stops_before_any_write(self) -> None:
+        refs = self.existing_capabilities()
+        FakeApi.resources[f"/capabilities/{refs[0]['id']}"]["payload"] = dict(refs[0]["payload"], level="research")
+        with self.assertRaises(MODULE.ImportFailure):
+            MODULE.prepare(self.api, self.plan, self.state)
+        self.assertFalse(any(method == "POST" for method, _ in FakeApi.requests))
+
+    def test_missing_existing_capability_stops_before_any_write(self) -> None:
+        refs = self.existing_capabilities()
+        del FakeApi.resources[f"/capabilities/{refs[0]['id']}"]
+        with self.assertRaises(MODULE.ImportFailure):
+            MODULE.prepare(self.api, self.plan, self.state)
+        self.assertFalse(any(method == "POST" for method, _ in FakeApi.requests))
+
+    def test_ambiguous_duplicate_and_bad_digest_plans_are_rejected(self) -> None:
+        refs = self.existing_capabilities()
+        for change in (lambda p: p.update(capability=refs[0]["payload"]),
+                       lambda p: p["existingCapabilities"].append(refs[0]),
+                       lambda p: p["existingCapabilities"][0].update(payloadSha256="0" * 64)):
+            plan = json.loads(json.dumps(self.plan))
+            change(plan)
+            with self.assertRaises(MODULE.ImportFailure):
+                MODULE.prepare(self.api, plan, self.state)
+        self.assertEqual(FakeApi.requests, [])
+
+    def test_existing_capabilities_are_revalidated_on_resume(self) -> None:
+        refs = self.existing_capabilities()
+        MODULE.prepare(self.api, self.plan, self.state)
+        FakeApi.policy_status = "reviewed"
+        FakeApi.resources[f"/capabilities/{refs[0]['id']}"]["level"] = "research"
+        with self.assertRaises(MODULE.ImportFailure):
+            MODULE.resume(self.api, self.state)
+        self.assertNotIn(("POST", "/release-bundles"), FakeApi.requests)
+
+    def test_partial_bundle_capability_set_is_rejected_before_policy(self) -> None:
+        refs = self.existing_capabilities()
+        self.plan["releaseBundle"]["capabilityIds"] = [refs[0]["id"]]
+        with self.assertRaises(MODULE.ImportFailure):
+            MODULE.prepare(self.api, self.plan, self.state)
+        self.assertNotIn(("POST", "/decision-policies"), FakeApi.requests)
 
 
 if __name__ == "__main__":

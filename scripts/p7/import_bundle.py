@@ -116,9 +116,52 @@ def post(api: Api, state: dict[str, Any], path: str, body: dict[str, Any], check
     return result
 
 
+def capability_refs(plan: dict[str, Any]) -> list[dict[str, Any]]:
+    """清单只能选择新建单条能力或显式复用列表；复用绑定不可变 payload 摘要。"""
+    if ("capability" in plan) == ("existingCapabilities" in plan):
+        raise ImportFailure("必须且只能提供 capability 或 existingCapabilities")
+    if "capability" in plan:
+        if not isinstance(plan["capability"], dict):
+            raise ImportFailure("capability 必须是对象")
+        return []
+    refs = plan["existingCapabilities"]
+    if not isinstance(refs, list) or not refs:
+        raise ImportFailure("existingCapabilities 必须是非空列表")
+    identifiers = set()
+    for ref in refs:
+        if not isinstance(ref, dict) or set(ref) != {"id", "payload", "payloadSha256"}:
+            raise ImportFailure("既有能力须提供 id、payload 和 payloadSha256")
+        identifier = ref["id"]
+        if not isinstance(identifier, str) or str(uuid.UUID(identifier)) != identifier or identifier in identifiers:
+            raise ImportFailure("既有能力 UUID 无效或重复")
+        identifiers.add(identifier)
+        if not isinstance(ref["payload"], dict) or sha256(ref["payload"]) != ref["payloadSha256"]:
+            raise ImportFailure("既有能力 payload 摘要不一致")
+    return refs
+
+
+def verify_capability(api: Api, ref: dict[str, Any]) -> None:
+    """回读身份、级别、范围与全部签名证据字段，不降级或补造缺失能力。"""
+    payload = ref["payload"]
+    registered = api.request("GET", f"/capabilities/{ref['id']}")
+    require(registered, id=ref["id"], payload=payload, level=payload["level"],
+            scope=payload.get("scope", "peer_service"))
+    if sha256(registered["payload"]) != ref["payloadSha256"]:
+        raise ImportFailure("既有能力回读摘要不一致")
+
+
+def require_capability_ids(body: dict[str, Any], field: str, identifiers: list[str]) -> None:
+    value = body.get(field)
+    if not isinstance(value, list) or any(not isinstance(item, str) for item in value) or sorted(value) != identifiers:
+        raise ImportFailure("策略和发布组合必须绑定本次核验的完整能力集合")
+
+
 def prepare(api: Api, plan: dict[str, Any], state_path: Path) -> None:
     if state_path.exists():
         raise ImportFailure("状态文件已存在，拒绝覆盖；请核查原导入记录")
+    refs = capability_refs(plan)
+    for ref in refs:
+        verify_capability(api, ref)
     state: dict[str, Any] = {"version": 1, "phase": "prepare", "plan": plan}
     save(state_path, state)
     model = post(api, state, "/models", plan["model"], {"candidateOnly": True, "validationStatus": "pending"}, "modelId", state_path)
@@ -134,11 +177,18 @@ def prepare(api: Api, plan: dict[str, Any], state_path: Path) -> None:
     require(evaluation, planSha256=expected_plan_hash)
     require(manifest, evaluationPlanSha256=expected_plan_hash)
     state["evaluationPlanSha256"] = expected_plan_hash
-    capability = post(api, state, "/capabilities", plan["capability"], {"level": plan["capability"]["level"]}, "capabilityId", state_path)
-    if capability.get("scope") != plan["capability"].get("scope", "peer_service"):
-        raise ImportFailure("返回能力 scope 与请求不一致")
-    registered_capability = api.request("GET", f"/capabilities/{state['capabilityId']}")
-    require(registered_capability, id=state["capabilityId"], payload=replace(plan["capability"], state))
+    if not refs:
+        payload = replace(plan["capability"], state)
+        capability = post(api, state, "/capabilities", payload, {"level": payload["level"], "scope": payload.get("scope", "peer_service")}, "capabilityId", state_path)
+        refs = [{"id": capability["id"], "payload": payload, "payloadSha256": sha256(payload)}]
+        verify_capability(api, refs[0])
+    state["capabilityIds"] = sorted(ref["id"] for ref in refs)
+    state["capabilityBindings"] = refs
+    if len(refs) == 1:
+        state["capabilityId"] = refs[0]["id"]
+    save(state_path, state)
+    require_capability_ids(replace(plan["decisionPolicy"], state), "supportedCapabilityIds", state["capabilityIds"])
+    require_capability_ids({"capabilityIds": replace(plan["releaseBundle"].get("capabilityIds"), state)}, "capabilityIds", state["capabilityIds"])
     policy = post(api, state, "/decision-policies", plan["decisionPolicy"], {"status": "draft", "revision": 1}, "policyId", state_path)
     state.update({"phase": "awaiting-policy-review", "policyRevision": policy["revision"], "policySha256": sha256(replace(plan["decisionPolicy"], state)), "plan": plan})
     require(api.request("GET", f"/decision-policies/{state['policyId']}"), id=state["policyId"], status="draft", definitionSha256=state["policySha256"])
@@ -157,6 +207,17 @@ def resume(api: Api, state_path: Path, reports: dict[str, Any] | None = None) ->
     require(policy, id=state["policyId"], status="reviewed", definitionSha256=state["policySha256"], modelId=state["modelId"])
     if sha256(replace(plan["decisionPolicy"], state)) != state["policySha256"]:
         raise ImportFailure("恢复清单策略摘要不一致")
+    refs = capability_refs(plan)
+    if not refs:
+        payload = replace(plan["capability"], state)
+        refs = [{"id": state["capabilityId"], "payload": payload, "payloadSha256": sha256(payload)}]
+    identifiers = sorted(ref["id"] for ref in refs)
+    if state.get("capabilityBindings", refs) != refs or state.get("capabilityIds", identifiers) != identifiers:
+        raise ImportFailure("恢复清单能力绑定不一致")
+    for ref in refs:
+        verify_capability(api, ref)
+    require_capability_ids(replace(plan["decisionPolicy"], state), "supportedCapabilityIds", identifiers)
+    require_capability_ids(replace(plan["releaseBundle"], state), "capabilityIds", identifiers)
     # 首阶段产生能力 UUID；外部 runner 据此签发同 subject 报告后，显式提供报告引用。
     imports = reports["imports"] if reports is not None else plan["imports"]
     if not isinstance(imports, list) or not imports:

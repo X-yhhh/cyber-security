@@ -69,7 +69,9 @@ candidate-v2 原研究策略对 rc.4 有 21 个 Schema 错误，计数与完整�
 
 首次清单的完整结构见 [合成模板](testdata/import-bundle-plan.json)。该模板包含占位哈希和合成身份，不能直接用于真实导入；集成测试会在隔离目录中生成匹配的 ONNX、manifest 和签名报告。datasetRefs 须引用已登记数据集，实际制品预置于后端 `cyber.guard.artifact-root`，脚本只提交相对引用及 SHA-256，不上传、加载或执行任意序列化对象。
 
-清单支持完整字符串形式的 `${modelId}`、`${evaluationPlanId}`、`${evaluationPlanSha256}`、`${capabilityId}`、`${policyId}` 引用。评价计划及策略使用 RFC8785 摘要；manifest/ONNX/报告使用后端核验的原字节摘要。模型登记后回读 manifest 摘要，验证后核对 artifactSha256；能力回读 payload 与请求逐项一致；策略核对 definitionSha256，恢复时再次核对；发布组合独立计算 subjectSha256；导入报告回读 reportSha256；最终独立计算 sealedManifestSha256。任何非 2xx、状态或摘要不符均立即停止。
+清单必须二选一：`capability` 为新登记的单条能力；`existingCapabilities` 为非空既有能力列表，每项严格为 `{"id":"规范 UUID","payload":{完整登记请求},"payloadSha256":"payload 的 RFC8785 SHA-256"}`。列表拒绝重复 UUID、摘要不符和混合输入。复用时在任何写入前 GET 每条能力，核对 ID、level、scope、完整 payload 及摘要；缺失或漂移立即停止，不 POST 新能力，也不把 lab_auto 降为 research。保护集、豁免报告及签名平台证据引用必须保留在完整 payload 中。复用平台能力不授予类别自动资格。
+
+清单支持完整字符串形式的 `${modelId}`、`${evaluationPlanId}`、`${evaluationPlanSha256}`、`${capabilityId}`、`${capabilityIds}`、`${policyId}` 引用。`${capabilityIds}` 整体替换为排序后的完整 UUID 数组；`${capabilityId}` 仅在单条能力时可用。策略 supportedCapabilityIds 与发布组合 capabilityIds 必须精确绑定本次核验的完整集合。评价计划及策略使用 RFC8785 摘要；manifest/ONNX/报告使用后端核验的原字节摘要。模型登记后回读 manifest 摘要，验证后核对 artifactSha256；能力回读 payload 与请求逐项一致；策略核对 definitionSha256，恢复时再次核对；发布组合独立计算 subjectSha256；导入报告回读 reportSha256；最终独立计算 sealedManifestSha256。任何非 2xx、状态或摘要不符均立即停止。
 
 ~~~sh
 sh executor/python.sh -B scripts/p7/import_bundle.py \
@@ -86,7 +88,7 @@ sh executor/python.sh -B scripts/p7/import_bundle.py \
 
 能力 UUID 在首次登记后产生，外部 runner 须以状态文件中的实际组合签发报告。`--reports` 文件仅包含 `{"imports":[{"reportRef":"...","sha256":"...","runnerIdentity":"..."}]}`，显式替代初始清单的报告引用；不提供时沿用原 imports。导入器不伪造报告、签名或评价结果。
 
-状态文件不含会话秘密，记录本次清单和已收到的对象 ID，首次运行拒绝覆盖既有文件。只有 awaiting-policy-review 阶段允许恢复；prepare/importing-reports 表示流程未完整核验，须先根据记录核对后端事实，不能直接重跑制造重复对象。网络超时不代表服务端回滚，脚本不自动重试、清理或补审批。
+状态文件不含会话秘密，记录本次清单、已收到的对象 ID、capabilityIds 和完整 capabilityBindings，首次运行拒绝覆盖既有文件。恢复时再次回读全部能力并检查状态绑定和策略/发布组合集合；能力漂移即停止。只有 awaiting-policy-review 阶段允许恢复；prepare/importing-reports 表示流程未完整核验，须先根据记录核对后端事实，不能直接重跑制造重复对象。网络超时不代表服务端回滚，脚本不自动重试、清理或补审批。
 
 验证命令（需已配置隔离 MySQL/RabbitMQ 测试变量和 JDK 25）：
 
@@ -96,10 +98,12 @@ P7_IMPORT_IT_ENABLED=true P7_PYTHON_WRAPPER="$PWD/executor/python.sh" \
   mvn -f backend/pom.xml verify
 ~~~
 
-`GuardIntegrationTest` 的 B3 用例由 P7_IMPORT_IT_ENABLED 显式开启：Python CLI 经回环 HTTP 桥进入真实 Spring MVC、安全过滤器和 MySQL 事务，覆盖完整合成导入、越权、跳步、哈希不符、策略/发布包自审拒绝。该测试不会执行真实防火墙或激活发布组合。隔离 worktree 可通过 P7_PYTHON_WRAPPER 复用已安装依赖的包装器，无需复制虚拟环境。
+`GuardIntegrationTest` 的 B3 用例由 P7_IMPORT_IT_ENABLED 显式开启：Python CLI 经回环 HTTP 桥进入真实 Spring MVC、安全过滤器和 MySQL 事务，分别验证新登记能力与复用四条已登记签名 lab_auto 能力（含 peer_inbound 豁免），覆盖完整合成导入、越权、跳步、哈希不符、策略/发布包自审拒绝。该测试不会执行真实防火墙或激活发布组合。隔离 worktree 可通过 P7_PYTHON_WRAPPER 复用已安装依赖的包装器，无需复制虚拟环境。
+
+Z2 集成复验（2026-10-10）：P7 Python 60 项通过；JDK 25.0.2、启用隔离 MySQL/RabbitMQ 变量与 P7_IMPORT_IT_ENABLED 的 `mvn verify` 共 300 项，280 项通过、20 项按外部条件跳过，失败/错误均为 0。其中上述两种 CLI 导入均执行，V22→V23 单步迁移保留旧 Flyway 整行、全部账号及四条既有 lab_auto 能力。跳过项包括真实联合 lab、真实模型/原始回放夹具和跨语言执行协议，不能计为本次运行验收。
 
 ## B4 research 回放会话
 
 `POST /api/v2/replay-runs` 已提供 research 会话登记，返回 202/queued；GET 列表与详情读取同一事实。只接受 scenarioId、scenarioSha256、modelId、policyId、speed，speed 固定为 1，服务端选择同模型/策略的 approved research 发布包。未批准、lab/authorized 组合和所有未知字段一律拒绝；列表也拒绝 assetId 过滤。幂等重试只返回原会话，不重复登记。
 
-V23 的 guard_replay_run 不保存资产、授权、执行器或 targetRef，不向执行器派发命令。当前 queued 只表示请求已登记，尚未接入场景读取、回放调度、进度和结果生成，不代表场景已运行；J1 后续需接入离线 runner。`/lab-validation-runs` 仍留待下一阶段，本次没有真实 lab 动作或 G3 验收。
+V23 的 guard_replay_run 不保存资产、授权、执行器或 targetRef，不向执行器派发命令。当前 queued 只表示请求已登记，尚未接入场景读取、回放调度、进度和结果生成，不代表场景已运行；J1 后续需接入离线 runner。`/lab-validation-runs` 仍未实现，留到 J3 前再做，本次没有真实 lab 动作或 G3 验收。

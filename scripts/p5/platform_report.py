@@ -4,7 +4,8 @@
   P4 `GuardCatalog.capability` 要求逐字段相等。
 - exemption：peer_inbound 专用，platform=macos-pf、scope=peer_inbound、protectionSetSha256 与能力一致。
 证据只接受 root 启动器记录（lab_root_launch.py）对应的 pf_lab 汇总，以及 orchestrate.py --mode pf 汇总
-（realPF=true）；演练、dry-run 或夹具报告一律拒绝。私钥须在仓库外且权限 0600。
+（realPF=true）；E3 汇总由普通用户进程写出，每轮还须有 root 启动记录（e3-executor）及其 root 侧 result.json
+逐项对应。演练、dry-run 或夹具报告一律拒绝。私钥须在仓库外且权限 0600。
 """
 import argparse
 import base64
@@ -48,20 +49,43 @@ def lab_evidence(directory):
             "scenarios": sorted(s["scenario"] for s in summary["scenarios"])}
 
 
-def e3_evidence(path):
-    """E3 证据：orchestrate --mode pf 汇总，realPF=true、每轮通过；同作用域三场景须齐备。"""
+def e3_rounds(directories):
+    """root 启动器交回的 E3 单轮副本：启动记录 exitCode=0，root 侧结果 realPF/passed 且场景一致。"""
+    rounds = {}
+    for directory in map(Path, directories):
+        record, result = load(directory / "launch-record.json"), load(directory / "evidence/result.json")
+        require(record.get("task") == "e3-executor" and record.get("exitCode") == 0, "REPORT_EVIDENCE_NOT_REAL")
+        key = (record["scope"], record["scenario"])
+        require(result.get("realPF") is True and result.get("passed") is True and
+                (result.get("scope"), result.get("scenario")) == key, "REPORT_EVIDENCE_FAILED")
+        require(key not in rounds, "REPORT_E3_ROUND_DUPLICATE")
+        rounds[key] = {"rendezvous": Path(record["rendezvous"]), "commit": record["commit"],
+                       "launchRecordSha256": file_digest(directory / "launch-record.json"),
+                       "resultSha256": file_digest(directory / "evidence/result.json")}
+    return rounds
+
+
+def e3_evidence(path, rounds):
+    """E3 证据：orchestrate --mode pf 汇总，realPF=true、每轮通过且有同一运行目录的 root 记录；同作用域三场景须齐备。"""
     summary = load(path)
     require(summary.get("realPF") is True, "REPORT_EVIDENCE_NOT_REAL")
     rows = summary["scenarios"]
     require(rows and all(r["passed"] is True for r in rows), "REPORT_EVIDENCE_FAILED")
     scopes = {r["scope"] for r in rows}
     require(len(scopes) == 1, "REPORT_EVIDENCE_SCOPE_MIXED")
+    root = []
+    for row in rows:
+        match = rounds.get((row["scope"], row["scenario"]))
+        require(match is not None and match["rendezvous"].parent == Path(path).resolve().parent,
+                "REPORT_E3_ROOT_EVIDENCE_MISSING")
+        root.append({k: match[k] for k in ("commit", "launchRecordSha256", "resultSha256")})
     return {"kind": "e3-joint", "scope": scopes.pop(), "summarySha256": file_digest(path),
-            "scenarios": sorted(r["scenario"] for r in rows)}
+            "scenarios": sorted(r["scenario"] for r in rows), "rootRounds": root}
 
 
-def collect(labs, e3s, scope):
-    items = [lab_evidence(p) for p in labs] + [e3_evidence(p) for p in e3s]
+def collect(labs, e3s, scope, e3_launches):
+    rounds = e3_rounds(e3_launches)
+    items = [lab_evidence(p) for p in labs] + [e3_evidence(p, rounds) for p in e3s]
     covered = {s for item in items if item["kind"] == "e3-joint" and item["scope"] == scope for s in item["scenarios"]}
     require(E3_SCENARIOS <= covered, "REPORT_E3_INCOMPLETE")
     require(any(item["kind"] == "e1e2-lab" for item in items), "REPORT_E1E2_MISSING")
@@ -101,6 +125,8 @@ def main():
     parser.add_argument("--capability-request", type=Path, required=True)
     parser.add_argument("--lab-run", type=Path, action="append", default=[])
     parser.add_argument("--e3-summary", type=Path, action="append", default=[])
+    parser.add_argument("--e3-launch", type=Path, action="append", default=[],
+                        help="lab_root_launch.py e3-executor 交回的单轮副本目录（含 launch-record.json）")
     parser.add_argument("--protocol-versions", type=Path, required=True)
     parser.add_argument("--runner-identity", required=True)
     parser.add_argument("--private-key", type=Path, required=True)
@@ -109,7 +135,7 @@ def main():
     require(not args.output.exists(), "REPORT_OUTPUT_EXISTS")
     request = load(args.capability_request)
     require(request.get("runnerIdentity") == args.runner_identity, "REPORT_IDENTITY_MISMATCH")
-    items = collect(args.lab_run, args.e3_summary, request.get("scope", "peer_service"))
+    items = collect(args.lab_run, args.e3_summary, request.get("scope", "peer_service"), args.e3_launch)
     envelope = sign(build(args.kind, request, items, load(args.protocol_versions)),
                     private_key(args.private_key), args.runner_identity)
     with args.output.open("xb") as stream:

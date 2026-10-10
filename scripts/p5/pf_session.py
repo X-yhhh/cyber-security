@@ -1,5 +1,6 @@
 """A4 后显式 root 运行的单轮 PF 会话；只挂接专用 anchor 并释放本轮 enable token。"""
 from contextlib import contextmanager
+import hashlib
 import os
 from pathlib import Path
 import re
@@ -72,7 +73,7 @@ def session(directory, executor_id, authorization):
             raise
         check()
         remaining = read_rules(anchor + "/*")
-        facts["ownedAnchorListingSha256"] = __import__("hashlib").sha256(remaining).hexdigest()
+        facts["ownedAnchorListingSha256"] = hashlib.sha256(remaining).hexdigest()
         require(not owned_rules_remain(remaining), "LAB_OWNED_RULES_REMAIN")
         facts["passed"] = True
     finally:

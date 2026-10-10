@@ -81,14 +81,19 @@ def reply(value):
     CHANNEL["out"].flush()
 
 
-def owned(path, owner, kind):
-    """不跟随软链接打开，按打开后的 fstat 核对类型与属主，避免检查与使用之间被替换。"""
-    fd = os.open(path, (os.O_RDONLY if kind != stat.S_IFIFO else os.O_RDONLY | os.O_NONBLOCK) | os.O_NOFOLLOW)
+def checked(fd, owner, kind):
+    """按已打开 fd 的 fstat 核对类型与属主；不符即关闭并拒绝。"""
     info = os.fstat(fd)
     if stat.S_IFMT(info.st_mode) != kind or info.st_uid != owner:
         os.close(fd)
         raise Rejected("LAB_EXTERNAL_INPUT_UNTRUSTED")
     return fd
+
+
+def owned(path, owner, kind):
+    """不跟随软链接打开，按打开后的 fstat 核对类型与属主，避免检查与使用之间被替换。"""
+    return checked(os.open(path, (os.O_RDONLY if kind != stat.S_IFIFO else os.O_RDONLY | os.O_NONBLOCK) | os.O_NOFOLLOW),
+                   owner, kind)
 
 
 def import_inputs(directory, work, owner):
@@ -108,11 +113,14 @@ def import_inputs(directory, work, owner):
 
 
 def open_pipes(directory, owner):
-    """与 joint_relay.py 相同顺序打开命名管道（先输出后输入），避免双方互等。"""
+    """与 joint_relay.py 相同顺序打开命名管道（先输出后输入），避免双方互等。
+
+    预检只为尽早失败；实际使用的 fd 打开后再核对一次，防止预检与阻塞打开之间被替换成其他文件。
+    """
     for name in FIFOS:
         os.close(owned(directory / name, owner, stat.S_IFIFO))
-    out = os.open(directory / FIFOS[0], os.O_WRONLY | os.O_NOFOLLOW)
-    inp = os.open(directory / FIFOS[1], os.O_RDONLY | os.O_NOFOLLOW)
+    out = checked(os.open(directory / FIFOS[0], os.O_WRONLY | os.O_NOFOLLOW), owner, stat.S_IFIFO)
+    inp = checked(os.open(directory / FIFOS[1], os.O_RDONLY | os.O_NOFOLLOW), owner, stat.S_IFIFO)
     CHANNEL.update(out=os.fdopen(out, "w", encoding="utf-8"), **{"in": os.fdopen(inp, "r", encoding="utf-8")})
 
 

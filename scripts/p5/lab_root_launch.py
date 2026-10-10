@@ -157,13 +157,18 @@ def main():
     try:
         # 子任务输出另存一份随证据交回，便于定位失败；原 launch.log 仍保留在 root 目录。
         with open(os.path.join(run, "task.log"), "xb") as task_log:
-            result = subprocess.run(command, cwd=app, env=env, timeout=1800, stdout=task_log, stderr=subprocess.STDOUT)
+            try:
+                exit_code = subprocess.run(command, cwd=app, env=env, timeout=1800, stdout=task_log,
+                                           stderr=subprocess.STDOUT).returncode
+            except subprocess.TimeoutExpired:
+                # run() 已终止并回收子任务；照常写启动记录并交回证据，记为失败。
+                exit_code, record["timedOut"] = 124, True
     finally:
         if alias:
             removed = subprocess.run(["/sbin/ifconfig", "lo0", "-alias", "127.0.0.2"]).returncode == 0
             loopback = subprocess.run(["/sbin/ifconfig", "lo0"], capture_output=True, text=True).stdout
             record["aliasRemoved"] = removed and "inet 127.0.0.2 " not in loopback
-    record["exitCode"] = result.returncode if record.get("aliasRemoved", True) else 3
+    record["exitCode"] = exit_code if record.get("aliasRemoved", True) else 3
     with open(os.path.join(run, "launch-record.json"), "x") as stream:
         json.dump(record, stream, sort_keys=True, indent=1)
     copy = args.evidence_copy
@@ -178,7 +183,7 @@ def main():
     subprocess.run(["/usr/sbin/chown", "-R", str(args.owner_uid), copy], check=True)
     subprocess.run(["/bin/chmod", "-R", "u+rX,go-rwx", copy], check=True)
     print(json.dumps(record, sort_keys=True))
-    raise SystemExit(result.returncode)
+    raise SystemExit(record["exitCode"])
 
 
 if __name__ == "__main__":

@@ -167,6 +167,53 @@ class GuardIntegrationTest {
     }
     void write(Path dir,String name,JsonNode n)throws Exception{Files.writeString(dir.resolve(name),canonical(n));}
 
+    /** J1：真实隔离 MySQL 的 queued/running/completed、绑定校验、T1/T2 重试和零动作边界。 */
+    @Test void researchReplayLifecycleConsumesOnceAndCannotClaimCompletionWithoutFacts()throws Exception{
+        Fixture f=setup();var old=store.external("guard_release_bundle",f.bundle(),false);var subject=json(old,"subject_json");
+        String folder=id();Path dir=ROOT.resolve(folder);Files.createDirectories(dir);
+        var closeout=object("completed",true,"gates",object("G1",true,"G2",true),"modelSha256",store.external("guard_model",f.model(),false).get("artifact_sha256"),"classEligibility",object());
+        for(JsonNode fp:json(store.external("guard_decision_policy",f.policy(),false),"definition_json").path("familyPolicies"))
+            ((ObjectNode)closeout.get("classEligibility")).set(fp.path("family").asText(),object("offlineEligible",true,"modelOnly",object("offlineEligible",true),"ruleOnly",object()));
+        write(dir,"closeout.json",closeout);String closeoutSha=sha(Files.readAllBytes(dir.resolve("closeout.json")));
+        var research=human("/release-bundles",object("modelId",f.model(),"policyId",f.policy(),"featureProfileSha256",contracts.profileHash(),"extractorSha256",subject.get("extractorSha256"),"protocolVersions",versions(),"evaluationPlanId",store.get("guard_evaluation_plan",number(old,"plan_id")).get("public_id"),"capabilityIds",List.of(f.capability()),"environment","research"),operator,null);
+        String bid=research.path("id").asText();
+        write(dir,"final.json",GuardSignatures.sign(object("protocolVersions",versions(),"subjectSha256",research.get("subjectSha256"),"evaluationPlanSha256",subject.get("evaluationPlanSha256"),"runKind","final","passed",true,"evaluation",object("closeoutSha256",closeoutSha)),"fixture-runner",signing.getPrivate()));
+        var imported=human("/release-bundles/"+bid+"/imports",object("reportRef",folder+"/final.json","sha256",sha(Files.readAllBytes(dir.resolve("final.json"))),"runnerIdentity","fixture-runner"),operator,null);
+        human("/release-bundles/"+bid+"/sealings",object("evaluationIds",List.of(imported.path("id").asText())),operator,"1");human("/release-bundles/"+bid+"/decisions",object("decision","approve","reason","隔离研究组合"),reviewer,"2");
+        String asset=human("/assets",object("assetKey",id(),"platform","macos","environment","research","owner","isolated-j1-test"),operator,null).path("id").asText();
+        Instant at=Instant.now().truncatedTo(ChronoUnit.MICROS);
+        String auth=human("/assets/"+asset+"/authorizations",object("interfaces",List.of("replay0"),"observationAllowed",true,"executionScopes",List.of(),"validFrom",at.minusSeconds(60).toString(),"validUntil",at.plusSeconds(3600).toString(),"evidenceRef","fixture:j1-only"),operator,null).path("id").asText();
+        human("/authorizations/"+auth+"/decisions",object("decision","approve","reason","仅研究观察"),reviewer,"1");
+        String scope=id(),boot=id();var sensor=human("/sensors",object("assetId",asset,"platform","macos","captureScopeId",scope),operator,null);String sid=sensor.path("id").asText(),credential=sensor.path("credential").asText();
+        var config=object("contractVersion",CONTRACT,"profileSha256",contracts.profileHash(),"captureHealthVersion",HEALTH,"interfaceIds",List.of("replay0"),"limits",object("maxBatchSize",100),"captureScopeId",scope,"addressFamily","ipv4","buildSha256","b".repeat(64));
+        String configId=human("/sensors/"+sid+"/configs",config,operator,null).path("id").asText();human("/sensor-configs/"+configId+"/decisions",object("decision","approve","reason","研究配置"),reviewer,"1");
+        machine("/sensors/"+sid+"/heartbeats",object("bootId",boot,"version","fixture-1","configHash",hash(config),"lastSequence",0,"clockSkewMs",0),credential);
+        Files.write(dir.resolve("segment.pcap"),new byte[]{1,2,3});
+        var model=store.external("guard_model",f.model(),false);var policy=store.external("guard_decision_policy",f.policy(),false);
+        var scenario=object("scenarioId",id(),"environment","research","speed",1,"modelId",f.model(),"policyId",f.policy(),"modelSha256",model.get("artifact_sha256"),"manifestSha256",model.get("manifest_sha256"),"policySha256",policy.get("definition_sha256"),"sensorSha256","b".repeat(64),"segments",List.of(object("segmentId","segment-1","pcapRef",folder+"/segment.pcap","pcapSha256",sha(Files.readAllBytes(dir.resolve("segment.pcap"))))));
+        write(dir,"scenario.json",scenario);String scenarioSha=sha(Files.readAllBytes(dir.resolve("scenario.json")));
+        var request=object("scenarioId",scenario.get("scenarioId"),"scenarioSha256",scenarioSha,"modelId",f.model(),"policyId",f.policy(),"speed",1);
+        var queued=human("/replay-runs",request,operator,null);String rid=queued.path("id").asText();
+        var start=object("scenarioRef",folder+"/scenario.json","closeoutRef",folder+"/closeout.json","bindings",List.of(object("segmentId","segment-1","sensorId",sid,"bootId",boot)));
+        var outsider=identity("j1-outsider",List.of());rejectedHuman("/replay-runs/"+rid+"/starts",start,outsider,null,403);
+        var withTarget=start.deepCopy().put("targetRef",id());rejectedHuman("/replay-runs/"+rid+"/starts",withTarget,operator,null,400);
+        Files.write(dir.resolve("segment.pcap"),new byte[]{4});assertThat(rejectedHuman("/replay-runs/"+rid+"/starts",start,operator,null,422).at("/error/code").asText()).isEqualTo("ARTIFACT_HASH_MISMATCH");Files.write(dir.resolve("segment.pcap"),new byte[]{1,2,3});
+        String key=id();var running=human("/replay-runs/"+rid+"/starts",start,operator,null,key);assertThat(running.path("status").asText()).isEqualTo("running");assertThat(human("/replay-runs/"+rid+"/starts",start,operator,null,key)).isEqualTo(running);
+        var o=GuardDomainTest.observation(Instant.now().truncatedTo(ChronoUnit.MICROS));o.put("assetId",asset).put("sensorId",sid).put("bootId",boot).put("captureScopeId",scope).put("environment","research").putNull("targetRef").putNull("targetExpiresAt");
+        var batch=object("batchId",id(),"bootId",boot,"sequence",1,"configId",configId,"contractVersion",CONTRACT,"profileSha256",contracts.profileHash(),"observations",List.of(o));
+        long commands=jdbc.queryForObject("SELECT COUNT(*) FROM guard_command",Long.class),actions=jdbc.queryForObject("SELECT COUNT(*) FROM guard_action",Long.class);
+        String uploadKey=id();var accepted=machine("/sensors/"+sid+"/observation-batches",batch,credential,uploadKey);assertThat(accepted.path("acceptedCount").asInt()).isEqualTo(1);assertThat(machine("/sensors/"+sid+"/observation-batches",batch,credential,uploadKey)).isEqualTo(accepted);
+        long aid=number(store.external("asset",asset,false),"id");assertThat(store.rows("guard_inference",map("asset_id",aid),false,10)).hasSize(1);assertThat(store.rows("guard_decision",map("asset_id",aid),false,10)).isNotEmpty();
+        for(var decision:store.rows("guard_decision",map("asset_id",aid),false,10))assertThat(json(decision,"evidence_json").at("/hypothetical/actionable").asBoolean()).isFalse();
+        var result=object("replayRunId",rid,"scenarioSha256",scenarioSha,"executionCompleted",true,"j1Passed",false,"segmentResults",List.of(object("segmentId","segment-1","sensorId",sid,"bootId",boot,"batches",1,"lastSequence",1,"observations",2)));
+        write(dir,"invalid-result.json",result);var finish=object("reportRef",folder+"/invalid-result.json","reportSha256",sha(Files.readAllBytes(dir.resolve("invalid-result.json"))));
+        assertThat(rejectedHuman("/replay-runs/"+rid+"/completions",finish,operator,null,422).at("/error/code").asText()).isEqualTo("REPLAY_INCOMPLETE");
+        ((ObjectNode)result.at("/segmentResults/0")).put("observations",1);write(dir,"result.json",result);finish.put("reportRef",folder+"/result.json").put("reportSha256",sha(Files.readAllBytes(dir.resolve("result.json"))));
+        assertThat(human("/replay-runs/"+rid+"/completions",finish,operator,null).path("status").asText()).isEqualTo("completed");
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM guard_command",Long.class)).isEqualTo(commands);assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM guard_action",Long.class)).isEqualTo(actions);
+        assertThat(store.rows("guard_executor",map("asset_id",aid),false,10)).isEmpty();assertThat(store.rows("guard_asset_binding",map("asset_id",aid),false,10)).isEmpty();
+    }
+
     /** B3：P6 冻结计划按原字节摘要登记，不能内联改写；发布组合须与计划登记的候选和提取器一致。 */
     @Test void frozenP6PlanRegistersByRawDigestAndBindsCandidate()throws Exception{
         String folder=id();Path dir=ROOT.resolve(folder);Files.createDirectories(dir);

@@ -74,4 +74,23 @@ class GuardMulticlassRuntimeTest {
                 new byte[]{0x0b},new byte[]{(byte)0x80,(byte)0x80,(byte)0x80,(byte)0x80,(byte)0x80,(byte)0x80,(byte)0x80,(byte)0x80,(byte)0x80,(byte)0x80,0x01}))
             assertThatThrownBy(()->GuardModelRuntime.opsetImports(bad)).hasMessageContaining("ONNX_CONTRACT_INVALID");
     }
+    /** 复用 ONNX 会话后替换原件仍须失败，不能从已缓存会话返回旧分数。 */
+    @Test void cachedSessionDoesNotHideArtifactReplacement()throws Exception{
+        var runtime=new GuardModelRuntime(new GuardArtifacts(root.toString()),new GuardContracts(),2000);
+        try{
+            var model=model(GuardOnnxFixture.model(.9f));var o=GuardDomainTest.observation(Instant.EPOCH);
+            assertThat(runtime.infer(model,o,Instant.EPOCH).status()).isEqualTo("succeeded");
+            Files.write(root.resolve("model.onnx"),GuardOnnxFixture.model(.5f));
+            assertThat(runtime.infer(model,o,Instant.EPOCH).error()).isEqualTo("ARTIFACT_HASH_MISMATCH");
+            Files.writeString(root.resolve("manifest.json"),"{}");
+            assertThat(runtime.infer(model,o,Instant.EPOCH).error()).isEqualTo("ARTIFACT_HASH_MISMATCH");
+        }finally{runtime.close();}
+    }
+    @Test void oldIdleSessionsAreEvictedWithoutBlockingNewModelVersions()throws Exception{
+        var runtime=new GuardModelRuntime(new GuardArtifacts(root.toString()),new GuardContracts(),2000);
+        try{for(int i=0;i<12;i++){
+            float score=.8f+i*.001f;var result=runtime.infer(model(GuardOnnxFixture.model(score)),GuardDomainTest.observation(Instant.EPOCH),Instant.EPOCH);
+            assertThat(result.status()).isEqualTo("succeeded");assertThat(result.score()).isCloseTo(score,within(1e-6));
+        }}finally{runtime.close();}
+    }
 }

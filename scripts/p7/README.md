@@ -1,4 +1,4 @@
-# P7 策略生成与交付包导入
+# P7 策略、交付包与 research 回放
 
 本目录实现 B2 策略生成和 B3 分步导入。B2 生成器读取冻结审计、候选层、P4 部署绑定与可选 P6 报告，写出新的 decision-policy JSON；生成器不调用 P4 API。B3 导入器登记并封存已备好的制品，独立审批在脚本外进行。两个工具均不自动审批、不激活、不读取 test、不修改旧候选。输出通过 Schema 不代表发布资格或 G3 通过。
 
@@ -108,4 +108,30 @@ Z2 集成复验（2026-10-10）：P7 Python 60 项通过；JDK 25.0.2、启用�
 
 `POST /api/v2/replay-runs` 已提供 research 会话登记，返回 202/queued；GET 列表与详情读取同一事实。只接受 scenarioId、scenarioSha256、modelId、policyId、speed，speed 固定为 1，服务端选择同模型/策略的 approved research 发布包。未批准、lab/authorized 组合和所有未知字段一律拒绝；列表也拒绝 assetId 过滤。幂等重试只返回原会话，不重复登记。
 
-V23 的 guard_replay_run 不保存资产、授权、执行器或 targetRef，不向执行器派发命令。当前 queued 只表示请求已登记，尚未接入场景读取、回放调度、进度和结果生成，不代表场景已运行；J1 后续需接入离线 runner。`/lab-validation-runs` 仍未实现，留到 J3 前再做，本次没有真实 lab 动作或 G3 验收。
+V24 向前追加 running/completed 状态和 latest-parent 索引，V1—V23 原字节不变。`starts` 校验冻结场景/PCAP/版本摘要、P6 验签报告绑定的 closeout 和仅观察的 research sensor/boot；T1 后独立 T2 消费真实 ONNX、规则和决策。`completions` 对照真实落库批数、最后序号及观察/推理数后结束会话。completed 与 J1 通过分开。research 不创建动作或命令，不登记执行器/target，不激活发布包。`/lab-validation-runs` 仍未实现，留到 J3 前再做，本次没有真实 lab 动作或 G3 验收。
+
+## J1 V3 工具与证据
+
+`j1_register.py` 只从 Mac 的已登记 CIC2017 原件及 P3-A validation 切分截取：核验 registry SHA-256/MD5 和官方 MD5，逐包检查冻结 validation 连接成员及时间范围，保留原时间和报文块字节。清单及每个片段的 SHA-256 在回放前冻结；不打开 frozen/test，不把 PCAP 复制到 Windows。`selection.json` 和提取 ledger 含原始端点，必须留在私有目录。
+
+`j1_run.py` 用业务库备份的隔离恢复副本，追加 V24 后在 loopback 临时启动同一冻结 JAR，强制 TLS 1.3/client-auth=need，使用仅观察的 research 身份。每轮先用 `guardextract` 与 `GuardReplayReference` 生成真实 ONNX/规则/决策离线参照，再由 `guardlive -pcap` 每段 1 倍速读取文件并经真实 mTLS 上传；两轮复用同一清单、数值策略、PCAP 和二进制，轮次身份另行登记。多捕获域并发必须报告，并发正常时长之和不能描述为单主机连续正常时间。
+
+假想准备度按 P6 已登记来源资格投影自动开关，数值策略与 M1 相同。复用正式判定器及最新快照替换：保留整组 profile/capability、推理可用、质量、时钟、时效、distinct parents 和上下文；仅排除现场健康、目标、执行授权及保护/预算，`actionable=false`。它不代表任何命令已签发。
+
+```sh
+sh executor/python.sh -B scripts/p7/j1_register.py --help
+sh executor/python.sh -B scripts/p7/j1_run.py --help
+sh executor/python.sh -B -m unittest discover -s scripts/p7 -p test_j1_audit.py -v
+```
+
+正式运行需显式提供 `--work`、`--registration`、0600 的 `--operator-file`、`--closeout` 及其验签绑定摘要。`--scenario-ref` 原样复用已经冻结的清单，拒绝二进制摘要不符；`--resume` 只恢复同一隔离 schema、原证书和未确认 spool，拒绝重新采集已有轮次，保留原采集/确认时间及中断日志。409 只在已落库 T1 请求摘要与原批次一致时允许重新消费；真正的内容冲突或无进展保持失败。凭据只从受控文件/Keychain 读取，禁止写在命令参数或报告中。
+
+`j1_audit.py` 对照离线/回放/数据库事实，按独立 parentConnection 统计连接告警、正常误报及跨轮集合；低分连接不能继承同 episode 的其他连接告警。R3 分别报告纯 prefix、混组、final 和替换后的旧快照复用；R5 对同一 source/service/asOf 的全部更新替换后，计算 10 秒 latest distinct 质量连接，时钟与上下文资格另列，不能把纯质量比例当作完整自动覆盖率。时延保留 decidedAt，并以持久 mTLS 响应确认时间给出提交上界，中断续传不能抹掉原积压。OS 规则快照缺权限时标为未验证，不能用两个空摘要相等宣称安全验收通过。
+
+两轮 completion 均为 completed 后，可用下式追加固定版本最终审计。输出 audit-final 与 summary-audit-final.json，并补全 REPORT.md；原已登记轮次报告不覆盖。复算门槛与已登记门槛不一致时停止收口并报告差异，不能静默改写验收结果。
+
+```sh
+sh executor/python.sh -B scripts/p7/j1_audit.py "$J1_RUN_DIR" --finalize
+```
+
+2026-10-10—11 本轮 J1 两轮均 completed，完整报告在 `.cache/j1-20261010-v5/REPORT.md`，最终综合事实为 `summary-audit-final-v3.json`。J1 未通过、计划 M2 为空，按 9.3 保底停止 J2/P8。J1-2/3/4/7 通过；失败为 JSON 浮点往返、持续积压、首次规则错类/类别时延与时钟/profile 拒绝。零动作/命令已核验，OS 全局快照未验证；源业务库仍 V23、全量内容未变，临时服务已停。JDK 25 相关回归与 V24 迁移测试通过，P7 Python 74 项通过；代码、文档和私有运行证据均未提交/推送。

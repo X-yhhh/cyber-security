@@ -34,9 +34,30 @@ public interface GuardMapper {
         """) boolean machinePermission(@Param("client") long client,@Param("permission") String permission);
     @Select("SELECT COUNT(*)<>COALESCE(MAX(sequence_no),0) FROM guard_observation_batch WHERE sensor_id=#{sensor} AND boot_id=#{boot}")
     boolean batchGap(@Param("sensor") long sensor,@Param("boot") String boot);
+    /** 研究完成只引用已经落库的事实，不接受客户端自报执行完成作为唯一依据。 */
+    @Select("SELECT COUNT(*) batches,COALESCE(MAX(sequence_no),0) last_sequence FROM guard_observation_batch WHERE sensor_id=#{sensor} AND boot_id=#{boot}")
+    Map<String,Object> replayBatches(@Param("sensor") long sensor,@Param("boot") String boot);
+    @Select("""
+        SELECT COUNT(*) observations,COUNT(i.id) inferences
+        FROM guard_observation o LEFT JOIN guard_inference i ON i.observation_id=o.id AND i.model_id=#{model}
+        WHERE o.sensor_id=#{sensor} AND o.boot_id=#{boot}
+        """)
+    Map<String,Object> replayObservations(@Param("sensor") long sensor,@Param("boot") String boot,@Param("model") long model);
     /** 跨 episode/时间桶复核同一连接的最新已到达快照，不能使用插入顺序代替因果时间。 */
     @Select("SELECT * FROM guard_observation WHERE asset_id=#{asset} AND sensor_id=#{sensor} AND boot_id=#{boot} AND parent_connection_id=#{parent} ORDER BY as_of DESC,snapshot_index DESC,id DESC LIMIT 1")
     Map<String,Object> latestParent(@Param("asset") long asset,@Param("sensor") long sensor,@Param("boot") String boot,@Param("parent") String parent);
+    /** 一次读出最新投影、不可变观察和推理状态，保留原有跨桶 latest 及 10000 条上限。 */
+    @Select("""
+        SELECT e.*,o.payload_json observation_payload_json,o.content_sha256 observation_content_sha256,i.status inference_status
+        FROM guard_episode_evidence e JOIN guard_observation o ON o.id=e.observation_id
+        JOIN guard_inference i ON i.id=e.inference_id
+        WHERE e.episode_id=#{episode} AND o.id=(
+          SELECT n.id FROM guard_observation n
+          WHERE n.asset_id=o.asset_id AND n.sensor_id=o.sensor_id AND n.boot_id=o.boot_id AND n.parent_connection_id=o.parent_connection_id
+          ORDER BY n.as_of DESC,n.snapshot_index DESC,n.id DESC LIMIT 1)
+        ORDER BY e.id DESC LIMIT 10000
+        """)
+    List<Map<String,Object>> episodeEvidence(@Param("episode") long episode);
     final class Sql {
         private static final Map<String,Set<String>> COLUMNS=new HashMap<>();
         static {

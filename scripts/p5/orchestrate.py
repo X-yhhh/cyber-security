@@ -107,10 +107,13 @@ def main():
     p.add_argument("--authorization-reference")
     p.add_argument("--scope", choices=("peer_service", "peer_inbound"))
     p.add_argument("--scenario", choices=("revoke", "disconnect", "receipt_loss"))
+    p.add_argument("--external-executor", action="store_true",
+                   help="演练模式下也经中继连接外部执行端，用于无 root 验证拆分协议")
     args = p.parse_args()
     require(args.directory.is_absolute() and not args.directory.resolve().is_relative_to(ROOT.resolve()), "EXTERNAL_RUN_DIRECTORY_REQUIRED")
     require(args.mode != "pf" or args.authorization_reference, "A4_AUTHORIZATION_REFERENCE_REQUIRED")
-    require(args.mode != "pf" or os.geteuid() == 0, "A4_EXPLICIT_ROOT_REQUIRED")
+    # 真实 PF 只由 root 暂存副本中的执行端操作（lab_root_launch.py e3-executor）；后端、Maven 与 JUnit 不以 root 运行。
+    require(args.mode != "pf" or os.geteuid() != 0, "A4_BACKEND_MUST_NOT_RUN_AS_ROOT")
     require((args.scope is None) == (args.scenario is None), "LAB_SINGLE_ROUND_PAIR_REQUIRED")
     require(args.mode != "pf" or args.scope is not None, "A4_SINGLE_ROUND_REQUIRED")
     os.umask(0o077)
@@ -124,8 +127,10 @@ def main():
     require(build.returncode == 0, "GUARDTARGETS_BUILD_FAILED")
     env.update(P5_JOINT_LAB="true", P5_RUN_DIR=str(args.directory), P5_PYTHON=sys.executable,
                P5_GUARDTARGETS=str(binary), P5_FIREWALL=args.mode, P5_A4_REFERENCE=args.authorization_reference or "")
-    for key in ("P5_SCOPE", "P5_SCENARIO"):
+    for key in ("P5_SCOPE", "P5_SCENARIO", "P5_EXTERNAL_EXECUTOR"):
         env.pop(key, None)
+    if args.mode == "pf" or args.external_executor:
+        env["P5_EXTERNAL_EXECUTOR"] = "true"
     if args.scope:
         env.update(P5_SCOPE=args.scope, P5_SCENARIO=args.scenario)
     with (args.directory / "backend.log").open("xb") as log:
@@ -139,7 +144,7 @@ def main():
     source_paths += [ROOT / "backend/src/main/resources/application-lab.yml", ROOT / "scripts/p5/lab-protection.json"]
     source_paths += sorted((ROOT / "backend/src/main/java/com/xyh/cybersecurity/guard").glob("*.java"))
     outcome = {"passed": result.returncode == 0 and len(rows) == (1 if args.scope else 6) and all(r["passed"] for r in rows),
-               "realPF": args.mode == "pf", "scenarios": [{k: r[k] for k in ("scope", "scenario", "passed")} for r in rows],
+               "realPF": args.mode == "pf" and bool(rows) and all(r.get("realPF") is True for r in rows), "scenarios": [{k: r[k] for k in ("scope", "scenario", "passed")} for r in rows],
                "guardtargetsSha256": hashlib.sha256(binary.read_bytes()).hexdigest(),
                "sourceSha256": {str(path.relative_to(ROOT)): hashlib.sha256(path.read_bytes()).hexdigest()
                                 for path in source_paths},

@@ -110,6 +110,24 @@ class GuardCapabilityBindingTest {
         assertThat(eligibility.authorized(asset,bundle,binding,policy,observation,executor,facts.now(),"port_scan")).isFalse();
     }
 
+    /** T3.8a 评价用绑定：research 级 peer_service 能力在任何环境都不匹配自动路径，授权判定 fail-closed。 */
+    @Test void researchServiceCapabilityNeverMatchesAutomaticPaths(){
+        capability.putAll(map("level","research","scope","peer_service","protection_set_sha256",null,"exemption_evidence_sha256",null,
+                "payload_json",canonical(object("addressFamily","ipv4","transport","tcp","direction","inbound","profile","flow-prefix-v1","family","dos_slow","adapterVersion","pf-1"))));
+        policy.put("family","dos_slow");
+        authorization.put("scope_json",canonical(object("executionScopes",List.of(object("capabilityId",CAPABILITY,"scope","peer_service","direction","inbound","transport","tcp","addressFamily","ipv4","servicePort",80)))));
+        var service=observation.deepCopy().put("servicePort",80);
+        for(String env:List.of("lab","authorized","research")){
+            bundle.put("environment",env);asset.put("environment",env);
+            var o=service.deepCopy().put("environment",env);
+            assertThat(eligibility.matchingCapability(bundle,policy,o,"dos_slow")).as(env).isNull();
+            assertThat(eligibility.authorized(asset,bundle,binding,policy,o,executor,facts.now(),"dos_slow")).as(env).isFalse();
+        }
+        // 对照：同一能力升为 lab_auto 后在 lab 匹配，证明上面的拒绝来自等级而非夹具缺项。
+        bundle.put("environment","lab");capability.put("level","lab_auto");
+        assertThat(eligibility.matchingCapability(bundle,policy,service.deepCopy().put("environment","lab"),"dos_slow")).isNotNull();
+    }
+
     @Test void executorCapabilityHashBindsActiveCapabilitiesAndCurrentProtection(){
         var inboundItem=object("capabilityId",CAPABILITY,"scope","peer_inbound","protectionSetSha256",hash(PROTECTION),"protectedPortsSha256",GuardEligibility.protectedPortsSha256(PROTECTION.get("protectedServicePorts")));
         assertThat(eligibility.executorCapabilityHash(executor)).isEqualTo(GuardEligibility.capabilitySetSha256(List.of(inboundItem)));

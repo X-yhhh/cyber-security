@@ -1,0 +1,164 @@
+{
+  "requester": "synthetic-p7-operator",
+  "model": {
+    "manifestRef": "synthetic/model-manifest.json",
+    "manifestSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "validation": {
+    "validationProfileId": "host-guard-onnx-v1"
+  },
+  "evaluationPlan": {
+    "planKey": "synthetic-p7",
+    "version": "1",
+    "protocolVersions": {
+      "observation": "host-guard/5.0.0-rc.2",
+      "decision": "host-guard-decision/2026-10-08.1",
+      "evaluation": "host-guard-evaluation/2026-10-07.1",
+      "health": "host-guard-capture-health/1.0.0"
+    },
+    "datasetRefs": [
+      "00000000-0000-4000-8000-000000000010"
+    ],
+    "splitHashes": {
+      "train": "1111111111111111111111111111111111111111111111111111111111111111",
+      "selection": "2222222222222222222222222222222222222222222222222222222222222222",
+      "calibration": "3333333333333333333333333333333333333333333333333333333333333333",
+      "development": "4444444444444444444444444444444444444444444444444444444444444444"
+    },
+    "behaviorSourceScope": [
+      {
+        "source": "synthetic",
+        "behaviors": [
+          "slowloris"
+        ]
+      }
+    ],
+    "scenarioMappingSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "labelTimelineSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "captureHealthSha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "latencyRegistration": {
+      "maxMs": 10000
+    },
+    "metrics": {
+      "unit": "episode"
+    },
+    "budget": {
+      "maxSeconds": 30
+    },
+    "scenarioRefs": [
+      "synthetic"
+    ]
+  },
+  "capability": {
+    "capabilityKey": "synthetic-research",
+    "version": "1",
+    "platform": "macos",
+    "adapterVersion": "synthetic",
+    "addressFamily": "ipv4",
+    "transport": "tcp",
+    "direction": "outbound",
+    "family": "dos_slow",
+    "profile": "flow-prefix-v1",
+    "behaviorScope": [
+      "slowloris"
+    ],
+    "latencyLimits": {
+      "maxMs": 10000
+    },
+    "level": "research",
+    "evidenceRef": "synthetic/research.json",
+    "evidenceSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "runnerIdentity": "synthetic-runner"
+  },
+  "decisionPolicy": {
+    "contractVersion": "host-guard/5.0.0-rc.4",
+    "policyId": "00000000-0000-4000-8000-000000000011",
+    "policyVersion": "example-only",
+    "mode": "alert_only",
+    "modelId": "${modelId}",
+    "family": "port_scan",
+    "profile": "flow-prefix-v1",
+    "alertThreshold": 0.6,
+    "autoThreshold": 0.99,
+    "minDistinctFlows": 3,
+    "minEvidenceSpanMs": 1000,
+    "episodeSeconds": 30,
+    "contextWindowSeconds": 5,
+    "minPeerFlowStarts": 3,
+    "maxEvidenceAgeMs": 10000,
+    "maxTtlSeconds": 30,
+    "maxContinuousBlockSeconds": 120,
+    "maxActiveRulesPerAsset": 10,
+    "maxNewActionsPerMinute": 5,
+    "supportedCapabilityIds": [
+      "${capabilityId}"
+    ],
+    "protectionSetSha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "evaluationPlanSha256": "${evaluationPlanSha256}",
+    "familyPolicies": [
+      {
+        "family": "port_scan",
+        "autoEligible": false,
+        "modelAutoEligible": false,
+        "alertThreshold": 0.6,
+        "autoThreshold": 0.99,
+        "minDistinctFlows": 3,
+        "scope": "peer_inbound"
+      },
+      {
+        "family": "brute_force",
+        "autoEligible": false,
+        "modelAutoEligible": false,
+        "alertThreshold": 0.6,
+        "autoThreshold": 0.99,
+        "minDistinctFlows": 3,
+        "scope": "peer_service"
+      },
+      {
+        "family": "dos_flood",
+        "autoEligible": false,
+        "modelAutoEligible": false,
+        "alertThreshold": 0.6,
+        "autoThreshold": 0.99,
+        "minDistinctFlows": 3,
+        "scope": "peer_service"
+      },
+      {
+        "family": "dos_slow",
+        "autoEligible": false,
+        "modelAutoEligible": false,
+        "alertThreshold": 0.6,
+        "autoThreshold": 0.99,
+        "minDistinctFlows": 3,
+        "scope": "peer_service"
+      }
+    ]
+  },
+  "releaseBundle": {
+    "modelId": "${modelId}",
+    "policyId": "${policyId}",
+    "evaluationPlanId": "${evaluationPlanId}",
+    "capabilityIds": [
+      "${capabilityId}"
+    ],
+    "environment": "research",
+    "featureProfileSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "extractorSha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "protocolVersions": {
+      "observation": "host-guard/5.0.0-rc.2",
+      "decision": "host-guard-decision/2026-10-08.1",
+      "evaluation": "host-guard-evaluation/2026-10-07.1",
+      "health": "host-guard-capture-health/1.0.0"
+    }
+  },
+  "imports": [
+    {
+      "reportRef": "synthetic/final.json",
+      "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "runnerIdentity": "synthetic-runner"
+    }
+  ],
+  "sealing": {
+    "evaluationIds": []
+  }
+}

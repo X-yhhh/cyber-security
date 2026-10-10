@@ -16,7 +16,7 @@ public class GuardStore {
             "guard_idempotency","guard_model","guard_decision_policy","guard_release_bundle","guard_asset_binding",
             "guard_capture_scope","guard_observation_batch","guard_executor","guard_target_budget","guard_asset_budget",
             "guard_episode","guard_episode_evidence","guard_action","guard_budget_interval","guard_revocation","guard_action_receipt",
-            "guard_authorization_lease","consumed_message","security_event","guard_feedback","guard_validation_session");
+            "guard_authorization_lease","consumed_message","security_event","guard_feedback","guard_validation_session","guard_replay_run");
     public GuardStore(GuardMapper mapper,AuditMapper audit){this.mapper=mapper;this.audit=audit;}
     public Instant now(){return mapper.now().toInstant(ZoneOffset.UTC);}
     public Map<String,Object> insert(String t,Map<String,Object> v){mapper.insert(t,v);return v;}

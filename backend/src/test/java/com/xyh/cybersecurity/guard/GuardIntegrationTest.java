@@ -7,6 +7,8 @@ import jakarta.servlet.http.Cookie;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.autoconfigure.web.servlet.MockMvcPrint;
@@ -129,7 +131,147 @@ class GuardIntegrationTest {
         var h=GuardDomainTest.health(Instant.now().truncatedTo(ChronoUnit.MICROS),1,null);h.put("assetId",asset).put("sensorId",f.sensor).put("captureScopeId",scope).put("configSha256",hash(config));machine("/sensors/"+f.sensor+"/health-windows",h,f.sensorCredential);return f;
     }
     JsonNode targetBody(String eid,String sensor,String scope,String boot,String eboot,String target,String token){return object("bindingId",id(),"executorBootId",eboot,"sensorId",sensor,"collectorBootId",boot,"captureScopeId",scope,"targetRef",target,"peerKey","d".repeat(64),"keyEpoch",1,"direction","outbound","transport","tcp","servicePort",443,"addressFamily","ipv4","stableTargetToken",token,"scopeDigest",sha(token.getBytes()),"expiresAt",Instant.now().plusSeconds(14).truncatedTo(ChronoUnit.MICROS).toString());}
+    /** B4：research 回放只能引用已批准 research 组合，且请求模型无法携带任何真实目标字段。 */
+    @Test void researchReplayRejectsRealTargetReferencesAndRequiresResearchBundle()throws Exception{
+        Fixture f=setup();
+        JsonNode replay=object("scenarioId",id(),"scenarioSha256","a".repeat(64),"modelId",f.model(),"policyId",f.policy(),"speed",1);
+        var session=humanSession(operator);var rejected=mvc.perform(post("/api/v2/replay-runs").cookie(session.cookie()).header("X-CSRF-TOKEN",session.csrfToken()).header("Idempotency-Key",id()).contentType("application/json").content(canonical(replay))).andReturn();
+        assertThat(rejected.getResponse().getStatus()).isEqualTo(422);assertThat(parse(rejected.getResponse().getContentAsString()).at("/error/code").asText()).isEqualTo("REPLAY_BUNDLE_NOT_APPROVED");
+        var old=store.external("guard_release_bundle",f.bundle(),false);var subject=json(old,"subject_json");
+        JsonNode body=object("modelId",f.model(),"policyId",f.policy(),"featureProfileSha256",contracts.profileHash(),"extractorSha256",subject.get("extractorSha256"),"protocolVersions",versions(),"evaluationPlanId",store.get("guard_evaluation_plan",number(old,"plan_id")).get("public_id"),"capabilityIds",List.of(f.capability()),"environment","research");
+        var research=human("/release-bundles",body,operator,null);String bid=research.path("id").asText();
+        rejectedHuman("/replay-runs",replay,operator,null,422);
+        String folder=id();Path dir=ROOT.resolve(folder);Files.createDirectories(dir);
+        write(dir,"replay-final.json",GuardSignatures.sign(object("protocolVersions",versions(),"subjectSha256",research.get("subjectSha256"),"evaluationPlanSha256",subject.get("evaluationPlanSha256"),"runKind","final","passed",true),"fixture-runner",signing.getPrivate()));
+        var report=human("/release-bundles/"+bid+"/imports",object("reportRef",folder+"/replay-final.json","sha256",sha(Files.readAllBytes(dir.resolve("replay-final.json"))),"runnerIdentity","fixture-runner"),operator,null);
+        human("/release-bundles/"+bid+"/sealings",object("evaluationIds",List.of(report.path("id").asText())),operator,"1");
+        human("/release-bundles/"+bid+"/decisions",object("decision","approve","reason","独立研究回放批准"),reviewer,"2");
+        human("/release-bundles",body,operator,null); // 后登记候选不能遮蔽已批准 research 组合。
+        long commands=jdbc.queryForObject("SELECT COUNT(*) FROM guard_command",Long.class);
+        String key=id();var accepted=human("/replay-runs",replay,operator,null,key);
+        assertThat(accepted.path("status").asText()).isEqualTo("queued");assertThat(accepted.path("bundleId").asText()).isEqualTo(bid);
+        assertThat(human("/replay-runs",replay,operator,null,key)).isEqualTo(accepted);
+        session=humanSession(operator);
+        var detail=result(mvc.perform(get("/api/v2/replay-runs/"+accepted.path("id").asText()).cookie(session.cookie())).andReturn());
+        assertThat(detail.path("scenarioSha256").asText()).isEqualTo(replay.path("scenarioSha256").asText());
+        assertThat(detail.has("assetId")||detail.has("authorizationId")||detail.has("executorId")||detail.has("targetRef")).isFalse();
+        for(String field:List.of("assetId","authorizationId","executorId","targetRef","environment")){
+            ObjectNode withTarget=(ObjectNode)replay.deepCopy();withTarget.put(field,id());
+            rejectedHuman("/replay-runs",withTarget,operator,null,400);
+        }
+        var outsider=identity("replay-outsider",List.of());rejectedHuman("/replay-runs",replay,outsider,null,403);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM guard_command",Long.class)).isEqualTo(commands);
+        ObjectNode speed=(ObjectNode)replay.deepCopy();speed.put("speed",2);
+        session=humanSession(operator);var fast=mvc.perform(post("/api/v2/replay-runs").cookie(session.cookie()).header("X-CSRF-TOKEN",session.csrfToken()).header("Idempotency-Key",id()).contentType("application/json").content(canonical(speed))).andReturn();
+        assertThat(fast.getResponse().getStatus()).isEqualTo(422);assertThat(parse(fast.getResponse().getContentAsString()).at("/error/code").asText()).isEqualTo("REPLAY_SPEED_FIXED");
+    }
     void write(Path dir,String name,JsonNode n)throws Exception{Files.writeString(dir.resolve(name),canonical(n));}
+
+    /** B3：CLI 经本机 HTTP 桥进入真实 MVC/鉴权/事务链，制品与报告均在隔离测试目录合成。 */
+    @ParameterizedTest
+    @ValueSource(booleans={false,true})
+    @EnabledIfEnvironmentVariable(named="P7_IMPORT_IT_ENABLED",matches="true")
+    void syntheticBundleCliRequiresIndependentReviewAndStopsBeforeApproval(boolean reuseCapabilities)throws Exception{
+        String folder=id();Path dir=ROOT.resolve(folder);Files.createDirectories(dir);
+        ObjectNode plan=(ObjectNode)parse(Files.readString(Path.of("../scripts/p7/testdata/import-bundle-plan.json")));
+        write(dir,"dataset.json",object("datasetKey",id(),"version","synthetic-b3"));
+        String dataset=human("/datasets",object("manifestRef",folder+"/dataset.json","manifestSha256",sha(Files.readAllBytes(dir.resolve("dataset.json")))),operator,null).path("id").asText();
+        ObjectNode evaluation=(ObjectNode)plan.get("evaluationPlan");evaluation.put("planKey",id()).set("datasetRefs",node(List.of(dataset)));evaluation.set("protocolVersions",versions());
+        Files.write(dir.resolve("model.onnx"),GuardOnnxFixture.model(.99f,0,0,0,.99f));
+        write(dir,"preprocessing.json",object("fitRole","train","vocabularies",List.of(List.of("tcp"),List.of("outbound"),List.of("web"))));
+        write(dir,"calibration.json",object("fitRole","calibration","kind","fixed-test-only"));
+        ObjectNode manifest=(ObjectNode)GuardDomainTest.example("model-manifest");
+        manifest.put("modelId",id()).put("modelVersion",folder).put("featureProfileSha256",contracts.profileHash()).put("evaluationPlanSha256",hash(evaluation));
+        for(var pair:Map.of("artifactSha256","model.onnx","preprocessingSha256","preprocessing.json","calibrationSha256","calibration.json").entrySet())manifest.put(pair.getKey(),sha(Files.readAllBytes(dir.resolve(pair.getValue()))));
+        ((ObjectNode)manifest.get("runtime")).put("runtimeVersion","1.23.2");write(dir,"manifest.json",manifest);
+        plan.set("model",object("manifestRef",folder+"/manifest.json","manifestSha256",sha(Files.readAllBytes(dir.resolve("manifest.json")))));
+        ((ObjectNode)plan.get("capability")).put("capabilityKey",id());
+        if(reuseCapabilities){
+            var refs=node(List.of());
+            for(String family:List.of("port_scan","bruteforce","dos_flood","dos_slow")){
+                ObjectNode cap=(ObjectNode)plan.get("capability").deepCopy();
+                cap.put("capabilityKey",id()).put("family",family).put("level","lab_auto").put("direction","inbound");
+                if(family.equals("port_scan")){
+                    write(dir,"exemption.json",GuardSignatures.sign(object("passed",true,"scope","peer_inbound","platform","macos-pf","protectionSetSha256",hash(PROTECTION)),"fixture-runner",signing.getPrivate()));
+                    cap.put("scope","peer_inbound").put("protectionSetSha256",hash(PROTECTION)).put("exemptionEvidenceSha256",sha(Files.readAllBytes(dir.resolve("exemption.json"))));
+                }
+                ObjectNode signedPayload=cap.deepCopy();signedPayload.remove(List.of("evidenceRef","evidenceSha256","runnerIdentity"));
+                write(dir,family+"-capability.json",GuardSignatures.sign(object("passed",true,"protocolVersions",versions(),"capability",signedPayload),"fixture-runner",signing.getPrivate()));
+                cap.put("evidenceRef",folder+"/"+family+"-capability.json").put("evidenceSha256",sha(Files.readAllBytes(dir.resolve(family+"-capability.json")))).put("runnerIdentity","fixture-runner");
+                if(family.equals("port_scan"))cap.put("exemptionEvidenceRef",folder+"/exemption.json");
+                String cid=human("/capabilities",cap,operator,null).path("id").asText();
+                ((com.fasterxml.jackson.databind.node.ArrayNode)refs).add(object("id",cid,"payload",cap,"payloadSha256",hash(cap)));
+            }
+            plan.remove("capability");plan.set("existingCapabilities",refs);
+            ((ObjectNode)plan.get("decisionPolicy")).put("supportedCapabilityIds","${capabilityIds}");
+            ((ObjectNode)plan.get("releaseBundle")).put("capabilityIds","${capabilityIds}");
+        }
+        ((ObjectNode)plan.get("decisionPolicy")).put("policyId",id()).put("policyVersion",folder).put("protectionSetSha256",hash(PROTECTION));
+        ObjectNode release=(ObjectNode)plan.get("releaseBundle");release.put("featureProfileSha256",contracts.profileHash()).put("extractorSha256",manifest.path("extractorSha256").asText()).set("protocolVersions",versions());
+        write(dir,"plan.json",plan);
+        var session=humanSession(operator);
+        Files.writeString(dir.resolve("cookie"),"SESSION="+session.cookie().getValue());Files.writeString(dir.resolve("csrf"),session.csrfToken());
+        for(String name:List.of("cookie","csrf"))Files.setPosixFilePermissions(dir.resolve(name),PosixFilePermissions.fromString("rw-------"));
+        List<String> writes=new CopyOnWriteArrayList<>();
+        var server=com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1",0),0);
+        server.createContext("/api/v2",exchange->{
+            try{
+                String path=exchange.getRequestURI().getPath();
+                var request=org.springframework.test.web.servlet.request.MockMvcRequestBuilders.request(org.springframework.http.HttpMethod.valueOf(exchange.getRequestMethod()),path);
+                exchange.getRequestHeaders().forEach((name,values)->{if(!name.equalsIgnoreCase("Cookie"))request.header(name,values.toArray());});
+                String cookies=exchange.getRequestHeaders().getFirst("Cookie");
+                if(cookies!=null)for(String item:cookies.split(";")){String[] pair=item.trim().split("=",2);if(pair.length==2)request.cookie(new Cookie(pair[0],pair[1]));}
+                request.content(exchange.getRequestBody().readAllBytes());
+                if(exchange.getRequestMethod().equals("POST"))writes.add(path.substring("/api/v2".length()));
+                var response=mvc.perform(request).andReturn().getResponse();byte[] bytes=response.getContentAsByteArray();
+                exchange.getResponseHeaders().set("Content-Type","application/json");exchange.sendResponseHeaders(response.getStatus(),bytes.length);exchange.getResponseBody().write(bytes);
+            }catch(Exception e){exchange.sendResponseHeaders(500,-1);}finally{exchange.close();}
+        });
+        server.start();
+        try{
+            String base="http://127.0.0.1:"+server.getAddress().getPort()+"/api/v2";
+            runImportCli(dir,base,0,"--plan",dir.resolve("plan.json").toString(),"--state",dir.resolve("state.json").toString());
+            JsonNode state=parse(Files.readString(dir.resolve("state.json")));String model=state.path("modelId").asText(),policy=state.path("policyId").asText();
+            JsonNode capabilities=state.get("capabilityIds");
+            int prepareWrites=reuseCapabilities?4:5;
+            if(reuseCapabilities){assertThat(writes).containsExactly("/models","/models/"+model+"/validations","/evaluation-plans","/decision-policies");assertThat(capabilities).hasSize(4);}
+            else assertThat(writes).containsExactly("/models","/models/"+model+"/validations","/evaluation-plans","/capabilities","/decision-policies");
+            assertThat(state.path("phase").asText()).isEqualTo("awaiting-policy-review");
+            // 未审核恢复、直接跳到发布组合、自审和无权身份均由真实权限/状态服务拒绝。
+            runImportCli(dir,base,1,"--resume-state",dir.resolve("state.json").toString());assertThat(writes).hasSize(prepareWrites);
+            ObjectNode bundleBody=release.deepCopy();bundleBody.put("modelId",model).put("policyId",policy).put("evaluationPlanId",state.path("evaluationPlanId").asText()).set("capabilityIds",capabilities);
+            assertThat(rejectedHuman("/release-bundles",bundleBody,operator,null,422).at("/error/code").asText()).isEqualTo("RELEASE_COMBINATION_INVALID");
+            jdbc.update("INSERT INTO sys_user_role(user_id,role_id,scope_type,scope_id) SELECT ?,id,'global','*' FROM sys_role WHERE role_key='security_reviewer'",operator.id());
+            assertThat(rejectedHuman("/decision-policies/"+policy+"/reviews",object("decision","approve","reason","拒绝自审"),operator,"1",403).at("/error/code").asText()).isEqualTo("APPROVAL_SEPARATION_REQUIRED");
+            var outsider=identity("b3-outsider",List.of());rejectedHuman("/models",plan.get("model"),outsider,null,403);
+            ObjectNode badManifest=(ObjectNode)plan.get("model").deepCopy();badManifest.put("manifestSha256","0".repeat(64));assertThat(rejectedHuman("/models",badManifest,operator,null,422).at("/error/code").asText()).isEqualTo("ARTIFACT_HASH_MISMATCH");
+            human("/decision-policies/"+policy+"/reviews",object("decision","approve","reason","独立测试审查"),reviewer,"1");
+            JsonNode subject=object("contractVersion",MODEL_CONTRACT,"protocolVersions",versions(),"modelId",model,"manifestSha256",plan.at("/model/manifestSha256"),"policyId",policy,"policySha256",state.get("policySha256"),"featureProfileSha256",contracts.profileHash(),"extractorSha256",manifest.get("extractorSha256"),"evaluationPlanSha256",hash(evaluation),"capabilityIds",capabilities,"environment","research");
+            write(dir,"final.json",GuardSignatures.sign(object("protocolVersions",versions(),"subjectSha256",hash(subject),"evaluationPlanSha256",hash(evaluation),"runKind","final","passed",true),"fixture-runner",signing.getPrivate()));
+            write(dir,"reports.json",object("imports",List.of(object("reportRef",folder+"/final.json","sha256",sha(Files.readAllBytes(dir.resolve("final.json"))),"runnerIdentity","fixture-runner"))));
+            session=humanSession(operator);Files.writeString(dir.resolve("cookie"),"SESSION="+session.cookie().getValue());Files.writeString(dir.resolve("csrf"),session.csrfToken());
+            runImportCli(dir,base,0,"--resume-state",dir.resolve("state.json").toString(),"--reports",dir.resolve("reports.json").toString());
+            state=parse(Files.readString(dir.resolve("state.json")));String bundle=state.path("bundleId").asText();
+            assertThat(writes.subList(prepareWrites,writes.size())).containsExactly("/release-bundles","/release-bundles/"+bundle+"/imports","/release-bundles/"+bundle+"/sealings");
+            assertThat(state.path("phase").asText()).isEqualTo("awaiting-bundle-decision");
+            assertThat(str(store.external("guard_release_bundle",bundle,false),"status")).isEqualTo("evaluated");
+            assertThat(rejectedHuman("/release-bundles/"+bundle+"/decisions",object("decision","approve","reason","拒绝自审"),operator,"2",403).at("/error/code").asText()).isEqualTo("APPROVAL_SEPARATION_REQUIRED");
+            assertThat(store.rows("guard_asset_binding",map("bundle_id",store.external("guard_release_bundle",bundle,false).get("id")),false,10)).isEmpty();
+        }finally{server.stop(0);Files.deleteIfExists(dir.resolve("cookie"));Files.deleteIfExists(dir.resolve("csrf"));}
+    }
+    /** 测试专用的失败断言保留真实会话、CSRF 和请求幂等头。 */
+    JsonNode rejectedHuman(String path,JsonNode body,IdentityPrincipal actor,String revision,int expected)throws Exception{
+        var session=humanSession(actor);var request=post("/api/v2"+path).cookie(session.cookie()).header("X-CSRF-TOKEN",session.csrfToken()).header("Idempotency-Key",id()).contentType("application/json").content(canonical(body));
+        if(revision!=null)request.header("If-Match",revision);
+        var response=mvc.perform(request).andReturn().getResponse();assertThat(response.getStatus()).withFailMessage("HTTP %s: %s",response.getStatus(),response.getContentAsString()).isEqualTo(expected);
+        return parse(response.getContentAsString());
+    }
+    /** Python 包装器可显式指向已有环境；日志只含接口状态，不输出会话凭据。 */
+    void runImportCli(Path dir,String base,int expected,String... arguments)throws Exception{
+        List<String> command=new ArrayList<>(List.of("sh",System.getenv().getOrDefault("P7_PYTHON_WRAPPER",Path.of("../executor/python.sh").toAbsolutePath().toString()),"-B",Path.of("../scripts/p7/import_bundle.py").toAbsolutePath().toString(),"--base-url",base,"--cookie-file",dir.resolve("cookie").toString(),"--csrf-file",dir.resolve("csrf").toString()));command.addAll(List.of(arguments));
+        Path log=dir.resolve("cli-"+id()+".log");var process=new ProcessBuilder(command).redirectErrorStream(true).redirectOutput(log.toFile()).start();
+        try{assertThat(process.waitFor(60,TimeUnit.SECONDS)).isTrue();assertThat(process.exitValue()).withFailMessage("CLI: %s",Files.readString(log)).isEqualTo(expected);}finally{if(process.isAlive())process.destroyForcibly().waitFor();}
+    }
     ObjectNode observation(Fixture f,Instant at,String parent,int index)throws Exception{var o=GuardDomainTest.observation(at);o.put("observationId",id()).put("assetId",f.asset).put("sensorId",f.sensor).put("bootId",f.boot).put("captureScopeId",f.scope).put("flowId",parent).put("parentConnectionId",parent).put("snapshotIndex",index).put("environment","lab").put("peerKey","d".repeat(64)).put("targetRef",f.target).put("targetExpiresAt",at.plusSeconds(14).toString());return o;}
     JsonNode batch(Fixture f,List<? extends JsonNode> os,long sequence){return object("batchId",id(),"bootId",f.boot,"sequence",sequence,"configId",f.config,"contractVersion",CONTRACT,"profileSha256",contracts.profileHash(),"observations",os);}
     @Test void completeIngestInferenceDecisionClaimRevocationAndReceiptOrdering()throws Exception{

@@ -167,6 +167,40 @@ class GuardIntegrationTest {
     }
     void write(Path dir,String name,JsonNode n)throws Exception{Files.writeString(dir.resolve(name),canonical(n));}
 
+    /** B3：P6 冻结计划按原字节摘要登记，不能内联改写；发布组合须与计划登记的候选和提取器一致。 */
+    @Test void frozenP6PlanRegistersByRawDigestAndBindsCandidate()throws Exception{
+        String folder=id();Path dir=ROOT.resolve(folder);Files.createDirectories(dir);
+        Files.write(dir.resolve("model.onnx"),GuardOnnxFixture.model(.999f,0,0,0,.999f));write(dir,"preprocessing.json",object("fitRole","train","vocabularies",List.of(List.of("tcp"),List.of("outbound"),List.of("web"))));write(dir,"calibration.json",object("fitRole","calibration","kind","fixed-test-only"));
+        ObjectNode manifest=(ObjectNode)GuardDomainTest.example("model-manifest");String onnx=sha(Files.readAllBytes(dir.resolve("model.onnx")));
+        java.util.function.BiFunction<String,String,ObjectNode> frozen=(candidate,version)->object("stage","P6","plan","fixture-"+folder,"evaluationVersion",version,"featureProfileSha256",contracts.profileHash(),"candidateSha256",candidate,"extractorSha256",manifest.path("extractorSha256").asText(),"splitManifestSha256","5".repeat(64),"evaluationIds",List.of("p6-l1-01"),"noTestReadBeforeP6",true);
+        // 原件刻意带缩进，原字节摘要与 JCS 摘要不同；后端必须保存前者。
+        Files.writeString(dir.resolve("plan.json"),JSON.writerWithDefaultPrettyPrinter().writeValueAsString(frozen.apply(onnx,EVALUATION)));
+        String raw=sha(Files.readAllBytes(dir.resolve("plan.json")));assertThat(raw).isNotEqualTo(hash(parse(Files.readString(dir.resolve("plan.json")))));
+        assertThat(rejectedHuman("/evaluation-plans",object("planRef",folder+"/plan.json","planSha256","0".repeat(64)),operator,null,422).at("/error/code").asText()).isEqualTo("ARTIFACT_HASH_MISMATCH");
+        rejectedHuman("/evaluation-plans",object("planRef",folder+"/plan.json","planSha256",raw,"planKey","inline"),operator,null,400);
+        Files.writeString(dir.resolve("old.json"),canonical(frozen.apply(onnx,LEGACY_PLATFORM_EVALUATION)));
+        assertThat(rejectedHuman("/evaluation-plans",object("planRef",folder+"/old.json","planSha256",sha(Files.readAllBytes(dir.resolve("old.json")))),operator,null,422).at("/error/code").asText()).isEqualTo("EVALUATION_PLAN_MISMATCH");
+        JsonNode plan=human("/evaluation-plans",object("planRef",folder+"/plan.json","planSha256",raw),operator,null);assertThat(plan.path("planSha256").asText()).isEqualTo(raw);
+        var row=store.external("guard_evaluation_plan",plan.path("id").asText(),false);assertThat(json(row,"payload_json").path("kind").asText()).isEqualTo("p6-frozen");
+        Files.writeString(dir.resolve("other.json"),canonical(frozen.apply("6".repeat(64),EVALUATION).put("plan","other-"+folder)));String otherRaw=sha(Files.readAllBytes(dir.resolve("other.json")));JsonNode other=human("/evaluation-plans",object("planRef",folder+"/other.json","planSha256",otherRaw),operator,null);
+        String capability=human("/capabilities",object("capabilityKey",id(),"version","fixture-v1","platform","macos","adapterVersion","fixture-1","addressFamily","ipv4","transport","tcp","direction","outbound","family","dos_slow","profile","flow-prefix-v1","behaviorScope",List.of("slowloris"),"latencyLimits",object("maxMs",10000),"level","research","evidenceRef","fixture:none","evidenceSha256","a".repeat(64),"runnerIdentity","fixture-runner"),operator,null).path("id").asText();
+        var bundles=new ArrayList<JsonNode>();
+        for(var bound:List.of(Map.entry(raw,plan),Map.entry(otherRaw,other))){
+            ObjectNode m=manifest.deepCopy();String model=id();m.put("modelId",model).put("modelVersion",id()).put("featureProfileSha256",contracts.profileHash()).put("evaluationPlanSha256",bound.getKey()).put("artifactSha256",onnx);
+            for(var pair:Map.of("preprocessingSha256","preprocessing.json","calibrationSha256","calibration.json").entrySet())m.put(pair.getKey(),sha(Files.readAllBytes(dir.resolve(pair.getValue()))));((ObjectNode)m.get("runtime")).put("runtimeVersion","1.23.2");write(dir,model+".json",m);
+            human("/models",object("manifestRef",folder+"/"+model+".json","manifestSha256",sha(Files.readAllBytes(dir.resolve(model+".json")))),operator,null);
+            assertThat(human("/models/"+model+"/validations",object("validationProfileId","host-guard-onnx-v1"),operator,null).path("status").asText()).isEqualTo("validated");
+            ObjectNode policy=(ObjectNode)GuardDomainTest.example("decision-policy");String pid=id();policy.put("policyId",pid).put("modelId",model).put("policyVersion",DECISION).put("mode","alert_only").put("protectionSetSha256",hash(PROTECTION)).put("evaluationPlanSha256",bound.getKey());policy.set("supportedCapabilityIds",node(List.of(capability)));
+            human("/decision-policies",policy,operator,null);human("/decision-policies/"+pid+"/reviews",object("decision","approve","reason","冻结计划测试"),reviewer,"1");
+            ObjectNode body=object("modelId",model,"policyId",pid,"featureProfileSha256",contracts.profileHash(),"extractorSha256",m.path("extractorSha256").asText(),"protocolVersions",versions(),"evaluationPlanId",bound.getValue().path("id").asText(),"capabilityIds",List.of(capability),"environment","research");
+            if(bound.getKey().equals(raw))bundles.add(human("/release-bundles",body,operator,null));
+            else assertThat(rejectedHuman("/release-bundles",body,operator,null,422).at("/error/code").asText()).isEqualTo("EVALUATION_PLAN_MISMATCH");
+        }
+        var bundle=store.external("guard_release_bundle",bundles.get(0).path("id").asText(),false);
+        assertThat(json(bundle,"subject_json").path("evaluationPlanSha256").asText()).isEqualTo(raw);
+        assertThat(json(bundle,"subject_json").at("/protocolVersions/evaluation").asText()).isEqualTo("host-guard-evaluation/2026-10-08.1");
+    }
+
     /** B3：CLI 经本机 HTTP 桥进入真实 MVC/鉴权/事务链，制品与报告均在隔离测试目录合成。 */
     @ParameterizedTest
     @ValueSource(booleans={false,true})

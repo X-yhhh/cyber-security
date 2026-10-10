@@ -45,8 +45,10 @@ public class GuardModelRuntime {
         }catch(com.xyh.cybersecurity.common.api.ApiRequestException e){return new Result("failed",null,null,Map.of(),"unavailable",e.code());}
         catch(Exception e){return new Result("failed",null,null,Map.of(),"unavailable","MODEL_UNAVAILABLE");}finally{slots.release();}
     }
+    /** 后端始终以 ORT Java 1.23.2 加载；manifest 记录冻结时的导出/核验运行时，只接受已做 1.23.2 全量对拍的版本（P6 p6-l1-02：1.27.0 对 1.23.2）。 */
+    static final Set<String> VERIFIED_EXPORT_RUNTIMES=Set.of("1.23.2","1.27.0");
     private Loaded load(Map<String,Object> model){String ref=str(model,"manifest_ref");JsonNode manifest=artifacts.json(ref,str(model,"manifest_sha256"));contracts.manifest(manifest);require(manifest.equals(json(model,"manifest_json")),"MODEL_MANIFEST_MISMATCH");
-        require("1.23.2".equals(manifest.at("/runtime/runtimeVersion").asText())&&manifest.at("/runtime/opset").asInt()==17,"MODEL_RUNTIME_UNSUPPORTED");
+        require(VERIFIED_EXPORT_RUNTIMES.contains(manifest.at("/runtime/runtimeVersion").asText())&&manifest.at("/runtime/opset").asInt()==17,"MODEL_RUNTIME_UNSUPPORTED");
         JsonNode preprocessing=artifacts.json(GuardArtifacts.sibling(ref,"preprocessing.json"),text(manifest,"preprocessingSha256"));artifacts.read(GuardArtifacts.sibling(ref,"calibration.json"),text(manifest,"calibrationSha256"),1024*1024);
         require("train".equals(preprocessing.path("fitRole").asText())&&preprocessing.path("vocabularies").isArray()&&preprocessing.path("vocabularies").size()==3,"PREPROCESSING_INVALID");
         var order=new ArrayList<String>();for(JsonNode f:manifest.at("/outputContract/familyScoreOrder"))order.add(f.asText());

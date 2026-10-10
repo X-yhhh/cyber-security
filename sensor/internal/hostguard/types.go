@@ -16,6 +16,10 @@ import (
 const Version = "host-guard/5.0.0-rc.2"
 const ReorderDelay = 100 * time.Millisecond
 
+// FeatureProfileSHA256 是本提取器实现的 docs/contracts/feature-profile.json 原字节 SHA-256。
+// 上传前必须与已批准传感器配置的 profileSha256 一致，不一致则拒绝上传而不是沿用服务端值。
+const FeatureProfileSHA256 = "3bdeb637e46a9fde6192a20e58eacbe56563a9d21339860c54db4907fb8853b5"
+
 type Features struct {
 	ElapsedMs       float64  `json:"elapsedMs"`
 	BytesOutbound   int64    `json:"bytesOutbound"`

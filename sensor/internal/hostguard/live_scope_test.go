@@ -66,3 +66,47 @@ func TestLiveScopeMatchesOnlyRegisteredService(t *testing.T) {
 		}
 	}
 }
+
+// 全入站范围编译真实 BPF：任意对端访问任意本机端口及其回包放行；本机之间、无关第三方和 UDP 拒绝。
+func TestLiveScopeAllInboundTCP(t *testing.T) {
+	l1, l2 := netip.MustParseAddr("192.0.2.1"), netip.MustParseAddr("192.0.2.9")
+	p, q := netip.MustParseAddr("198.51.100.2"), netip.MustParseAddr("203.0.113.7")
+	filter, err := allInboundScopeFilter([]netip.Addr{l1, l2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bpf, err := pcap.NewBPF(layers.LinkTypeEthernet, 65535, filter)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		src, dst netip.Addr
+		sp, dp   uint16
+		proto    uint8
+		allowed  bool
+	}{
+		{p, l1, 40000, 22, 6, true}, {l1, p, 22, 40000, 6, true},
+		{q, l2, 51000, 65000, 6, true}, {l2, q, 65000, 51000, 6, true},
+		{p, l1, 40000, 1, 6, true},
+		{l1, l2, 40000, 80, 6, false}, {p, q, 40000, 80, 6, false},
+		{p, l1, 40000, 53, 17, false},
+	} {
+		frame := synth.Build(synth.Spec{TS: epoch, Src: tc.src, Dst: tc.dst, SPort: tc.sp, DPort: tc.dp, Proto: tc.proto, Flags: synth.SYN}, 65535)
+		if bpf.Matches(gopacket.CaptureInfo{CaptureLength: len(frame.Data), Length: frame.WireLen}, frame.Data) != tc.allowed {
+			t.Fatalf("全入站 BPF 范围错误: %+v", tc)
+		}
+	}
+	six := netip.MustParseAddr("2001:db8::1")
+	if _, err = allInboundScopeFilter([]netip.Addr{six}); err != nil {
+		t.Fatal(err)
+	}
+	many := make([]netip.Addr, MaxAllInboundAddresses+1)
+	for i := range many {
+		many[i] = netip.AddrFrom4([4]byte{192, 0, 2, byte(i + 1)})
+	}
+	for _, bad := range [][]netip.Addr{nil, {{}}, {netip.MustParseAddr("0.0.0.0")}, {netip.MustParseAddr("224.0.0.1")}, {l1, l1}, {netip.MustParseAddr("::ffff:192.0.2.1")}, many} {
+		if _, err := allInboundScopeFilter(bad); err == nil {
+			t.Fatalf("不明确本机范围未拒绝: %v", bad)
+		}
+	}
+}

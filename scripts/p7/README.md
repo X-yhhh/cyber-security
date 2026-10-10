@@ -1,6 +1,6 @@
-# B2 rc.4 策略生成器
+# P7 策略生成与交付包导入
 
-本目录只实现 B2。生成器读取冻结审计、候选层、P4 部署绑定与可选 P6 报告，写出新的 decision-policy JSON；不调用 P4 API、不审批、不激活、不读取 test、不修改旧候选。输出通过 Schema 不代表发布资格或 G3 通过。
+本目录实现 B2 策略生成和 B3 分步导入。B2 生成器读取冻结审计、候选层、P4 部署绑定与可选 P6 报告，写出新的 decision-policy JSON；生成器不调用 P4 API。B3 导入器登记并封存已备好的制品，独立审批在脚本外进行。两个工具均不自动审批、不激活、不读取 test、不修改旧候选。输出通过 Schema 不代表发布资格或 G3 通过。
 
 ## 输入契约
 
@@ -59,4 +59,47 @@ candidate-v2 原研究策略对 rc.4 有 21 个 Schema 错误，计数与完整�
 
 旧 rules-comparison 的规则没有 ruleId/operator，且部分带 servicePorts、minElapsedMs。rc.4 无法表达这些额外条件，不能默认比较符或删条件后宣称原审计有效；必须先明确新规则语义并重新完成 validation 审计。历史类别汇总资格也不能顶替分来源资格。
 
-本次未取得真实完整 P4 部署绑定，也未生成正式候选/发布组合。生成器不从示例、预算硬上限或候选内容猜测 P4 配置，缺真实输入即拒绝。实际导入和能力有效性验证属于后续 B3/P4，不在 B2 中执行。
+本次未取得真实完整 P4 部署绑定，也未生成正式候选/发布组合。生成器不从示例、预算硬上限或候选内容猜测 P4 配置，缺真实输入即拒绝。实际导入和能力有效性验证由 B3/P4 执行，不在 B2 中执行。
+
+## B3 交付包导入
+
+[import_bundle.py](import_bundle.py) 使用现有 v2 API，写入顺序固定为 models → validations → evaluation-plans → capabilities → decision-policies。策略处于 draft 时原子保存状态并退出；另一身份在 `/decision-policies/{id}/reviews` 手动审查后，以 `--resume-state` 继续 release-bundles → imports → sealings。封存完成后再次退出，发布包 decisions 和 activations 始终由外部人工流程负责，脚本没有这些调用。
+
+导入身份须具备 model.manage、model.validate、evaluation.run、bundle.request、policy.draft 和相关 resource.read/evaluation.read 权限。Cookie 和 CSRF token 必须属于同一已登录会话，通过私有文件传递；不要把凭据放入清单、命令行或 Git。恢复时会话失效须重新登录并更新凭据文件，不得跳过鉴权。
+
+首次清单的完整结构见 [合成模板](testdata/import-bundle-plan.json)。该模板包含占位哈希和合成身份，不能直接用于真实导入；集成测试会在隔离目录中生成匹配的 ONNX、manifest 和签名报告。datasetRefs 须引用已登记数据集，实际制品预置于后端 `cyber.guard.artifact-root`，脚本只提交相对引用及 SHA-256，不上传、加载或执行任意序列化对象。
+
+清单支持完整字符串形式的 `${modelId}`、`${evaluationPlanId}`、`${evaluationPlanSha256}`、`${capabilityId}`、`${policyId}` 引用。评价计划及策略使用 RFC8785 摘要；manifest/ONNX/报告使用后端核验的原字节摘要。模型登记后回读 manifest 摘要，验证后核对 artifactSha256；能力回读 payload 与请求逐项一致；策略核对 definitionSha256，恢复时再次核对；发布组合独立计算 subjectSha256；导入报告回读 reportSha256；最终独立计算 sealedManifestSha256。任何非 2xx、状态或摘要不符均立即停止。
+
+~~~sh
+sh executor/python.sh -B scripts/p7/import_bundle.py \
+  --base-url http://127.0.0.1:8080/api/v2 \
+  --cookie-file "$P7_COOKIE_FILE" --csrf-file "$P7_CSRF_FILE" \
+  --plan "$P7_IMPORT_PLAN" --state "$P7_IMPORT_STATE"
+
+# 外部独立审查完成后，由导入身份继续。
+sh executor/python.sh -B scripts/p7/import_bundle.py \
+  --base-url http://127.0.0.1:8080/api/v2 \
+  --cookie-file "$P7_COOKIE_FILE" --csrf-file "$P7_CSRF_FILE" \
+  --resume-state "$P7_IMPORT_STATE" --reports "$P7_REPORT_REFS"
+~~~
+
+能力 UUID 在首次登记后产生，外部 runner 须以状态文件中的实际组合签发报告。`--reports` 文件仅包含 `{"imports":[{"reportRef":"...","sha256":"...","runnerIdentity":"..."}]}`，显式替代初始清单的报告引用；不提供时沿用原 imports。导入器不伪造报告、签名或评价结果。
+
+状态文件不含会话秘密，记录本次清单和已收到的对象 ID，首次运行拒绝覆盖既有文件。只有 awaiting-policy-review 阶段允许恢复；prepare/importing-reports 表示流程未完整核验，须先根据记录核对后端事实，不能直接重跑制造重复对象。网络超时不代表服务端回滚，脚本不自动重试、清理或补审批。
+
+验证命令（需已配置隔离 MySQL/RabbitMQ 测试变量和 JDK 25）：
+
+~~~sh
+sh executor/python.sh -B -m unittest scripts/p7/test_import_bundle.py
+P7_IMPORT_IT_ENABLED=true P7_PYTHON_WRAPPER="$PWD/executor/python.sh" \
+  mvn -f backend/pom.xml verify
+~~~
+
+`GuardIntegrationTest` 的 B3 用例由 P7_IMPORT_IT_ENABLED 显式开启：Python CLI 经回环 HTTP 桥进入真实 Spring MVC、安全过滤器和 MySQL 事务，覆盖完整合成导入、越权、跳步、哈希不符、策略/发布包自审拒绝。该测试不会执行真实防火墙或激活发布组合。隔离 worktree 可通过 P7_PYTHON_WRAPPER 复用已安装依赖的包装器，无需复制虚拟环境。
+
+## B4 research 回放会话
+
+`POST /api/v2/replay-runs` 已提供 research 会话登记，返回 202/queued；GET 列表与详情读取同一事实。只接受 scenarioId、scenarioSha256、modelId、policyId、speed，speed 固定为 1，服务端选择同模型/策略的 approved research 发布包。未批准、lab/authorized 组合和所有未知字段一律拒绝；列表也拒绝 assetId 过滤。幂等重试只返回原会话，不重复登记。
+
+V23 的 guard_replay_run 不保存资产、授权、执行器或 targetRef，不向执行器派发命令。当前 queued 只表示请求已登记，尚未接入场景读取、回放调度、进度和结果生成，不代表场景已运行；J1 后续需接入离线 runner。`/lab-validation-runs` 仍留待下一阶段，本次没有真实 lab 动作或 G3 验收。

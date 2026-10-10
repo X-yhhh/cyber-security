@@ -7,7 +7,7 @@ import java.sql.*;
 import java.util.UUID;
 import static org.assertj.core.api.Assertions.*;
 
-/** 在独立 MySQL 8 schema 验证 V20→V22 升级、历史校验和、原账号及既有能力行的保留。 */
+/** 在独立 MySQL 8 schema 验证 V20→V23 升级、历史校验和、原账号及既有能力行的保留。 */
 @EnabledIfEnvironmentVariable(named="DB_TEST_BASE_URL",matches=".+")
 class GuardMigrationIntegrationTest {
     @Test void migrationPreservesPriorSchemaAndEnforcesGuardConstraints() throws Exception {
@@ -25,8 +25,8 @@ class GuardMigrationIntegrationTest {
             try(var c=DriverManager.getConnection(url,user,pass);var st=c.createStatement()){
                 try(var r=st.executeQuery("SELECT VERSION()")){r.next();assertThat(r.getString(1)).startsWith("8.");}
                 try(var r=st.executeQuery("SELECT password_hash FROM sys_user WHERE user_key='p4-preserved'")){r.next();assertThat(r.getString(1)).isEqualTo("not-a-real-password-hash");}
-                try(var r=st.executeQuery("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name LIKE 'guard_%'")){r.next();assertThat(r.getInt(1)).isEqualTo(38);}
-                try(var r=st.executeQuery("SELECT COUNT(*) FROM flyway_schema_history WHERE success=1")){r.next();assertThat(r.getInt(1)).isEqualTo(22);}
+                try(var r=st.executeQuery("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name LIKE 'guard_%'")){r.next();assertThat(r.getInt(1)).isEqualTo(39);}
+                try(var r=st.executeQuery("SELECT COUNT(*) FROM flyway_schema_history WHERE success=1")){r.next();assertThat(r.getInt(1)).isEqualTo(23);}
                 // V22 前登记的能力只能是单服务范围，不因迁移获得全入站资格。
                 try(var r=st.executeQuery("SELECT scope,protection_set_sha256,exemption_evidence_sha256 FROM guard_capability WHERE capability_key='pre-v22'")){r.next();assertThat(r.getString(1)).isEqualTo("peer_service");assertThat(r.getString(2)).isNull();assertThat(r.getString(3)).isNull();}
                 assertThatThrownBy(()->st.execute("UPDATE guard_capability SET scope='peer_inbound' WHERE capability_key='pre-v22'")).hasMessageContaining("ck_guard_capability_scope");

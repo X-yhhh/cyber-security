@@ -88,4 +88,21 @@ public class GuardCatalog {
             var row=store.add("guard_asset_binding",map("asset_id",aid,"bundle_id",bundle.get("id"),"authorization_id",auth.get("id"),"authorization_revision",auth.get("revision"),"status","active","activated_by",access.human()));ids.add(str(row,"public_id"));store.audit(access.human(),"guard.bundle.activated",id,aid,null,b);
         }
         bundle=store.external("guard_release_bundle",id,true);access.revision(bundle,revision);store.update("guard_release_bundle",number(bundle,"id"),map("status","active","revision",number(bundle,"revision")+1));return object("id",id,"bindingIds",ids,"status","active","revision",number(bundle,"revision")+1);}
+
+    /** 研究回放只接受固定一倍速和已批准 research 包；请求字段中不得出现任何真实目标引用。 */
+    public JsonNode replayRun(JsonNode b){
+        access.permission("evaluation.run",null);
+        fields(b,"scenarioId scenarioSha256 modelId policyId speed","");
+        String scenario=uuid(b,"scenarioId"), scenarioSha=digest(b,"scenarioSha256");
+        require(b.path("speed").isNumber()&&Double.compare(b.path("speed").doubleValue(),1.0)==0,"REPLAY_SPEED_FIXED");
+        String modelId=uuid(b,"modelId"), policyId=uuid(b,"policyId");
+        var model=store.external("guard_model",modelId,false);var policy=store.external("guard_decision_policy",policyId,false);
+        var bundle=store.one("guard_release_bundle",map("model_id",model.get("id"),"policy_id",policy.get("id"),"environment","research","status","approved"),true);
+        require(bundle!=null,"REPLAY_BUNDLE_NOT_APPROVED");
+        require("validated".equals(str(model,"validation_status"))&&"reviewed".equals(str(policy,"status")),"REPLAY_BUNDLE_NOT_APPROVED");
+        var payload=object("scenarioId",scenario,"scenarioSha256",scenarioSha,"modelId",modelId,"policyId",policyId,"speed",1);
+        var row=store.add("guard_replay_run",map("scenario_id",scenario,"scenario_sha256",scenarioSha,"model_id",model.get("id"),"policy_id",policy.get("id"),"bundle_id",bundle.get("id"),"speed",1.0,"status","queued","requested_by",access.human(),"payload_json",canonical(payload),"content_sha256",hash(payload)));
+        store.audit(access.human(),"guard.replay.requested",str(row,"public_id"),null,null,payload);
+        return object("id",row.get("public_id"),"status","queued","speed",1,"bundleId",bundle.get("public_id"));
+    }
 }

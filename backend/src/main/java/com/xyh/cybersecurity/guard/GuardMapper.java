@@ -55,6 +55,7 @@ public interface GuardMapper {
             COLUMNS.put("guard_release_bundle",Set.of("id","public_id","created_at","bundle_key","version","model_id","policy_id","contract_id","plan_id","environment","subject_sha256","subject_json","sealed_manifest_sha256","sealed_manifest_json","status","requested_by","approved_by","revision"));
             COLUMNS.put("guard_bundle_capability",Set.of("id","public_id","created_at","bundle_id","capability_id"));
             COLUMNS.put("guard_evaluation_run",Set.of("id","public_id","created_at","plan_id","bundle_id","run_kind","runner_identity","status","report_ref","report_sha256","payload_json"));
+            COLUMNS.put("guard_replay_run",Set.of("id","public_id","created_at","scenario_id","scenario_sha256","model_id","policy_id","bundle_id","speed","status","requested_by","payload_json","content_sha256"));
             COLUMNS.put("guard_asset_binding",Set.of("id","public_id","created_at","asset_id","bundle_id","authorization_id","authorization_revision","status","activated_by","revision","active_asset"));
             COLUMNS.put("guard_capture_scope",Set.of("id","public_id","created_at","asset_id","sensor_id","scope_key","address_family","config_id","status","active_asset"));
             COLUMNS.put("guard_observation_batch",Set.of("id","public_id","created_at","sensor_id","asset_id","boot_id","sequence_no","config_id","request_sha256","result_json"));

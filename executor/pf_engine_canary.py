@@ -20,9 +20,14 @@ from .canary_targets import CanaryTargets
 from .canary_control import CanaryControl
 
 
-SCENARIOS = ("ttl", "revoke", "before_ledger", "after_ledger", "after_install", "parallel", "reject",
-             "disconnect", "receipt_loss", "asset_limit", "rate_limit", "renewal_limit",
-             "revoked_authorization", "expired_authorization")
+BASE_SCENARIOS = ("ttl", "revoke", "before_ledger", "after_ledger", "after_install", "parallel", "reject",
+                  "disconnect", "receipt_loss", "asset_limit", "rate_limit", "renewal_limit",
+                  "revoked_authorization", "expired_authorization")
+# E2 五组撤销/续封组合的真实 PF 版本；断言与 test_engine.RenewalCases 一致，时钟与规则均为真实。
+E2_SCENARIOS = ("e2_simultaneous_revoke_renewal", "e2_revoke_then_renewal", "e2_duplicate_renewal",
+                "e2_over_budget_renewal", "e2_different_targets_revoke")
+SCENARIOS = BASE_SCENARIOS + E2_SCENARIOS
+E2_LIMITS = {"e2_over_budget_renewal": {"maxContinuousBlockSeconds": 8}}
 
 
 class LoopbackResolver:
@@ -114,14 +119,15 @@ def run(config_path, signing_key, key_id, output, mode="peer_service", guardtarg
             except OSError:
                 return False
 
-    def command(peer_port):
+    def command(peer_port, scope=None):
+        scope = scope or mode
         now = time.time()
         payload = {k: config[k] for k in ("assetId", "executorId", "sensorId", "captureScopeId", "environment")}
         payload.update(contractVersion="host-guard/5.0.0-rc.3", executorBootId=engine.boot,
                        commandId=ident(), actionId=ident(), idempotencyKey=ident(),
                        bootId=ident(), targetRef=ident(), peerKey="a" * 64, keyEpoch=1,
-                       actionType="temporary_block", scope=mode, addressFamily="ipv4",
-                       direction="inbound", transport="tcp", servicePort=None if mode == "peer_inbound" else port,
+                       actionType="temporary_block", scope=scope, addressFamily="ipv4",
+                       direction="inbound", transport="tcp", servicePort=None if scope == "peer_inbound" else port,
                        capabilityId=config["capabilityIds"][0], bundleId=config["bundleIds"][0],
                        policySha256=config["policyHashes"][0], evidenceSha256="b" * 64,
                        authorizationId=config["authorization"]["id"],
@@ -129,7 +135,7 @@ def run(config_path, signing_key, key_id, output, mode="peer_service", guardtarg
                        issuedAt=stamp(now), applyBy=stamp(now + 2), blockUntil=stamp(now + 5),
                        leaseExpiresAt=stamp(now + 10))
         if targets is not None:
-            binding, registered = targets.lease(mode, port, peer_port)
+            binding, registered = targets.lease(scope, port, peer_port)
             payload.update(bootId=binding["bootId"], targetRef=binding["targetRef"])
             report["targetBinding"] = registered
             # 服务冷启动的等待不消费命令 applyBy 窗口，引用本身仍使用原期限。
@@ -148,6 +154,128 @@ def run(config_path, signing_key, key_id, output, mode="peer_service", guardtarg
             return engine.accept(envelope)
         except Rejected as exc:
             return str(exc)
+
+    def revoke(p):
+        try:
+            engine.revoke({"revocationId": ident(), "actionId": p["actionId"], "commandId": p["commandId"],
+                           "executorId": p["executorId"], "assetId": p["assetId"], "environment": p["environment"],
+                           "desiredRevision": 1, "issuedAt": stamp(time.time()), "reasonCode": "USER_REVOKED"})
+        except Rejected as exc:
+            return str(exc)
+        return None
+
+    def parallel(*operations):
+        gate = threading.Barrier(len(operations))
+
+        def invoke(operation):
+            gate.wait(timeout=5)
+            return operation()
+        with ThreadPoolExecutor(max_workers=len(operations)) as pool:
+            return list(pool.map(invoke, operations))
+
+    def settle(command_ids, statuses, seconds=10):
+        """等独立恢复器或撤销清理到终态；真实 TTL 由恢复器执行，不由本函数清规则。"""
+        end = time.monotonic() + seconds
+        while time.monotonic() < end:
+            require(recovery.poll() is None, "RECOVERY_PENDING")
+            rows = [engine.store.command(i) for i in command_ids]
+            if not engine.adapter.inventory() and all(r["status"] in statuses for r in rows):
+                return True
+            time.sleep(.1)
+        return False
+
+    def e2(combination, first):
+        """E2 五组组合：每个检查点核对物理规则数、已计费动作数与累计秒数单调、租约与截止不变。"""
+        trace, fixed, state = [], {}, {"actions": 0, "seconds": 0.0, "passed": True, "maxRules": 0}
+        sampling = threading.Event()
+
+        def sample():
+            # 并发安装/清理期间的瞬时读取失败只跳过本次采样；规则数断言仍由各检查点承担。
+            while not sampling.is_set():
+                try:
+                    state["maxRules"] = max(state["maxRules"], len(engine.adapter.inventory()))
+                except Exception:
+                    state["sampleErrors"] = state.get("sampleErrors", 0) + 1
+                sampling.wait(.02)
+
+        def check(stage, rules, actions, **facts):
+            rows = [r for r in engine.store.commands() if r["token"] is not None]
+            seconds = round(sum(instant(r["payload"]["blockUntil"]) - r["created"] for r in rows), 3)
+            stable = True
+            for row in rows:
+                p = row["payload"]
+                value = [row["deadline"], p["blockUntil"], p["leaseExpiresAt"]]
+                stable = stable and instant(p["blockUntil"]) <= instant(p["leaseExpiresAt"])
+                stable = stable and fixed.setdefault(p["commandId"], value) == value
+            live = len([r for r in rows if r["status"] not in ("revoked", "expired", "rejected")])
+            entry = {"stage": stage, "rules": len(engine.adapter.inventory()), "actions": len(rows),
+                     "seconds": seconds, "live": live, "expectedRules": rules, "expectedActions": actions,
+                     "deadlinesStable": stable, **facts}
+            entry["monotonic"] = len(rows) >= state["actions"] and seconds >= state["seconds"]
+            entry["passed"] = (entry["rules"] == rules and len(rows) == actions and live == rules and stable
+                               and entry["monotonic"] and all(facts.values()))
+            state.update(actions=len(rows), seconds=seconds, passed=state["passed"] and entry["passed"])
+            trace.append(entry)
+            if checkpoint is not None:
+                checkpoint(combination + "_" + stage)
+
+        peer = first["payload"]
+        sampler = threading.Thread(target=sample, daemon=True)
+        sampler.start()
+        try:
+            check("start", 0, 0)
+            check("installed", 1, 1, applied=submit(first) == "applied", blocked=not probe(port))
+            if combination == "e2_simultaneous_revoke_renewal":
+                renewal = command(55003)
+                outcomes = parallel(lambda: revoke(peer), lambda: submit(renewal))
+                check("revoked", 0, 1, revokeAccepted=outcomes[0] is None,
+                      renewalRejected=outcomes[1] in ("TARGET_BUDGET_BUSY", "TARGET_REVOKED"),
+                      settled=settle([peer["commandId"]], ("revoked",)),
+                      laterRenewal=submit(command(55003)) == "TARGET_REVOKED")
+            elif combination == "e2_revoke_then_renewal":
+                check("revoked", 0, 1, revokeAccepted=revoke(peer) is None,
+                      settled=settle([peer["commandId"]], ("revoked",)))
+                check("renewal_rejected", 0, 1, renewal=submit(command(55003)) == "TARGET_REVOKED")
+            elif combination == "e2_duplicate_renewal":
+                check("expired", 0, 1, settled=settle([peer["commandId"]], ("expired",)))
+                renewal = command(55003)
+                check("renewed", 1, 2, bothApplied=parallel(lambda: submit(renewal), lambda: submit(renewal))
+                      == ["applied"] * 2)
+                time.sleep(1)
+                changed = sign({**renewal["payload"],
+                                "blockUntil": stamp(instant(renewal["payload"]["blockUntil"]) + 2)})
+                check("duplicate", 1, 2, sameApplied=submit(renewal) == "applied",
+                      conflict=submit(changed) == "IDEMPOTENCY_CONFLICT")
+                check("renewal_expired", 0, 2, settled=settle([renewal["payload"]["commandId"]], ("expired",)))
+            elif combination == "e2_over_budget_renewal":
+                check("busy", 1, 1, renewal=submit(command(55003)) == "TARGET_BUDGET_BUSY")
+                settled = settle([peer["commandId"]], ("expired",))
+                row = engine.store.command(peer["commandId"])
+                check("expired", 0, 1, settled=settled,
+                      originalDeadline=row["clearedAt"] is not None and
+                      row["clearedAt"] <= instant(peer["blockUntil"]) + 1)
+                check("over_budget", 0, 1, renewal=submit(command(55003)) == "TARGET_CONTINUOUS_BUDGET")
+            elif combination == "e2_different_targets_revoke":
+                second = command(55004, "peer_service")
+                applied = submit(second) == "applied"
+                distinct = engine.store.command(peer["commandId"])["token"] != \
+                    (engine.store.command(second["payload"]["commandId"]) or {}).get("token")
+                check("second_installed", 2, 2, applied=applied, distinctBudgetTargets=distinct)
+                outcomes = parallel(lambda: revoke(peer), lambda: revoke(second["payload"]))
+                ids = [peer["commandId"], second["payload"]["commandId"]]
+                check("revoked", 0, 2, bothAccepted=outcomes == [None, None],
+                      settled=settle(ids, ("revoked",)))
+                check("terminal", 0, 2, firstTerminal=submit(first) == "revoked",
+                      secondTerminal=submit(second) == "revoked")
+            else:
+                raise Rejected("CANARY_SCENARIO_INVALID")
+        finally:
+            sampling.set()
+            sampler.join(1)
+        limit = 2 if combination == "e2_different_targets_revoke" else 1
+        return {"combination": combination, "trace": trace, "maxRules": state["maxRules"],
+                "sampleErrors": state.get("sampleErrors", 0),
+                "passed": state["passed"] and state["maxRules"] <= limit}
 
     with ExitStack() as stack:
         stack.enter_context(engine.store.lock("run", blocking=False))
@@ -247,6 +375,17 @@ def run(config_path, signing_key, key_id, output, mode="peer_service", guardtarg
                     report["finalState"] = engine.snapshot()
                     require(report["passed"], "CANARY_REJECTION_FAILED")
                     return
+                if scenario in E2_SCENARIOS:
+                    require(targets is not None, "CANARY_REAL_TARGET_REQUIRED")
+                    report["e2"] = e2(scenario, signed)
+                    report["after"] = {"rulesEmpty": not engine.adapter.inventory(), "target": probe(port),
+                                       "control": probe(port + 1)}
+                    report["passed"] = report["e2"]["passed"] and all(report["after"].values())
+                    report["finalState"] = engine.snapshot()
+                    if checkpoint is not None:
+                        checkpoint(scenario + "_recovered")
+                    require(report["passed"], "CANARY_E2_FAILED")
+                    return
                 require(engine.accept(signed) == "applied", "CANARY_APPLY_FAILED")
                 if checkpoint is not None:
                     checkpoint("installed")
@@ -292,8 +431,11 @@ def run(config_path, signing_key, key_id, output, mode="peer_service", guardtarg
                 updated = engine.store.root / "updated-config.json"
                 write_new(updated, canonical(changed))
                 os.replace(updated, config_path)
+                # 独立恢复器先删规则再写账本；须同时等到两者收敛，不能只看规则已空就读状态。
                 deadline = time.monotonic() + 2
-                while time.monotonic() < deadline and engine.adapter.inventory():
+                while time.monotonic() < deadline and (
+                        engine.adapter.inventory() or
+                        engine.store.command(signed["payload"]["commandId"])["status"] != "uncertain"):
                     time.sleep(.05)
                 row = engine.store.command(signed["payload"]["commandId"])
                 report["authorizationCleanup"] = not engine.adapter.inventory() and row["status"] == "uncertain"

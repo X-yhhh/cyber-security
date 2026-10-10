@@ -115,5 +115,16 @@ class SessionCleanupTest(unittest.TestCase):
         self.assertEqual(self.calls, [])
 
 
+class OwnedRulesTest(unittest.TestCase):
+    def test_empty_retained_child_anchors_are_not_rules(self):
+        empty = b'anchor "64f3f61b-73ff-48d5-aead-3ec10be523ee" all {\n}\n'
+        self.assertFalse(pf_session.owned_rules_remain(b""))
+        self.assertFalse(pf_session.owned_rules_remain(empty * 2))
+        rule = b'anchor "64f3f61b-73ff-48d5-aead-3ec10be523ee" all {\n  block drop quick on lo0 inet proto tcp from 127.0.0.2 to 127.0.0.1\n}\n'
+        self.assertTrue(pf_session.owned_rules_remain(rule))
+        self.assertTrue(pf_session.owned_rules_remain(b'anchor "other" all {\n}\n'))
+        self.assertTrue(pf_session.owned_rules_remain(b'block drop all\n'))
+
+
 if __name__ == "__main__":
     unittest.main()

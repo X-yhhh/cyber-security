@@ -24,7 +24,9 @@ import time
 import uuid
 
 PF='/sbin/pfctl'
-PF_SHA256='b9d584580d258388079890bf3a1436a899b8b2d29ccab08e101ad9675a960962'
+# 已核对 DIOCKILLSTATES 实参的 pfctl 字节；ad886b… 为 2026-10-08 系统更新后版本（静态证据见 pf_abi_evidence.py）。
+PF_SHA256S=frozenset({'b9d584580d258388079890bf3a1436a899b8b2d29ccab08e101ad9675a960962',
+                      'ad886b1eb52f3aae6e14a06471fb3a41f01c96f41890c461833c6cc4d7f32743'})
 
 
 def run(args,timeout=8):
@@ -159,7 +161,7 @@ def probe(args):
     expected='scrub-anchor "com.apple/*" all fragment reassemble\nanchor "com.apple/*" all\n'
     if 'Status: Disabled' not in info or not re.search(r'current entries\s+0\b',info) or root!=expected:
         raise RuntimeError('P1_REQUIRES_UNCHANGED_DISABLED_BASELINE')
-    if hashlib.sha256(Path(PF).read_bytes()).hexdigest()!=PF_SHA256:raise RuntimeError('PFCTL_ABI_IDENTITY_CHANGED')
+    if hashlib.sha256(Path(PF).read_bytes()).hexdigest() not in PF_SHA256S:raise RuntimeError('PFCTL_ABI_IDENTITY_CHANGED')
     abi,_=run([str(args.helper.resolve()),'--abi'])
     if not json.loads(abi)['kernelMatches']:raise RuntimeError('KERNEL_NOT_VERIFIED')
     ident=uuid.uuid4().hex[:12];anchor='hostguard/p1-'+ident

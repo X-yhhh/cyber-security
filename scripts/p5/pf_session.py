@@ -1,5 +1,6 @@
 """A4 后显式 root 运行的单轮 PF 会话；只挂接专用 anchor 并释放本轮 enable token。"""
 from contextlib import contextmanager
+import hashlib
 import os
 from pathlib import Path
 import re
@@ -8,6 +9,17 @@ import sys
 from executor.common import canonical, parse, require, write_new
 from executor.pf_lab import USER_ANCHOR, command, existing_rules, read_rules
 from executor.platform import PF
+
+
+EMPTY_CHILD = re.compile(r'anchor "[0-9a-f-]{36}" all \{\n\}\n')
+
+
+def owned_rules_remain(text):
+    """`-a <根>/* -sr` 会递归列出子 anchor；PF 保留的空命令子 anchor 输出为 `anchor "<id>" all {` 与 `}`。
+
+    只把这种空壳视为无规则；任何规则行、非命令 ID 子 anchor 或嵌套内容都算残留。
+    """
+    return bool(EMPTY_CHILD.sub("", text.decode() if isinstance(text, bytes) else text).strip())
 
 
 @contextmanager
@@ -24,7 +36,7 @@ def session(directory, executor_id, authorization):
     existing_rules(original, user)
     require("inet 127.0.0.2 " not in command(["/sbin/ifconfig", "lo0"])[0], "LAB_ALIAS_ALREADY_PRESENT")
     anchor = PF.anchor_root(executor_id)
-    require(not read_rules(anchor + "/*"), "LAB_ANCHOR_NOT_EMPTY")
+    require(not owned_rules_remain(read_rules(anchor + "/*")), "LAB_ANCHOR_NOT_EMPTY")
     helper = directory / "pf-state-helper"
     source = Path(__file__).resolve().parents[2] / "executor/pf_state_helper.c"
     command(["/usr/bin/clang", "-O2", "-Wall", "-Wextra", "-Werror", str(source), "-o", str(helper)])
@@ -53,9 +65,16 @@ def session(directory, executor_id, authorization):
             require(read_rules() == attached and read_rules(USER_ANCHOR) == user and
                     read_rules("com.apple/*") == apple, "LAB_USER_RULES_CHANGED")
         check()
-        yield helper, check, facts
+        try:
+            yield helper, check, facts
+        except BaseException as exc:
+            # 保留会话内的原始失败；否则最终的会话失败码会掩盖真实原因。
+            facts["bodyError"] = str(exc) if exc.__class__.__name__ == "Rejected" else exc.__class__.__name__
+            raise
         check()
-        require(not read_rules(anchor + "/*"), "LAB_OWNED_RULES_REMAIN")
+        remaining = read_rules(anchor + "/*")
+        facts["ownedAnchorListingSha256"] = hashlib.sha256(remaining).hexdigest()
+        require(not owned_rules_remain(remaining), "LAB_OWNED_RULES_REMAIN")
         facts["passed"] = True
     finally:
         operations = []

@@ -1,6 +1,6 @@
 # E3 联合链路准备与 B6 lab 配置
 
-本目录只准备 Mac 回环联合环境，不切换现有服务，不执行业务库 V22，不部署常驻恢复器。真实 PF、sudo、lo0 别名操作须每轮 A4 单独授权；本次任务仅验证无权限演练。模型、能力及签名评价报告均为合成夹具，不能用于 G3、发布资格或生产能力声明。
+本目录准备 Mac 回环联合环境，不切换现有服务，不部署常驻恢复器。真实 PF、sudo、lo0 别名操作须每轮 A4 单独授权。任务 2 的无权限演练中，模型、能力及签名评价报告均为合成夹具，不能用于 G3、发布资格或生产能力声明；2026-10-10 T3.8b 的真实运行方式见文末“root 暂存副本运行”。
 
 ## 入口与前置条件
 
@@ -97,3 +97,14 @@ bash executor/python.sh -m unittest discover -s scripts/p5 -p 'test_*.py'
 ```
 
 本次准备不等于 E1—E3 全部真实验收、P5 出口、G3 或生产发布；A5 业务库 V22、现有服务切换和 Windows/WFP 均保持未执行。
+
+## root 暂存副本运行（T3.8b）
+
+真实 PF 只由 root 运行 root 所有、逐文件核对过的副本，后端、Maven 与 JUnit 始终以普通用户运行（`orchestrate.py --mode pf` 以 root 运行会被拒绝）。
+
+1. 用户态打包：`lab_stage.py` 把已提交代码、解释器、依赖和 `guardtargets` 冻结为带逐文件 SHA 的暂存包，得到清单 SHA；授权时同时给出该 SHA。
+2. root 启动：把暂存包内的 `scripts/p5/lab_root_launch.py` 复制到 root 所有的 0700 目录，核对其 SHA 后用 `/usr/bin/python3 -I` 执行。任务只有 `p1-probe`、`e1e2-lab`、`e3-executor`；启动器在 `/private/var/root/hostguard-lab/<runId>` 复制并核对暂存包，以最小环境运行，结束后把证据副本（剔除密钥）交给 `--owner-uid`。子任务超时记为退出码 124 并照常交回证据。
+3. E3 单轮：用户侧 `orchestrate.py --mode pf --scope … --scenario …` 运行后端与 JUnit，JUnit 经 `joint_relay.py` 建立两条命名管道；root 侧 `e3-executor` 等待管道后运行 `joint_executor.py`，只读取用户目录中数据文件的副本，管道和输入都按打开后的 fd 核对类型与属主。`--ready-marker` 在副本核验后创建，用户侧据此再启动后端。
+4. 签名报告：`platform_report.py` 只接受真实证据——`--lab-run` 为 `e1e2-lab` 证据副本，`--e3-summary` 为 `orchestrate.py --mode pf` 汇总，`--e3-launch` 为对应各轮 `e3-executor` 证据副本。每条汇总场景都须有同一运行目录、退出码 0、root 侧 `result.json` 为 `realPF=true` 的启动记录，否则以 `REPORT_E3_ROOT_EVIDENCE_MISSING` 等错误拒绝。私钥须在仓库外且权限 0600。
+
+T3.8b 的执行记录与证据位置见 [后续实施计划](../../docs/后续实施计划.md#t3-冻结准备mac零拟合)。

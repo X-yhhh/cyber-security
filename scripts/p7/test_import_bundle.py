@@ -251,6 +251,58 @@ class ImportBundleTest(unittest.TestCase):
             MODULE.prepare(self.api, self.plan, self.state)
         self.assertNotIn(("POST", "/decision-policies"), FakeApi.requests)
 
+    def test_frozen_plan_reference_uses_declared_raw_digest(self) -> None:
+        FakeApi.plan_hash = "9" * 64
+        self.plan["evaluationPlan"] = {"planRef": "frozen/evaluation-plan.json", "planSha256": "9" * 64}
+        MODULE.prepare(self.api, self.plan, self.state)
+        self.assertEqual(MODULE.load(self.state)["evaluationPlanSha256"], "9" * 64)
+        for extra in ({"planKey": "inline"}, {}):
+            plan = json.loads(json.dumps(self.plan))
+            plan["evaluationPlan"] = {"planRef": "frozen/evaluation-plan.json", "planSha256": "9" * 64, **extra} if extra else {"planRef": "frozen/evaluation-plan.json"}
+            with self.assertRaises((MODULE.ImportFailure, KeyError)):
+                MODULE.prepare(self.api, plan, self.root / "other.json")
+
+    def reuse_model_and_plan(self) -> None:
+        model_id, plan_id = "a1000000-0000-4000-8000-000000000001", "a1000000-0000-4000-8000-000000000002"
+        FakeApi.resources[f"/models/{model_id}"] = {"id": model_id, "manifestSha256": "a" * 64, "validationStatus": "validated", "artifactSha256": "f" * 64,
+            "manifest": {"modelId": model_id, "artifactSha256": "f" * 64, "evaluationPlanSha256": FakeApi.plan_hash, "contractVersion": "host-guard/5.0.0-rc.3"}}
+        FakeApi.resources[f"/evaluation-plans/{plan_id}"] = {"id": plan_id, "planSha256": FakeApi.plan_hash}
+        self.plan["existingModel"] = {"id": model_id, "manifestSha256": "a" * 64}
+        self.plan["existingEvaluationPlan"] = {"id": plan_id, "planSha256": FakeApi.plan_hash}
+        del self.plan["model"], self.plan["validation"], self.plan["evaluationPlan"]
+        FakeApi.resources["/decision-policies/policy-id"] = {}
+        return model_id
+
+    def test_reuses_validated_model_and_plan_without_registration(self) -> None:
+        model_id = self.reuse_model_and_plan()
+        MODULE.prepare(self.api, self.plan, self.state)
+        self.assertEqual([path for method, path in FakeApi.requests if method == "POST"], ["/capabilities", "/decision-policies"])
+        self.assertEqual(MODULE.load(self.state)["modelId"], model_id)
+
+    def test_unvalidated_or_drifted_reuse_stops_before_any_write(self) -> None:
+        model_id = self.reuse_model_and_plan()
+        for path, change in ((f"/models/{model_id}", {"validationStatus": "pending"}), (f"/models/{model_id}", {"manifestSha256": "0" * 64}),
+                             (f"/evaluation-plans/{self.plan['existingEvaluationPlan']['id']}", {"planSha256": "0" * 64})):
+            original = dict(FakeApi.resources[path])
+            FakeApi.resources[path].update(change)
+            with self.assertRaises(MODULE.ImportFailure):
+                MODULE.prepare(self.api, self.plan, self.state)
+            FakeApi.resources[path] = original
+        self.assertFalse(any(method == "POST" for method, _ in FakeApi.requests))
+        both = json.loads(json.dumps(self.plan))
+        both["model"] = {"manifestRef": "x", "manifestSha256": "a" * 64}
+        with self.assertRaises(MODULE.ImportFailure):
+            MODULE.prepare(self.api, both, self.state)
+
+    def test_null_sealing_stops_after_reports_without_sealing(self) -> None:
+        self.plan["sealing"] = None
+        MODULE.prepare(self.api, self.plan, self.state)
+        FakeApi.policy_status = "reviewed"
+        MODULE.resume(self.api, self.state)
+        self.assertEqual([path for method, path in FakeApi.requests if method == "POST"][-2:], ["/release-bundles", "/release-bundles/bundle-id/imports"])
+        self.assertFalse(any(path.endswith("/sealings") for _, path in FakeApi.requests))
+        self.assertEqual(MODULE.load(self.state)["phase"], "awaiting-joint-evaluations")
+
 
 if __name__ == "__main__":
     unittest.main()

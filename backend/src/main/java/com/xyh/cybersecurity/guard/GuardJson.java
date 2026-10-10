@@ -24,7 +24,9 @@ public final class GuardJson {
     /** 2026-10-08.1：模型来源须 familyPolicies[].modelAutoEligible=true 才进入自动路径；旧版本策略不再可激活。 */
     public static final String DECISION = "host-guard-decision/2026-10-08.1";
     public static final String HEALTH = "host-guard-capture-health/1.0.0";
-    public static final String EVALUATION = "host-guard-evaluation/2026-10-07.1";
+    /** 第二轮候选按 2026-10-08.1 评价（单对端准入、按来源资格）；2026-10-07.1 只解释 candidate-v2，仅平台能力报告仍可携带。 */
+    public static final String EVALUATION = "host-guard-evaluation/2026-10-08.1";
+    public static final String LEGACY_PLATFORM_EVALUATION = "host-guard-evaluation/2026-10-07.1";
     private GuardJson() { }
     public static ApiRequestException error(int status, String code) {
         return new ApiRequestException(HttpStatus.valueOf(status), code, "请求不满足 v2 契约：" + code);
@@ -84,6 +86,12 @@ public final class GuardJson {
         fields(n,"observation decision evaluation health","");
         require(CONTRACT.equals(n.path("observation").asText())&&DECISION.equals(n.path("decision").asText())
                 &&EVALUATION.equals(n.path("evaluation").asText())&&HEALTH.equals(n.path("health").asText()),"CONTRACT_UNSUPPORTED");
+    }
+    /** 平台能力报告只证明执行器在该平台的封禁/恢复，不承载评价口径；兼容 T3.8b 以旧评价版本签发的报告。 */
+    public static void platformVersions(JsonNode n) {
+        fields(n,"observation decision evaluation health","");
+        require(CONTRACT.equals(n.path("observation").asText())&&DECISION.equals(n.path("decision").asText())
+                &&Set.of(EVALUATION,LEGACY_PLATFORM_EVALUATION).contains(n.path("evaluation").asText())&&HEALTH.equals(n.path("health").asText()),"CONTRACT_UNSUPPORTED");
     }
     public static JsonNode versions() {return object("observation",CONTRACT,"decision",DECISION,"evaluation",EVALUATION,"health",HEALTH);}
 }

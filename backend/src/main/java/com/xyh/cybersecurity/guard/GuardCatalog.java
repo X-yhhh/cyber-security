@@ -21,7 +21,7 @@ public class GuardCatalog {
         store.update("guard_model",number(m,"id"),map("validation_status",result.path("status").asText(),"validation_json",canonical(result)));store.audit(access.human(),"guard.model.validated",id,null,null,result);return result;}
     public JsonNode dataset(JsonNode b){access.permission("dataset.manage",null);fields(b,"manifestRef manifestSha256","");JsonNode m=artifacts.json(text(b,"manifestRef"),digest(b,"manifestSha256"));text(m,"datasetKey");text(m,"version");
         var r=store.add("guard_dataset",map("dataset_key",text(m,"datasetKey"),"version",text(m,"version"),"manifest_ref",text(b,"manifestRef"),"manifest_sha256",text(b,"manifestSha256"),"payload_json",canonical(m)));return object("id",r.get("public_id"));}
-    public JsonNode plan(JsonNode b){access.permission("evaluation.run",null);
+    public JsonNode plan(JsonNode b){access.permission("evaluation.run",null);if(b.has("planRef"))return frozenPlan(b);
         fields(b,"planKey version protocolVersions datasetRefs splitHashes behaviorSourceScope scenarioMappingSha256 labelTimelineSha256 captureHealthSha256 latencyRegistration metrics budget scenarioRefs","");versions(b.get("protocolVersions"));
         for(String k:List.of("scenarioMappingSha256","labelTimelineSha256","captureHealthSha256"))digest(b,k);
         require(b.path("datasetRefs").isArray()&&!b.get("datasetRefs").isEmpty()&&b.path("behaviorSourceScope").isArray()&&!b.get("behaviorSourceScope").isEmpty(),"EVALUATION_PLAN_MISMATCH");
@@ -30,6 +30,18 @@ public class GuardCatalog {
         require(b.path("splitHashes").has("train")&&b.path("splitHashes").has("selection")&&b.path("splitHashes").has("calibration")&&b.path("splitHashes").has("development"),"EVALUATION_PLAN_MISMATCH");
         for(String role:List.of("train","selection","calibration","development"))digest(b.get("splitHashes"),role);
         var r=store.add("guard_evaluation_plan",map("plan_key",text(b,"planKey"),"version",text(b,"version"),"plan_sha256",hash(b),"payload_json",canonical(b),"created_by",access.human()));return object("id",r.get("public_id"),"planSha256",hash(b));}
+    /**
+     * 登记 P6 读取 test 前冻结的评价计划原件。manifest 与策略绑定的是原文件字节 SHA-256（不是 JCS），
+     * 所以按制品引用读取并核对原字节摘要，plan_sha256 保存该摘要，payload 记录摘要口径和原计划；不接受内联改写。
+     */
+    private JsonNode frozenPlan(JsonNode b){fields(b,"planRef planSha256","");String ref=text(b,"planRef"),sha=digest(b,"planSha256");
+        JsonNode m=parse(new String(artifacts.read(ref,sha,1024*1024),java.nio.charset.StandardCharsets.UTF_8));
+        require(m.isObject()&&"P6".equals(m.path("stage").asText())&&EVALUATION.equals(m.path("evaluationVersion").asText())&&contracts.profileHash().equals(m.path("featureProfileSha256").asText()),"EVALUATION_PLAN_MISMATCH");
+        digest(m,"candidateSha256");digest(m,"extractorSha256");digest(m,"splitManifestSha256");String key="p6:"+text(m,"plan");require(key.length()<=96,"EVALUATION_PLAN_MISMATCH");
+        require(m.path("evaluationIds").isArray()&&!m.get("evaluationIds").isEmpty()&&m.path("noTestReadBeforeP6").asBoolean(),"EVALUATION_PLAN_MISMATCH");
+        var payload=object("kind","p6-frozen","digest","raw-bytes-sha256","planRef",ref,"plan",m);
+        var r=store.add("guard_evaluation_plan",map("plan_key",key,"version",text(m,"evaluationVersion"),"plan_sha256",sha,"payload_json",canonical(payload),"created_by",access.human()));
+        store.audit(access.human(),"guard.plan.frozen_registered",str(r,"public_id"),null,null,b);return object("id",r.get("public_id"),"planSha256",sha);}
     /**
      * 登记平台能力。scope 缺省为 peer_service，且不得携带保护集或豁免字段；peer_inbound 只接受 macOS（PF）入站能力，
      * 须带保护集摘要和签名的 E1—E3 豁免报告：报告 passed、scope=peer_inbound、platform=macos-pf 且保护集摘要一致。
@@ -43,7 +55,7 @@ public class GuardCatalog {
             require(proof.path("passed").asBoolean()&&"peer_inbound".equals(proof.path("scope").asText())&&"macos-pf".equals(proof.path("platform").asText())&&protectionSet.equals(proof.path("protectionSetSha256").asText()),"CAPABILITY_NOT_SUPPORTED");}
         else require("peer_service".equals(scope)&&!b.has("protectionSetSha256")&&!b.has("exemptionEvidenceRef")&&!b.has("exemptionEvidenceSha256"),"CAPABILITY_NOT_SUPPORTED");
         if(!"research".equals(text(b,"level"))){var report=signatures.report(artifacts.json(text(b,"evidenceRef"),digest(b,"evidenceSha256")),text(b,"runnerIdentity"));
-            require(report.path("passed").asBoolean()&&report.path("capability").equals(withoutEvidence(b)),"CAPABILITY_NOT_SUPPORTED");versions(report.path("protocolVersions"));}
+            require(report.path("passed").asBoolean()&&report.path("capability").equals(withoutEvidence(b)),"CAPABILITY_NOT_SUPPORTED");platformVersions(report.path("protocolVersions"));}
         var r=store.add("guard_capability",map("capability_key",text(b,"capabilityKey"),"version",text(b,"version"),"platform",text(b,"platform"),"level",text(b,"level"),"scope",scope,"protection_set_sha256",protectionSet,"exemption_evidence_sha256",exemption,"payload_json",canonical(b),"created_by",access.human()));return object("id",r.get("public_id"),"level",text(b,"level"),"scope",scope);}
     private JsonNode withoutEvidence(JsonNode b){var n=b.deepCopy();((com.fasterxml.jackson.databind.node.ObjectNode)n).remove(List.of("evidenceRef","evidenceSha256","runnerIdentity","exemptionEvidenceRef"));return n;}
     public JsonNode policy(JsonNode b){access.permission("policy.draft",null);contracts.policy(b);var m=store.external("guard_model",uuid(b,"modelId"),false);var plan=store.one("guard_evaluation_plan",map("plan_sha256",text(b,"evaluationPlanSha256")),false);
@@ -56,6 +68,7 @@ public class GuardCatalog {
         var m=store.external("guard_model",uuid(b,"modelId"),false);var p=store.external("guard_decision_policy",uuid(b,"policyId"),false);var plan=store.external("guard_evaluation_plan",uuid(b,"evaluationPlanId"),false);var c=store.get("guard_contract",number(m,"contract_id"));
         require(number(p,"model_id")==number(m,"id")&&number(p,"plan_id")==number(plan,"id")&&"reviewed".equals(str(p,"status"))&&"validated".equals(str(m,"validation_status")),"RELEASE_COMBINATION_INVALID");
         require(contracts.profileHash().equals(digest(b,"featureProfileSha256"))&&str(c,"extractor_sha256").equals(digest(b,"extractorSha256")),"PROFILE_HASH_MISMATCH");
+        var frozen=json(plan,"payload_json");if("p6-frozen".equals(frozen.path("kind").asText()))require(str(m,"artifact_sha256").equals(frozen.at("/plan/candidateSha256").asText())&&str(c,"extractor_sha256").equals(frozen.at("/plan/extractorSha256").asText()),"EVALUATION_PLAN_MISMATCH");
         require(Set.of("research","lab","authorized").contains(text(b,"environment")),"INVALID_ENVIRONMENT");
         var ids=new TreeSet<String>();for(var i:b.path("capabilityIds"))require(ids.add(uuid(i.asText())),"CAPABILITY_NOT_SUPPORTED");var expected=new TreeSet<String>();for(var i:json(p,"definition_json").path("supportedCapabilityIds"))expected.add(i.asText());require(!ids.isEmpty()&&ids.equals(expected),"CAPABILITY_NOT_SUPPORTED");
         var subject=object("contractVersion",MODEL_CONTRACT,"protocolVersions",versions(),"modelId",m.get("public_id"),"manifestSha256",m.get("manifest_sha256"),"policyId",p.get("public_id"),"policySha256",p.get("definition_sha256"),"featureProfileSha256",contracts.profileHash(),"extractorSha256",c.get("extractor_sha256"),"evaluationPlanSha256",plan.get("plan_sha256"),"capabilityIds",ids,"environment",text(b,"environment"));

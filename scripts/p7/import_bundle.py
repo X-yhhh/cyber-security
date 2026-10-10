@@ -140,6 +140,39 @@ def capability_refs(plan: dict[str, Any]) -> list[dict[str, Any]]:
     return refs
 
 
+def exclusive(plan: dict[str, Any], new: str, existing: str) -> dict[str, Any] | None:
+    """新登记与复用二选一；复用项只能是 {"id": 规范 UUID, <摘要字段>: 64 位十六进制}。"""
+    if (new in plan) == (existing in plan):
+        raise ImportFailure(f"必须且只能提供 {new} 或 {existing}")
+    if new in plan:
+        if not isinstance(plan[new], dict):
+            raise ImportFailure(f"{new} 必须是对象")
+        return None
+    ref = plan[existing]
+    digest_key = {"existingModel": "manifestSha256", "existingEvaluationPlan": "planSha256"}[existing]
+    if not isinstance(ref, dict) or set(ref) != {"id", digest_key}:
+        raise ImportFailure(f"{existing} 须且只能提供 id 和 {digest_key}")
+    if not isinstance(ref["id"], str) or str(uuid.UUID(ref["id"])) != ref["id"]:
+        raise ImportFailure(f"{existing} UUID 无效")
+    if not isinstance(ref[digest_key], str) or len(ref[digest_key]) != 64 or any(c not in "0123456789abcdef" for c in ref[digest_key]):
+        raise ImportFailure(f"{existing} 摘要无效")
+    return ref
+
+
+def manifest_sha256(plan: dict[str, Any]) -> str:
+    return (plan["existingModel"] if "existingModel" in plan else plan["model"])["manifestSha256"]
+
+
+def plan_sha256(plan: dict[str, Any], state: dict[str, Any]) -> str:
+    """P6 冻结计划按原文件字节摘要登记（与 manifest/策略绑定一致）；内联计划使用 RFC8785 摘要。"""
+    body = plan["evaluationPlan"]
+    if "planRef" in body:
+        if set(body) != {"planRef", "planSha256"}:
+            raise ImportFailure("冻结计划引用只能包含 planRef 和 planSha256")
+        return body["planSha256"]
+    return sha256(replace(body, state))
+
+
 def verify_capability(api: Api, ref: dict[str, Any]) -> None:
     """回读身份、级别、范围与全部签名证据字段，不降级或补造缺失能力。"""
     payload = ref["payload"]
@@ -160,21 +193,37 @@ def prepare(api: Api, plan: dict[str, Any], state_path: Path) -> None:
     if state_path.exists():
         raise ImportFailure("状态文件已存在，拒绝覆盖；请核查原导入记录")
     refs = capability_refs(plan)
+    existing_model = exclusive(plan, "model", "existingModel")
+    existing_plan = exclusive(plan, "evaluationPlan", "existingEvaluationPlan")
     for ref in refs:
         verify_capability(api, ref)
+    # 复用的模型与计划同样在任何写入前回读核对；复用模型必须已通过后端验证，不重复登记或验证。
+    if existing_model is not None:
+        registered_model = api.request("GET", f"/models/{existing_model['id']}")
+        require(registered_model, id=existing_model["id"], manifestSha256=existing_model["manifestSha256"], validationStatus="validated")
+    if existing_plan is not None:
+        require(api.request("GET", f"/evaluation-plans/{existing_plan['id']}"), id=existing_plan["id"], planSha256=existing_plan["planSha256"])
     state: dict[str, Any] = {"version": 1, "phase": "prepare", "plan": plan}
     save(state_path, state)
-    model = post(api, state, "/models", plan["model"], {"candidateOnly": True, "validationStatus": "pending"}, "modelId", state_path)
-    registered_model = api.request("GET", f"/models/{state['modelId']}")
-    require(registered_model, id=state["modelId"], manifestSha256=plan["model"]["manifestSha256"], validationStatus="pending")
+    if existing_model is None:
+        model = post(api, state, "/models", plan["model"], {"candidateOnly": True, "validationStatus": "pending"}, "modelId", state_path)
+        registered_model = api.request("GET", f"/models/{state['modelId']}")
+        require(registered_model, id=state["modelId"], manifestSha256=plan["model"]["manifestSha256"], validationStatus="pending")
+    else:
+        state["modelId"] = existing_model["id"]
     manifest = registered_model["manifest"]
     require(manifest, modelId=state["modelId"], artifactSha256=registered_model["artifactSha256"])
     state["manifest"] = manifest
-    validation = api.request("POST", f"/models/{model['id']}/validations", replace(plan["validation"], state))
-    require(validation, status="validated", artifactSha256=manifest["artifactSha256"])
-    evaluation = post(api, state, "/evaluation-plans", plan["evaluationPlan"], {}, "evaluationPlanId", state_path)
-    expected_plan_hash = sha256(replace(plan["evaluationPlan"], state))
-    require(evaluation, planSha256=expected_plan_hash)
+    if existing_model is None:
+        validation = api.request("POST", f"/models/{model['id']}/validations", replace(plan["validation"], state))
+        require(validation, status="validated", artifactSha256=manifest["artifactSha256"])
+    if existing_plan is None:
+        expected_plan_hash = plan_sha256(plan, state)
+        evaluation = post(api, state, "/evaluation-plans", plan["evaluationPlan"], {}, "evaluationPlanId", state_path)
+        require(evaluation, planSha256=expected_plan_hash)
+    else:
+        expected_plan_hash = existing_plan["planSha256"]
+        state["evaluationPlanId"] = existing_plan["id"]
     require(manifest, evaluationPlanSha256=expected_plan_hash)
     state["evaluationPlanSha256"] = expected_plan_hash
     if not refs:
@@ -225,7 +274,7 @@ def resume(api: Api, state_path: Path, reports: dict[str, Any] | None = None) ->
     manifest = state["manifest"]
     body = replace(plan["releaseBundle"], state)
     subject = {"contractVersion": manifest["contractVersion"], "protocolVersions": body["protocolVersions"],
-               "modelId": state["modelId"], "manifestSha256": plan["model"]["manifestSha256"],
+               "modelId": state["modelId"], "manifestSha256": manifest_sha256(plan),
                "policyId": state["policyId"], "policySha256": state["policySha256"],
                "featureProfileSha256": body["featureProfileSha256"], "extractorSha256": body["extractorSha256"],
                "evaluationPlanSha256": state["evaluationPlanSha256"], "capabilityIds": sorted(body["capabilityIds"]),
@@ -240,6 +289,12 @@ def resume(api: Api, state_path: Path, reports: dict[str, Any] | None = None) ->
         report_body = replace(report, state)
         require(api.request("GET", f"/evaluations/{imported['id']}"), id=imported["id"], status="passed", bundleId=bundle["id"], reportSha256=report_body["sha256"])
         report_bindings.append({"evaluationId": imported["id"], "reportSha256": report_body["sha256"]})
+    if plan["sealing"] is None:
+        # lab/authorized 组合封存还需同 subject 的 platform/canary 报告；清单显式置 null 时导入后即停，不尝试封存。
+        state.update({"phase": "awaiting-joint-evaluations", "bundleRevision": bundle["revision"]})
+        save(state_path, state)
+        print(f"已导入 {len(imports)} 份报告，发布包 {bundle['id']} 保持 candidate；封存须等联合评价报告。", file=sys.stderr)
+        return
     sealing = replace(plan["sealing"], state)
     sealing["evaluationIds"] = [state[f"evaluationId{index}"] for index in range(len(imports))]
     sealed = api.request("POST", f"/release-bundles/{bundle['id']}/sealings", sealing, revision=bundle["revision"])

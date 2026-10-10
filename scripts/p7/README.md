@@ -69,6 +69,8 @@ candidate-v2 原研究策略对 rc.4 有 21 个 Schema 错误，计数与完整�
 
 首次清单的完整结构见 [合成模板](testdata/import-bundle-plan.json)。该模板包含占位哈希和合成身份，不能直接用于真实导入；集成测试会在隔离目录中生成匹配的 ONNX、manifest 和签名报告。datasetRefs 须引用已登记数据集，实际制品预置于后端 `cyber.guard.artifact-root`，脚本只提交相对引用及 SHA-256，不上传、加载或执行任意序列化对象。
 
+评价计划可以内联（RFC8785 摘要），也可以是 `{"planRef":"制品根内相对路径","planSha256":"原文件字节 SHA-256"}` 形式的 P6 冻结计划引用，此时 manifest 和策略绑定的是原字节摘要。复用已登记的模型和计划时，用 `existingModel: {id, manifestSha256}` 和 `existingEvaluationPlan: {id, planSha256}` 分别替代 `model`/`validation` 和 `evaluationPlan`，各项只能二选一；写入前回读核对，复用模型必须已是 validated。`sealing` 设为 `null` 时，导入报告后停在 `awaiting-joint-evaluations`，不尝试封存，用于等待同 subject 的 platform/canary 报告的 lab 组合。
+
 清单必须二选一：`capability` 为新登记的单条能力；`existingCapabilities` 为非空既有能力列表，每项严格为 `{"id":"规范 UUID","payload":{完整登记请求},"payloadSha256":"payload 的 RFC8785 SHA-256"}`。列表拒绝重复 UUID、摘要不符和混合输入。复用时在任何写入前 GET 每条能力，核对 ID、level、scope、完整 payload 及摘要；缺失或漂移立即停止，不 POST 新能力，也不把 lab_auto 降为 research。保护集、豁免报告及签名平台证据引用必须保留在完整 payload 中。复用平台能力不授予类别自动资格。
 
 清单支持完整字符串形式的 `${modelId}`、`${evaluationPlanId}`、`${evaluationPlanSha256}`、`${capabilityId}`、`${capabilityIds}`、`${policyId}` 引用。`${capabilityIds}` 整体替换为排序后的完整 UUID 数组；`${capabilityId}` 仅在单条能力时可用。策略 supportedCapabilityIds 与发布组合 capabilityIds 必须精确绑定本次核验的完整集合。评价计划及策略使用 RFC8785 摘要；manifest/ONNX/报告使用后端核验的原字节摘要。模型登记后回读 manifest 摘要，验证后核对 artifactSha256；能力回读 payload 与请求逐项一致；策略核对 definitionSha256，恢复时再次核对；发布组合独立计算 subjectSha256；导入报告回读 reportSha256；最终独立计算 sealedManifestSha256。任何非 2xx、状态或摘要不符均立即停止。

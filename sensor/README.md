@@ -65,7 +65,24 @@ GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -o bin/guardlive.exe ./cmd/guar
 
 Mac/Windows回环和物理接口的实时输入与同轨迹逐字节复算已作为P1/P2基线收口。Windows未签名程序在目标机既有系统策略下的自用运行已交接，不增加发行签名或安装包任务。该基线仅覆盖实测范围；新构建绑定自己的文件/依赖哈希，不授予模型或自动处置资格。
 
-多分类路线对 guardlive 的待实施项：BPF 当前绑定单个 `servicePort` 与登记对端，用于持续监测时需支持“本机全部入站 TCP”的配置（扫描会访问大量端口）；P7 需要以 1 倍速读取冻结 PCAP 文件并接入同一运行链路。连续健康观察器尚未接入运行路径，现有单次轨迹复算不能替代跨活动连续健康证明。闭阶段报告工具如需旧输入，恢复相应Git基线或备份，不在当前docs重建旧报告。
+### S1—S4（2026-10-08，代码与离线测试）
+
+以下为传感器线 S1—S4 的实现范围；未在真实后端、真实接口长时运行或 lab 中验收，不构成自动处置资格。
+
+Z1 集成复验（2026-10-10）已重编译 `guardtargets`：cgo 与纯 Go 的 `go test ./...`、`hostguard/guardup/capturehealth/jcs/guardlive` 的 `-race`、20 场景/55 观察的 `guardgolden -check`、51 项执行器测试及 5 Schema/8 负例/55 观察的契约检查通过。真实 P4/数据库接收、服务端 mTLS 终端配置、长时间全入站采集与健康链、`guardtargets` 租约接入及 Windows 全入站仍未验证。
+
+- **S1 全部入站 TCP**：配置 `captureScope` 取 `service`（默认，沿用上文对端+服务端口）或 `all_inbound_tcp`。后者不接受 `peerAddresses`/`servicePort`/`serviceEndpoint`，BPF 只放行一端为登记本机地址（≤16 个、同一地址族）、另一端为非本机地址的 TCP，两个方向都保留，以免 SYN-ACK/RST/出站字节缺失而与离线提取不同口径；接口仍受 `allowedInterfaces` 限定。写出与上传只保留 TCP 且方向不是 `outbound`（本机主动外连）的观察，方向未知的段保留给后端按 not_applicable 处理。上下文窗口仍由同一引擎按捕获到的全部报文计算。
+- **S2 1 倍速文件回放**：`guardlive -pcap <冻结文件> [-start/-end 原事件时间]` 只读文件、不打开网卡、不注入报文，仅限 research（lab 回放需 canary 映射与验证会话，未实现前拒绝）。首包确定整秒 `timeOffsetMicros`，此后所有报文一次性平移并按原包间隔等待；等待期间每 100ms 推进引擎使快照按时发出，但 Tick 不越过下一个待送报文，文件读完不再 Tick，因此观察与 `guardextract` 对同一文件、同一身份/密钥的结果逐字段一致（`emittedAt` 为真实墙钟，事件时间减去平移量即原时间）。`-report` 记录平移量、原首末包时间、墙钟起止、最大落后和 PCAP 哈希；`guardreplaydiff -offline -replay -report` 按同一范围过滤后逐字段比对。中断或截断文件不报告完成。
+- **S3 v2 观察上传**：配置可选 `upload` 对象（`baseUrl` https 根地址、`caFile`、`certificateFile`、`keyFile`、`credentialFile`、绝对 `spoolDir`、可选 `healthWindowMs`）。传输为 TLS 1.3 并强制出示传感器客户端证书，同时带 v2 `Bearer mch_…` 凭据；不继承代理、不跟随重定向，私钥与凭据文件须为属主专用的绝对普通文件。启动时读取已批准配置，契约版本、profile 摘要、健康版本、捕获域、地址族和本程序 SHA-256 任一不符即拒绝。观察先按 `maxBatchSize` 或 500ms 封口并 fsync 到 `spoolDir/<bootId>/`，再按 sequence 顺序单批在途发送；先发心跳登记 bootId。网络错误、408/429/5xx 以同一 batchId、Idempotency-Key 与原字节退避重试，其余 4xx（身份、范围、幂等冲突等）立即停止采集。环境取配置 `environment`（research/lab/authorized），本节不接入 `guardtargets` 租约，非 research 观察的 targetRef 仍为 null。
+- **续传与 boot**：同一 bootId 重新采集会生成相同观察 ID 而 `emittedAt` 不同，因此已有 spool 时拒绝启动，须换新 bootId；结束时未确认的批次保留在 spool，用 `guardlive -config <同一配置> -drain` 续传。已封口批次不丢不重；进程崩溃时内存中未满 500ms 的未封口观察会丢失，表现为新 boot 的缺口。
+- **S4 健康窗口**：配置 `upload` 时同时运行 `host-guard-capture-health/1.0.0` 观察器（默认 1 秒、上限 5 秒窗口），只读捕获句柄的累计读包数、内核丢包（不可测为 null）与引擎容量丢弃，独立于特征引擎；`previousSha256` 为前一窗口完整 payload 的 RFC 8785 JCS SHA-256，服务端返回摘要不一致即停止。轮询停顿超过 5 秒时按上限切分并标记 `captureGap` 与未知计数。`clockSkewMs` 取 60 秒内往返 ≤1 秒的心跳估计，否则为 null。文件回放的历史丢包未知，窗口不能证明连续健康。
+
+```sh
+go build -o bin/guardlive ./cmd/guardlive
+go build -o bin/guardreplaydiff ./cmd/guardreplaydiff
+bin/guardlive -config <配置> -pcap <冻结片段> -out <新JSONL> -report <新摘要>
+bin/guardreplaydiff -offline <guardextract 输出> -replay <上一步输出> -report <上一步摘要>
+```
 
 ## P5 本机目标服务
 

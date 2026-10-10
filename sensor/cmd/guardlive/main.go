@@ -1,116 +1,410 @@
-// guardlive 只在显式授权的接口和期限内输出 v5 research 观察；不接入业务或执行器。
+// guardlive 只在显式授权的接口和期限内采集 v5 观察，或以 1 倍速只读回放冻结 PCAP；
+// 可选经 mTLS 上传 v2 观察批次与连续健康窗口。不持有防火墙权限，不接入执行器。
 package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"net/netip"
 	"os"
+	"os/signal"
+	"path/filepath"
+	"runtime"
+	"syscall"
 	"time"
 
+	"github.com/xyh/cyber-security/sensor/internal/capturehealth"
+	"github.com/xyh/cyber-security/sensor/internal/guardup"
 	"github.com/xyh/cyber-security/sensor/internal/hostguard"
 )
 
+const (
+	scopeService    = "service"
+	scopeAllInbound = "all_inbound_tcp"
+)
+
+// uploadConfig 只含路径与地址；凭据、私钥由文件提供，不经命令行或日志。
+type uploadConfig struct {
+	BaseURL         string `json:"baseUrl"`
+	CAFile          string `json:"caFile"`
+	CertificateFile string `json:"certificateFile"`
+	KeyFile         string `json:"keyFile"`
+	CredentialFile  string `json:"credentialFile"`
+	SpoolDir        string `json:"spoolDir"`
+	HealthWindowMs  int    `json:"healthWindowMs"`
+}
+
 type config struct {
-	AssetID           string       `json:"assetId"`
-	SensorID          string       `json:"sensorId"`
-	BootID            string       `json:"bootId"`
-	CaptureScopeID    string       `json:"captureScopeId"`
-	LocalAddresses    []netip.Addr `json:"localAddresses"`
-	PeerAddresses     []netip.Addr `json:"peerAddresses"`
-	ServicePort       uint16       `json:"servicePort"`
-	ServiceEndpoint   string       `json:"serviceEndpoint"`
-	SecretFile        string       `json:"secretFile"`
-	KeyEpoch          int          `json:"keyEpoch"`
-	Interface         string       `json:"interface"`
-	AllowedInterfaces []string     `json:"allowedInterfaces"`
-	AuthorizedUntil   time.Time    `json:"authorizedUntil"`
+	AssetID           string        `json:"assetId"`
+	SensorID          string        `json:"sensorId"`
+	BootID            string        `json:"bootId"`
+	CaptureScopeID    string        `json:"captureScopeId"`
+	Environment       string        `json:"environment"`
+	CaptureScope      string        `json:"captureScope"`
+	LocalAddresses    []netip.Addr  `json:"localAddresses"`
+	PeerAddresses     []netip.Addr  `json:"peerAddresses"`
+	ServicePort       uint16        `json:"servicePort"`
+	ServiceEndpoint   string        `json:"serviceEndpoint"`
+	SecretFile        string        `json:"secretFile"`
+	KeyEpoch          int           `json:"keyEpoch"`
+	Interface         string        `json:"interface"`
+	AllowedInterfaces []string      `json:"allowedInterfaces"`
+	AuthorizedUntil   time.Time     `json:"authorizedUntil"`
+	Upload            *uploadConfig `json:"upload"`
 }
 
 func create(path string) (*os.File, error) {
 	return os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
 }
 
-func run() error {
-	cp := flag.String("config", "", "私有资产、接口白名单及截止授权")
-	out := flag.String("out", "", "不存在的观察 JSONL")
-	trace := flag.String("trace", "", "不存在的私有头部轨迹；含端点，不能进 Git")
-	replay := flag.String("replay", "", "复算既有同包轨迹，离线模式不开抓包")
-	duration := flag.Duration("duration", 180*time.Second, "采集期限 1秒..30分钟")
-	flag.Parse()
-	if *cp == "" || *out == "" || (*trace == "" && *replay == "") || (*trace != "" && *replay != "") {
-		return fmt.Errorf("须指定 config/out 及 trace 或 replay")
+func digest(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
 	}
-	f, err := os.Open(*cp)
+	defer f.Close()
+	h := sha256.New()
+	if _, err = io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+func loadConfig(path string) (config, error) {
+	var c config
+	f, err := os.Open(path)
+	if err != nil {
+		return c, err
+	}
+	defer f.Close()
+	decoder := json.NewDecoder(io.LimitReader(f, 64<<10))
+	decoder.DisallowUnknownFields()
+	if err = decoder.Decode(&c); err != nil {
+		return c, fmt.Errorf("授权配置无效")
+	}
+	if decoder.Decode(new(any)) != io.EOF {
+		return c, fmt.Errorf("授权配置存在尾随内容")
+	}
+	// 旧配置没有这两项时保持原 research/单服务语义。
+	if c.Environment == "" {
+		c.Environment = "research"
+	}
+	if c.CaptureScope == "" {
+		c.CaptureScope = scopeService
+	}
+	if c.Environment != "research" && c.Environment != "lab" && c.Environment != "authorized" {
+		return c, fmt.Errorf("环境必须为 research、lab 或 authorized")
+	}
+	switch c.CaptureScope {
+	case scopeService:
+	case scopeAllInbound:
+		// 全入站范围不接受对端/端口白名单，避免与单服务语义混用。
+		if len(c.PeerAddresses) != 0 || c.ServicePort != 0 || c.ServiceEndpoint != "" {
+			return c, fmt.Errorf("all_inbound_tcp 不能同时登记对端或服务端口")
+		}
+	default:
+		return c, fmt.Errorf("captureScope 必须为 service 或 all_inbound_tcp")
+	}
+	for _, addr := range c.LocalAddresses {
+		if !addr.IsValid() || addr.IsUnspecified() || addr.IsMulticast() || addr.Zone() != "" {
+			return c, fmt.Errorf("本机地址不明确")
+		}
+	}
+	return c, nil
+}
+
+// inScope 决定观察是否写出/上传：all_inbound_tcp 只保留 TCP 且非本机主动发起（outbound）的连接；
+// 方向未知的段仍保留，由后端按 not_applicable 处理。service 范围已由 BPF 收窄，不再过滤。
+func inScope(c config, o hostguard.Observation) bool {
+	if c.CaptureScope != scopeAllInbound {
+		return true
+	}
+	return o.Transport == "tcp" && o.Direction != "outbound"
+}
+
+func addressFamily(addrs []netip.Addr) (string, error) {
+	af := ""
+	for _, a := range addrs {
+		v := "ipv4"
+		if a.Unmap().Is6() {
+			v = "ipv6"
+		}
+		if af != "" && af != v {
+			return "", fmt.Errorf("一个捕获域只允许一个地址族")
+		}
+		af = v
+	}
+	if af == "" {
+		return "", fmt.Errorf("缺少本机地址")
+	}
+	return af, nil
+}
+
+type uploadSession struct {
+	up      *guardup.Uploader
+	remote  guardup.RemoteConfig
+	build   string
+	cancel  context.CancelFunc
+	done    chan error
+	timeout time.Duration
+}
+
+// startUpload 拉取并核对已批准配置，打开本 boot 的 spool 并启动发送循环。
+// fresh=true 时要求 spool 为空：同一 bootId 重新采集会生成相同观察 ID 但不同 emittedAt，只能换新 bootId。
+func startUpload(c config, fresh bool, timeout time.Duration) (*uploadSession, error) {
+	u := c.Upload
+	if u == nil {
+		return nil, fmt.Errorf("缺少 upload 配置")
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return nil, err
+	}
+	build, err := digest(exe)
+	if err != nil {
+		return nil, err
+	}
+	af, err := addressFamily(c.LocalAddresses)
+	if err != nil {
+		return nil, err
+	}
+	client, err := guardup.NewClient(guardup.ClientConfig{BaseURL: u.BaseURL, SensorID: c.SensorID, CAFile: u.CAFile, CertificateFile: u.CertificateFile, KeyFile: u.KeyFile, CredentialFile: u.CredentialFile})
+	if err != nil {
+		return nil, err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	remote, err := client.Config(ctx)
+	cancel()
+	if err != nil {
+		return nil, err
+	}
+	if err = guardup.VerifyRemote(remote, c.CaptureScopeID, af, build); err != nil {
+		return nil, err
+	}
+	if !filepath.IsAbs(u.SpoolDir) {
+		return nil, fmt.Errorf("spoolDir 必须为绝对路径")
+	}
+	_, statErr := os.Stat(filepath.Join(u.SpoolDir, c.BootID, "meta.json"))
+	if fresh && statErr == nil {
+		return nil, fmt.Errorf("该 bootId 已有 spool：重新采集须换新 bootId，续传未确认批次用 -drain")
+	}
+	if !fresh && statErr != nil {
+		return nil, fmt.Errorf("该 bootId 没有可续传的 spool")
+	}
+	spool, err := guardup.OpenSpool(u.SpoolDir, guardup.SpoolMeta{SensorID: c.SensorID, BootID: c.BootID, ConfigID: remote.ConfigID, ContractVersion: hostguard.Version, ProfileSha256: hostguard.FeatureProfileSHA256}, remote.Config.Limits.MaxBatchSize)
+	if err != nil {
+		return nil, err
+	}
+	up, err := guardup.New(guardup.Options{Client: client, Spool: spool, Remote: remote, BootID: c.BootID, Version: "guardlive/" + hostguard.Version})
+	if err != nil {
+		return nil, err
+	}
+	runCtx, runCancel := context.WithCancel(context.Background())
+	s := &uploadSession{up: up, remote: remote, build: build, cancel: runCancel, done: make(chan error, 1), timeout: timeout}
+	go func() { s.done <- up.Run(runCtx) }()
+	return s, nil
+}
+
+// finish 等待全部批次与健康窗口确认；超时则保留 spool 并返回错误。
+func (s *uploadSession) finish() error {
+	ctx, cancel := context.WithTimeout(context.Background(), s.timeout)
+	defer cancel()
+	err := s.up.Drain(ctx)
+	s.cancel()
+	runErr := <-s.done
 	if err != nil {
 		return err
 	}
-	defer f.Close()
-	decoder := json.NewDecoder(f)
-	decoder.DisallowUnknownFields()
-	var c config
-	if err = decoder.Decode(&c); err != nil {
-		return fmt.Errorf("授权配置无效")
+	if runErr != nil && !errors.Is(runErr, context.Canceled) {
+		return runErr
 	}
-	if decoder.Decode(new(any)) != io.EOF {
-		return fmt.Errorf("授权配置存在尾随内容")
+	return nil
+}
+
+func (s *uploadSession) healthObserver(c config) (*capturehealth.Observer, error) {
+	window := time.Duration(c.Upload.HealthWindowMs) * time.Millisecond
+	return capturehealth.New(capturehealth.Identity{AssetID: c.AssetID, SensorID: c.SensorID, CaptureScopeID: c.CaptureScopeID, ConfigSha256: s.remote.ConfigHash, BuildSha256: s.build},
+		capturehealth.Options{Window: window, Skew: s.up.Skew, QueueMax: s.up.QueueDepth, NewID: guardup.NewUUID, Emit: s.up.SubmitHealth,
+			Memory: func() int64 {
+				var m runtime.MemStats
+				runtime.ReadMemStats(&m)
+				return int64(m.Sys)
+			}})
+}
+
+func run() error {
+	cp := flag.String("config", "", "私有资产、接口白名单及截止授权")
+	out := flag.String("out", "", "不存在的观察 JSONL")
+	trace := flag.String("trace", "", "实时采集：不存在的私有头部轨迹；含端点，不能进 Git")
+	replay := flag.String("replay", "", "复算既有同包轨迹，离线模式不开抓包")
+	pcapPath := flag.String("pcap", "", "以 1 倍速只读回放冻结 PCAP/PCAPNG（research），不打开网卡、不注入报文")
+	startAt := flag.String("start", "", "-pcap 可选分区起点 RFC3339（原事件时间）")
+	endAt := flag.String("end", "", "-pcap 可选分区终点 RFC3339（原事件时间）")
+	report := flag.String("report", "", "可选：不存在的去敏运行摘要")
+	drain := flag.Bool("drain", false, "只续传 upload.spoolDir 中本 bootId 未确认的批次，不采集")
+	drainTimeout := flag.Duration("drain-timeout", 60*time.Second, "结束时等待上传确认的上限")
+	duration := flag.Duration("duration", 180*time.Second, "采集期限 1秒..30分钟")
+	flag.Parse()
+	modes := 0
+	for _, v := range []bool{*trace != "", *replay != "", *pcapPath != "", *drain} {
+		if v {
+			modes++
+		}
+	}
+	if *cp == "" || modes != 1 || (!*drain && *out == "") {
+		return fmt.Errorf("须指定 config，并且 trace、replay、pcap、drain 四选一；非 drain 模式须指定 out")
+	}
+	if (*startAt != "" || *endAt != "") && *pcapPath == "" {
+		return fmt.Errorf("start/end 只用于 -pcap")
+	}
+	c, err := loadConfig(*cp)
+	if err != nil {
+		return err
+	}
+	summary := map[string]any{"status": "completed", "environment": c.Environment, "captureScope": c.CaptureScope, "automaticExecutionSupported": false}
+	if *report != "" {
+		// 先确认路径可新建；摘要只在结束时写入，失败的运行不留下空摘要。
+		if _, err := os.Lstat(*report); err == nil {
+			return fmt.Errorf("report 已存在")
+		}
+	}
+	writeSummary := func() error {
+		if *report != "" {
+			reportFile, err := create(*report)
+			if err != nil {
+				return err
+			}
+			defer reportFile.Close()
+			en := json.NewEncoder(reportFile)
+			en.SetIndent("", "  ")
+			if err := en.Encode(summary); err != nil {
+				return err
+			}
+			if err := reportFile.Sync(); err != nil {
+				return err
+			}
+		}
+		return json.NewEncoder(os.Stdout).Encode(summary)
+	}
+	if *drain {
+		s, err := startUpload(c, false, *drainTimeout)
+		if err != nil {
+			return err
+		}
+		err = s.finish()
+		summary["mode"], summary["upload"] = "drain", s.up.Stats()
+		if err != nil {
+			summary["status"] = "upload_incomplete"
+			_ = writeSummary()
+			return err
+		}
+		return writeSummary()
+	}
+	if (*replay != "" || *pcapPath != "") && c.Environment != "research" {
+		// lab 回放需要 canary 映射与验证会话（B4），未实现前拒绝而不是按 research 静默处理。
+		return fmt.Errorf("文件回放只支持 research 环境")
+	}
+	if *replay != "" && c.Upload != nil {
+		return fmt.Errorf("轨迹复算只写本地，不上传")
 	}
 	secret, err := os.ReadFile(c.SecretFile)
 	if err != nil {
 		return fmt.Errorf("本机 HMAC 密钥不可读")
+	}
+	var upload *uploadSession
+	if c.Upload != nil {
+		if upload, err = startUpload(c, true, *drainTimeout); err != nil {
+			return err
+		}
+		defer upload.cancel()
 	}
 	w, err := create(*out)
 	if err != nil {
 		return err
 	}
 	defer w.Close()
-	enc := json.NewEncoder(w)
+	var emitted, skipped int64
 	e, err := hostguard.New(hostguard.Config{AssetID: c.AssetID, SensorID: c.SensorID, BootID: c.BootID,
 		CaptureScopeID: c.CaptureScopeID, LocalAddresses: c.LocalAddresses, PeerSecret: secret, KeyEpoch: c.KeyEpoch,
-		Environment: "research", Emit: func(v hostguard.Emission) error { return enc.Encode(v.Observation) }})
-	if err != nil {
-		return err
-	}
-	if *replay != "" {
-		r, err := os.Open(*replay)
-		if err != nil {
-			return err
-		}
-		defer r.Close()
-		d := json.NewDecoder(r)
-		d.DisallowUnknownFields()
-		closed := false
-		for {
-			var v hostguard.LiveEvent
-			err := d.Decode(&v)
-			if err == io.EOF {
-				break
+		Environment: c.Environment, Emit: func(v hostguard.Emission) error {
+			if !inScope(c, v.Observation) {
+				skipped++
+				return nil
 			}
+			b, err := json.Marshal(v.Observation)
 			if err != nil {
 				return err
 			}
-			if closed {
-				return fmt.Errorf("close 后仍有轨迹")
-			}
-			if err = e.ApplyLiveEvent(v); err != nil {
+			if _, err = w.Write(append(b, '\n')); err != nil {
 				return err
 			}
-			closed = v.Kind == "close"
+			emitted++
+			if upload != nil {
+				return upload.up.Submit(b)
+			}
+			return nil
+		}})
+	if err != nil {
+		return err
+	}
+	var observer *capturehealth.Observer
+	var observeErr error
+	observe := func(s hostguard.LiveSample) {
+		if observer != nil && observeErr == nil {
+			observeErr = observer.Observe(s)
 		}
-		if !closed {
-			return fmt.Errorf("轨迹未完整关闭")
+	}
+	if upload != nil {
+		if observer, err = upload.healthObserver(c); err != nil {
+			return err
 		}
-	} else {
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	var lastSample hostguard.LiveSample
+	switch {
+	case *replay != "":
+		summary["mode"] = "research_trace_replay"
+		if err = replayTrace(*replay, e); err != nil {
+			return err
+		}
+	case *pcapPath != "":
+		summary["mode"] = "research_pcap_replay"
+		var begin, end time.Time
+		if *startAt != "" {
+			if begin, err = time.Parse(time.RFC3339Nano, *startAt); err != nil {
+				return fmt.Errorf("start 时间无效")
+			}
+		}
+		if *endAt != "" {
+			if end, err = time.Parse(time.RFC3339Nano, *endAt); err != nil {
+				return fmt.Errorf("end 时间无效")
+			}
+		}
+		if !begin.IsZero() && !end.IsZero() && !begin.Before(end) {
+			return fmt.Errorf("分区范围无效")
+		}
+		res, err := hostguard.ReplayPCAP(ctx, *pcapPath, e, hostguard.ReplayOptions{Start: begin, End: end, Observe: func(s hostguard.LiveSample) { lastSample = s; observe(s) }})
+		if err != nil {
+			return fmt.Errorf("回放未完成: %w", err)
+		}
+		pcapHash, err := digest(*pcapPath)
+		if err != nil {
+			return err
+		}
+		// 原事件时间与墙钟分开：观察内事件时间 = 原时间 + timeOffsetMicros；emittedAt 为真实墙钟。
+		summary["replay"] = map[string]any{"speed": 1, "timeOffsetMicros": res.Offset.Microseconds(), "sourceFirstPacketAt": res.SourceFirst, "sourceLastPacketAt": res.SourceLast,
+			"wallStartedAt": res.WallStart, "wallFinishedAt": res.WallEnd, "packets": res.Packets, "maxLagMs": res.MaxLag.Milliseconds(), "pcapSha256": pcapHash, "partitionStart": *startAt, "partitionEnd": *endAt}
+	default:
+		summary["mode"] = "live"
 		if *duration < time.Second || *duration > 30*time.Minute || time.Now().Add(*duration).After(c.AuthorizedUntil) {
 			return fmt.Errorf("采集时限超出授权")
-		}
-		for _, addr := range c.LocalAddresses {
-			if !addr.IsValid() || addr.IsUnspecified() || addr.IsMulticast() || addr.Zone() != "" {
-				return fmt.Errorf("本机地址不明确")
-			}
 		}
 		t, err := create(*trace)
 		if err != nil {
@@ -118,19 +412,76 @@ func run() error {
 		}
 		defer t.Close()
 		te := json.NewEncoder(t)
-		ctx, cancel := context.WithTimeout(context.Background(), *duration)
+		cctx, cancel := context.WithTimeout(ctx, *duration)
 		defer cancel()
-		if err = capture(ctx, c, e, te.Encode); err != nil {
+		if err = capture(cctx, c, e, te.Encode, func(s hostguard.LiveSample) { lastSample = s; observe(s) }); err != nil {
 			return err
 		}
 		if err = t.Sync(); err != nil {
 			return err
 		}
 	}
+	if observer != nil && observeErr == nil && !lastSample.At.IsZero() {
+		observeErr = observer.Finish(lastSample)
+	}
+	if observeErr != nil {
+		return observeErr
+	}
 	if err = w.Sync(); err != nil {
 		return err
 	}
-	return json.NewEncoder(os.Stdout).Encode(map[string]any{"status": "completed", "mode": "research", "stats": e.Stats, "automaticExecutionSupported": false})
+	summary["stats"], summary["emitted"], summary["outOfScopeSkipped"] = e.Stats, emitted, skipped
+	if observer != nil {
+		summary["observerSessionId"] = observer.Session()
+	}
+	if h, err := digest(*out); err == nil {
+		summary["observationsSha256"] = h
+	}
+	if h, err := digest(*cp); err == nil {
+		summary["configSha256"] = h
+	}
+	if upload != nil {
+		err = upload.finish()
+		summary["upload"] = upload.up.Stats()
+		if err != nil {
+			summary["status"] = "upload_incomplete"
+			_ = writeSummary()
+			return fmt.Errorf("%w；spool 已保留，可用 -drain 续传", err)
+		}
+	}
+	return writeSummary()
+}
+
+func replayTrace(path string, e *hostguard.Engine) error {
+	r, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer r.Close()
+	d := json.NewDecoder(r)
+	d.DisallowUnknownFields()
+	closed := false
+	for {
+		var v hostguard.LiveEvent
+		err := d.Decode(&v)
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return err
+		}
+		if closed {
+			return fmt.Errorf("close 后仍有轨迹")
+		}
+		if err = e.ApplyLiveEvent(v); err != nil {
+			return err
+		}
+		closed = v.Kind == "close"
+	}
+	if !closed {
+		return fmt.Errorf("轨迹未完整关闭")
+	}
+	return nil
 }
 
 func main() {

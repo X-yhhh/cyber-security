@@ -162,6 +162,29 @@ func RunLive(ctx context.Context, s LiveSource, e *Engine, now func() time.Time)
 // RunLiveTrace 将同一捕获句柄的头部事件、真实 drop/gap 与 Tick 顺序送到私有旁路。
 // 不记录载荷；旁路写入失败即停止本次采集，不能交付不可复算的成功报告。
 func RunLiveTrace(ctx context.Context, s LiveSource, e *Engine, now func() time.Time, trace func(LiveEvent) error) error {
+	return RunLiveObserved(ctx, s, e, now, trace, nil)
+}
+
+// LiveSample 是一次轮询后的累计捕获计数，只供独立健康观察器使用；不含报文、端点或特征。
+// DropsKnown=false 表示内核丢包不可测，不能当作 0；Gap 表示本轮出现了丢包变化、计数未知或读取错误。
+type LiveSample struct {
+	At            time.Time
+	PacketsSeen   uint64
+	Drops         uint64
+	DropsKnown    bool
+	Gap           bool
+	CapacityDrops int64
+	LateCount     int64
+}
+
+// CaptureCounters 返回引擎内累计的容量丢弃和迟到包数；调用方须与引擎在同一 goroutine。
+func (e *Engine) CaptureCounters() (capacityDrops, late int64) {
+	return e.Stats["buffer_drops"] + e.Stats["flow_drops"] + e.Stats["connection_drops"] + e.Stats["context_drops"], e.Stats["late_packets"]
+}
+
+// RunLiveObserved 在 RunLiveTrace 基础上，于每轮轮询后同步回调 observe（可为 nil）。
+// 回调与引擎同一 goroutine，不能阻塞；它只读计数，不改变观察输出，健康观察器因此独立于特征引擎重置。
+func RunLiveObserved(ctx context.Context, s LiveSource, e *Engine, now func() time.Time, trace func(LiveEvent) error, observe func(LiveSample)) error {
 	if now == nil {
 		return fmt.Errorf("实时输入缺少采集时钟")
 	}
@@ -175,7 +198,14 @@ func RunLiveTrace(ctx context.Context, s LiveSource, e *Engine, now func() time.
 		}
 		return e.ApplyLiveEvent(v)
 	}
+	sample := func(at time.Time, gap bool) {
+		if observe != nil {
+			capacity, late := e.CaptureCounters()
+			observe(LiveSample{At: at, PacketsSeen: seq, Drops: drops, DropsKnown: known, Gap: gap, CapacityDrops: capacity, LateCount: late})
+		}
+	}
 	for ctx.Err() == nil {
+		gap := false
 		b, ci, err := s.Next()
 		at := now()
 		if err == nil {
@@ -185,8 +215,10 @@ func RunLiveTrace(ctx context.Context, s LiveSource, e *Engine, now func() time.
 				return err
 			}
 		} else if errors.Is(err, io.EOF) {
+			sample(at, false)
 			return apply(LiveEvent{Kind: "close", At: at})
 		} else if !errors.Is(err, ErrCaptureTimeout) {
+			sample(at, true)
 			if gapErr := apply(LiveEvent{Kind: "gap", At: at}); gapErr != nil {
 				return gapErr
 			}
@@ -195,11 +227,13 @@ func RunLiveTrace(ctx context.Context, s LiveSource, e *Engine, now func() time.
 		n, err := s.Drops()
 		if err != nil {
 			known = false
+			gap = true
 			if err = apply(LiveEvent{Kind: "gap", At: at, DropsKnown: false}); err != nil {
 				return err
 			}
 		} else {
 			if !known && n > 0 || known && n != drops {
+				gap = true
 				if err = apply(LiveEvent{Kind: "gap", At: at, DropsKnown: true, Drops: n}); err != nil {
 					return err
 				}
@@ -210,8 +244,11 @@ func RunLiveTrace(ctx context.Context, s LiveSource, e *Engine, now func() time.
 		if err = apply(LiveEvent{Kind: "tick", At: at, DropsKnown: known, Drops: drops}); err != nil {
 			return err
 		}
+		sample(at, gap)
 	}
-	return apply(LiveEvent{Kind: "close", At: now()})
+	at := now()
+	sample(at, false)
+	return apply(LiveEvent{Kind: "close", At: at})
 }
 
 // LiveEvent 是私有、仅含头部的同包复算格式；包含端点，禁止提交或上传。

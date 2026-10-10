@@ -73,6 +73,46 @@ func (s *PCAPLive) ScopeService(local, peers []netip.Addr, port uint16, endpoint
 	return nil
 }
 
+// ScopeAllInbound 登记“本机全部入站 TCP”范围：只放行一端为登记本机地址、另一端为非本机地址的 TCP，
+// 两个方向都保留，否则 SYN-ACK/RST/出站字节缺失，现场特征与离线提取不再同口径。
+// 不接受对端或端口白名单，也不放行本机地址之间或与本机无关的流量；接口仍由 OpenPCAPLive 白名单限定。
+func (s *PCAPLive) ScopeAllInbound(local []netip.Addr) error {
+	filter, err := allInboundScopeFilter(local)
+	if err != nil {
+		return err
+	}
+	bpf, err := pcap.NewBPF(s.h.LinkType(), 65535, filter)
+	if err != nil {
+		return err
+	}
+	if err = s.h.SetBPFFilter(filter); err != nil {
+		return err
+	}
+	s.scope = bpf
+	return nil
+}
+
+// MaxAllInboundAddresses 限制单个捕获域登记的本机地址数，避免生成无界 BPF。
+const MaxAllInboundAddresses = 16
+
+func allInboundScopeFilter(local []netip.Addr) (string, error) {
+	if len(local) == 0 || len(local) > MaxAllInboundAddresses {
+		return "", fmt.Errorf("缺少授权本机地址或地址过多")
+	}
+	hosts := make([]string, 0, len(local))
+	seen := map[netip.Addr]bool{}
+	for _, addr := range local {
+		if !addr.IsValid() || addr.IsUnspecified() || addr.IsMulticast() || addr.Zone() != "" || addr.Is4In6() || seen[addr] {
+			return "", fmt.Errorf("授权地址无效")
+		}
+		seen[addr] = true
+		hosts = append(hosts, "host "+addr.String())
+	}
+	src := "(src " + strings.Join(hosts, " or src ") + ")"
+	dst := "(dst " + strings.Join(hosts, " or dst ") + ")"
+	return "tcp and ((" + dst + " and not " + src + ") or (" + src + " and not " + dst + "))", nil
+}
+
 func scopeFilter(local, peers []netip.Addr, port uint16) (string, error) {
 	return serviceScopeFilter(local, peers, port, "local")
 }

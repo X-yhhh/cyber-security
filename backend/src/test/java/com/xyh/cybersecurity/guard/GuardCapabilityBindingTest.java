@@ -22,7 +22,7 @@ class GuardCapabilityBindingTest {
     static final class Facts extends GuardStore {
         final Map<String,List<Map<String,Object>>> tables=new HashMap<>();
         int reads;
-        Facts(){super(null,null,null,null);}
+        Facts(){super(null,null);}
         Map<String,Object> put(String table,Object... kv){var row=map(kv);tables.computeIfAbsent(table,k->new ArrayList<>()).add(row);return row;}
         @Override public Instant now(){return Instant.parse("2026-10-08T08:00:00Z");}
         @Override public List<Map<String,Object>> rows(String t,Map<String,Object> w,boolean lock,int limit){

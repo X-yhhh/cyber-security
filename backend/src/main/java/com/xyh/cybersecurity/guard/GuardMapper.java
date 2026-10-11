@@ -13,24 +13,31 @@ public interface GuardMapper {
     @InsertProvider(type=Sql.class,method="insert")
     @Options(useGeneratedKeys=true,keyProperty="values.id")
     int insert(@Param("table") String table,@Param("values") Map<String,Object> values);
-    /** 同表多行追加；只用于不需要回读自增键的事实表，列集合取首行。 */
-    @InsertProvider(type=Sql.class,method="insertAll")
-    int insertAll(@Param("table") String table,@Param("rows") List<Map<String,Object>> rows);
+    /** 同表多行追加；计划已完成标识符白名单校验，业务值由静态参数映射绑定。 */
+    @Lang(GuardFlatPlanLanguageDriver.class)
+    @Insert(GuardFlatPlanLanguageDriver.MARKER)
+    int insertAll(@Param("plan") FlatPlan plan);
     /** 严格批量新增并回填各行主键；不使用 IGNORE/UPSERT，唯一键冲突由事务回滚处理。 */
-    @InsertProvider(type=Sql.class,method="insertAll")
+    @Lang(GuardFlatPlanLanguageDriver.class)
+    @Insert(GuardFlatPlanLanguageDriver.MARKER)
     @Options(useGeneratedKeys=true,keyProperty="rows.id")
-    int insertAllReturning(@Param("table") String table,@Param("rows") List<Map<String,Object>> rows);
+    int insertAllReturning(@Param("plan") FlatPlan plan,@Param("rows") List<Map<String,Object>> rows);
     /** 仅按内部白名单组合键读取有限集合；用于持有资产锁后的 episode 批量投影，不作无界扫描。 */
     @SelectProvider(type=Sql.class,method="selectKeys")
     List<Map<String,Object>> selectKeys(@Param("table") String table,@Param("keys") List<Map<String,Object>> keys,@Param("lock") boolean lock);
     /** 同批 parent 投影一次回读；观察 UUID 只用于替换审计，事实仍由外键绑定。 */
     @SelectProvider(type=Sql.class,method="evidenceKeys")
     List<Map<String,Object>> evidenceKeys(@Param("keys") List<Map<String,Object>> keys);
+    /** 只接收内部白名单生成的精确索引计划；查询和锁与其他 mapper 共用事务与一级缓存。 */
+    @Lang(GuardFlatPlanLanguageDriver.class)
+    @Select(GuardFlatPlanLanguageDriver.MARKER)
+    List<Map<String,Object>> indexedKeys(@Param("plan") FlatPlan plan);
     @UpdateProvider(type=Sql.class,method="update")
     int update(@Param("table") String table,@Param("id") long id,@Param("values") Map<String,Object> values);
     /** 已持有资产锁时批量更新投影，各行列集一致且 id 唯一；不改变事实表只追加的边界。 */
-    @UpdateProvider(type=Sql.class,method="updateAll")
-    int updateAll(@Param("table") String table,@Param("rows") List<Map<String,Object>> rows);
+    @Lang(GuardFlatPlanLanguageDriver.class)
+    @Update(GuardFlatPlanLanguageDriver.MARKER)
+    int updateAll(@Param("plan") FlatPlan plan);
     /** 数据库时钟不能复用事务内的旧结果，否则批量推理完成时刻会早于真实完成。 */
     @Select("SELECT UTC_TIMESTAMP(6)")
     @Options(useCache=false,flushCache=Options.FlushCachePolicy.TRUE)
@@ -103,12 +110,26 @@ public interface GuardMapper {
         STRAIGHT_JOIN guard_inference i ON i.id=e.inference_id</script>
         """)
     List<Map<String,Object>> episodesEvidence(@Param("episodes") List<Long> episodes);
-    /** 白名单校验后的批量 JDBC 语句；列顺序与绑定值顺序一致，SQL 不含业务值。 */
-    record BulkInsert(String sql,List<String> columns){}
-    /** 按主键更新的 JDBC 计划；首列固定为 id，其余列与每行绑定顺序一致。 */
-    record BulkUpdate(String sql,List<String> columns){}
-    /** 索引点查计划只包含占位符与独立绑定值，保留与原查询相同的锁和连接顺序。 */
-    record KeyQuery(String sql,List<Object> arguments){}
+    /**
+     * 内部批量语句的不可变扁平计划。构造器仅向包内白名单生成器开放，SQL 只能包含与参数数目相同的
+     * 原生问号占位符；执行时由 GuardFlatPlanLanguageDriver 为每个值创建独立参数映射。
+     */
+    final class FlatPlan {
+        private final String sql;
+        private final List<Object> arguments;
+
+        private FlatPlan(String sql,List<Object> arguments) {
+            if (sql == null || sql.contains("#{") || sql.contains("${")
+                    || sql.chars().filter(character -> character == '?').count() != arguments.size()) {
+                throw new IllegalArgumentException("Invalid flat SQL plan");
+            }
+            this.sql=sql;
+            this.arguments=Collections.unmodifiableList(new ArrayList<>(arguments));
+        }
+
+        public String sql(){return sql;}
+        public List<Object> arguments(){return arguments;}
+    }
     final class Sql {
         private static final Map<String,Set<String>> COLUMNS=new HashMap<>();
         private static final List<String> EPISODE_KEY_COLUMNS=List.of("asset_id","sensor_id","boot_id","peer_key","key_epoch","direction","transport","service_port_key","family","scope","source","rule_id","bundle_id","bucket_start");
@@ -221,8 +242,8 @@ public interface GuardMapper {
             }
             return "SELECT e.*,o.public_id observation_public_id FROM guard_episode_evidence e JOIN guard_observation o ON o.id=e.observation_id WHERE "+keysWhere("guard_episode_evidence","e",p)+" FOR UPDATE";
         }
-        /** 避免为数千个复合键字段反复构建 MyBatis 属性路径；每次复用列集和单行模板，查询范围、索引与锁语义不变。 */
-        public static KeyQuery jdbcIndexedKeys(String t,List<Map<String,Object>> keys,boolean lock){
+        /** 先压缩同页复合键公共列，再通过 MyBatis 扁平绑定独立参数；查询范围、索引与锁语义不变。 */
+        public static FlatPlan indexedKeysPlan(String t,List<Map<String,Object>> keys,boolean lock){
             var indexed=switch(t){
                 case "guard_episode"->EPISODE_KEY_COLUMNS;
                 case "guard_episode_evidence"->List.of("episode_id","parent_connection_id","source","rule_id");
@@ -238,14 +259,14 @@ public interface GuardMapper {
             }
             var arguments=new ArrayList<Object>(keys.size()*indexed.size());
             for(var key:keys)for(String column:indexed)arguments.add(key.get(column));
-            return new KeyQuery(indexedKeySql(t,columns,String.join(" UNION ALL ",Collections.nCopies(keys.size(),rowSql)),lock),List.copyOf(arguments));
+            return plan(indexedKeySql(t,columns,String.join(" UNION ALL ",Collections.nCopies(keys.size(),rowSql)),lock),arguments);
         }
         /**
          * 页内仅合并另外十三列完全相同的键，把原有端口逐个保留在派生表中；不扩展端口范围、不省略未命中路径。
          * 每页仍只有一次完整唯一索引点查与原 FOR UPDATE，常量在 SQL 中只绑定一次。
          * 只有参数与 SQL 均变小时启用；高基数组回退原十四列键表，避免增加解析开销。
          */
-        private static KeyQuery compactEpisodeKeys(List<Map<String,Object>> keys,List<String> columns,String rowSql,boolean lock){
+        private static FlatPlan compactEpisodeKeys(List<Map<String,Object>> keys,List<String> columns,String rowSql,boolean lock){
             var fixed=EPISODE_KEY_COLUMNS.stream().filter(c->!c.equals("service_port_key")).toList();
             var groups=new LinkedHashMap<List<Object>,List<Object>>();
             for(var key:keys){
@@ -266,7 +287,7 @@ public interface GuardMapper {
             String derived=String.join(" UNION ALL ",branches);
             int originalLength=keys.size()*rowSql.length()+(keys.size()-1)*" UNION ALL ".length();
             if(derived.length()>=originalLength)return null;
-            return new KeyQuery(indexedKeySql("guard_episode",columns,derived,lock),List.copyOf(arguments));
+            return plan(indexedKeySql("guard_episode",columns,derived,lock),arguments);
         }
         private static String indexedKeySql(String t,List<String> columns,String derived,boolean lock){
             String alias=t.equals("guard_episode")?"t":"e";
@@ -299,29 +320,23 @@ public interface GuardMapper {
             for(String k:v.keySet()){cols.add(col(t,k));params.add("#{values."+k+"}");}
             return "INSERT INTO "+t+" ("+String.join(",",cols)+") VALUES ("+String.join(",",params)+")";
         }
-        @SuppressWarnings("unchecked")
-        public static String insertAll(Map<String,Object> p) {
-            String t=table(p);var rows=(List<Map<String,Object>>)p.get("rows");List<String> keys=new ArrayList<>(rows.getFirst().keySet()),values=new ArrayList<>();
-            for(int i=0;i<rows.size();i++){if(!rows.get(i).keySet().equals(new HashSet<>(keys)))throw new IllegalArgumentException("Row columns differ");
-                List<String> params=new ArrayList<>();for(String k:keys)params.add("#{rows["+i+"]."+k+"}");values.add("("+String.join(",",params)+")");}
-            List<String> cols=new ArrayList<>();for(String k:keys)cols.add(col(t,k));
-            return "INSERT INTO "+t+" ("+String.join(",",cols)+") VALUES "+String.join(",",values);
-        }
-        /** 热路径直接绑定参数，避免为每行每列反复解析 MyBatis 属性表达式；沿用相同标识符白名单。 */
-        public static BulkInsert jdbcInsert(String t,List<Map<String,Object>> rows){
+        /** 有界批量 INSERT 的扁平参数计划；列和表名都经当前 mapper 白名单校验。 */
+        public static FlatPlan insertAllPlan(String t,List<Map<String,Object>> rows) {
             table(Map.of("table",t));
             if(rows.isEmpty()||rows.size()>500)throw new IllegalArgumentException("Invalid insert count");
             var keys=List.copyOf(rows.getFirst().keySet());
             if(keys.isEmpty()||rows.stream().anyMatch(r->!r.keySet().equals(rows.getFirst().keySet())))throw new IllegalArgumentException("Row columns differ");
             var columns=keys.stream().map(k->col(t,k)).toList();
             String values="("+String.join(",",Collections.nCopies(keys.size(),"?"))+")";
-            return new BulkInsert("INSERT INTO "+t+" ("+String.join(",",columns)+") VALUES "+String.join(",",Collections.nCopies(rows.size(),values)),keys);
+            var arguments=new ArrayList<Object>(rows.size()*keys.size());
+            for(var row:rows)for(String key:keys)arguments.add(row.get(key));
+            return plan("INSERT INTO "+t+" ("+String.join(",",columns)+") VALUES "+String.join(",",Collections.nCopies(rows.size(),values)),arguments);
         }
         /**
          * 常量派生表驱动主键点查更新，避免每行计算整份 CASE；所有值仍使用占位符。
          * 只生成不超过 500 个不同主键的计划，不更新主键本身；可变表边界由 GuardStore 再校验。
          */
-        public static BulkUpdate jdbcUpdateAll(String t,List<Map<String,Object>> rows){
+        public static FlatPlan updateAllPlan(String t,List<Map<String,Object>> rows){
             table(Map.of("table",t));
             if(rows.isEmpty()||rows.size()>500)throw new IllegalArgumentException("Invalid update count");
             var updates=new ArrayList<>(rows.getFirst().keySet());updates.remove("id");
@@ -331,24 +346,14 @@ public interface GuardMapper {
                 throw new IllegalArgumentException("Invalid update rows");
             var columns=new ArrayList<String>();columns.add("id");columns.addAll(updates);
             var quoted=columns.stream().map(c->col(t,c)).toList();
-            String rowSql="SELECT "+String.join(",",quoted.stream().map(c->"? AS "+c).toList());
+            String rowSql="SELECT "+String.join(",",quoted.stream().map(column->"? AS "+column).toList());
+            var arguments=new ArrayList<Object>(rows.size()*columns.size());
+            for(var row:rows)for(String column:columns)arguments.add(row.get(column));
             var sets=updates.stream().map(c->"t."+col(t,c)+"=k."+col(t,c)).toList();
-            String sql="UPDATE ("+String.join(" UNION ALL ",Collections.nCopies(rows.size(),rowSql))+") k "
-                    +"STRAIGHT_JOIN "+t+" t FORCE INDEX (PRIMARY) ON t.`id`=k.`id` SET "+String.join(",",sets);
-            return new BulkUpdate(sql,List.copyOf(columns));
+            return plan("UPDATE ("+String.join(" UNION ALL ",Collections.nCopies(rows.size(),rowSql))+") k "
+                    +"STRAIGHT_JOIN "+t+" t FORCE INDEX (PRIMARY) ON t.`id`=k.`id` SET "+String.join(",",sets),arguments);
         }
-        @SuppressWarnings("unchecked")
-        public static String updateAll(Map<String,Object> p){
-            String t=table(p);var rows=(List<Map<String,Object>>)p.get("rows");
-            if(rows.isEmpty()||rows.size()>500)throw new IllegalArgumentException("Invalid update count");
-            var columns=new ArrayList<>(rows.getFirst().keySet());columns.remove("id");
-            if(columns.isEmpty()||rows.stream().anyMatch(r->!r.containsKey("id")||!r.keySet().equals(rows.getFirst().keySet()))
-                    ||rows.stream().map(r->r.get("id")).distinct().count()!=rows.size())throw new IllegalArgumentException("Invalid update rows");
-            var sets=new ArrayList<String>();var ids=new ArrayList<String>();
-            for(String c:columns){var arms=new ArrayList<String>();for(int i=0;i<rows.size();i++)arms.add("WHEN #{rows["+i+"].id} THEN #{rows["+i+"]."+c+"}");sets.add(col(t,c)+"=CASE id "+String.join(" ",arms)+" ELSE "+col(t,c)+" END");}
-            for(int i=0;i<rows.size();i++)ids.add("#{rows["+i+"].id}");
-            return "UPDATE "+t+" SET "+String.join(",",sets)+" WHERE id IN ("+String.join(",",ids)+")";
-        }
+        private static FlatPlan plan(String sql,List<Object> arguments){return new FlatPlan(sql,arguments);}
         @SuppressWarnings("unchecked")
         public static String update(Map<String,Object> p) {
             String t=table(p);Map<String,Object> v=(Map<String,Object>)p.get("values");List<String> set=new ArrayList<>();

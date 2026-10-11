@@ -3,27 +3,21 @@ package com.xyh.cybersecurity.guard;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.xyh.cybersecurity.audit.AuditMapper;
 import org.springframework.stereotype.Repository;
-import org.springframework.jdbc.core.ConnectionCallback;
-import org.springframework.jdbc.core.JdbcTemplate;
-import org.mybatis.spring.SqlSessionTemplate;
-import java.sql.Statement;
 import java.time.*;
 import java.util.*;
 import static com.xyh.cybersecurity.guard.GuardJson.*;
 
-/** MyBatis/JDBC 共用事务的事实访问；行锁由应用事务持有，更新只开放给可变投影。 */
+/** MyBatis 事务内的事实访问；行锁由应用事务持有，更新只开放给可变投影。 */
 @Repository
 public class GuardStore {
     private final GuardMapper mapper;
     private final AuditMapper audit;
-    private final JdbcTemplate jdbc;
-    private final SqlSessionTemplate sessions;
     private static final Set<String> MUTABLE=Set.of("asset","asset_authorization","sensor_agent","sensor_config","api_client",
             "guard_idempotency","guard_model","guard_decision_policy","guard_release_bundle","guard_asset_binding",
             "guard_capture_scope","guard_observation_batch","guard_executor","guard_target_budget","guard_asset_budget",
             "guard_episode","guard_episode_evidence","guard_action","guard_budget_interval","guard_revocation","guard_action_receipt",
             "guard_authorization_lease","consumed_message","security_event","guard_feedback","guard_validation_session","guard_replay_run");
-    public GuardStore(GuardMapper mapper,AuditMapper audit,JdbcTemplate jdbc,SqlSessionTemplate sessions){this.mapper=mapper;this.audit=audit;this.jdbc=jdbc;this.sessions=sessions;}
+    public GuardStore(GuardMapper mapper,AuditMapper audit){this.mapper=mapper;this.audit=audit;}
     public Instant now(){return mapper.now().toInstant(ZoneOffset.UTC);}
     public Map<String,Object> insert(String t,Map<String,Object> v){mapper.insert(t,v);return v;}
     public Map<String,Object> add(String t,Map<String,Object> v){v.putIfAbsent("public_id",id());return insert(t,v);}
@@ -43,34 +37,17 @@ public class GuardStore {
         if(rows.stream().anyMatch(r->!(r.get("id") instanceof Number n)||!ids.add(n.longValue())))
             throw new IllegalArgumentException("Invalid update rows");
         for(int i=0;i<rows.size();i+=500){
-            var part=rows.subList(i,Math.min(i+500,rows.size()));var plan=GuardMapper.Sql.jdbcUpdateAll(t,part);
-            jdbc.execute((ConnectionCallback<Void>) connection->{
-                try(var statement=connection.prepareStatement(plan.sql())){
-                    int parameter=1;for(var row:part)for(String column:plan.columns())statement.setObject(parameter++,row.get(column));
-                    // 未命中主键和写入相同值沿用旧 UPDATE 语义，不依赖驱动的 affectedRows 配置。
-                    statement.executeUpdate();
-                }return null;
-            });
-            sessions.clearCache();
+            // 未命中主键和写入相同值沿用旧 UPDATE 语义；MyBatis 写入自动使事务一级缓存失效。
+            mapper.updateAll(GuardMapper.Sql.updateAllPlan(t,rows.subList(i,Math.min(i+500,rows.size()))));
         }
     }
     /** 不带 public_id 的表也可严格多行新增；不忽略冲突，不提前提交。 */
     public void insertAll(String t,List<Map<String,Object>> rows){for(int i=0;i<rows.size();i+=500)insertPart(t,rows.subList(i,Math.min(i+500,rows.size())),false);}
-    /** 与 MyBatis 共用 Spring 管理的事务连接，不自行提交；严格插入并逐行核验返回的自增键。 */
+    /** 单条多行 INSERT 参加调用方 Spring 事务；不忽略冲突，所需主键由 MyBatis 逐行回填。 */
     private void insertPart(String t,List<Map<String,Object>> rows,boolean returning){
-        var plan=GuardMapper.Sql.jdbcInsert(t,rows);
-        jdbc.execute((ConnectionCallback<Void>) connection->{
-            try(var statement=connection.prepareStatement(plan.sql(),returning?Statement.RETURN_GENERATED_KEYS:Statement.NO_GENERATED_KEYS)){
-                int parameter=1;for(var row:rows)for(String column:plan.columns())statement.setObject(parameter++,row.get(column));
-                require(statement.executeUpdate()==rows.size(),"BATCH_WRITE_INCOMPLETE");
-                if(returning)try(var keys=statement.getGeneratedKeys()){
-                    for(var row:rows){require(keys.next(),"BATCH_KEYS_UNAVAILABLE");row.put("id",keys.getLong(1));}
-                    require(!keys.next(),"BATCH_KEYS_UNAVAILABLE");
-                }
-            }return null;
-        });
-        // JDBC 不经过 MyBatis executor；主动清除同一事务的一级缓存，保证后续查询看见本次写入。
-        sessions.clearCache();
+        var plan=GuardMapper.Sql.insertAllPlan(t,rows);
+        int inserted=returning?mapper.insertAllReturning(plan,rows):mapper.insertAll(plan);
+        require(inserted==rows.size(),"BATCH_WRITE_INCOMPLETE");
     }
     /** 内部精确键固定按 500 行分页；episode 只在同页内压缩公共列，不增加查询次数或扩大锁定键集。 */
     public List<Map<String,Object>> byKeys(String t,List<Map<String,Object>> keys,boolean lock){
@@ -84,7 +61,7 @@ public class GuardStore {
         var rows=new ArrayList<Map<String,Object>>();for(int i=0;i<keys.size();i+=500)rows.addAll(indexedKeys("guard_episode_evidence",keys.subList(i,Math.min(i+500,keys.size())),true));return rows;
     }
     private List<Map<String,Object>> indexedKeys(String table,List<Map<String,Object>> keys,boolean lock){
-        var plan=GuardMapper.Sql.jdbcIndexedKeys(table,keys,lock);return jdbc.queryForList(plan.sql(),plan.arguments().toArray());
+        return mapper.indexedKeys(GuardMapper.Sql.indexedKeysPlan(table,keys,lock));
     }
     public List<Map<String,Object>> rows(String t,Map<String,Object> w,boolean lock,int limit){return mapper.select(t,w,lock,limit,null,null,null);}
     public List<Map<String,Object>> visible(String t,Map<String,Object> w,long actor,String permission,int limit,Long before){return mapper.select(t,w,false,limit,actor,permission,before);}

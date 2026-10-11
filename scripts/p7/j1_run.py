@@ -226,14 +226,18 @@ def capture_start(segment):
     return [] if us is None else ["-capture-start", datetime.fromtimestamp(us / 1e6, UTC).isoformat(timespec="microseconds").replace("+00:00", "Z")]
 
 
-def pf_snapshot():
-    commands = [["/usr/bin/sudo", "-n", "/sbin/pfctl", "-s", "info"],
-                ["/usr/bin/sudo", "-n", "/sbin/pfctl", "-sr"],
-                ["/usr/bin/sudo", "-n", "/sbin/pfctl", "-a", "*", "-sr"]]
+def pf_snapshot(allowed=False):
+    """只在已显式授权时读取 PF；默认留下未执行原因，绝不调用 sudo 或 pfctl。"""
+    commands = [("info", ["/usr/bin/sudo", "-n", "/sbin/pfctl", "-s", "info"]),
+                ("rules", ["/usr/bin/sudo", "-n", "/sbin/pfctl", "-sr"]),
+                ("anchors", ["/usr/bin/sudo", "-n", "/sbin/pfctl", "-a", "*", "-sr"])]
+    if not allowed:
+        return [dict(operation=operation, attempted=False, exitCode=None, stdoutSha256=None,
+                     reason="not_executed_authorization_boundary") for operation, _ in commands]
     results = []
-    for command in commands:
+    for operation, command in commands:
         p = subprocess.run(command, capture_output=True, timeout=10)
-        results.append(dict(operation=command[-1], exitCode=p.returncode,
+        results.append(dict(operation=operation, attempted=True, exitCode=p.returncode,
                             stdoutSha256=hashlib.sha256(p.stdout).hexdigest()))
     return results
 
@@ -656,7 +660,7 @@ class Run:
                 self.process.terminate()
                 try:self.process.wait(30)
                 except subprocess.TimeoutExpired:self.process.kill();self.process.wait()
-            write(self.work/("pf-after"+self.resume_suffix+".json"),pf_snapshot())
+            write(self.work/("pf-after"+self.resume_suffix+".json"),pf_snapshot(self.args.allow_pf_snapshot))
             write(self.work/("stopped"+self.resume_suffix+".json"),dict(at=stamp(),backendExitCode=None if self.process is None else self.process.poll(),schema=self.schema,port=self.args.port))
         from j1_audit import assess_all
         assess_all(self.work)
@@ -683,7 +687,7 @@ class Run:
         self.selection = json.loads((self.args.registration/"selection.json").read_text())
         # 新诊断目录可以只预置二进制；凭据目录须在克隆和写入隔离身份前准备好。
         (self.work/"private").mkdir(mode=0o700, exist_ok=True)
-        write(self.work/"pf-before.json", pf_snapshot())
+        write(self.work/"pf-before.json", pf_snapshot(self.args.allow_pf_snapshot))
         backup_dir = self.args.mysql_service/"backups"
         backup_dir.mkdir(exist_ok=True)
         backup = backup_dir/(self.schema+"-source.sql")
@@ -733,7 +737,7 @@ class Run:
                 except subprocess.TimeoutExpired:
                     self.process.kill()
                     self.process.wait()
-            write(self.work/"pf-after.json", pf_snapshot())
+            write(self.work/"pf-after.json", pf_snapshot(self.args.allow_pf_snapshot))
             write(self.work/"stopped.json", dict(at=stamp(), backendExitCode=None if self.process is None else self.process.poll(), schema=self.schema, port=self.args.port))
         if not self.args.diagnostic_segments:
             from j1_audit import assess_all
@@ -763,6 +767,7 @@ def main():
     parser.add_argument("--capture-warmup-seconds", type=int, default=0, help="与 --rebind-scenario-ref 合用：登记首包前的采集预热秒数")
     parser.add_argument("--diagnostic-segments", nargs="*", default=None, help="仅诊断：只回放这些片段，不产生可判定结果")
     parser.add_argument("--record-jfr", action="store_true", help="仅部分片段诊断时记录私有 JFR 性能证据")
+    parser.add_argument("--allow-pf-snapshot", action="store_true", help="仅在另有明确授权时读取 PF；默认不运行 sudo 或 pfctl")
     parser.add_argument("--attack-concurrency", type=int, default=18, help="同时回放的攻击片段数；正常片段始终同时运行")
     parser.add_argument("--batch-size", type=int, default=100, help="登记传输批次上限（1..512）；不改变 1 MiB 请求体和批末判定语义")
     args = parser.parse_args()

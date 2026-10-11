@@ -114,7 +114,7 @@ V24 向前追加 running/completed 状态和 latest-parent 索引，V1—V23 原
 
 `j1_register.py` 只从 Mac 的已登记 CIC2017 原件及 P3-A validation 切分截取：核验 registry SHA-256/MD5 和官方 MD5，逐包检查冻结 validation 连接成员及时间范围，保留原时间和报文块字节。清单及每个片段的 SHA-256 在回放前冻结；不打开 frozen/test，不把 PCAP 复制到 Windows。`selection.json` 和提取 ledger 含原始端点，必须留在私有目录。
 
-`j1_run.py` 用业务库备份的隔离恢复副本，追加 V24 后在 loopback 临时启动同一冻结 JAR，强制 TLS 1.3/client-auth=need，使用仅观察的 research 身份。每轮先用 `guardextract` 与 `GuardReplayReference` 生成真实 ONNX/规则/决策离线参照，再由 `guardlive -pcap` 每段 1 倍速读取文件并经真实 mTLS 上传；两轮复用同一清单、数值策略、PCAP 和二进制，轮次身份另行登记。多捕获域并发必须报告，并发正常时长之和不能描述为单主机连续正常时间。
+`j1_run.py` 用业务库备份的隔离恢复副本，追加 V24 后在 loopback 临时启动同一冻结 JAR，强制 TLS 1.3/client-auth=need，使用仅观察的 research 身份。每轮先用 `guardextract` 与 `GuardReplayReference` 生成真实 ONNX/规则/决策离线参照，再由 `guardlive -pcap` 每段 1 倍速读取文件并经真实 mTLS 上传；两轮复用同一清单、数值策略、PCAP 和二进制，轮次身份另行登记。多捕获域并发必须报告，并发正常时长之和不能描述为单主机连续正常时间。PF 快照默认只写“未执行，受授权边界限制”的证据，绝不调用 `sudo` 或 `pfctl`；只有另有明确授权时才可加 `--allow-pf-snapshot`。
 
 假想准备度按 P6 已登记来源资格投影自动开关，数值策略与 M1 相同。复用正式判定器及最新快照替换：保留整组 profile/capability、推理可用、质量、时钟、时效、distinct parents 和上下文；仅排除现场健康、目标、执行授权及保护/预算，`actionable=false`。它不代表任何命令已签发。
 
@@ -146,7 +146,9 @@ J1 收口验证摘要：`GuardIntegrationTest` 18/18、P7 Python 82/82、Java P7
 
 ## K2 扫描批次性能诊断
 
-K2 只复用 v8 的三个 `port_scan` 片段和一个 `normal` 片段，维持 1 倍速、6 个后端线程及并发上限 18，三个攻击捕获域和正常背景同时运行。入口是在已核验 J1 参数上增加 `--diagnostic-segments port_scan-1 port_scan-2 port_scan-3 normal-1 --record-jfr --batch-size 512`，并为每次运行指定新的 `.cache/j1-diag-*` 目录及未占用的 loopback 端口。`--batch-size` 默认100，可登记1—512条；仍保留500ms超时封口和1MiB请求体限制，字节将超限时提前封口。运行器仍完整备份/恢复到隔离 MySQL schema，不接执行器、target 或真实防火墙，不读取 test，不改变数值策略。
+历史 K2 的四段性能证据使用直接 JDBC 批量路径，只可作为历史事实。K2-R 将该路径替换为 MyBatis 扁平参数计划，生产源码不再包含 `JdbcTemplate`、`ConnectionCallback` 或 `java.sql.*`；`MyBatisMigrationGuardTest` 未改动。K2-R retry-5 是当前实现的四段验证，证据目录为 `.cache/j1-diag-20261011-k2r-retry-5/`；失败的 retry-1（`port_scan-1` P95 2.1749 秒）及其余试跑原样保留，见该报告的试跑记录。
+
+K2/K2-R 只复用 v8 的三个 `port_scan` 片段和一个 `normal` 片段，维持 1 倍速、6 个后端线程及并发上限 18，三个攻击捕获域和正常背景同时运行。入口是在已核验 J1 参数上增加 `--diagnostic-segments port_scan-1 port_scan-2 port_scan-3 normal-1 --record-jfr --batch-size 512`，并为每次运行指定新的 `.cache/j1-diag-*` 目录及未占用的 loopback 端口。`--batch-size` 默认100，可登记1—512条；仍保留500ms超时封口和1MiB请求体限制，字节将超限时提前封口。运行器仍完整备份/恢复到隔离 MySQL schema，不接执行器、target 或真实防火墙，不读取 test，不改变数值策略。
 
 `GuardBatchProfile` 的 JFR 事件只含批次 UUID、阶段和提交状态。`k2_profile.py` 将真实 ONNX、证据投影、证据回读、episode 判定、T1/T2 提交及 spool 回执写盘时间汇总到 `profile.json`；父阶段包含子阶段，不能把它们相加。未结束的录制只能形成 `partial` 报告，完成报告必须包含四段结果。JFR 原件置于私有目录，不提交 Git。
 
@@ -156,3 +158,5 @@ sh executor/python.sh -B scripts/p7/k2_compare.py --work "$K2_WORK" --baseline .
 ```
 
 `k2_compare.py` 核验冻结输入、提取器、速度和并发，再按私有账本的物理连接及快照逐条比较 v8 两轮的告警集合、类别和分数，要求四段 P95 均不超过 2 秒，队列排空且无丢失、拒收、推理失败、超时和动作/命令增量。报告始终为 `diagnosticOnly=true`、`j1Passed=null`、`J2Allowed=false`，不能覆盖正式 J1 结论。`GuardIntegrationTest` 的批次切分用例在相同前置状态与最终证据上核验终态等价；传输拆批可能增加中间判定，SQL 存储分段不能成为新的判定边界。
+
+retry-5 的四段提交上界 P95 为 `port_scan-1=1.8281502723693848`、`port_scan-2=1.5288910865783691`、`port_scan-3=1.5111351013183594`、`normal-1=0.6281046867370605` 秒，均通过。相对 v8 两轮的连接告警和逐快照分类零差异；缺失、拒收、推理失败/超时、容量丢弃、待处理批次、动作及命令增量均为 0。输入哈希未变，源库前后摘要在忽略 `at` 后一致，临时后端已停。详见 `.cache/j1-diag-20261011-k2r-retry-5/REPORT.md`；该局部诊断不授予 J1、J2、G3、P8 或真实资产动作资格。

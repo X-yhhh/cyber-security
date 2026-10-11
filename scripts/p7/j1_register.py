@@ -260,6 +260,9 @@ def register(args):
                         sourceFirstUs=times[index][0], sourceLastUs=times[index][1],
                         observedDurationSeconds=(times[index][1]-times[index][0])/1_000_000,
                         pcapRef=f"{args.artifact_prefix}/clips/{spec['segmentId']}.pcap")
+            if preroll and spec["family"] not in preroll_families:
+                # 未加预热的类别仍保留同长的传感器采集预热（与原 v8 换绑的 captureWarmupSeconds 相同），PCAP 不变。
+                spec["captureStartUs"] = spec["sourceFirstUs"] - preroll
             if preroll and spec["family"] in preroll_families:
                 packets, first, last, digest = scoring[index]
                 if not packets:

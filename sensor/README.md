@@ -72,8 +72,8 @@ Mac/Windows回环和物理接口的实时输入与同轨迹逐字节复算已作
 Z1 集成复验（2026-10-10）已重编译 `guardtargets`：cgo 与纯 Go 的 `go test ./...`、`hostguard/guardup/capturehealth/jcs/guardlive` 的 `-race`、20 场景/55 观察的 `guardgolden -check`、51 项执行器测试及 5 Schema/8 负例/55 观察的契约检查通过。真实 P4/数据库接收、服务端 mTLS 终端配置、长时间全入站采集与健康链、`guardtargets` 租约接入及 Windows 全入站仍未验证。
 
 - **S1 全部入站 TCP**：配置 `captureScope` 取 `service`（默认，沿用上文对端+服务端口）或 `all_inbound_tcp`。后者不接受 `peerAddresses`/`servicePort`/`serviceEndpoint`，BPF 只放行一端为登记本机地址（≤16 个、同一地址族）、另一端为非本机地址的 TCP，两个方向都保留，以免 SYN-ACK/RST/出站字节缺失而与离线提取不同口径；接口仍受 `allowedInterfaces` 限定。写出与上传只保留 TCP 且方向不是 `outbound`（本机主动外连）的观察，方向未知的段保留给后端按 not_applicable 处理。上下文窗口仍由同一引擎按捕获到的全部报文计算。
-- **S2 1 倍速文件回放**：`guardlive -pcap <冻结文件> [-start/-end 原事件时间]` 只读文件、不打开网卡、不注入报文，仅限 research（lab 回放需 canary 映射与验证会话，未实现前拒绝）。首包确定整秒 `timeOffsetMicros`，此后所有报文一次性平移并按原包间隔等待；等待期间每 100ms 推进引擎使快照按时发出，但 Tick 不越过下一个待送报文，文件读完不再 Tick，因此观察与 `guardextract` 对同一文件、同一身份/密钥的结果逐字段一致（`emittedAt` 为真实墙钟，事件时间减去平移量即原时间）。`-report` 记录平移量、原首末包时间、墙钟起止、最大落后和 PCAP 哈希；`guardreplaydiff -offline -replay -report` 按同一范围过滤后逐字段比对。中断或截断文件不报告完成。
-- **S3 v2 观察上传**：配置可选 `upload` 对象（`baseUrl` https 根地址、`caFile`、`certificateFile`、`keyFile`、`credentialFile`、绝对 `spoolDir`、可选 `healthWindowMs`）。传输为 TLS 1.3 并强制出示传感器客户端证书，同时带 v2 `Bearer mch_…` 凭据；不继承代理、不跟随重定向，私钥与凭据文件须为属主专用的绝对普通文件。启动时读取已批准配置，契约版本、profile 摘要、健康版本、捕获域、地址族和本程序 SHA-256 任一不符即拒绝。观察先按 `maxBatchSize` 或 500ms 封口并 fsync 到 `spoolDir/<bootId>/`，再按 sequence 顺序单批在途发送；先发心跳登记 bootId。网络错误、408/429/5xx 以同一 batchId、Idempotency-Key 与原字节退避重试，其余 4xx（身份、范围、幂等冲突等）立即停止采集。环境取配置 `environment`（research/lab/authorized），本节不接入 `guardtargets` 租约，非 research 观察的 targetRef 仍为 null。
+- **S2 1 倍速文件回放**：`guardlive -pcap <冻结文件> [-start/-end 原事件时间]` 只读文件、不打开网卡、不注入报文，默认仅限 research；显式 lab 配置可使用已核验会话与 canary 映射接入，见[传感器 lab 接入](../docs/contracts/sensor-lab.md)。research 模式由首包确定整秒 `timeOffsetMicros`，此后所有报文一次性平移并按原包间隔等待；等待期间每 100ms 推进引擎使快照按时发出，但 Tick 不越过下一个待送报文，文件读完不再 Tick，因此观察与 `guardextract` 对同一文件、同一身份/密钥的结果逐字段一致（`emittedAt` 为真实墙钟，事件时间减去平移量即原时间）。`-report` 记录平移量、原首末包时间、墙钟起止、最大落后和 PCAP 哈希；`guardreplaydiff -offline -replay -report` 按同一范围过滤后逐字段比对。中断或截断文件不报告完成。
+- **S3 v2 观察上传**：配置可选 `upload` 对象（`baseUrl` https 根地址、`caFile`、`certificateFile`、`keyFile`、`credentialFile`、绝对 `spoolDir`、可选 `healthWindowMs`）。传输为 TLS 1.3 并强制出示传感器客户端证书，同时带 v2 `Bearer mch_…` 凭据；不继承代理、不跟随重定向，私钥与凭据文件须为属主专用的绝对普通文件。启动时读取已批准配置，契约版本、profile 摘要、健康版本、捕获域、地址族和本程序 SHA-256 任一不符即拒绝。观察先按 `maxBatchSize` 或 500ms 封口并 fsync 到 `spoolDir/<bootId>/`，再按 sequence 顺序单批在途发送；先发心跳登记 bootId。网络错误、408/429/5xx 以同一 batchId、Idempotency-Key 与原字节退避重试，其余 4xx（身份、范围、幂等冲突等）立即停止采集。环境取配置 `environment`（research/lab/authorized），未配置 lab 接入时，本节不接入 `guardtargets` 租约；显式 lab 接入通过独立可信登记器取得目标引用。
 - **续传与 boot**：同一 bootId 重新采集会生成相同观察 ID 而 `emittedAt` 不同，因此已有 spool 时拒绝启动，须换新 bootId；结束时未确认的批次保留在 spool，用 `guardlive -config <同一配置> -drain` 续传。已封口批次不丢不重；进程崩溃时内存中未满 500ms 的未封口观察会丢失，表现为新 boot 的缺口。
 - **S4 健康窗口**：配置 `upload` 时同时运行 `host-guard-capture-health/1.0.0` 观察器（默认 1 秒、上限 5 秒窗口），只读捕获句柄的累计读包数、内核丢包（不可测为 null）与引擎容量丢弃，独立于特征引擎；`previousSha256` 为前一窗口完整 payload 的 RFC 8785 JCS SHA-256，服务端返回摘要不一致即停止。轮询停顿超过 5 秒时按上限切分并标记 `captureGap` 与未知计数。`clockSkewMs` 取 60 秒内往返 ≤1 秒的心跳估计，否则为 null。文件回放的历史丢包未知，窗口不能证明连续健康。
 
@@ -93,3 +93,11 @@ bin/guardreplaydiff -offline <guardextract 输出> -replay <上一步输出> -re
 两轮 1 倍速文件回放已经完成，观察/模型/规则/决策经真实 mTLS 进入隔离 MySQL 副本，正式证据见 `.cache/j1-20261011-v8/REPORT.md` 与 `.cache/j1v3-20261011/closeout.json`。J1 未通过，J2/P8 保持关闭；research 未接 target 或执行器，动作/命令增量为 0，研究组合已批准但未激活。此结果不能证明真实接口长期采集、全入站健康链或自动处置资格。
 
 A7 本轮只完成本机配置与恢复检查：`en0` 活跃、TSO4/TSO6 开启、`net.inet.tcp.tso=1`；没有免密 sudo，`pfctl` 因 `/dev/pf` 权限拒绝。未改变网卡、sysctl、PF、服务或系统配置；静态 PF ABI 与恢复单测通过不等于全局 PF 快照验证。历史 CIC PCAP 的 offload/质量事实不能通过当前本机 TSO 检查修复，本轮不进行实时对端流量对照。
+
+## lab 会话、canary 与可信目标接入（2026-10-11，待合并验证）
+
+代码草稿，尚未经统一编译/测试（含 `-race`）、未合并、未在真实 lab 运行。独立 `guardlab` 适配模块只读核验后端 `runnable`、配置给定的会话 ID（`runId`）、会话 JCS 摘要（`sessionSha256`）与映射原字节摘要（`mappingSha256`）、runner 签名映射及 PCAP/构建摘要，按登记的固定偏移回放，并经独立 mTLS `guardtargets` 登记器取得 targetRef；租约过期、映射不符或 normal/attack 共用 targetRef 均 fail-closed。单场景用 `-pcap`，非重叠多场景用 `-lab-plan`，共用同一 boot/队列；不更改 K2 的上传/spool 实现。
+
+`guardreplaydiff` 对 `lab_pcap_replay` 摘要自动进入 lab 对拍：除已登记差异字段（`emittedAt,environment,peerKey,targetRef,targetExpiresAt,quality.clockSkewMs`，多场景另加 ID 三项）外，与 research 离线提取逐字段比较。健康链补充了回环替身后端端到端测试（窗口连续、缺口、未知计数、断连重连、重复证明拒绝）。这些都是离线合成验证，不是现场长期采集或 G3 证据。
+
+配置、身份分离、初始注册、事件交接、原字节续传、限制及与 lab 线的字段对齐见[完整接入契约](../docs/contracts/sensor-lab.md)。lab 后端新接口仍在其分支待合入，缺少 `runnable=true` 时本入口明确拒绝。research 路径保持原行为；本线不含前端、常驻部署或真实防火墙操作。

@@ -17,16 +17,18 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/xyh/cyber-security/sensor/internal/guardlab"
 	"github.com/xyh/cyber-security/sensor/internal/hostguard"
 )
 
 type configuration struct {
-	Listen          string                `json:"listen"`
-	CertificateFile string                `json:"certificateFile"`
-	KeyFile         string                `json:"keyFile"`
-	CAFile          string                `json:"caFile"`
-	AuthorizedUntil time.Time             `json:"authorizedUntil"`
-	Scope           hostguard.TargetScope `json:"scope"`
+	Listen          string                       `json:"listen"`
+	CertificateFile string                       `json:"certificateFile"`
+	KeyFile         string                       `json:"keyFile"`
+	CAFile          string                       `json:"caFile"`
+	AuthorizedUntil time.Time                    `json:"authorizedUntil"`
+	Scope           hostguard.TargetScope        `json:"scope"`
+	Registration    *guardlab.RegistrationConfig `json:"registration"`
 }
 
 // run 仅绑定明确的回环地址，强制独立 collector/executor 证书及整体运行期限。
@@ -66,6 +68,16 @@ func run(path string) error {
 	registry, err := hostguard.NewTargetRegistry(c.Scope, time.Now)
 	if err != nil {
 		return err
+	}
+	if c.Registration != nil {
+		registrar, e := guardlab.NewRegistrar(*c.Registration, c.Scope)
+		if e != nil {
+			return e
+		}
+		registry, err = hostguard.NewRegisteredTargetRegistry(c.Scope, time.Now, registrar.Register)
+		if err != nil {
+			return err
+		}
 	}
 	defer registry.Invalidate()
 	server := &http.Server{Addr: c.Listen, Handler: registry, TLSConfig: hostguard.TargetTLS(cert, pool),

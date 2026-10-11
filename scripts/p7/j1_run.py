@@ -376,7 +376,7 @@ class Run:
                      registrationVerificationSha256=sha(self.work/"registration-verification.json"),
                      gatesExcludedFromHypothetical=["liveCaptureHealth", "targetBinding", "executionAuthorization", "protectionAndBudget"],
                      serverThreads=self.args.server_threads, packageRef=self.args.package_ref,
-                     attackConcurrency=self.args.attack_concurrency)
+                     attackConcurrency=self.args.attack_concurrency, maxBatchSize=self.args.batch_size)
         if rebound:
             if jcs([{k: v for k, v in s.items() if k != "captureStartUs"} for s in draft["segments"]]) != rebound["segmentsSha256"]:
                 raise RuntimeError("rebinding changed frozen segments")
@@ -406,7 +406,7 @@ class Run:
             token.write_text(sensor["credential"])
             token.chmod(0o600)
             config = dict(contractVersion="host-guard/5.0.0-rc.2", profileSha256=json.loads((self.package/"model-manifest.json").read_text())["featureProfileSha256"],
-                          captureHealthVersion="host-guard-capture-health/1.0.0", interfaceIds=["replay0"], limits=dict(maxBatchSize=100),
+                          captureHealthVersion="host-guard-capture-health/1.0.0", interfaceIds=["replay0"], limits=dict(maxBatchSize=self.scenario.get("maxBatchSize",100)),
                           captureScopeId=scope, addressFamily="ipv4", buildSha256=self.scenario["sensorSha256"])
             config_id = self.operator.v2(f"/sensors/{sensor['id']}/configs", config)["id"]
             self.reviewer.v2(f"/sensor-configs/{config_id}/decisions", dict(decision="approve", reason="J1 冻结传感器摘要与捕获域"), 1)
@@ -471,7 +471,8 @@ class Run:
             subprocess.run([str(self.java.parent/"jcmd"), str(self.process.pid), "JFR.configure", "stackdepth=128"],
                            check=True, capture_output=True)
             subprocess.run([str(self.java.parent/"jcmd"), str(self.process.pid), "JFR.start", "name=j1",
-                            "settings=profile", "dumponexit=true", "filename="+str(self.work/"private/replay.jfr")],
+                            "settings=profile", "cyber.guard.BatchPhase#enabled=true", "cyber.guard.BatchPhase#threshold=0ms",
+                            "dumponexit=true", "filename="+str(self.work/"private/replay.jfr")],
                            check=True, capture_output=True)
         jobs, privileges = [], []
         def launch(segment):
@@ -680,6 +681,8 @@ class Run:
 
     def run(self):
         self.selection = json.loads((self.args.registration/"selection.json").read_text())
+        # 新诊断目录可以只预置二进制；凭据目录须在克隆和写入隔离身份前准备好。
+        (self.work/"private").mkdir(mode=0o700, exist_ok=True)
         write(self.work/"pf-before.json", pf_snapshot())
         backup_dir = self.args.mysql_service/"backups"
         backup_dir.mkdir(exist_ok=True)
@@ -761,6 +764,7 @@ def main():
     parser.add_argument("--diagnostic-segments", nargs="*", default=None, help="仅诊断：只回放这些片段，不产生可判定结果")
     parser.add_argument("--record-jfr", action="store_true", help="仅部分片段诊断时记录私有 JFR 性能证据")
     parser.add_argument("--attack-concurrency", type=int, default=18, help="同时回放的攻击片段数；正常片段始终同时运行")
+    parser.add_argument("--batch-size", type=int, default=100, help="登记传输批次上限（1..512）；不改变 1 MiB 请求体和批末判定语义")
     args = parser.parse_args()
     if not args.java.is_file() or not (args.work/"bin/backend.jar").is_file():
         raise RuntimeError("frozen JDK25/backend binary is required")
@@ -769,6 +773,7 @@ def main():
     if args.resume and args.diagnostic_segments:parser.error("diagnostic cannot resume a formal run")
     if args.record_jfr and not args.diagnostic_segments:parser.error("JFR recording requires diagnostic segments")
     if args.attack_concurrency < 1 or args.attack_concurrency > 18:parser.error("attack-concurrency must be 1..18")
+    if not 1 <= args.batch_size <= 512:parser.error("batch-size must be 1..512")
     run=Run(args)
     run.resume() if args.resume else run.run()
 

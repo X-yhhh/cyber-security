@@ -290,7 +290,7 @@ func TestVerifyRemoteFailsClosed(t *testing.T) {
 	ok.ConfigID, ok.ConfigHash = configID, configHash
 	ok.Config.ContractVersion, ok.Config.ProfileSha256, ok.Config.CaptureHealthVersion = hostguard.Version, hostguard.FeatureProfileSHA256, capturehealth.Version
 	ok.Config.CaptureScopeID, ok.Config.AddressFamily, ok.Config.BuildSha256 = scopeID, "ipv4", buildHash
-	ok.Config.Limits.MaxBatchSize = 100
+	ok.Config.Limits.MaxBatchSize = MaxBatchSize
 	if err := VerifyRemote(ok, scopeID, "ipv4", buildHash); err != nil {
 		t.Fatal(err)
 	}
@@ -299,7 +299,7 @@ func TestVerifyRemoteFailsClosed(t *testing.T) {
 		"HEALTH_VERSION_UNSUPPORTED": func(r *RemoteConfig) { r.Config.CaptureHealthVersion = "x" },
 		"SCOPE_DENIED":               func(r *RemoteConfig) { r.Config.AddressFamily = "ipv6" },
 		"BUILD_NOT_APPROVED":         func(r *RemoteConfig) { r.Config.BuildSha256 = strings.Repeat("d", 64) },
-		"CAPACITY_EXCEEDED":          func(r *RemoteConfig) { r.Config.Limits.MaxBatchSize = 101 },
+		"CAPACITY_EXCEEDED":          func(r *RemoteConfig) { r.Config.Limits.MaxBatchSize = MaxBatchSize + 1 },
 	} {
 		r := ok
 		mutate(&r)

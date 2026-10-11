@@ -141,3 +141,16 @@ sh executor/python.sh -B scripts/p7/j1_audit.py "$J1_RUN_DIR" --finalize
 2026-10-11 v8 复跑沿用同一冻结片段并为新二进制登记新场景；`--server-threads` 设置后端线程数（默认 6）。运行器在后端迁移后先用 `policy_text.py` 把策略恢复为原件字节（结果写入 `policy-text-restore.json`），并为每轮记录 `privileges.json` 作为无免密 sudo 时 J1-6 的权限边界证据。收口记录为 `.cache/j1v3-20261011/closeout.json`；A7 仅完成本机配置/恢复检查：`en0` 的 TSO4/TSO6 与 `net.inet.tcp.tso=1` 保持现状，未执行 TSO/PF 切换，历史 PCAP 质量未被改写。
 
 J1 收口验证摘要：`GuardIntegrationTest` 18/18、P7 Python 82/82、Java P7 回归 18/18、A7 PF 恢复单测 9/9，`compileall` 与 `git diff --check` 通过。上述结果不授予 J2、G3、P8 或真实资产自动执行资格。
+
+## K2 扫描批次性能诊断
+
+K2 只复用 v8 的三个 `port_scan` 片段和一个 `normal` 片段，维持 1 倍速、6 个后端线程及并发上限 18，三个攻击捕获域和正常背景同时运行。入口是在已核验 J1 参数上增加 `--diagnostic-segments port_scan-1 port_scan-2 port_scan-3 normal-1 --record-jfr --batch-size 512`，并为每次运行指定新的 `.cache/j1-diag-*` 目录及未占用的 loopback 端口。`--batch-size` 默认100，可登记1—512条；仍保留500ms超时封口和1MiB请求体限制，字节将超限时提前封口。运行器仍完整备份/恢复到隔离 MySQL schema，不接执行器、target 或真实防火墙，不读取 test，不改变数值策略。
+
+`GuardBatchProfile` 的 JFR 事件只含批次 UUID、阶段和提交状态。`k2_profile.py` 将真实 ONNX、证据投影、证据回读、episode 判定、T1/T2 提交及 spool 回执写盘时间汇总到 `profile.json`；父阶段包含子阶段，不能把它们相加。未结束的录制只能形成 `partial` 报告，完成报告必须包含四段结果。JFR 原件置于私有目录，不提交 Git。
+
+```sh
+sh executor/python.sh -B scripts/p7/k2_profile.py --work "$K2_WORK" --jfr "$JAVA_HOME/bin/jfr"
+sh executor/python.sh -B scripts/p7/k2_compare.py --work "$K2_WORK" --baseline .cache/j1-20261011-v8
+```
+
+`k2_compare.py` 核验冻结输入、提取器、速度和并发，再按私有账本的物理连接及快照逐条比较 v8 两轮的告警集合、类别和分数，要求四段 P95 均不超过 2 秒，队列排空且无丢失、拒收、推理失败、超时和动作/命令增量。报告始终为 `diagnosticOnly=true`、`j1Passed=null`、`J2Allowed=false`，不能覆盖正式 J1 结论。`GuardIntegrationTest` 的批次切分用例在相同前置状态与最终证据上核验终态等价；传输拆批可能增加中间判定，SQL 存储分段不能成为新的判定边界。

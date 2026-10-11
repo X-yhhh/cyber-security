@@ -19,8 +19,12 @@ public class GuardMachineController {
         // 重放响应前仍核验当前机器身份和具体资源，吊销后不能读取缓存结果。
         if(kind.equals("sensors"))access.sensor(id,permission);else access.executor(id,permission);
         int status=operation.equals("observation-batches")?202:operation.equals("target-bindings")?201:200;
-        JsonNode data=idem.execute("POST:"+request.getRequestURI(),key,b,status,false,()->switch(route){
-            case "sensors/observation-batches"->ingest.batches(id,b);case "sensors/heartbeats"->ingest.heartbeat(id,b);
+        try(var profile=GuardBatchProfile.batch(route.equals("sensors/observation-batches")?b.path("batchId").asText():null)){
+        JsonNode data;
+        try(var phase=GuardBatchProfile.phase("t1_ingest")){data=idem.executeWithDigest("POST:"+request.getRequestURI(),key,b,status,false,digest->switch(route){
+            case "sensors/observation-batches"->ingest.batches(id,b,digest);case "sensors/heartbeats"->ingest.heartbeat(id,b);
             case "sensors/health-windows"->{JsonNode result=health.accept(id,b);if("healthy".equals(result.path("verificationStatus").asText())){var sensor=access.sensor(id,"machine.sensor.health");long aid=number(sensor,"asset_id");for(var target:store.rows("guard_budget_target",map("asset_id",aid),false,10000))budget.recover(aid,number(target,"id"),store.now());}yield result;}
-            case "executors/target-bindings"->budget.bind(id,b);case "executors/budget-proofs"->budget.proof(id,b);case "executors/heartbeats"->receipts.heartbeat(id,b);case "executors/command-claims"->actions.claims(id,b);case "executors/receipts"->receipts.receipt(id,b);case "executors/reconciliations"->receipts.reconcile(id,b);case "executors/clearance-proofs"->receipts.clearance(id,b);default->throw error(404,"RESOURCE_NOT_FOUND");});if(route.equals("sensors/observation-batches"))replay.consume(data.path("batchId").asText());if(operation.equals("command-claims"))data=actions.filterClaims(id,data);return GuardController.success(data,status,request);}
+            case "executors/target-bindings"->budget.bind(id,b);case "executors/budget-proofs"->budget.proof(id,b);case "executors/heartbeats"->receipts.heartbeat(id,b);case "executors/command-claims"->actions.claims(id,b);case "executors/receipts"->receipts.receipt(id,b);case "executors/reconciliations"->receipts.reconcile(id,b);case "executors/clearance-proofs"->receipts.clearance(id,b);default->throw error(404,"RESOURCE_NOT_FOUND");});}
+        if(route.equals("sensors/observation-batches"))try(var phase=GuardBatchProfile.phase("t2_consume")){replay.consume(data.path("batchId").asText());}
+        if(operation.equals("command-claims"))data=actions.filterClaims(id,data);return GuardController.success(data,status,request);}}
 }

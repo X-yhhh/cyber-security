@@ -10,6 +10,8 @@ import static com.xyh.cybersecurity.guard.GuardJson.*;
 /** 按类型执行 rc.2 观测或 rc.3 模型/策略/命令 Schema，另核验时间与特征算术。 */
 @Component
 public class GuardContracts {
+    /** 单个传输批次的记录上限；另受机器接口 1 MiB 请求体硬限制约束。 */
+    public static final int MAX_BATCH_SIZE=512;
     private final Map<String,JsonSchema> schemas=new HashMap<>();
     private final JsonNode profile;
     private final String profileHash;
@@ -31,9 +33,12 @@ public class GuardContracts {
     public JsonNode profile(){return profile.deepCopy();}
     public String profileHash(){return profileHash;}
     public String schemaHash(){return schemaHash;}
-    public void validate(String type,JsonNode n){require(schemas.get(type).validate(n).isEmpty(),"CONTRACT_INVALID");canonical(n);}
-    public void observation(JsonNode n) {
-        validate("observation",n);
+    public void validate(String type,JsonNode n){validateText(type,n);}
+    private String validateText(String type,JsonNode n){require(schemas.get(type).validate(n).isEmpty(),"CONTRACT_INVALID");return canonical(n);}
+    public void observation(JsonNode n) {observationText(n);}
+    /** 返回已通过全部校验的 RFC8785 原文，供同一请求计算摘要和落库，避免重复规范化。 */
+    public String observationText(JsonNode n) {
+        String text=validateText("observation",n);
         var first=time(n,"firstSeenAt");var last=time(n,"lastPacketAt");var asOf=time(n,"asOf");var emitted=time(n,"emittedAt");
         require(!first.isAfter(last)&&!last.isAfter(asOf)&&!asOf.isAfter(emitted),"INVALID_OBSERVATION_TIME");
         JsonNode f=n.get("features");
@@ -44,6 +49,7 @@ public class GuardContracts {
         int i=0;int[] windows={1,5,30};
         for(JsonNode c:n.get("contexts")){require(c.path("windowSeconds").asInt()==windows[i++]&&c.path("coverageMs").asLong()<=c.path("windowSeconds").asLong()*1000,"INVALID_CONTEXT_WINDOW");}
         if(!n.path("targetRef").isNull())require(!time(n,"targetExpiresAt").isAfter(last.plusSeconds(15))&&!time(n,"targetExpiresAt").isBefore(last),"TARGET_REF_STALE");
+        return text;
     }
     public void manifest(JsonNode n) {
         validate("model-manifest",n);

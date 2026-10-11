@@ -21,18 +21,21 @@ public class GuardModelRuntime {
     public GuardModelRuntime(GuardArtifacts artifacts,GuardContracts contracts,@Value("${cyber.guard.inference-timeout-ms:2000}") long timeoutMs){this.artifacts=artifacts;this.contracts=contracts;require(timeoutMs>=1&&timeoutMs<=10000,"INVALID_INFERENCE_TIMEOUT");this.timeoutMs=timeoutMs;}
     @PreDestroy public void close(){timer.shutdownNow();synchronized(sessions){for(var s:sessions.values())try{s.session.close();}catch(OrtException ignored){}sessions.clear();}}
     public JsonNode validate(Map<String,Object> model){Loaded l=load(model);try(var options=options();var session=OrtEnvironment.getEnvironment().createSession(l.onnx,options)){shape(session,l.manifest);return object("status","validated","runtimeVersion","1.23.2","numericFeatures",43,"categoricalFeatures",3,"familyScoreOrder",l.familyOrder,"artifactSha256",str(model,"artifact_sha256"));}catch(OrtException e){throw error(422,"ONNX_CONTRACT_INVALID");}}
-    public Result infer(Map<String,Object> model,JsonNode observation,Instant now){
-        JsonNode manifest=json(model,"manifest_json");String applicability=applicable(manifest,observation);
+    public Result infer(Map<String,Object> model,JsonNode observation,Instant now){return infer(model,observation,now,json(model,"manifest_json"));}
+    /** 同一批次只解析一次数据库中的不可变 manifest；文件指纹、摘要与适用范围仍逐次核验。 */
+    Result infer(Map<String,Object> model,JsonNode observation,Instant now,JsonNode manifest){
+        try(var profile=GuardBatchProfile.phase("onnx_inference")){
+        String applicability=applicable(manifest,observation);
         if(applicability!=null)return new Result("not_applicable",null,null,Map.of(),applicability,applicability);
         if(!"validated".equals(str(model,"validation_status")))return new Result("failed",null,null,Map.of(),"unavailable","MODEL_UNAVAILABLE");
         // 并发批次短暂排队等待推理槽；等满推理时限仍无空槽才按容量不足失败，不无界排队。
         try{if(!slots.tryAcquire(timeoutMs,TimeUnit.MILLISECONDS))return new Result("failed",null,null,Map.of(),"unavailable","MODEL_CAPACITY_EXCEEDED");}
         catch(InterruptedException e){Thread.currentThread().interrupt();return new Result("failed",null,null,Map.of(),"unavailable","MODEL_UNAVAILABLE");}
         CachedSession held=null;
-        try {Loaded l=load(model);var env=OrtEnvironment.getEnvironment();
+        try {Loaded l=load(model,manifest);var env=OrtEnvironment.getEnvironment();
             held=session(model,l);var session=held.session;
             try(var run=new OrtSession.RunOptions()){
-                Tensors t=tensors(observation,manifest,l.preprocessing);
+                Tensors t=tensors(observation,l.inputLayout,l.preprocessing);
                 try(var values=OnnxTensor.createTensor(env,new float[][]{t.values});var missing=OnnxTensor.createTensor(env,new float[][]{t.missing});var codes=OnnxTensor.createTensor(env,new long[][]{t.codes})){
                     AtomicBoolean expired=new AtomicBoolean();ScheduledFuture<?> deadline=timer.schedule(()->{expired.set(true);try{run.setTerminate(true);}catch(OrtException ignored){}},timeoutMs,TimeUnit.MILLISECONDS);
                     try(var result=session.run(Map.of("numeric_values",values,"numeric_missing",missing,"categorical_codes",codes),Set.of("attack_score","family_scores"),run)){
@@ -48,7 +51,7 @@ public class GuardModelRuntime {
                 }
             }
         }catch(com.xyh.cybersecurity.common.api.ApiRequestException e){return new Result("failed",null,null,Map.of(),"unavailable",e.code());}
-        catch(Exception e){return new Result("failed",null,null,Map.of(),"unavailable","MODEL_UNAVAILABLE");}finally{if(held!=null)synchronized(sessions){held.users--;}slots.release();}
+        catch(Exception e){return new Result("failed",null,null,Map.of(),"unavailable","MODEL_UNAVAILABLE");}finally{if(held!=null)synchronized(sessions){held.users--;}slots.release();}}
     }
     /** 只复用经 load 核验的相同不可变 manifest；最多 8 个会话，不关闭在途 native 资源。 */
     private CachedSession session(Map<String,Object> model,Loaded loaded)throws OrtException{
@@ -71,11 +74,12 @@ public class GuardModelRuntime {
     /** 已逐文件校验摘要的制品：四个文件的路径/大小/修改时间/fileKey 指纹不变且未超 60 秒时复用，否则完整重读重验。 */
     private record Verified(Loaded loaded,List<Object> fingerprint,long verifiedAtNanos){}
     private final Map<String,Verified> verified=new HashMap<>();
-    private Loaded load(Map<String,Object> model){
+    private Loaded load(Map<String,Object> model){return load(model,json(model,"manifest_json"));}
+    private Loaded load(Map<String,Object> model,JsonNode manifest){
         String key=str(model,"manifest_sha256")+"|"+str(model,"manifest_ref");List<Object> fingerprint=fingerprint(str(model,"manifest_ref"));
         synchronized(verified){var v=verified.get(key);
-            if(v!=null&&fingerprint!=null&&v.fingerprint().equals(fingerprint)&&System.nanoTime()-v.verifiedAtNanos()<60_000_000_000L&&v.loaded().manifest().equals(json(model,"manifest_json")))return v.loaded();}
-        Loaded loaded=verify(model);
+            if(v!=null&&fingerprint!=null&&v.fingerprint().equals(fingerprint)&&System.nanoTime()-v.verifiedAtNanos()<60_000_000_000L&&v.loaded().manifest().equals(manifest))return v.loaded();}
+        Loaded loaded=verify(model,manifest);
         if(fingerprint!=null&&fingerprint.equals(fingerprint(str(model,"manifest_ref"))))synchronized(verified){verified.put(key,new Verified(loaded,fingerprint,System.nanoTime()));}
         return loaded;}
     private List<Object> fingerprint(String ref){
@@ -83,14 +87,14 @@ public class GuardModelRuntime {
                 var path=artifacts.path(name);var a=java.nio.file.Files.readAttributes(path,java.nio.file.attribute.BasicFileAttributes.class);
                 out.add(List.of(path.toString(),a.size(),a.lastModifiedTime(),String.valueOf(a.fileKey())));}
             return out;}catch(Exception e){return null;}}
-    private Loaded verify(Map<String,Object> model){String ref=str(model,"manifest_ref");JsonNode manifest=artifacts.json(ref,str(model,"manifest_sha256"));contracts.manifest(manifest);require(manifest.equals(json(model,"manifest_json")),"MODEL_MANIFEST_MISMATCH");
+    private Loaded verify(Map<String,Object> model,JsonNode registered){String ref=str(model,"manifest_ref");JsonNode manifest=artifacts.json(ref,str(model,"manifest_sha256"));contracts.manifest(manifest);require(manifest.equals(registered),"MODEL_MANIFEST_MISMATCH");
         require(VERIFIED_EXPORT_RUNTIMES.contains(manifest.at("/runtime/runtimeVersion").asText())&&manifest.at("/runtime/opset").asInt()==17,"MODEL_RUNTIME_UNSUPPORTED");
         JsonNode preprocessing=artifacts.json(GuardArtifacts.sibling(ref,"preprocessing.json"),text(manifest,"preprocessingSha256"));artifacts.read(GuardArtifacts.sibling(ref,"calibration.json"),text(manifest,"calibrationSha256"),1024*1024);
         require("train".equals(preprocessing.path("fitRole").asText())&&preprocessing.path("vocabularies").isArray()&&preprocessing.path("vocabularies").size()==3,"PREPROCESSING_INVALID");
         var order=new ArrayList<String>();for(JsonNode f:manifest.at("/outputContract/familyScoreOrder"))order.add(f.asText());
         byte[] onnx=artifacts.read(GuardArtifacts.sibling(ref,"model.onnx"),text(manifest,"artifactSha256"),128L*1024*1024);
         require(Long.valueOf(manifest.at("/runtime/opset").asLong()).equals(opsetImports(onnx).get("")),"ONNX_CONTRACT_INVALID");
-        return new Loaded(onnx,preprocessing,manifest,order);}
+        return new Loaded(onnx,preprocessing,manifest,order,inputLayout(manifest));}
     /** 只读 ModelProto.opset_import（字段 8）。ORT Java 不暴露图内 opset，manifest 声明须与图一致；同域重复声明（含同版本）即拒绝，"ai.onnx" 视同默认域。 */
     static Map<String,Long> opsetImports(byte[] b){
         var result=new LinkedHashMap<String,Long>();int[] p={0};
@@ -131,12 +135,21 @@ public class GuardModelRuntime {
         for(var s:manifest.path("supportedScope")){if(!s.path("addressFamily").equals(o.path("addressFamily"))||!s.path("transport").equals(o.path("transport"))||!s.path("direction").equals(o.path("direction")))continue;
             for(var c:o.path("contexts"))if(c.path("windowSeconds").asInt()==s.path("coverageWindowSeconds").asInt()&&c.path("coverageMs").asLong()>=s.path("minimumCoverageMs").asLong())return null;}
         return "MODEL_NOT_APPLICABLE";}
-    public static Tensors tensors(JsonNode o,JsonNode manifest,JsonNode pre){float[] values=new float[43],missing=new float[43];long[] codes=new long[3];int i=0;
-        for(var name:manifest.path("numericFeatures")){String[] part=name.asText().split("\\.");JsonNode v;if(part[0].equals("features"))v=o.path("features").path(part[1]);else{v=null;for(var c:o.path("contexts"))if(c.path("windowSeconds").asText().equals(part[1]))v=c.path(part[2]);}
+    /** 特征名称只随已核验 manifest 编译；缓存路径不缓存观察值，仍逐快照检查字段和缺失 mask。 */
+    private record InputLayout(List<List<String>> numericFeatures,List<String> categoricalFeatures){}
+    private static InputLayout inputLayout(JsonNode manifest){
+        var numeric=new ArrayList<List<String>>();var categorical=new ArrayList<String>();
+        for(var name:manifest.path("numericFeatures"))numeric.add(List.copyOf(Arrays.asList(name.asText().split("\\."))));
+        for(var name:manifest.path("categoricalFeatures"))categorical.add(name.asText());
+        return new InputLayout(List.copyOf(numeric),List.copyOf(categorical));
+    }
+    public static Tensors tensors(JsonNode o,JsonNode manifest,JsonNode pre){return tensors(o,inputLayout(manifest),pre);}
+    private static Tensors tensors(JsonNode o,InputLayout layout,JsonNode pre){float[] values=new float[43],missing=new float[43];long[] codes=new long[3];int i=0;
+        for(var part:layout.numericFeatures){JsonNode v;if(part.get(0).equals("features"))v=o.path("features").path(part.get(1));else{v=null;for(var c:o.path("contexts"))if(c.path("windowSeconds").asText().equals(part.get(1)))v=c.path(part.get(2));}
             require(v!=null&&!v.isMissingNode(),"PROFILE_HASH_MISMATCH");if(v.isNull())missing[i]=1;else{values[i]=v.isBoolean()?(v.asBoolean()?1:0):(float)v.asDouble();require(Float.isFinite(values[i]),"MODEL_INPUT_INVALID");}i++;}
-        i=0;for(var name:manifest.path("categoricalFeatures")){var vocab=pre.path("vocabularies").path(i);String value=o.path(name.asText()).asText();if(vocab.isObject()){codes[i]=vocab.path(value).asLong(0);require(codes[i]>=0&&codes[i]<=vocab.size(),"PREPROCESSING_INVALID");}else{int j=1;for(var entry:vocab){if(entry.asText().equals(value))codes[i]=j;j++;}}i++;}
+        i=0;for(var name:layout.categoricalFeatures){var vocab=pre.path("vocabularies").path(i);String value=o.path(name).asText();if(vocab.isObject()){codes[i]=vocab.path(value).asLong(0);require(codes[i]>=0&&codes[i]<=vocab.size(),"PREPROCESSING_INVALID");}else{int j=1;for(var entry:vocab){if(entry.asText().equals(value))codes[i]=j;j++;}}i++;}
         return new Tensors(values,missing,codes);}
-    private record Loaded(byte[] onnx,JsonNode preprocessing,JsonNode manifest,List<String> familyOrder){}
+    private record Loaded(byte[] onnx,JsonNode preprocessing,JsonNode manifest,List<String> familyOrder,InputLayout inputLayout){}
     public record Tensors(float[] values,float[] missing,long[] codes){}
     public record Result(String status,Double score,String family,Map<String,Double> familyScores,String applicability,String error){}
 }

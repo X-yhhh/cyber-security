@@ -12,10 +12,15 @@ import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.*;
+import java.util.regex.Pattern;
 
 /** v2 的严格 JSON、UTC 时间和 RFC8785 摘要边界；异常只返回字段名/稳定码。 */
 public final class GuardJson {
     public static final ObjectMapper JSON = new ObjectMapper().enable(JsonParser.Feature.STRICT_DUPLICATE_DETECTION);
+    /** 固定格式只编译一次；每次独立 matcher，保持严格全串匹配及原有失败码。 */
+    private static final Pattern UUID_PATTERN=Pattern.compile("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}");
+    private static final Pattern DIGEST_PATTERN=Pattern.compile("[0-9a-f]{64}");
+    private static final Pattern TIMESTAMP_PATTERN=Pattern.compile("\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,6})?Z");
     /** 观测结构保持 rc.2；模型与命令的多分类结构使用 rc.3；策略因按来源开关自动（modelAutoEligible）单独升至 rc.4。 */
     public static final String CONTRACT = "host-guard/5.0.0-rc.2";
     public static final String MODEL_CONTRACT = "host-guard/5.0.0-rc.3";
@@ -45,6 +50,58 @@ public final class GuardJson {
         try { return new JsonCanonicalizer(JSON.writeValueAsString(value)).getEncodedString(); }
         catch(Exception e) { throw error(400,"INVALID_JSON_NUMBER_OR_UNICODE"); }
     }
+    private static final long MAX_FACT_INTEGER=9_007_199_254_740_991L;
+    /**
+     * 仅供服务端已构造事实的窄范围编码，不能替代输入校验。
+     * 标准节点中的无转义 ASCII、布尔、null 与安全整数可直接输出；对象键使用 JCS 的 UTF-16 自然序。
+     * 任一节点、键或值不在该范围时，整份事实回退原 canonical，保留其数值、Unicode 及失败语义。
+     */
+    public static String canonicalFact(JsonNode value){
+        // 当前 JCS 1.1 只接受 object/array 根；不能让本优化扩大原接口接受的根类型。
+        if(value==null||(value.getClass()!=ObjectNode.class&&value.getClass()!=ArrayNode.class))return canonical(value);
+        var encoded=new StringBuilder(512);
+        return appendFact(value,encoded,0)?encoded.toString():canonical(value);
+    }
+    /** 只接纳标准 Jackson 节点；特殊子类与过深对象也回退，避免旁路其序列化规则。 */
+    private static boolean appendFact(JsonNode value,StringBuilder encoded,int depth){
+        if(value==null||depth>128)return false;
+        Class<?> type=value.getClass();
+        if(type==ObjectNode.class){
+            var names=new ArrayList<String>(value.size());
+            var fields=value.fieldNames();
+            while(fields.hasNext()){String name=fields.next();if(!factText(name))return false;names.add(name);}
+            Collections.sort(names);encoded.append('{');boolean first=true;
+            for(String name:names){
+                if(!first)encoded.append(',');first=false;
+                encoded.append('"').append(name).append("\":");
+                if(!appendFact(value.get(name),encoded,depth+1))return false;
+            }
+            encoded.append('}');return true;
+        }
+        if(type==ArrayNode.class){
+            encoded.append('[');boolean first=true;
+            for(JsonNode item:value){if(!first)encoded.append(',');first=false;if(!appendFact(item,encoded,depth+1))return false;}
+            encoded.append(']');return true;
+        }
+        if(type==NullNode.class){encoded.append("null");return true;}
+        if(type==BooleanNode.class){encoded.append(value.booleanValue());return true;}
+        if(type==TextNode.class){
+            String text=value.textValue();if(!factText(text))return false;
+            encoded.append('"').append(text).append('"');return true;
+        }
+        if(type==IntNode.class||type==LongNode.class||type==ShortNode.class||type==BigIntegerNode.class){
+            if(!value.canConvertToLong())return false;long integer=value.longValue();
+            if(integer < -MAX_FACT_INTEGER||integer > MAX_FACT_INTEGER)return false;
+            encoded.append(integer);return true;
+        }
+        return false;
+    }
+    /** JSON 中无需转义的可打印 ASCII；引号、反斜杠和所有控制/非 ASCII 字符交给原实现。 */
+    private static boolean factText(String value){
+        if(value==null)return false;
+        for(int i=0;i<value.length();i++){char c=value.charAt(i);if(c<0x20||c>0x7e||c=='"'||c=='\\')return false;}
+        return true;
+    }
     public static String hash(JsonNode value) { return sha(canonical(value).getBytes(StandardCharsets.UTF_8)); }
     public static String sha(byte[] value) {
         try { return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(value)); }
@@ -62,17 +119,17 @@ public final class GuardJson {
     }
     public static String uuid(JsonNode n,String f) { return uuid(text(n,f)); }
     public static String uuid(String v) {
-        if(v==null||!v.matches("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"))throw error(400,"INVALID_UUID");
+        if(v==null||!UUID_PATTERN.matcher(v).matches())throw error(400,"INVALID_UUID");
         return v;
     }
-    public static String digest(JsonNode n,String f) {String v=text(n,f);require(v.matches("[0-9a-f]{64}"),"INVALID_HASH");return v;}
+    public static String digest(JsonNode n,String f) {String v=text(n,f);require(DIGEST_PATTERN.matcher(v).matches(),"INVALID_HASH");return v;}
     public static long integer(JsonNode n,String f,long min,long max) {
         JsonNode v=n.path(f);if(!v.isIntegralNumber()||!v.canConvertToLong()||v.longValue()<min||v.longValue()>max)throw error(400,"INVALID_REQUEST");return v.longValue();
     }
     public static boolean bool(JsonNode n,String f) {if(!n.path(f).isBoolean())throw error(400,"INVALID_REQUEST");return n.get(f).booleanValue();}
     public static Instant time(JsonNode n,String f) { return time(text(n,f)); }
     public static Instant time(String v) {
-        try {if(!v.matches("\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,6})?Z"))throw new IllegalArgumentException(); return Instant.parse(v);}
+        try {if(!TIMESTAMP_PATTERN.matcher(v).matches())throw new IllegalArgumentException(); return Instant.parse(v);}
         catch(Exception e) {throw error(400,"INVALID_TIMESTAMP");}
     }
     public static LocalDateTime db(Instant i) { return i==null?null:LocalDateTime.ofInstant(i,ZoneOffset.UTC); }

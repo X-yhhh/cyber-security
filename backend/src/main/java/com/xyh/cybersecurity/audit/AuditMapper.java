@@ -2,6 +2,8 @@ package com.xyh.cybersecurity.audit;
 
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Insert;
+import org.apache.ibatis.annotations.Options;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -15,6 +17,20 @@ public interface AuditMapper {
      * {@link AuditInsert#getId()}，调用方必须使用该编号在同一事务内写入范围行。
      */
     int insertAudit(AuditInsert audit);
+    /** 同一事务内批量追加审计，逐行回填主键后绑定资源范围，不合并独立审计事件。 */
+    @Insert("""
+        <script>INSERT INTO audit_log (occurred_at,actor_type,actor_id,action,resource_type,resource_id,request_id,outcome,reason) VALUES
+        <foreach collection="rows" item="r" separator=",">(#{r.occurredAt},#{r.actorType},#{r.actorId},#{r.action},#{r.resourceType},#{r.resourceId},#{r.requestId},#{r.outcome},#{r.reason})</foreach></script>
+        """)
+    @Options(useGeneratedKeys=true,keyProperty="rows.id")
+    int insertAudits(@Param("rows") List<AuditInsert> rows);
+
+    /** 批量绑定已生成的审计主键与资产，严格新增，避免丢失范围导致审计不可见。 */
+    @Insert("""
+        <script>INSERT INTO audit_resource_scope (audit_id,scope_type,scope_id) VALUES
+        <foreach collection="rows" item="r" separator=",">(#{r.auditId},'asset',#{r.assetId})</foreach></script>
+        """)
+    int insertAssetScopes(@Param("rows") List<java.util.Map<String,Object>> rows);
 
     int insertResourceScope(@Param("auditId") long auditId, @Param("scopeType") String scopeType,
                             @Param("scopeId") String scopeId);

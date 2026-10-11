@@ -28,7 +28,13 @@ public interface GuardMapper {
     List<Map<String,Object>> evidenceKeys(@Param("keys") List<Map<String,Object>> keys);
     @UpdateProvider(type=Sql.class,method="update")
     int update(@Param("table") String table,@Param("id") long id,@Param("values") Map<String,Object> values);
-    @Select("SELECT UTC_TIMESTAMP(6)") java.time.LocalDateTime now();
+    /** 已持有资产锁时批量更新投影，各行列集一致且 id 唯一；不改变事实表只追加的边界。 */
+    @UpdateProvider(type=Sql.class,method="updateAll")
+    int updateAll(@Param("table") String table,@Param("rows") List<Map<String,Object>> rows);
+    /** 数据库时钟不能复用事务内的旧结果，否则批量推理完成时刻会早于真实完成。 */
+    @Select("SELECT UTC_TIMESTAMP(6)")
+    @Options(useCache=false,flushCache=Options.FlushCachePolicy.TRUE)
+    java.time.LocalDateTime now();
     @Select("""
         SELECT EXISTS(SELECT 1 FROM sys_user_role ur JOIN sys_role r ON r.id=ur.role_id AND r.status='active'
         JOIN sys_role_permission rp ON rp.role_id=r.id JOIN sys_permission p ON p.id=rp.permission_id AND p.status='active'
@@ -57,13 +63,13 @@ public interface GuardMapper {
         """)
     Map<String,Object> replayObservations(@Param("sensor") long sensor,@Param("boot") String boot,@Param("model") long model);
     /** 跨 episode/时间桶复核同一连接的最新已到达快照，不能使用插入顺序代替因果时间。 */
-    @Select("SELECT * FROM guard_observation WHERE asset_id=#{asset} AND sensor_id=#{sensor} AND boot_id=#{boot} AND parent_connection_id=#{parent} ORDER BY as_of DESC,snapshot_index DESC,id DESC LIMIT 1")
+    @Select("SELECT * FROM guard_observation FORCE INDEX (idx_guard_observation_parent) WHERE asset_id=#{asset} AND sensor_id=#{sensor} AND boot_id=#{boot} AND parent_connection_id=#{parent} ORDER BY as_of DESC,snapshot_index DESC,id DESC LIMIT 1")
     Map<String,Object> latestParent(@Param("asset") long asset,@Param("sensor") long sensor,@Param("boot") String boot,@Param("parent") String parent);
     /** 批量复核最新已到达快照；跨桶排序与 latestParent 相同，不以当前批次内的最大值代替全库事实。 */
     @Select("""
         <script>SELECT o.id FROM guard_observation o WHERE o.id IN
         <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
-        AND o.id=(SELECT n.id FROM guard_observation n
+        AND o.id=(SELECT n.id FROM guard_observation n FORCE INDEX (idx_guard_observation_parent)
           WHERE n.asset_id=o.asset_id AND n.sensor_id=o.sensor_id AND n.boot_id=o.boot_id AND n.parent_connection_id=o.parent_connection_id
           ORDER BY n.as_of DESC,n.snapshot_index DESC,n.id DESC LIMIT 1)</script>
         """)
@@ -74,14 +80,38 @@ public interface GuardMapper {
         FROM guard_episode_evidence e JOIN guard_observation o ON o.id=e.observation_id
         JOIN guard_inference i ON i.id=e.inference_id
         WHERE e.episode_id=#{episode} AND o.id=(
-          SELECT n.id FROM guard_observation n
+          SELECT n.id FROM guard_observation n FORCE INDEX (idx_guard_observation_parent)
           WHERE n.asset_id=o.asset_id AND n.sensor_id=o.sensor_id AND n.boot_id=o.boot_id AND n.parent_connection_id=o.parent_connection_id
           ORDER BY n.as_of DESC,n.snapshot_index DESC,n.id DESC LIMIT 1)
         ORDER BY e.id DESC LIMIT 10000
         """)
     List<Map<String,Object>> episodeEvidence(@Param("episode") long episode);
+    /** 批内多条 episode 一次读取，仍逐条保留原有最新性复核和 10000 行上限。 */
+    @Select("""
+        <script>SELECT e.*,o.content_sha256 observation_content_sha256,i.status inference_status
+        FROM (SELECT evidence_id FROM (
+          SELECT e.id evidence_id,ROW_NUMBER() OVER(PARTITION BY e.episode_id ORDER BY e.id DESC) evidence_rank
+          FROM guard_episode_evidence e FORCE INDEX (uk_guard_episode_parent)
+          STRAIGHT_JOIN guard_observation o ON o.id=e.observation_id
+          WHERE e.episode_id IN <foreach collection="episodes" item="id" open="(" separator="," close=")">#{id}</foreach>
+          AND o.id=(SELECT n.id FROM guard_observation n FORCE INDEX (idx_guard_observation_parent) WHERE n.asset_id=o.asset_id AND n.sensor_id=o.sensor_id
+            AND n.boot_id=o.boot_id AND n.parent_connection_id=o.parent_connection_id
+            ORDER BY n.as_of DESC,n.snapshot_index DESC,n.id DESC LIMIT 1)
+        ) ranked WHERE evidence_rank&lt;=10000) selected
+        STRAIGHT_JOIN guard_episode_evidence e ON e.id=selected.evidence_id
+        STRAIGHT_JOIN guard_observation o ON o.id=e.observation_id
+        STRAIGHT_JOIN guard_inference i ON i.id=e.inference_id</script>
+        """)
+    List<Map<String,Object>> episodesEvidence(@Param("episodes") List<Long> episodes);
+    /** 白名单校验后的批量 JDBC 语句；列顺序与绑定值顺序一致，SQL 不含业务值。 */
+    record BulkInsert(String sql,List<String> columns){}
+    /** 按主键更新的 JDBC 计划；首列固定为 id，其余列与每行绑定顺序一致。 */
+    record BulkUpdate(String sql,List<String> columns){}
+    /** 索引点查计划只包含占位符与独立绑定值，保留与原查询相同的锁和连接顺序。 */
+    record KeyQuery(String sql,List<Object> arguments){}
     final class Sql {
         private static final Map<String,Set<String>> COLUMNS=new HashMap<>();
+        private static final List<String> EPISODE_KEY_COLUMNS=List.of("asset_id","sensor_id","boot_id","peer_key","key_epoch","direction","transport","service_port_key","family","scope","source","rule_id","bundle_id","bucket_start");
         static {
             COLUMNS.put("security_event",Set.of("id","public_id","guard_asset_id","revision","event_key","title","category","severity","status","risk_score","risk_rule_version","first_seen_at","last_seen_at","created_at","closed_at"));
             COLUMNS.put("event_timeline",Set.of("id","event_id","occurred_at","entry_type","actor_type","actor_id","summary","evidence_ref","details_json","created_at"));
@@ -141,6 +171,17 @@ public interface GuardMapper {
         private static String keysWhere(String t,String alias,Map<String,Object> p){
             var keys=(List<Map<String,Object>>)p.get("keys");
             if(keys.isEmpty()||keys.size()>800)throw new IllegalArgumentException("Invalid key count");
+            var columns=new ArrayList<>(keys.getFirst().keySet());
+            if(t.equals("guard_episode")){
+                var indexed=List.of("asset_id","sensor_id","boot_id","peer_key","key_epoch","direction","transport","service_port_key","family","scope","source","rule_id","bundle_id","bucket_start");
+                if(keys.getFirst().keySet().equals(new HashSet<>(indexed)))columns=new ArrayList<>(indexed);
+            }
+            if(!columns.isEmpty()&&keys.stream().allMatch(k->k.keySet().equals(keys.getFirst().keySet())&&k.values().stream().noneMatch(Objects::isNull))){
+                // 非空复合键用行值 IN，避免 OR 表达式对每个候选行重复解释全部键；含 NULL 保留 IS NULL 语义。
+                var names=columns.stream().map(k->alias+"."+col(t,k)).toList();var tuples=new ArrayList<String>();
+                for(int i=0;i<keys.size();i++){var values=new ArrayList<String>();for(String k:columns)values.add("#{keys["+i+"]."+k+"}");tuples.add("("+String.join(",",values)+")");}
+                return "("+String.join(",",names)+") IN ("+String.join(",",tuples)+")";
+            }
             List<String> alternatives=new ArrayList<>();
             for(int i=0;i<keys.size();i++){
                 if(keys.get(i).isEmpty())throw new IllegalArgumentException("Empty key");
@@ -150,8 +191,91 @@ public interface GuardMapper {
             }
             return "("+String.join(" OR ",alternatives)+")";
         }
-        public static String selectKeys(Map<String,Object> p){String t=table(p);return "SELECT t.* FROM "+t+" t WHERE "+keysWhere(t,"t",p)+(Boolean.TRUE.equals(p.get("lock"))?" FOR UPDATE":"");}
-        public static String evidenceKeys(Map<String,Object> p){return "SELECT e.*,o.public_id observation_public_id FROM guard_episode_evidence e JOIN guard_observation o ON o.id=e.observation_id WHERE "+keysWhere("guard_episode_evidence","e",p)+" FOR UPDATE";}
+        public static String selectKeys(Map<String,Object> p){
+            String t=table(p);
+            @SuppressWarnings("unchecked") var keys=(List<Map<String,Object>>)p.get("keys");
+            if(t.equals("guard_episode")&&!keys.isEmpty()&&keys.size()<=800){
+                var indexed=List.of("asset_id","sensor_id","boot_id","peer_key","key_epoch","direction","transport","service_port_key","family","scope","source","rule_id","bundle_id","bucket_start");
+                if(keys.stream().allMatch(k->k.keySet().equals(new HashSet<>(indexed))&&k.values().stream().noneMatch(Objects::isNull))){
+                    // 常量键表驱动唯一索引点查；避免新 schema 统计尚未收敛时将行值 IN 退化为全表逐项比较。
+                    var selects=new ArrayList<String>();
+                    for(int i=0;i<keys.size();i++){var values=new ArrayList<String>();for(String k:indexed)values.add("#{keys["+i+"]."+k+"} AS "+col(t,k));selects.add("SELECT "+String.join(",",values));}
+                    var joins=indexed.stream().map(k->"t."+col(t,k)+"=k."+col(t,k)).toList();
+                    return "SELECT t.* FROM ("+String.join(" UNION ALL ",selects)+") k STRAIGHT_JOIN guard_episode t FORCE INDEX (uk_guard_episode) ON "+String.join(" AND ",joins)
+                            +(Boolean.TRUE.equals(p.get("lock"))?" FOR UPDATE":"");
+                }
+            }
+            return "SELECT t.* FROM "+t+" t WHERE "+keysWhere(t,"t",p)+(Boolean.TRUE.equals(p.get("lock"))?" FOR UPDATE":"");
+        }
+        public static String evidenceKeys(Map<String,Object> p){
+            @SuppressWarnings("unchecked") var keys=(List<Map<String,Object>>)p.get("keys");
+            var indexed=List.of("episode_id","parent_connection_id","source","rule_id");
+            if(!keys.isEmpty()&&keys.size()<=800&&keys.stream().allMatch(k->k.keySet().equals(new HashSet<>(indexed))&&k.values().stream().noneMatch(Objects::isNull))){
+                // 由完整唯一键驱动锁定，避免全表锁定其他资产的 evidence 后再等待 episode 形成死锁。
+                var selects=new ArrayList<String>();
+                for(int i=0;i<keys.size();i++){var values=new ArrayList<String>();for(String k:indexed)values.add("#{keys["+i+"]."+k+"} AS "+col("guard_episode_evidence",k));selects.add("SELECT "+String.join(",",values));}
+                var joins=indexed.stream().map(k->"e."+col("guard_episode_evidence",k)+"=k."+col("guard_episode_evidence",k)).toList();
+                return "SELECT e.*,o.public_id observation_public_id FROM ("+String.join(" UNION ALL ",selects)+") k "
+                        +"STRAIGHT_JOIN guard_episode_evidence e FORCE INDEX (uk_guard_episode_parent) ON "+String.join(" AND ",joins)
+                        +" STRAIGHT_JOIN guard_observation o ON o.id=e.observation_id FOR UPDATE";
+            }
+            return "SELECT e.*,o.public_id observation_public_id FROM guard_episode_evidence e JOIN guard_observation o ON o.id=e.observation_id WHERE "+keysWhere("guard_episode_evidence","e",p)+" FOR UPDATE";
+        }
+        /** 避免为数千个复合键字段反复构建 MyBatis 属性路径；每次复用列集和单行模板，查询范围、索引与锁语义不变。 */
+        public static KeyQuery jdbcIndexedKeys(String t,List<Map<String,Object>> keys,boolean lock){
+            var indexed=switch(t){
+                case "guard_episode"->EPISODE_KEY_COLUMNS;
+                case "guard_episode_evidence"->List.of("episode_id","parent_connection_id","source","rule_id");
+                default->throw new IllegalArgumentException("Unknown indexed query");
+            };
+            var expectedColumns=new HashSet<>(indexed);
+            if(keys.isEmpty()||keys.size()>500||keys.stream().anyMatch(k->!k.keySet().equals(expectedColumns)||k.values().stream().anyMatch(Objects::isNull)))
+                throw new IllegalArgumentException("Invalid indexed keys");
+            var columns=indexed.stream().map(column->col(t,column)).toList();
+            String rowSql="SELECT "+String.join(",",columns.stream().map(column->"? AS "+column).toList());
+            if(t.equals("guard_episode")){
+                var compact=compactEpisodeKeys(keys,columns,rowSql,lock);if(compact!=null)return compact;
+            }
+            var arguments=new ArrayList<Object>(keys.size()*indexed.size());
+            for(var key:keys)for(String column:indexed)arguments.add(key.get(column));
+            return new KeyQuery(indexedKeySql(t,columns,String.join(" UNION ALL ",Collections.nCopies(keys.size(),rowSql)),lock),List.copyOf(arguments));
+        }
+        /**
+         * 页内仅合并另外十三列完全相同的键，把原有端口逐个保留在派生表中；不扩展端口范围、不省略未命中路径。
+         * 每页仍只有一次完整唯一索引点查与原 FOR UPDATE，常量在 SQL 中只绑定一次。
+         * 只有参数与 SQL 均变小时启用；高基数组回退原十四列键表，避免增加解析开销。
+         */
+        private static KeyQuery compactEpisodeKeys(List<Map<String,Object>> keys,List<String> columns,String rowSql,boolean lock){
+            var fixed=EPISODE_KEY_COLUMNS.stream().filter(c->!c.equals("service_port_key")).toList();
+            var groups=new LinkedHashMap<List<Object>,List<Object>>();
+            for(var key:keys){
+                var values=new ArrayList<Object>(fixed.size());for(String column:fixed)values.add(key.get(column));
+                groups.computeIfAbsent(List.copyOf(values),k->new ArrayList<>()).add(key.get("service_port_key"));
+            }
+            if(groups.size()==keys.size())return null;
+            String constants="SELECT "+String.join(",",fixed.stream().map(c->"? AS "+col("guard_episode",c)).toList());
+            String projection=String.join(",",columns.stream().map(c->(c.equals("`service_port_key`")?"p.":"c.")+c).toList());
+            String portSql="SELECT ? AS `service_port_key`";
+            var branches=new ArrayList<String>(groups.size());
+            var arguments=new ArrayList<Object>(keys.size()+fixed.size()*groups.size());
+            for(var group:groups.entrySet()){
+                branches.add("SELECT "+projection+" FROM ("+constants+") c CROSS JOIN ("
+                        +String.join(" UNION ALL ",Collections.nCopies(group.getValue().size(),portSql))+") p");
+                arguments.addAll(group.getKey());arguments.addAll(group.getValue());
+            }
+            String derived=String.join(" UNION ALL ",branches);
+            int originalLength=keys.size()*rowSql.length()+(keys.size()-1)*" UNION ALL ".length();
+            if(derived.length()>=originalLength)return null;
+            return new KeyQuery(indexedKeySql("guard_episode",columns,derived,lock),List.copyOf(arguments));
+        }
+        private static String indexedKeySql(String t,List<String> columns,String derived,boolean lock){
+            String alias=t.equals("guard_episode")?"t":"e";
+            String index=t.equals("guard_episode")?"uk_guard_episode":"uk_guard_episode_parent";
+            var joins=columns.stream().map(column->alias+"."+column+"=k."+column).toList();
+            String selection=t.equals("guard_episode")?"t.*":"e.*,o.public_id observation_public_id";
+            String suffix=t.equals("guard_episode")?"":" STRAIGHT_JOIN guard_observation o ON o.id=e.observation_id";
+            return "SELECT "+selection+" FROM ("+derived+") k STRAIGHT_JOIN "+t+" "+alias+" FORCE INDEX ("+index+") ON "+String.join(" AND ",joins)+suffix+(lock?" FOR UPDATE":"");
+        }
         @SuppressWarnings("unchecked")
         public static String select(Map<String,Object> p) {
             String t=table(p);Map<String,Object> w=(Map<String,Object>)p.get("where");
@@ -182,6 +306,48 @@ public interface GuardMapper {
                 List<String> params=new ArrayList<>();for(String k:keys)params.add("#{rows["+i+"]."+k+"}");values.add("("+String.join(",",params)+")");}
             List<String> cols=new ArrayList<>();for(String k:keys)cols.add(col(t,k));
             return "INSERT INTO "+t+" ("+String.join(",",cols)+") VALUES "+String.join(",",values);
+        }
+        /** 热路径直接绑定参数，避免为每行每列反复解析 MyBatis 属性表达式；沿用相同标识符白名单。 */
+        public static BulkInsert jdbcInsert(String t,List<Map<String,Object>> rows){
+            table(Map.of("table",t));
+            if(rows.isEmpty()||rows.size()>500)throw new IllegalArgumentException("Invalid insert count");
+            var keys=List.copyOf(rows.getFirst().keySet());
+            if(keys.isEmpty()||rows.stream().anyMatch(r->!r.keySet().equals(rows.getFirst().keySet())))throw new IllegalArgumentException("Row columns differ");
+            var columns=keys.stream().map(k->col(t,k)).toList();
+            String values="("+String.join(",",Collections.nCopies(keys.size(),"?"))+")";
+            return new BulkInsert("INSERT INTO "+t+" ("+String.join(",",columns)+") VALUES "+String.join(",",Collections.nCopies(rows.size(),values)),keys);
+        }
+        /**
+         * 常量派生表驱动主键点查更新，避免每行计算整份 CASE；所有值仍使用占位符。
+         * 只生成不超过 500 个不同主键的计划，不更新主键本身；可变表边界由 GuardStore 再校验。
+         */
+        public static BulkUpdate jdbcUpdateAll(String t,List<Map<String,Object>> rows){
+            table(Map.of("table",t));
+            if(rows.isEmpty()||rows.size()>500)throw new IllegalArgumentException("Invalid update count");
+            var updates=new ArrayList<>(rows.getFirst().keySet());updates.remove("id");
+            var ids=new HashSet<Long>();
+            if(updates.isEmpty()||rows.stream().anyMatch(r->!r.keySet().equals(rows.getFirst().keySet())
+                    ||!(r.get("id") instanceof Number n)||!ids.add(n.longValue())))
+                throw new IllegalArgumentException("Invalid update rows");
+            var columns=new ArrayList<String>();columns.add("id");columns.addAll(updates);
+            var quoted=columns.stream().map(c->col(t,c)).toList();
+            String rowSql="SELECT "+String.join(",",quoted.stream().map(c->"? AS "+c).toList());
+            var sets=updates.stream().map(c->"t."+col(t,c)+"=k."+col(t,c)).toList();
+            String sql="UPDATE ("+String.join(" UNION ALL ",Collections.nCopies(rows.size(),rowSql))+") k "
+                    +"STRAIGHT_JOIN "+t+" t FORCE INDEX (PRIMARY) ON t.`id`=k.`id` SET "+String.join(",",sets);
+            return new BulkUpdate(sql,List.copyOf(columns));
+        }
+        @SuppressWarnings("unchecked")
+        public static String updateAll(Map<String,Object> p){
+            String t=table(p);var rows=(List<Map<String,Object>>)p.get("rows");
+            if(rows.isEmpty()||rows.size()>500)throw new IllegalArgumentException("Invalid update count");
+            var columns=new ArrayList<>(rows.getFirst().keySet());columns.remove("id");
+            if(columns.isEmpty()||rows.stream().anyMatch(r->!r.containsKey("id")||!r.keySet().equals(rows.getFirst().keySet()))
+                    ||rows.stream().map(r->r.get("id")).distinct().count()!=rows.size())throw new IllegalArgumentException("Invalid update rows");
+            var sets=new ArrayList<String>();var ids=new ArrayList<String>();
+            for(String c:columns){var arms=new ArrayList<String>();for(int i=0;i<rows.size();i++)arms.add("WHEN #{rows["+i+"].id} THEN #{rows["+i+"]."+c+"}");sets.add(col(t,c)+"=CASE id "+String.join(" ",arms)+" ELSE "+col(t,c)+" END");}
+            for(int i=0;i<rows.size();i++)ids.add("#{rows["+i+"].id}");
+            return "UPDATE "+t+" SET "+String.join(",",sets)+" WHERE id IN ("+String.join(",",ids)+")";
         }
         @SuppressWarnings("unchecked")
         public static String update(Map<String,Object> p) {

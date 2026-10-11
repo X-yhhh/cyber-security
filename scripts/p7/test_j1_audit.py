@@ -97,6 +97,13 @@ class J1AuditTest(unittest.TestCase):
         self.assertEqual(audit.qualifying_sources(closeout,"dos_flood"),set())
         self.assertEqual(audit.qualifying_sources(closeout,"port_scan"),{("model",""),("rule","scan")})
 
+    def test_preroll_decisions_are_excluded_from_scoring(self):
+        start = datetime(2026, 10, 11, 0, 0, 30, tzinfo=timezone.utc)
+        observations = {"pre": {"asOf": "2026-10-11T00:00:29.999999Z"}, "edge": {"asOf": "2026-10-11T00:00:30Z"}, "in": {"asOf": "2026-10-11T00:00:31Z"}}
+        decisions = [{"evidence": {"triggerObservationId": oid}} for oid in ("pre", "edge", "in")]
+        kept = [d["evidence"]["triggerObservationId"] for d in audit.scoring_decisions(decisions, observations, start)]
+        self.assertEqual(kept, ["edge", "in"])
+
     def test_report_concurrency_and_wall_time_come_from_actual_run_logs(self):
         with tempfile.TemporaryDirectory() as root:
             work=Path(root);scenario={"segments":[{"segmentId":"port_scan-3","family":"port_scan","observedDurationSeconds":.039}],"normalDurationSeconds":2984.448246}

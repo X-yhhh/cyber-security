@@ -2,7 +2,10 @@
 """J1 validation 片段登记。只读 CIC 原件和冻结标签，不读取 test 数据或模型预测。
 
 按冻结 validation 连接成员过滤 TCP 报文，保留原捕获顺序/时间/长度；不注入、
-不排序、不更改载荷。输出目录必须不存在；清单冻结后只允许核验，不允许替换。
+不排序、不更改载荷。--preroll-seconds>0 时在每段窗口前追加同一选择条件、同一来源的
+上下文预热报文：只取切分台账中 split 为 validation 或未分配（保护区/排除，null）的连接，
+train/test 连接按台账元数据排除、不读内容；窗口内报文与不加预热时逐字节相同，预热期
+不计入 J1-8—J1-10 的起点与时延。输出目录必须不存在；清单冻结后只允许核验，不允许替换。
 原始地址、旁路和 PCAP 均只写忽略的受控目录，正式报告只引用摘要。
 """
 import argparse
@@ -123,8 +126,12 @@ def register(args):
     args.output.mkdir(mode=0o700, parents=True, exist_ok=False)
     clips = args.output / "clips"
     clips.mkdir(mode=0o700)
-    split = {r["physicalConnectionId"]: r for r in load_rows(args.frozen / "split-ledger.jsonl")
-             if r["split"] == "validation"}
+    ledger = {r["physicalConnectionId"]: r["split"] for r in load_rows(args.frozen / "split-ledger.jsonl")}
+    split = {k for k, v in ledger.items() if v == "validation"}
+    # 预热只作上下文：validation 或台账未分配（保护区等），train/test 一律排除。
+    context = {k for k, v in ledger.items() if v in ("validation", None)}
+    preroll = args.preroll_seconds * 1_000_000
+    preroll_families = set(args.preroll_families or ["port_scan", "brute_force", "dos_flood", "dos_slow", "normal"])
     manifest = json.loads((args.frozen / "split-manifest.json").read_text())
     if manifest["splitRuleVersion"] != "host-guard-split/2":
         raise ValueError("切分版本必须为 host-guard-split/2")
@@ -141,6 +148,8 @@ def register(args):
         labels = load_rows(args.labels / f"{day}-{host.replace('.', '-')}" / "labels.jsonl")
         eligible = [r for r in labels if r["physicalConnectionId"] in split and r["label"] == family
                     and r["activityId"].startswith(activity + ":")]
+        warm = [r for r in labels if r["physicalConnectionId"] in context and r["label"] == family
+                and r["activityId"].startswith(activity + ":")]
         if not eligible:
             raise ValueError(f"validation 连接缺失: {family}")
         bounds = manifest["splitScenarios"][activity].get("boundsUs")
@@ -161,13 +170,18 @@ def register(args):
             maximum = concurrency(rows, start, end)
             if family == "dos_slow" and maximum < 5:
                 raise ValueError("慢速片段未达到 5 条并发连接")
-            specs.append(dict(segmentId=f"{family}-{index+1}", family=family, day=day, host=host,
-                              peer=next(iter(peers)), startUs=start, endUs=end, connections=rows,
-                              maxConcurrentConnections=maximum, selection="frozen_validation_time_order"))
+            spec = dict(segmentId=f"{family}-{index+1}", family=family, day=day, host=host,
+                        peer=next(iter(peers)), startUs=start, endUs=end, connections=rows,
+                        maxConcurrentConnections=maximum, selection="frozen_validation_time_order")
+            if preroll and family in preroll_families:
+                spec["prerollConnections"] = [r for r in warm if r["peer"][0] == spec["peer"]
+                                              and r["startUs"] < start and r["endUs"] >= start - preroll]
+            specs.append(spec)
     # 正常片段选 Monday 的前六个至少 360 秒跨度的 validation 时间块；不看预测或质量分数。
     day, host = "monday", "192.168.10.50"
     labels = load_rows(args.labels / f"{day}-{host.replace('.', '-')}" / "labels.jsonl")
     groups = defaultdict(list)
+    normal_warm = [r for r in labels if r["physicalConnectionId"] in context and r["label"] == "normal" and not r["websiteSupplement"]]
     for row in labels:
         if row["physicalConnectionId"] in split and row["label"] == "normal" and not row["websiteSupplement"]:
             groups[row["startUs"] // 600_000_000].append(row)
@@ -179,9 +193,12 @@ def register(args):
         span = min(end, max((r["endUs"] for r in rows), default=0)) - max(start, min((r["startUs"] for r in rows), default=end))
         if span < 360_000_000:
             continue
-        specs.append(dict(segmentId=f"normal-{1+sum(r['family']=='normal' for r in specs)}",family="normal",day=day,
-                          host=host,startUs=start,endUs=end,connections=rows,maxConcurrentConnections=concurrency(rows,start,end),
-                          selection="first_six_validation_blocks_with_360s_label_span"))
+        spec = dict(segmentId=f"normal-{1+sum(r['family']=='normal' for r in specs)}",family="normal",day=day,
+                    host=host,startUs=start,endUs=end,connections=rows,maxConcurrentConnections=concurrency(rows,start,end),
+                    selection="first_six_validation_blocks_with_360s_label_span")
+        if preroll and "normal" in preroll_families:
+            spec["prerollConnections"] = [r for r in normal_warm if r["startUs"] < start and r["endUs"] >= start - preroll]
+        specs.append(spec)
     if sum(r["family"] == "normal" for r in specs) != 6:
         raise ValueError("正常片段不足")
     write(args.output / "selection.json", specs)
@@ -198,15 +215,21 @@ def register(args):
         actual_md5=sha(path,"md5")
         if actual_md5!=source["md5"] or actual_md5!=official_md5:
             raise ValueError(f"官方 MD5 不符: {day}")
-        outputs, hashes, counters, times = [], [], [], []
+        outputs, hashes, counters, times, scoring = [], [], [], [], []
         lookup = defaultdict(list)
         for index, spec in enumerate(day_specs):
             target = clips / (spec["segmentId"] + ".pcap")
             target.touch(mode=0o600, exist_ok=False)
             outputs.append(target.open("wb")); hashes.append(hashlib.sha256()); counters.append(0); times.append([])
+            scoring.append([0, None, None, hashlib.sha256()])
             for connection in spec["connections"]:
                 low, high = max(spec["startUs"], connection["startUs"]), min(spec["endUs"], connection["endUs"])
                 lookup[tuple_for(connection)].append((low, high, index))
+            # 预热窗口 [start-preroll, start)；与窗口内区间不重叠，窗口内选择不变。
+            for connection in spec.get("prerollConnections", []):
+                low, high = max(spec["startUs"] - preroll, connection["startUs"]), min(spec["startUs"] - 1, connection["endUs"])
+                if high >= low:
+                    lookup[tuple_for(connection)].append((low, high, index))
         with path.open("rb") as stream, mmap.mmap(stream.fileno(), 0, access=mmap.ACCESS_READ) as data:
             for header,record in packet_records(data):
                 if header is not None:
@@ -220,6 +243,9 @@ def register(args):
                         packet = bytes(data[offset:offset + record_size])
                         for index in selected:
                             outputs[index].write(packet); hashes[index].update(packet); counters[index] += 1
+                            if timestamp >= day_specs[index]["startUs"]:
+                                window = scoring[index]; window[0] += 1; window[3].update(packet)
+                                window[1] = timestamp if window[1] is None else window[1]; window[2] = timestamp
                             if not times[index]:
                                 times[index].append(timestamp)
                             if len(times[index]) == 1:
@@ -234,6 +260,16 @@ def register(args):
                         sourceFirstUs=times[index][0], sourceLastUs=times[index][1],
                         observedDurationSeconds=(times[index][1]-times[index][0])/1_000_000,
                         pcapRef=f"{args.artifact_prefix}/clips/{spec['segmentId']}.pcap")
+            if preroll and spec["family"] in preroll_families:
+                packets, first, last, digest = scoring[index]
+                if not packets:
+                    raise ValueError("窗口内无报文")
+                # 时延起点与时长按窗口内报文计；采集起点为预热起点，预热期报文只作上下文。
+                spec.update(prerollSeconds=args.preroll_seconds, captureStartUs=spec["startUs"] - preroll,
+                            prerollPackets=counters[index] - packets, prerollConnections=len(spec["prerollConnections"]),
+                            scoringFirstUs=first, scoringLastUs=last, scoringPackets=packets,
+                            scoringRecordsSha256=digest.hexdigest(),
+                            observedDurationSeconds=(last - first) / 1_000_000)
         sources.append(dict(day=day,sha256=source["sha256"],md5=actual_md5,officialMd5Matched=True,
                             officialMd5FileSha256=sha(args.pcaps/f"{day.title()}-WorkingHours.md5"),
                             bytes=path.stat().st_size,macVerified=True))
@@ -245,7 +281,8 @@ def register(args):
     for spec in specs:
         public.append({k:v for k,v in spec.items() if k not in ("connections","host","peer")})
     write(args.output / "draft-scenario.json",dict(scenarioId=str(uuid.uuid4()),stage="J1",environment="research",speed=1,
-          selectionProtocol="frozen-validation-membership/1",testRead=False,newFits=0,
+          selectionProtocol="frozen-validation-membership/1" if not preroll else "frozen-validation-membership/1+preroll-context/1",
+          prerollSeconds=args.preroll_seconds,prerollFamilies=sorted(preroll_families) if preroll else [],testRead=False,newFits=0,
           splitManifestSha256=sha(args.frozen/"split-manifest.json"),splitLedgerSha256=sha(args.frozen/"split-ledger.jsonl"),
           sourceHashes=sources,normalDurationSeconds=normal_seconds,segments=public))
 
@@ -255,4 +292,8 @@ if __name__ == "__main__":
     parser.add_argument("--frozen",type=Path,required=True);parser.add_argument("--labels",type=Path,required=True)
     parser.add_argument("--registry",type=Path,required=True);parser.add_argument("--pcaps",type=Path,required=True)
     parser.add_argument("--output",type=Path,required=True);parser.add_argument("--artifact-prefix",required=True)
+    parser.add_argument("--preroll-seconds",type=int,default=0,choices=range(0,61),metavar="0..60",
+                        help="窗口前上下文预热秒数；0 保持原登记行为")
+    parser.add_argument("--preroll-families",nargs="+",choices=["port_scan","brute_force","dos_flood","dos_slow","normal"],
+                        help="施加预热的类别，缺省为全部；未列出的类别保持冷启动片段（检测门槛只会更严）")
     register(parser.parse_args())

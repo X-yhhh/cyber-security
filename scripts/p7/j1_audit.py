@@ -131,6 +131,11 @@ def candidate_incidents(events):
     return incidents
 
 
+def scoring_decisions(decisions, observations_by_id, attack_start):
+    """只保留由窗口内观察触发的判定；带预热片段的预热期判定不计入 J1-8—J1-10。"""
+    return [d for d in decisions if instant(observations_by_id[d["evidence"]["triggerObservationId"]]["asOf"]) >= attack_start]
+
+
 def profile_groups(decisions, observations, reference=False):
     """记录整组 profile 与假想拒绝原因，不以 prefix-only 机会替代混组。"""
     lookup = {o["observationId"]: o for o in observations}
@@ -262,19 +267,23 @@ def analyze_segment(directory, segment, binding, thresholds, minimum, output=Non
     all_inference_latencies = [(instant(i["completedAt"])-instant(live_by[i["observationId"]]["emittedAt"])).total_seconds() for i in db_i]
     acknowledgement_time={int(p.stem.split("-")[1]):p.stat().st_mtime for p in (directory/"spool"/binding["bootId"]).glob("ack-*.json")}
     committed_upper=[acknowledgement_time[observation_batch[o["observationId"]]]-instant(o["emittedAt"]).timestamp() for o in live]
-    attack_start = datetime.fromtimestamp(segment["sourceFirstUs"]/1e6,timezone.utc)+offset
-    actual_first_alert = min(actual_first.values(),default=None)
+    # 带预热的片段以窗口内首包为起点；预热期观察触发的判定不计入 J1-8—J1-10。无预热时起点即首包，结果不变。
+    attack_start = datetime.fromtimestamp(segment.get("scoringFirstUs", segment["sourceFirstUs"])/1e6,timezone.utc)+offset
+    scored_d = scoring_decisions(db_d, live_by, attack_start)
+    actual_first_alert = min(((instant(d["decidedAt"]),d["family"]) for d in scored_d if d["decision"] in ("alert","block_candidate")
+                              and any(qualifies(live_by[r["observationId"]],live_i[r["observationId"]],d["family"],d["source"],d["ruleId"],live_rules,thresholds)
+                                      for r in d["evidence"]["selectedObservations"])),default=None)
     first_alert_delay = None if actual_first_alert is None else (actual_first_alert[0]-attack_start).total_seconds()
     # 同一 T2 批次内的各路径判定在同一事务中产生，视为同时；首个告警批次内的类别全部列出。
     alert_batches=defaultdict(set);correct_first=None
-    for d in db_d:
+    for d in scored_d:
         if d["decision"] not in ("alert","block_candidate"):continue
         if not any(qualifies(live_by[r["observationId"]],live_i[r["observationId"]],d["family"],d["source"],d["ruleId"],live_rules,thresholds) for r in d["evidence"]["selectedObservations"]):continue
         alert_batches[observation_batch[d["evidence"]["triggerObservationId"]]].add((d["family"],d["source"]))
         if d["family"]==segment["family"] and (correct_first is None or instant(d["decidedAt"])<correct_first):correct_first=instant(d["decidedAt"])
     # 按来源：每个来源路径在本片段首个告警批次中的类别；可自动来源首个告警即为本类则 J1-8 成立。
     source_batches=defaultdict(lambda:defaultdict(set));source_correct={}
-    for d in db_d:
+    for d in scored_d:
         if d["decision"] not in ("alert","block_candidate"):continue
         if not any(qualifies(live_by[r["observationId"]],live_i[r["observationId"]],d["family"],d["source"],d["ruleId"],live_rules,thresholds) for r in d["evidence"]["selectedObservations"]):continue
         key=(d["source"],d["ruleId"]);source_batches[key][observation_batch[d["evidence"]["triggerObservationId"]]].add(d["family"])
@@ -286,7 +295,7 @@ def analyze_segment(directory, segment, binding, thresholds, minimum, output=Non
     first_batch=min(alert_batches,default=None)
     first_batch_paths=sorted(alert_batches[first_batch]) if first_batch is not None else []
     first_correct_delay=None if correct_first is None else (correct_first-attack_start).total_seconds()
-    candidates = hypothetical_events(db_d)
+    candidates = hypothetical_events(scored_d)
     first_candidate = min((e for e in candidates if e[1]==segment["family"]),default=None)
     first_candidate_delay = None if first_candidate is None else (first_candidate[0]-attack_start).total_seconds()
     candidate_counts = candidate_incidents(candidates)

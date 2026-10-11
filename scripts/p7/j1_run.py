@@ -210,6 +210,16 @@ def ssl_context(directory, client=True):
     return ctx
 
 
+def process_privileges(pids):
+    """记录本次进程的有效 uid，并枚举执行器/pfctl 进程；PF 规则只能由 root 修改，非 root 且无执行器即不可能写入。"""
+    listing = subprocess.run(["/bin/ps", "-axo", "pid=,uid=,command="], capture_output=True, text=True, check=True).stdout.splitlines()
+    rows = {int(line.split()[0]): line.split(None, 2) for line in listing if line.strip()}
+    owned = [dict(pid=pid, uid=int(rows[pid][1]), command=rows[pid][2][:120]) for pid in pids if pid in rows]
+    markers = ("-m executor", "pf_lab", "joint_executor", "lab_root_launch", "/sbin/pfctl")
+    executors = [line.split(None, 2)[2][:120] for line in listing if line.strip() and any(m in line for m in markers)]
+    return dict(at=stamp(), runnerUid=os.geteuid(), processes=owned, executorOrPfctlProcesses=executors)
+
+
 def pf_snapshot():
     commands = [["/usr/bin/sudo", "-n", "/sbin/pfctl", "-s", "info"],
                 ["/usr/bin/sudo", "-n", "/sbin/pfctl", "-sr"],
@@ -241,7 +251,7 @@ class Run:
         suffix = getattr(self, "resume_suffix", "")
         keystores = getattr(self, "resume_keystores", self.work / "private/tls")
         env = dict(os.environ, DB_URL="jdbc:mysql://127.0.0.1:3306/" + self.schema,
-                   DB_USERNAME="root", DB_PASSWORD=self.db.env["MYSQL_PWD"], DB_POOL_SIZE="8",
+                   DB_USERNAME="root", DB_PASSWORD=self.db.env["MYSQL_PWD"], DB_POOL_SIZE=str(self.args.server_threads+4),
                    LOGIN_THROTTLE_HMAC_KEY=secret("com.xyh.cyber-security.login-throttle-hmac"),
                    SERVER_PORT=str(self.args.port), SERVER_ADDRESS="127.0.0.1", SESSION_COOKIE_SECURE="true",
                    OUTBOX_RELAY_ENABLED="false", INGEST_CONSUMER_ENABLED="false", CYBER_DRIFT_ENABLED="false",
@@ -253,7 +263,7 @@ class Run:
                    "-Dcyber.guard.automation-enabled=false", "-Dcyber.guard.artifact-root=" + str(self.artifact),
                    "-Dcyber.guard.report-trust-file=" + str(self.args.report_trust),
                    "-Dcyber.model-artifact.root=" + str(Path.home()/"Workspace/deliveries"),
-                   "-Dserver.tomcat.threads.max=2", "-Dserver.tomcat.threads.min-spare=2", "-Dserver.tomcat.accept-count=64",
+                   f"-Dserver.tomcat.threads.max={self.args.server_threads}", f"-Dserver.tomcat.threads.min-spare={self.args.server_threads}", "-Dserver.tomcat.accept-count=64",
                    "-Dspring.session.timeout=4h", "-Dserver.servlet.session.timeout=4h", "-jar", str(self.jar)]
         log = (self.work / ("backend" + suffix + ".log")).open("xb")
         self.process = subprocess.Popen(command, env=env, stdout=log, stderr=subprocess.STDOUT)
@@ -281,7 +291,7 @@ class Run:
             raise RuntimeError("mTLS negative probe failed")
         write(self.work / ("transport" + suffix + ".json"), dict(at=stamp(), tlsVersion=tls_version, clientCertificateRequired=denied,
                                                 listener="loopback", backendPid=self.process.pid, backendSha256=sha(self.jar),
-                                                serverThreads=2, observationConsumer="research T2 after T1 commit", automationEnabled=False))
+                                                serverThreads=self.args.server_threads, observationConsumer="research T2 after T1 commit", automationEnabled=False))
         self.operator = Session(self.base, self.context).login(json.loads(self.args.operator_file.read_text()))
         creds = json.loads(self.args.reviewer_file.read_text())
         self.reviewer = Session(self.base, self.context).login({"username": creds.get("username", "guard-reviewer"), "password": creds["password"]})
@@ -299,7 +309,18 @@ class Run:
             (self.work/"scenario.json").chmod(0o400)
             event("scenario_reused_without_changes",sha256=self.scenario_sha,segments=len(self.scenario["segments"]))
             return
-        draft = json.loads((self.args.registration / "draft-scenario.json").read_text())
+        rebound = None
+        if self.args.rebind_scenario_ref:
+            # 沿用已冻结的片段清单（PCAP 引用与摘要逐项不变），只重新绑定修复后的二进制与源码清单。
+            origin = self.artifact / self.args.rebind_scenario_ref
+            draft = json.loads(origin.read_text())
+            rebound = dict(scenarioRef=self.args.rebind_scenario_ref, scenarioSha256=sha(origin), segmentsSha256=jcs(draft["segments"]))
+            for segment in draft["segments"]:
+                self.artifact.joinpath(segment["pcapRef"]).resolve().relative_to(self.artifact)
+                if sha(self.artifact / segment["pcapRef"]) != segment["pcapSha256"]:
+                    raise RuntimeError("frozen pcap digest mismatch")
+        else:
+            draft = json.loads((self.args.registration / "draft-scenario.json").read_text())
         manifest = json.loads((self.package / "model-manifest.json").read_text())
         policy = json.loads((self.package / "policy-research.json").read_text())
         lab = json.loads((self.package / "policy-m1-lab.json").read_text())
@@ -308,7 +329,7 @@ class Run:
             raise RuntimeError("research numerical policy differs from M1")
         self.public.mkdir(parents=True, mode=0o700, exist_ok=False)
         (self.public / "clips").mkdir(mode=0o700)
-        for segment in draft["segments"]:
+        for segment in ([] if rebound else draft["segments"]):
             origin = self.args.registration / "clips" / (segment["segmentId"] + ".pcap")
             if sha(origin) != segment["pcapSha256"]:
                 raise RuntimeError("pre-freeze pcap digest mismatch")
@@ -340,7 +361,12 @@ class Run:
                           check=True, capture_output=True, text=True).stdout.strip(),
                      closeoutSha256=self.args.closeout_sha, replayConcurrency=len(draft["segments"]),
                      registrationVerificationSha256=sha(self.work/"registration-verification.json"),
-                     gatesExcludedFromHypothetical=["liveCaptureHealth", "targetBinding", "executionAuthorization", "protectionAndBudget"])
+                     gatesExcludedFromHypothetical=["liveCaptureHealth", "targetBinding", "executionAuthorization", "protectionAndBudget"],
+                     serverThreads=self.args.server_threads)
+        if rebound:
+            if jcs(draft["segments"]) != rebound["segmentsSha256"]:
+                raise RuntimeError("rebinding changed frozen segments")
+            draft["reboundFrom"] = rebound
         write(self.public / "scenario.json", draft, 0o400)
         write(self.work / "scenario.json", draft, 0o400)
         write(self.work / "delivery-manifest.json", inventory, 0o400)
@@ -370,7 +396,7 @@ class Run:
                           captureScopeId=scope, addressFamily="ipv4", buildSha256=self.scenario["sensorSha256"])
             config_id = self.operator.v2(f"/sensors/{sensor['id']}/configs", config)["id"]
             self.reviewer.v2(f"/sensor-configs/{config_id}/decisions", dict(decision="approve", reason="J1 冻结传感器摘要与捕获域"), 1)
-            self.operator.machine(sensor["id"], sensor["credential"], "heartbeats", dict(bootId=boot, version="J1 research", configHash=jcs(config), lastSequence=0, clockSkewMs=0))
+            self.operator.machine(sensor["id"], sensor["credential"], "heartbeats", dict(bootId=boot, version="J1 research", configHash=jcs(config), lastSequence=0, clockSkewMs=None))
             secret_file = segment_dir / "peer-secret"
             if round_number == 1:
                 secret_file.write_bytes(os.urandom(32))
@@ -431,6 +457,7 @@ class Run:
             p = subprocess.Popen(command, stdout=log, stderr=subprocess.STDOUT)
             jobs.append((segment, directory, p, log))
         event("replay_started", round=state["round"], concurrency=len(jobs), speedPerSegment=1)
+        write(path/"privileges.json", process_privileges([self.process.pid]+[p.pid for _, _, p, _ in jobs]))
         started = time.monotonic()
         while any(p.poll() is None for _, _, p, _ in jobs):
             if self.process.poll() is not None:
@@ -599,6 +626,10 @@ class Run:
         password = tls_files(self.work/"private/tls")
         try:
             self.backend(password)
+            from policy_text import restore
+            # V24 只改存储类型；克隆前已改动末位的策略按原件摘要换回原文，判定读取的阈值与冻结策略逐位一致。
+            write(self.work/"policy-text-restore.json", restore(self.db.query, self.schema,
+                  [self.package/"policy-research.json", self.package/"policy-m1-lab.json"]))
             write(self.work/"database-before.json", self.db.snapshot(self.schema))
             self.freeze()
             for round_number in (1, 2):
@@ -647,6 +678,8 @@ def main():
     parser.add_argument("--port", type=int, default=18443)
     parser.add_argument("--scenario-ref", help="复用先前已冻结清单的制品引用；不重选片段、不改清单")
     parser.add_argument("--resume",action="store_true",help="只恢复已有 schema/spool；不重采集、不覆盖历史证据")
+    parser.add_argument("--rebind-scenario-ref", help="沿用已冻结清单的片段（逐项不变），为修复后的二进制登记新的场景文件")
+    parser.add_argument("--server-threads", type=int, default=6, help="后端 Tomcat 线程数；推理仍受 2 个推理槽约束")
     args = parser.parse_args()
     if not args.java.is_file() or not (args.work/"bin/backend.jar").is_file():
         raise RuntimeError("frozen JDK25/backend binary is required")

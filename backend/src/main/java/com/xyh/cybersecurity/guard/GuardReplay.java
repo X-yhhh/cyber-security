@@ -91,6 +91,7 @@ public class GuardReplay {
         JsonNode hypothetical=GuardReplayReadiness.policy(json(store.get("guard_decision_policy",number(bundle,"policy_id")),"definition_json"),closeout);
         var observations=new ArrayList<>(store.rows("guard_observation",map("batch_id",batch.get("id")),false,100));
         observations.sort(Comparator.comparing((Map<String,Object> r)->instant(r.get("as_of"))).thenComparingLong(r->number(r,"id")));
+        List<GuardDetection.Scored> scored=new ArrayList<>();
         for(var observation:observations) {
             JsonNode o=json(observation,"payload_json");require("research".equals(text(o,"environment"))&&o.path("targetRef").isNull(),"REPLAY_REAL_TARGET_FORBIDDEN");
             if(store.one("guard_inference",map("observation_id",observation.get("id"),"model_id",model.get("id")),false)!=null)continue;
@@ -99,8 +100,10 @@ public class GuardReplay {
                     "status",result.status(),"score",result.score(),"family",result.family(),
                     "family_scores_json",result.familyScores().isEmpty()?null:canonical(node(result.familyScores())),
                     "applicability",result.applicability(),"manifest_sha256",model.get("manifest_sha256"),"completed_at",db(store.now()),"error_code",result.error()));
-            detection.correlate(observation,inference,bundle,null,hypothetical);
+            scored.add(new GuardDetection.Scored(observation,inference));
         }
+        // 整批推理后统一投影并按 episode 各判定一次，与正式 T2 相同。
+        if(!scored.isEmpty())detection.correlate(scored,bundle,null,hypothetical);
     }
 
     /** 运行完成与 J1 验收通过分开；报告原件须绑定本会话及冻结清单，结束后不再消费。 */

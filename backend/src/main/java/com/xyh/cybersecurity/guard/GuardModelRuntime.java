@@ -25,7 +25,9 @@ public class GuardModelRuntime {
         JsonNode manifest=json(model,"manifest_json");String applicability=applicable(manifest,observation);
         if(applicability!=null)return new Result("not_applicable",null,null,Map.of(),applicability,applicability);
         if(!"validated".equals(str(model,"validation_status")))return new Result("failed",null,null,Map.of(),"unavailable","MODEL_UNAVAILABLE");
-        if(!slots.tryAcquire())return new Result("failed",null,null,Map.of(),"unavailable","MODEL_CAPACITY_EXCEEDED");
+        // 并发批次短暂排队等待推理槽；等满推理时限仍无空槽才按容量不足失败，不无界排队。
+        try{if(!slots.tryAcquire(timeoutMs,TimeUnit.MILLISECONDS))return new Result("failed",null,null,Map.of(),"unavailable","MODEL_CAPACITY_EXCEEDED");}
+        catch(InterruptedException e){Thread.currentThread().interrupt();return new Result("failed",null,null,Map.of(),"unavailable","MODEL_UNAVAILABLE");}
         CachedSession held=null;
         try {Loaded l=load(model);var env=OrtEnvironment.getEnvironment();
             held=session(model,l);var session=held.session;

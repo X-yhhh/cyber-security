@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"flag"
+	"math"
 	"net/netip"
 	"os"
 	"path/filepath"
@@ -179,6 +180,11 @@ func TestPCAPReplayUploadMatchesOffline(t *testing.T) {
 		if o.EmittedAt.Before(o.AsOf) || o.Environment != "research" {
 			t.Fatal("emittedAt 必须是不早于事件时间的墙钟")
 		}
+		// clockSkewMs 与 emittedAt 一样是在线运行时测值：回放必须带新鲜心跳偏差，离线没有服务端时钟保持 null。
+		if o.Quality.ClockSkewMs == nil || math.Abs(*o.Quality.ClockSkewMs) > 1000 || offline[i].Quality.ClockSkewMs != nil {
+			t.Fatalf("第 %d 条回放缺少可信实测偏差或离线伪造了偏差", i)
+		}
+		o.Quality.ClockSkewMs = nil
 		o.FirstSeenAt, o.LastPacketAt, o.AsOf, o.EmittedAt = o.FirstSeenAt.Add(-shift), o.LastPacketAt.Add(-shift), o.AsOf.Add(-shift), time.Time{}
 		want := offline[i]
 		want.EmittedAt = time.Time{}

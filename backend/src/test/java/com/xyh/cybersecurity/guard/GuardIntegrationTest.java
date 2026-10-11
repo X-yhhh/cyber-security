@@ -460,13 +460,26 @@ class GuardIntegrationTest {
         var asset=store.external("asset",f.asset,false);var episode=store.one("guard_episode",map("asset_id",asset.get("id"),"source","rule"),false);
         assertThat(str(episode,"scope")).isEqualTo("peer_service");assertThat(str(store.one("guard_decision",map("episode_id",episode.get("id")),false),"decision")).isEqualTo("alert");
     }
+    /** V24：观察与策略按原文存储；MySQL JSON 解析会改动末位的十进制数须逐字节保留，推理读回同一数值。 */
+    @Test void observationAndPolicyTextKeepExactDoubles()throws Exception{
+        Fixture f=setup();Instant at=Instant.now().truncatedTo(ChronoUnit.MICROS);
+        var o=observation(f,at,id(),0);((ObjectNode)o.path("features")).put("iatStdUs",12683.157738600517).put("lengthStd",12.088791870525725);
+        accept(f,List.of(o),1,false);
+        var row=store.one("guard_observation",map("public_id",o.path("observationId").asText()),false);
+        assertThat(str(row,"payload_json")).isEqualTo(canonical(o));
+        assertThat(json(row,"payload_json").at("/features/iatStdUs").asDouble()).isEqualTo(12683.157738600517);
+        var types=jdbc.queryForList("SELECT table_name t,data_type d FROM information_schema.columns WHERE table_schema=DATABASE() AND ((table_name='guard_observation' AND column_name='payload_json') OR (table_name='guard_decision_policy' AND column_name='definition_json'))");
+        assertThat(types).hasSize(2).allSatisfy(t->assertThat(String.valueOf(t.get("d"))).isEqualTo("longtext"));
+    }
     @Test void validLatestTargetCannotAuthorizeOtherSelectedParent()throws Exception{
         Fixture f=setup();Instant at=Instant.now().truncatedTo(ChronoUnit.MICROS);
         var unbound=observation(f,at,id(),0);unbound.putNull("targetRef").putNull("targetExpiresAt");
         var bound=observation(f,at.plusNanos(1000),id(),0);accept(f,List.of(unbound,bound),1,true);
         var asset=store.external("asset",f.asset,false);var episode=store.one("guard_episode",map("asset_id",asset.get("id")),false);
-        var decisions=store.rows("guard_decision",map("episode_id",episode.get("id")),false,10);assertThat(decisions).hasSize(2);
+        // 同批两条观察在批末对该 episode 只判定一次；最新快照的有效目标仍不能替另一个 parent 放行。
+        var decisions=store.rows("guard_decision",map("episode_id",episode.get("id")),false,10);assertThat(decisions).hasSize(1);
         assertThat(decisions).allSatisfy(d->assertThat(str(d,"reason_code")).isEqualTo("TARGET_REF_STALE"));
+        assertThat(json(decisions.getFirst(),"evidence_json").path("selectedObservations")).hasSize(2);
         assertThat(store.rows("guard_action",map("asset_id",asset.get("id")),false,10)).isEmpty();
     }
     @Test void scopesUnknownFieldsMachineSeparationAndApprovalSeparation()throws Exception{

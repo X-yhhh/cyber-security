@@ -135,3 +135,5 @@ sh executor/python.sh -B scripts/p7/j1_audit.py "$J1_RUN_DIR" --finalize
 ```
 
 2026-10-10—11 本轮 J1 两轮均 completed，完整报告在 `.cache/j1-20261010-v5/REPORT.md`，最终综合事实为 `summary-audit-final-v3.json`。J1 未通过、计划 M2 为空，按 9.3 保底停止 J2/P8。J1-2/3/4/7 通过；失败为 JSON 浮点往返、持续积压、首次规则错类/类别时延与时钟/profile 拒绝。零动作/命令已核验，OS 全局快照未验证；源业务库仍 V23、全量内容未变，临时服务已停。JDK 25 相关回归与 V24 迁移测试通过，P7 Python 74 项通过；代码、文档和私有运行证据均未提交/推送。
+
+2026-10-11 修复复跑用 `--rebind-scenario-ref replays/j1-20261010-v3/scenario.json` 沿用同一冻结片段（逐项校验 PCAP 摘要），只为新二进制登记新场景；`--server-threads` 设置后端线程数（默认 6）。运行器在后端迁移后先用 `policy_text.py` 把策略恢复为原件字节（结果写入 `policy-text-restore.json`），并为每轮记录 `privileges.json` 作为无免密 sudo 时 J1-6 的权限边界证据。结果见 `.cache/j1-20261011-v7/REPORT.md` 与计划中的 J1 修复复跑记录。

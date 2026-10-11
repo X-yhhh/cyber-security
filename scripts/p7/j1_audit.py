@@ -47,7 +47,8 @@ def clean(o):
 def observation_fields(offline, live, offset):
     """按观察 ID 全量比较；并列 final 的行序单列，不将墙钟 emittedAt 当特征。"""
     def normalized(o, shift):
-        value=dict(o);value.pop("emittedAt",None)
+        # emittedAt 与 quality.clockSkewMs 是在线运行时测值：离线提取没有墙钟和服务端时钟，二者单独核对。
+        value=dict(o);value.pop("emittedAt",None);value["quality"]={k:v for k,v in o["quality"].items() if k!="clockSkewMs"}
         for key in ("firstSeenAt","lastPacketAt","asOf","targetExpiresAt"):
             if value.get(key) is not None:value[key]=(instant(value[key])-shift).isoformat(timespec="microseconds")
         return value
@@ -61,8 +62,15 @@ def observation_fields(offline, live, offset):
             keys=sorted(k for k in set(left[oid])|set(right[oid]) if left[oid].get(k)!=right[oid].get(k))
             if keys:mismatches.append(dict(observationId=oid,fields=keys))
     duplicates=len(offline)-len(left)+len(live)-len(right)
-    return dict(identical=not mismatches and duplicates==0,comparedObservations=len(set(left)&set(right)),
-                duplicateIds=duplicates,mismatches=mismatches,ignoredFields=["emittedAt"],comparisonKey="observationId")
+    # 离线不得出现偏差；在线偏差须为新鲜实测值（|偏差|≤1000ms 或过期为 null），不能是伪造常数。
+    offline_skew=sum(o["quality"].get("clockSkewMs") is not None for o in offline)
+    live_skews=[o["quality"].get("clockSkewMs") for o in live]
+    clock=dict(offlineNonNull=offline_skew,liveMeasured=sum(v is not None for v in live_skews),liveNull=sum(v is None for v in live_skews),
+               liveUntrusted=sum(v is not None and abs(v)>1000 for v in live_skews),
+               liveRangeMs=[min((v for v in live_skews if v is not None),default=None),max((v for v in live_skews if v is not None),default=None)])
+    return dict(identical=not mismatches and duplicates==0 and offline_skew==0,comparedObservations=len(set(left)&set(right)),
+                duplicateIds=duplicates,mismatches=mismatches,ignoredFields=["emittedAt","quality.clockSkewMs"],
+                liveRuntimeClock=clock,comparisonKey="observationId")
 
 
 def quantile(values, q):
@@ -257,6 +265,16 @@ def analyze_segment(directory, segment, binding, thresholds, minimum, output=Non
     attack_start = datetime.fromtimestamp(segment["sourceFirstUs"]/1e6,timezone.utc)+offset
     actual_first_alert = min(actual_first.values(),default=None)
     first_alert_delay = None if actual_first_alert is None else (actual_first_alert[0]-attack_start).total_seconds()
+    # 同一 T2 批次内的各路径判定在同一事务中产生，视为同时；首个告警批次内的类别全部列出。
+    alert_batches=defaultdict(set);correct_first=None
+    for d in db_d:
+        if d["decision"] not in ("alert","block_candidate"):continue
+        if not any(qualifies(live_by[r["observationId"]],live_i[r["observationId"]],d["family"],d["source"],d["ruleId"],live_rules,thresholds) for r in d["evidence"]["selectedObservations"]):continue
+        alert_batches[observation_batch[d["evidence"]["triggerObservationId"]]].add((d["family"],d["source"]))
+        if d["family"]==segment["family"] and (correct_first is None or instant(d["decidedAt"])<correct_first):correct_first=instant(d["decidedAt"])
+    first_batch=min(alert_batches,default=None)
+    first_batch_paths=sorted(alert_batches[first_batch]) if first_batch is not None else []
+    first_correct_delay=None if correct_first is None else (correct_first-attack_start).total_seconds()
     candidates = hypothetical_events(db_d)
     first_candidate = min((e for e in candidates if e[1]==segment["family"]),default=None)
     first_candidate_delay = None if first_candidate is None else (first_candidate[0]-attack_start).total_seconds()
@@ -329,6 +347,8 @@ def analyze_segment(directory, segment, binding, thresholds, minimum, output=Non
                 firstRuleAlertFamily=min(rule_first.values())[1] if rule_first else None,
                 offlineFirstAlertFamily=min(wanted_first.values())[1] if wanted_first else None,
                 firstAlertFamily=None if actual_first_alert is None else actual_first_alert[1], firstAlertDelaySeconds=first_alert_delay,
+                firstAlertBatchSequence=first_batch, firstAlertBatchPaths=[dict(family=f,source=src) for f,src in first_batch_paths],
+                firstCorrectClassAlertDelaySeconds=first_correct_delay,
                 firstCandidateDelaySeconds=first_candidate_delay, hypotheticalCandidateDecisions=len(candidates),
                 hypotheticalCandidateIncidents=len(candidate_counts), hypotheticalReasons=dict(reasons),
                 qualityEligibleConnections=len(eligible_parents), normalFalseConnections=normal_false,
@@ -377,8 +397,11 @@ def assess_round(path, scenario, scenario_sha, output=None):
     for family in thresholds:
         group=[r for r in results if r["family"]==family]
         limit=10 if family in ("port_scan","dos_flood") else 20
-        class_results[family]={"J1-8":all(r["firstAlertFamily"]==family for r in group),
+        # strict：首个告警批次只含本类；perClass：本类最先出现的正确类别告警（模型或规则来源）。两种读法分列，判定口径另行登记。
+        class_results[family]={"J1-8":all(r["firstAlertBatchPaths"] and {p["family"] for p in r["firstAlertBatchPaths"]}=={family} for r in group),
                                "J1-9":all(r["firstAlertDelaySeconds"] is not None and 0<=r["firstAlertDelaySeconds"]<=limit for r in group),
+                               "J1-8-perClass":all(r["firstCorrectClassAlertDelaySeconds"] is not None for r in group),
+                               "J1-9-perClass":all(r["firstCorrectClassAlertDelaySeconds"] is not None and 0<=r["firstCorrectClassAlertDelaySeconds"]<=limit for r in group),
                                "J1-10":all(r["firstCandidateDelaySeconds"] is not None and 0<=r["firstCandidateDelaySeconds"]<=limit for r in group)}
     return dict(replayRunId=state["replayRunId"],round=state["round"],scenarioSha256=scenario_sha,executionCompleted=True,
                 j1Passed=False,globalGates=gates,classGates=class_results,segmentResults=results,
@@ -398,7 +421,12 @@ def assess_all(work, audited=False, audit_root=None):
     pf_before,pf_after=read(work/"pf-before.json"),read(final_pf)
     pf_verified=all(p["exitCode"]==0 for p in pf_before+pf_after)
     pf_equal=pf_before[1:]==pf_after[1:]
-    safety &= pf_verified and pf_equal
+    # 无免密 sudo 时以权限边界代替全局快照：后端与全部 guardlive 均非 root，且运行期间无执行器/pfctl 进程。
+    privileges=[read(work/f"round-{r}/privileges.json") for r in (1,2) if (work/f"round-{r}/privileges.json").exists()]
+    privilege_proof=len(privileges)==2 and all(x["runnerUid"]!=0 and len(x["processes"])==len(scenario["segments"])+1
+                                                and all(q["uid"]!=0 for q in x["processes"]) and not x["executorOrPfctlProcesses"] for x in privileges)
+    os_rules_proof="pf_snapshot" if pf_verified else "privilege_boundary" if privilege_proof else None
+    safety &= (pf_verified and pf_equal) or (not pf_verified and privilege_proof)
     left={r["segmentId"]:r for r in reports[0]["segmentResults"]}
     right={r["segmentId"]:r for r in reports[1]["segmentResults"]}
     classification=classification_reproducibility(work)
@@ -415,7 +443,7 @@ def assess_all(work, audited=False, audit_root=None):
     summary=dict(stage="J1",executionCompleted=True,j1Passed=passed,scenarioSha256=sha(work/"scenario.json"),globalGates=gates,classGates=classes,
                  plannedM2=m2,m2MinimumMet=len(m2)>=2 and "brute_force" in m2,J2Allowed=passed and len(m2)>=2 and "brute_force" in m2,
                  testRead=False,newFits=0,thresholdsChanged=False,commandDelta=after["counts"]["guard_command"]-before["counts"]["guard_command"],
-                 actionDelta=after["counts"]["guard_action"]-before["counts"]["guard_action"],osRuleSnapshotVerified=pf_verified,osRulesChanged=(not pf_equal) if pf_verified else None,
+                 actionDelta=after["counts"]["guard_action"]-before["counts"]["guard_action"],osRuleSnapshotVerified=pf_verified,osRulesChanged=(not pf_equal) if pf_verified else None,osRulesProof=os_rules_proof,
                  snapshotDatabase=after["schema"],roundReportSha256=[sha(work/f"round-{r}/result.json") for r in (1,2)],
                  finalAuditReportsSha256=[sha(report_root/f"round-{r}/result.json") for r in (1,2)] if audited else None,
                  finalAuditDirectory=str(report_root.relative_to(work)) if audited else None,
@@ -438,11 +466,11 @@ def assess_all(work, audited=False, audit_root=None):
     with destination.open("x") as stream:json.dump(summary,stream,ensure_ascii=False,indent=2);stream.write("\n")
     lines=["# J1 V3 回放演练结果", "", f"演练完成；J1 {'通过' if passed else '未通过'}。两轮均使用同一冻结片段、ONNX 和 M1 数值策略，research 环境无执行器。", "",
            "| 项目 | 结果 |", "|---|---|"]
-    lines += [f"| {key} | {'通过' if value else '未验证，不能判通过' if key=='J1-6' and not pf_verified else '未通过'} |" for key,value in gates.items()]
+    lines += [f"| {key} | {'通过' if value else '未验证，不能判通过' if key=='J1-6' and not os_rules_proof else '未通过'} |" for key,value in gates.items()]
     lines += ["", "| 类别 | J1-8 告警 | J1-9 时延 | J1-10 准备度 |", "|---|---|---|---|"]
     lines += [f"| {family} | {'通过' if g['J1-8'] else '未通过'} | {'通过' if g['J1-9'] else '未通过'} | {'通过' if g['J1-10'] else '未通过'} |" for family,g in classes.items()]
     lines += ["", f"计划 M2：{', '.join(m2) or '无'}；保底线 {'达到' if summary['m2MinimumMet'] else '未达到'}。", "",
-              f"动作增量 {summary['actionDelta']}，命令增量 {summary['commandDelta']}；OS 规则快照{'变化' if summary['osRulesChanged'] else '未变化' if summary['osRuleSnapshotVerified'] else '未取得，缺少 sudo 只读权限'}。本次程序无执行器、目标和 PF 写调用。", "",
+              f"动作增量 {summary['actionDelta']}，命令增量 {summary['commandDelta']}；OS 规则{'快照变化' if summary['osRulesChanged'] else '快照未变化' if summary['osRuleSnapshotVerified'] else '由权限边界证明未改动（后端与全部 guardlive 均非 root、运行期间无执行器/pfctl 进程；无免密 sudo，未取全局快照）' if os_rules_proof else '未取得快照，也缺少权限边界证据'}。本次程序无执行器、目标和 PF 写调用。", "",
               "| 轮次 | 连接一致率 | 正常连接误报率 | 正常候选事件/小时 |", "|---|---|---|---|"]
     lines += [f"| {r['round']} | {r['connectionAgreement']:.4%} | {r['normal']['falsePositiveRate']:.4%} | {r['normal']['hypotheticalCandidateIncidentsPerHour']:.3f} |" for r in reports]
     lines += ["", "逐片段时延、推理状态、R3 混组/替换和 R5 质量连接覆盖详见 round-1/result.json 与 round-2/result.json。",

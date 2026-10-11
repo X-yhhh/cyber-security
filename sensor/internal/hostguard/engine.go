@@ -413,7 +413,7 @@ func (e *Engine) accept(p Packet) {
 	}
 	e.Stats["accepted_packets"]++
 	// 每次续证都来自新包；定时发快照不能更新引用截止时间。
-	if e.cfg.Environment != "research" && e.cfg.Lease != nil && c.direction != "unknown" && p.Proto == 6 && !f.quality.Defective() && e.cfg.ClockSkewMs != nil && math.Abs(*e.cfg.ClockSkewMs) <= 1000 {
+	if e.cfg.Environment != "research" && e.cfg.Lease != nil && c.direction != "unknown" && p.Proto == 6 && !f.quality.Defective() && skewTrusted(e.clockSkew()) {
 		o := e.observation(f, p.TS, nil)
 		ref, expiry, err := e.cfg.Lease(o, Endpoints{k.local, k.peer, k.proto})
 		if err != nil || ref == "" || expiry.After(p.TS.Add(15*time.Second)) || !expiry.After(p.TS) {
@@ -520,8 +520,26 @@ func (e *Engine) observation(f *flow, at time.Time, reason *string) Observation 
 	if e.emissionClock != nil {
 		emitted = maxTime(e.emissionClock().UTC().Truncate(time.Microsecond), at)
 	}
-	return Observation{ContractVersion: Version, AssetID: e.cfg.AssetID, SensorID: e.cfg.SensorID, BootID: e.cfg.BootID, CaptureScopeID: e.cfg.CaptureScopeID, FlowID: f.id, ParentConnectionID: f.conn.id, SnapshotIndex: f.index, Profile: profile, Environment: e.cfg.Environment, FirstSeenAt: f.first, LastPacketAt: f.last, AsOf: at, EmittedAt: emitted, AddressFamily: f.af, Transport: f.transport, Direction: f.conn.direction, ServiceClass: serviceClass(f.transport, f.conn.service), ServicePort: f.conn.service, PeerKey: f.peer, KeyEpoch: e.cfg.KeyEpoch, TargetRef: ref, TargetExpiresAt: expiry, Features: v, Contexts: contexts, Quality: f.quality, CloseReason: reason}
+	quality := f.quality
+	quality.ClockSkewMs = e.clockSkew()
+	return Observation{ContractVersion: Version, AssetID: e.cfg.AssetID, SensorID: e.cfg.SensorID, BootID: e.cfg.BootID, CaptureScopeID: e.cfg.CaptureScopeID, FlowID: f.id, ParentConnectionID: f.conn.id, SnapshotIndex: f.index, Profile: profile, Environment: e.cfg.Environment, FirstSeenAt: f.first, LastPacketAt: f.last, AsOf: at, EmittedAt: emitted, AddressFamily: f.af, Transport: f.transport, Direction: f.conn.direction, ServiceClass: serviceClass(f.transport, f.conn.service), ServicePort: f.conn.service, PeerKey: f.peer, KeyEpoch: e.cfg.KeyEpoch, TargetRef: ref, TargetExpiresAt: expiry, Features: v, Contexts: contexts, Quality: quality, CloseReason: reason}
 }
+
+// clockSkew 在快照导出时取偏差：实时来源优先，过期即 null；离线提取沿用配置值（默认 null）。
+func (e *Engine) clockSkew() *float64 {
+	if e.cfg.ClockSkew == nil {
+		return e.cfg.ClockSkewMs
+	}
+	v, ok := e.cfg.ClockSkew()
+	if !ok {
+		return nil
+	}
+	f := float64(v)
+	return &f
+}
+
+func skewTrusted(v *float64) bool { return v != nil && math.Abs(*v) <= 1000 }
+
 func maxTime(a, b time.Time) time.Time {
 	if a.After(b) {
 		return a

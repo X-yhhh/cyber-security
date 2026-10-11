@@ -302,3 +302,32 @@ func TestPCAPLiveParity(t *testing.T) {
 		t.Fatal("PCAP/live 快照不一致")
 	}
 }
+
+func TestLiveClockSkewFollowsFreshMeasurement(t *testing.T) {
+	var rows []Observation
+	c := config(&rows)
+	skew, fresh := int64(-7), true
+	c.ClockSkew = func() (int64, bool) { return skew, fresh }
+	e, _ := New(c)
+	push(t, e, pkt(0, false, true, false, 1))
+	push(t, e, pkt(1000, true, false, true, 2))
+	tick(t, e, 1200)
+	fresh = false
+	tick(t, e, 5100)
+	closeEngine(t, e)
+	if len(rows) < 2 || rows[0].Quality.ClockSkewMs == nil || *rows[0].Quality.ClockSkewMs != -7 {
+		t.Fatalf("新鲜实测偏差必须写入快照: %+v", rows)
+	}
+	for _, o := range rows[1:] {
+		if o.Quality.ClockSkewMs != nil {
+			t.Fatal("测值过期后快照必须为 null，不能沿用旧值或填零")
+		}
+	}
+	var offline []Observation
+	e, _ = New(config(&offline))
+	push(t, e, pkt(0, false, true, false, 1))
+	closeEngine(t, e)
+	if offline[0].Quality.ClockSkewMs != nil {
+		t.Fatal("离线提取没有实时测值时必须保持 null")
+	}
+}

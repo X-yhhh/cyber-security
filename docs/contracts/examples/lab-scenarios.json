@@ -1,0 +1,77 @@
+{
+  "contractVersion": "host-guard-lab/1.0",
+  "scenarios": [
+    {
+      "scenarioId": "port_scan-1",
+      "family": "port_scan",
+      "source": "model",
+      "ruleId": null,
+      "trialAutoEligible": true,
+      "autoIneligibleReason": null,
+      "pcapRef": "lab/port_scan-1.pcap",
+      "pcapSha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sourceStart": "2020-01-01T00:00:00Z",
+      "sourceEnd": "2020-01-01T00:15:00Z"
+    },
+    {
+      "scenarioId": "brute_force-2",
+      "family": "brute_force",
+      "source": "model",
+      "ruleId": null,
+      "trialAutoEligible": true,
+      "autoIneligibleReason": null,
+      "pcapRef": "lab/brute_force-2.pcap",
+      "pcapSha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sourceStart": "2020-01-01T00:00:00Z",
+      "sourceEnd": "2020-01-01T00:15:00Z"
+    },
+    {
+      "scenarioId": "dos_flood-3",
+      "family": "dos_flood",
+      "source": "model",
+      "ruleId": null,
+      "trialAutoEligible": false,
+      "autoIneligibleReason": "not requested for this synthetic trial",
+      "pcapRef": "lab/dos_flood-3.pcap",
+      "pcapSha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sourceStart": "2020-01-01T00:00:00Z",
+      "sourceEnd": "2020-01-01T00:15:00Z"
+    },
+    {
+      "scenarioId": "dos_slow-4",
+      "family": "dos_slow",
+      "source": "model",
+      "ruleId": null,
+      "trialAutoEligible": false,
+      "autoIneligibleReason": "not requested for this synthetic trial",
+      "pcapRef": "lab/dos_slow-4.pcap",
+      "pcapSha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sourceStart": "2020-01-01T00:00:00Z",
+      "sourceEnd": "2020-01-01T00:15:00Z"
+    },
+    {
+      "scenarioId": "normal-5",
+      "family": "normal",
+      "source": "model",
+      "ruleId": null,
+      "trialAutoEligible": false,
+      "autoIneligibleReason": "not requested for this synthetic trial",
+      "pcapRef": "lab/normal-5.pcap",
+      "pcapSha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sourceStart": "2020-01-01T00:00:00Z",
+      "sourceEnd": "2020-01-01T00:15:00Z"
+    },
+    {
+      "scenarioId": "normal-6",
+      "family": "normal",
+      "source": "model",
+      "ruleId": null,
+      "trialAutoEligible": false,
+      "autoIneligibleReason": "not requested for this synthetic trial",
+      "pcapRef": "lab/normal-6.pcap",
+      "pcapSha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sourceStart": "2020-01-01T00:00:00Z",
+      "sourceEnd": "2020-01-01T00:15:00Z"
+    }
+  ]
+}

@@ -136,6 +136,8 @@ sh executor/python.sh -B scripts/p7/j1_audit.py "$J1_RUN_DIR" --finalize
 
 2026-10-10—11 的 v8 J1 两轮均 completed，完整报告在 `.cache/j1-20261011-v8/REPORT.md`，最终综合事实为 `summary-audit-final-v2.json`。J1 未通过：J1-1/2/3/4/6/7 通过，J1-5 失败，`dos_flood` 的 J1-9/J1-10 失败；计划 M2 为 `port_scan`、`brute_force`、`dos_slow`，但 J2/P8 保持关闭。零动作/命令已核验，研究组合已批准但未激活，OS 全局 PF 快照因权限边界未验证；临时服务已停。本机业务库已为 V24，迁移失败为 0。
 
+`j1_register.py --preroll-seconds N [--preroll-families …]` 在每段评分窗口前追加同一来源紧邻 N 秒的上下文报文（只取 validation 与台账未分配连接，train/test 按台账排除），窗口内报文不变；片段登记 `captureStartUs`（预热起点）与 `scoringFirstUs`/`scoringLastUs`（评分窗口），`observedDurationSeconds` 按窗口计。审计以 `scoringFirstUs` 为攻击起点，预热期触发的判定不计入 J1-8—J1-10。v9 登记见后续实施计划 K3 段。
+
 `derive_policy.py` 从已登记策略派生新版本：只允许改 `policyId`/`policyVersion` 并按 manifest.profiles 增设 `acceptedProfiles`，其余字段与来源不同即拒绝，输出附差异记录；不读 test、不登记、不审批。v8 的 r3 包策略由它派生（`policyVersion` `host-guard-decision/2026-10-08.1+profiles-20261011`）。
 
 2026-10-11 v8 复跑沿用同一冻结片段并为新二进制登记新场景；`--server-threads` 设置后端线程数（默认 6）。运行器在后端迁移后先用 `policy_text.py` 把策略恢复为原件字节（结果写入 `policy-text-restore.json`），并为每轮记录 `privileges.json` 作为无免密 sudo 时 J1-6 的权限边界证据。收口记录为 `.cache/j1v3-20261011/closeout.json`；A7 仅完成本机配置/恢复检查：`en0` 的 TSO4/TSO6 与 `net.inet.tcp.tso=1` 保持现状，未执行 TSO/PF 切换，历史 PCAP 质量未被改写。

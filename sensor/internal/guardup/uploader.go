@@ -45,7 +45,10 @@ type Stats struct {
 	HealthQueueMax  int            `json:"healthQueueMax"`
 	LastClockSkewMs *int64         `json:"lastClockSkewMs"`
 	AckLatencyMaxMs int64          `json:"ackLatencyMaxMs"`
-	FatalCode       string         `json:"fatalCode,omitempty"`
+	// SpoolAckTotalMicros/MaxMicros 只统计成功回执的本地持久写入，和 HTTP/T2 耗时分开。
+	SpoolAckTotalMicros int64  `json:"spoolAckTotalMicros"`
+	SpoolAckMaxMicros   int64  `json:"spoolAckMaxMicros"`
+	FatalCode           string `json:"fatalCode,omitempty"`
 }
 
 // Uploader 串行发送：先健康窗口（10 秒时效），再按 sequence 顺序逐个发送观察批次，同一时刻只有一个批次在途。
@@ -74,7 +77,7 @@ func VerifyRemote(r RemoteConfig, captureScopeID, addressFamily, buildSha256 str
 		return errors.New("SCOPE_DENIED")
 	case c.BuildSha256 != buildSha256:
 		return errors.New("BUILD_NOT_APPROVED")
-	case c.Limits.MaxBatchSize < 1 || c.Limits.MaxBatchSize > 100:
+	case c.Limits.MaxBatchSize < 1 || c.Limits.MaxBatchSize > MaxBatchSize:
 		return errors.New("CAPACITY_EXCEEDED")
 	}
 	return nil
@@ -253,12 +256,16 @@ func (u *Uploader) sendBatch(ctx context.Context, seq int64, body []byte, b Batc
 		return &Error{Status: http.StatusAccepted, Code: "INVALID_BATCH_RESULT"}
 	}
 	raw, _ := json.Marshal(r)
+	ackStarted := time.Now()
 	if err := u.o.Spool.Ack(seq, raw); err != nil {
 		return err
 	}
+	ackMicros := time.Since(ackStarted).Microseconds()
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	u.stats.AckedBatches++
+	u.stats.SpoolAckTotalMicros += ackMicros
+	u.stats.SpoolAckMaxMicros = max(u.stats.SpoolAckMaxMicros, ackMicros)
 	u.stats.Accepted += r.AcceptedCount
 	u.stats.Duplicates += r.DuplicateCount
 	u.stats.Rejected += r.RejectedCount

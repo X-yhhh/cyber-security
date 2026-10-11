@@ -64,6 +64,8 @@ public class GuardEligibility {
         return matchingCapability(bundle,policy,o,policy.path("family").asText());
     }
     public Map<String,Object> matchingCapability(Map<String,Object> bundle,JsonNode policy,JsonNode o,String family){
+        // research 不具备任何执行等级；在读取、解析能力事实前返回既有的无匹配结果。
+        if("research".equals(o.path("environment").asText()))return null;
         for(var link:store.rows("guard_bundle_capability",map("bundle_id",bundle.get("id")),false,100)){
             var c=store.get("guard_capability",number(link,"capability_id"));var d=json(c,"payload_json");String env=o.path("environment").asText();
             boolean level=env.equals("authorized")?"authorized_auto".equals(str(c,"level")):env.equals("lab")&&Set.of("lab_auto","authorized_auto").contains(str(c,"level"));

@@ -67,17 +67,23 @@ type BatchResult struct {
 // Spool 是按 boot 分目录的持久批次队列。批次封口时先 fsync 原字节再进入发送队列，
 // 收到 202 后再 fsync 回执；重启时未确认批次按 sequence 顺序重发同一字节。
 type Spool struct {
-	mu       sync.Mutex
-	dir      string
-	meta     SpoolMeta
-	maxBatch int
-	buffer   []json.RawMessage
-	since    time.Time
-	next     int64
-	acked    map[int64]bool
-	pending  []int64
-	sealedAt map[int64]time.Time
+	mu            sync.Mutex
+	dir           string
+	meta          SpoolMeta
+	maxBatch      int
+	buffer        []json.RawMessage
+	bufferBytes   int
+	batchOverhead int
+	since         time.Time
+	next          int64
+	acked         map[int64]bool
+	pending       []int64
+	sealedAt      map[int64]time.Time
 }
+
+// MaxBatchSize 与后端配置契约一致；记录数和编码后的请求字节数均独立受限。
+const MaxBatchSize = 512
+const maxBatchBytes = 1_048_576
 
 var batchName = regexp.MustCompile(`^batch-([0-9]{12})\.json$`)
 var ackName = regexp.MustCompile(`^ack-([0-9]{12})\.json$`)
@@ -87,14 +93,21 @@ func OpenSpool(root string, meta SpoolMeta, maxBatch int) (*Spool, error) {
 	if !filepath.IsAbs(root) || !uuidPattern.MatchString(meta.BootID) || !uuidPattern.MatchString(meta.ConfigID) || !uuidPattern.MatchString(meta.SensorID) {
 		return nil, errors.New("spool 目录或身份无效")
 	}
-	if maxBatch < 1 || maxBatch > 100 {
-		return nil, errors.New("批次上限必须为 1..100")
+	if maxBatch < 1 || maxBatch > MaxBatchSize {
+		return nil, errors.New("批次上限必须为 1..512")
 	}
 	dir := filepath.Join(root, meta.BootID)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, err
 	}
 	s := &Spool{dir: dir, meta: meta, maxBatch: maxBatch, next: 1, acked: map[int64]bool{}, sealedAt: map[int64]time.Time{}}
+	// 最大序号预留足够长度；空数组已有两个方括号，后续只追加记录及逗号字节数。
+	envelope, err := json.Marshal(Batch{BatchID: NewUUID(), BootID: meta.BootID, Sequence: 9223372036854775807, ConfigID: meta.ConfigID,
+		ContractVersion: meta.ContractVersion, ProfileSha256: meta.ProfileSha256, Observations: []json.RawMessage{}})
+	if err != nil {
+		return nil, err
+	}
+	s.batchOverhead = len(envelope)
 	metaPath := filepath.Join(dir, "meta.json")
 	if b, err := os.ReadFile(metaPath); err == nil {
 		var old SpoolMeta
@@ -146,14 +159,27 @@ func OpenSpool(root string, meta SpoolMeta, maxBatch int) (*Spool, error) {
 // Dir 返回本 boot 的 spool 目录。
 func (s *Spool) Dir() string { return s.dir }
 
-// Append 追加一条已编码观察；满批立即封口。
+// Append 追加一条已编码观察；记录数满批或下一条将超出 1 MiB 时立即封口，不丢弃观察。
 func (s *Spool) Append(obs json.RawMessage, now time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	encoded, err := json.Marshal(obs)
+	if err != nil {
+		return err
+	}
+	if s.batchOverhead+len(encoded) > maxBatchBytes {
+		return errors.New("SPOOL_OBSERVATION_TOO_LARGE")
+	}
+	if len(s.buffer) > 0 && s.batchOverhead+s.bufferBytes+len(encoded)+len(s.buffer) > maxBatchBytes {
+		if err := s.sealLocked(now); err != nil {
+			return err
+		}
+	}
 	if len(s.buffer) == 0 {
 		s.since = now
 	}
-	s.buffer = append(s.buffer, append(json.RawMessage(nil), obs...))
+	s.buffer = append(s.buffer, encoded)
+	s.bufferBytes += len(encoded)
 	if len(s.buffer) >= s.maxBatch {
 		return s.sealLocked(now)
 	}
@@ -187,6 +213,9 @@ func (s *Spool) sealLocked(now time.Time) error {
 	if err != nil {
 		return err
 	}
+	if len(raw) > maxBatchBytes {
+		return errors.New("SPOOL_BATCH_TOO_LARGE")
+	}
 	if err = writeDurable(s.dir, fmt.Sprintf("batch-%012d.json", s.next), raw); err != nil {
 		return err
 	}
@@ -194,6 +223,7 @@ func (s *Spool) sealLocked(now time.Time) error {
 	s.sealedAt[s.next] = now
 	s.next++
 	s.buffer = nil
+	s.bufferBytes = 0
 	return nil
 }
 

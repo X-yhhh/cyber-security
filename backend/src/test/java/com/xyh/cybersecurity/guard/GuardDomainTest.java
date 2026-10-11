@@ -18,7 +18,7 @@ class GuardDomainTest {
     }
     @Test void canonicalizationUsesRfc8785NumbersAndRejectsDuplicateProperties(){assertThat(canonical(parse("{\"z\":-0.0,\"b\":1e30,\"a\":1e-7}"))).isEqualTo("{\"a\":1e-7,\"b\":1e+30,\"z\":0}");assertThatThrownBy(()->parse("{\"a\":1,\"a\":2}")).isInstanceOf(com.xyh.cybersecurity.common.api.ApiRequestException.class);}
     @Test void schemaPlusCausalInvariantsRejectUnknownFutureOrWrongProfileData()throws Exception{
-        var c=new GuardContracts();ObjectNode o=observation(Instant.parse("2026-10-05T00:00:00Z"));c.observation(o);
+        var c=new GuardContracts();ObjectNode o=observation(Instant.parse("2026-10-05T00:00:00Z"));assertThat(c.observationText(o)).isEqualTo(canonical(o));
         o.put("healthy",true);assertThatThrownBy(()->c.observation(o)).hasMessageContaining("CONTRACT_INVALID");o.remove("healthy");
         o.put("lastPacketAt",time(o,"asOf").plusSeconds(1).toString());assertThatThrownBy(()->c.observation(o)).hasMessageContaining("INVALID_OBSERVATION_TIME");
         ObjectNode bad=observation(Instant.parse("2026-10-05T00:00:00Z"));((ObjectNode)bad.get("features")).put("elapsedMs",5001);assertThatThrownBy(()->c.observation(bad)).hasMessageContaining("INVALID_ELAPSED_TIME");

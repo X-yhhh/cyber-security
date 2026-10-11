@@ -21,10 +21,12 @@ class GuardCapabilityBindingTest {
     /** 只读内存表：按列等值过滤，数值统一按 long 比较；更新与审计不应在判定路径出现。 */
     static final class Facts extends GuardStore {
         final Map<String,List<Map<String,Object>>> tables=new HashMap<>();
+        int reads;
         Facts(){super(null,null);}
         Map<String,Object> put(String table,Object... kv){var row=map(kv);tables.computeIfAbsent(table,k->new ArrayList<>()).add(row);return row;}
         @Override public Instant now(){return Instant.parse("2026-10-08T08:00:00Z");}
         @Override public List<Map<String,Object>> rows(String t,Map<String,Object> w,boolean lock,int limit){
+            reads++;
             return tables.getOrDefault(t,List.of()).stream().filter(r->w.entrySet().stream().allMatch(e->same(r.get(e.getKey()),e.getValue()))).limit(limit).toList();}
         static boolean same(Object a,Object b){return a instanceof Number x&&b instanceof Number y?x.longValue()==y.longValue():Objects.equals(a,b);}
     }
@@ -126,6 +128,18 @@ class GuardCapabilityBindingTest {
         // 对照：同一能力升为 lab_auto 后在 lab 匹配，证明上面的拒绝来自等级而非夹具缺项。
         bundle.put("environment","lab");capability.put("level","lab_auto");
         assertThat(eligibility.matchingCapability(bundle,policy,service.deepCopy().put("environment","lab"),"dos_slow")).isNotNull();
+    }
+
+    /** research 无执行等级，拒绝无需读取能力表；正式环境仍检查能力事实而非共享这个短路。 */
+    @Test void researchCapabilityRefusalDoesNotReadOrParseDeploymentFacts(){
+        observation.put("environment","research");capability.put("payload_json","invalid-json");
+        facts.reads=0;
+        assertThat(eligibility.matchingCapability(bundle,policy,observation,"port_scan")).isNull();
+        assertThat(facts.reads).isZero();
+        observation.put("environment","lab");
+        assertThatThrownBy(()->eligibility.matchingCapability(bundle,policy,observation,"port_scan"))
+                .isInstanceOf(ApiRequestException.class).hasMessageContaining("INVALID_REQUEST");
+        assertThat(facts.reads).isPositive();
     }
 
     @Test void executorCapabilityHashBindsActiveCapabilitiesAndCurrentProtection(){

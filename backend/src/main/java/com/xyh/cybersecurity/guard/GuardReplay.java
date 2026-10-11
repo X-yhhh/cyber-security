@@ -3,6 +3,7 @@ package com.xyh.cybersecurity.guard;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 import java.util.*;
 import static com.xyh.cybersecurity.guard.GuardJson.*;
@@ -73,8 +74,12 @@ public class GuardReplay {
         return object("id",id,"status","running","segments",assigned.size());
     }
 
-    /** 无 running 会话的 research 批次保持原有 T1 行为；仅已登记会话进入本研究 T2。 */
-    @Transactional public void consume(String batchId) {
+    /**
+     * 无 running 会话的 research 批次保持原有 T1 行为；仅已登记会话进入本研究 T2。
+     * 同资产观察和投影仍由资产行锁串行化；READ_COMMITTED 避免不同资产查询缺失 episode 时互持 gap 锁。
+     */
+    @Transactional(isolation=Isolation.READ_COMMITTED) public void consume(String batchId) {
+        GuardBatchProfile.transaction("t2_commit");
         var batch=store.external("guard_observation_batch",batchId,false);long aid=number(batch,"asset_id");
         if(!"research".equals(str(store.get("asset",aid),"environment")))return;
         store.lockAsset(aid);String sensorId=str(store.get("sensor_agent",number(batch,"sensor_id")),"public_id");
@@ -89,19 +94,12 @@ public class GuardReplay {
         JsonNode metadata=json(run,"payload_json").path("runtime");
         JsonNode closeout=artifacts.json(metadata.path("closeoutRef").asText(),metadata.path("closeoutSha256").asText());
         JsonNode hypothetical=GuardReplayReadiness.policy(json(store.get("guard_decision_policy",number(bundle,"policy_id")),"definition_json"),closeout);
-        var observations=new ArrayList<>(store.rows("guard_observation",map("batch_id",batch.get("id")),false,100));
+        var observations=new ArrayList<>(store.rows("guard_observation",map("batch_id",batch.get("id")),false,GuardContracts.MAX_BATCH_SIZE));
         observations.sort(Comparator.comparing((Map<String,Object> r)->instant(r.get("as_of"))).thenComparingLong(r->number(r,"id")));
-        List<GuardDetection.Scored> scored=new ArrayList<>();
         for(var observation:observations) {
             JsonNode o=json(observation,"payload_json");require("research".equals(text(o,"environment"))&&o.path("targetRef").isNull(),"REPLAY_REAL_TARGET_FORBIDDEN");
-            if(store.one("guard_inference",map("observation_id",observation.get("id"),"model_id",model.get("id")),false)!=null)continue;
-            var result=runtime.infer(model,o,store.now());
-            var inference=store.add("guard_inference",map("observation_id",observation.get("id"),"asset_id",aid,"model_id",model.get("id"),
-                    "status",result.status(),"score",result.score(),"family",result.family(),
-                    "family_scores_json",result.familyScores().isEmpty()?null:canonical(node(result.familyScores())),
-                    "applicability",result.applicability(),"manifest_sha256",model.get("manifest_sha256"),"completed_at",db(store.now()),"error_code",result.error()));
-            scored.add(new GuardDetection.Scored(observation,inference));
         }
+        List<GuardDetection.Scored> scored=detection.scoreBatch(observations,model);
         // 整批推理后统一投影并按 episode 各判定一次，与正式 T2 相同。
         if(!scored.isEmpty())detection.correlate(scored,bundle,null,hypothetical);
     }

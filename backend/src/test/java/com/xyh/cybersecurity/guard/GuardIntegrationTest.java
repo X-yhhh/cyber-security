@@ -19,6 +19,9 @@ import org.springframework.test.context.*;
 import org.springframework.test.web.servlet.*;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.annotation.Isolation;
+import org.springframework.transaction.annotation.Transactional;
 import java.nio.file.*;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.security.*;
@@ -90,7 +93,8 @@ class GuardIntegrationTest {
     String fixtureInterface(){return "fixture0";}
     String fixtureAdapterVersion(){return "fixture-1";}
     /** exempt=true 时登记带签名豁免报告的 macOS PF 全入站能力（B1.2），其余步骤与普通夹具相同。 */
-    Fixture setup(String family,List<JsonNode> rules,boolean exempt)throws Exception{
+    Fixture setup(String family,List<JsonNode> rules,boolean exempt)throws Exception{return setup(family,rules,exempt,100);}
+    Fixture setup(String family,List<JsonNode> rules,boolean exempt,int maxBatchSize)throws Exception{
         boolean scan=family.equals("port_scan");String direction=fixtureDirection(scan);
         String folder=id();Path dir=ROOT.resolve(folder);Files.createDirectories(dir);
         String asset=human("/assets",object("assetKey",id(),"platform","macos","environment","lab","owner","isolated-p4-test"),operator,null).path("id").asText();
@@ -103,7 +107,7 @@ class GuardIntegrationTest {
         String auth=human("/assets/"+asset+"/authorizations",object("interfaces",List.of(fixtureInterface()),"observationAllowed",true,"executionScopes",List.of(object("scope",scan?"peer_inbound":"peer_service","direction",direction,"transport","tcp","servicePort",scan?null:443,"addressFamily","ipv4","capabilityId",capability)),"validFrom",now.minusSeconds(60).toString(),"validUntil",now.plusSeconds(3600).toString(),"evidenceRef","fixture:isolated-test"),operator,null).path("id").asText();
         human("/authorizations/"+auth+"/decisions",object("decision","approve","reason","隔离测试批准"),reviewer,"1");
         String scope=id();JsonNode sensor=human("/sensors",object("assetId",asset,"platform","macos","captureScopeId",scope),operator,null);JsonNode executor=human("/executors",object("assetId",asset,"platform","macos","capabilityProbeRef","fixture:probe"),operator,null);
-        JsonNode config=object("contractVersion",CONTRACT,"profileSha256",contracts.profileHash(),"captureHealthVersion",HEALTH,"interfaceIds",List.of(fixtureInterface()),"limits",object("maxBatchSize",100),"captureScopeId",scope,"addressFamily","ipv4","buildSha256","b".repeat(64));
+        JsonNode config=object("contractVersion",CONTRACT,"profileSha256",contracts.profileHash(),"captureHealthVersion",HEALTH,"interfaceIds",List.of(fixtureInterface()),"limits",object("maxBatchSize",maxBatchSize),"captureScopeId",scope,"addressFamily","ipv4","buildSha256","b".repeat(64));
         String configId=human("/sensors/"+sensor.path("id").asText()+"/configs",config,operator,null).path("id").asText();human("/sensor-configs/"+configId+"/decisions",object("decision","approve","reason","隔离测试配置"),reviewer,"1");
         String boot=id(),eboot=id();machine("/sensors/"+sensor.path("id").asText()+"/heartbeats",object("bootId",boot,"version","fixture-1","configHash",hash(config),"lastSequence",0,"clockSkewMs",0),sensor.path("credential").asText());
         machine("/executors/"+executor.path("id").asText()+"/heartbeats",object("bootId",eboot,"adapterVersion","fixture-1","capabilityHash","c".repeat(64),"pendingRecovery",false,"activeRuleCount",0,"clockSkewMs",0),executor.path("credential").asText());
@@ -392,6 +396,144 @@ class GuardIntegrationTest {
         var target=store.one("guard_target_binding",map("target_ref",f.target),false);var policy=json(store.external("guard_decision_policy",f.policy,false),"definition_json");
         assertThat(new GuardEligibility(store,true,ROOT.resolve("protection.json").toString()).target(target,first,store.now(),policy,"dos_slow")).isFalse();
     }
+    /** JDBC 批写须立即对同事务 MyBatis 读可见，时钟不得缓存；回滚不能留下批写事实。 */
+    @Test void jdbcBatchSharesTransactionAndInvalidatesCachedReads(){
+        String key=id();
+        new TransactionTemplate(manager).executeWithoutResult(status->{
+            var where=map("event_key",key);
+            assertThat(store.rows("outbox_event",where,false,10)).isEmpty();
+            store.insertAll("outbox_event",List.of(map("event_key",key,"aggregate_type","guard","aggregate_id",id(),"topic","guard.test","payload_json","{}","status","pending")));
+            assertThat(store.rows("outbox_event",where,false,10)).hasSize(1);
+            Instant before=store.now();jdbc.queryForObject("SELECT SLEEP(0.02)",Integer.class);
+            assertThat(store.now()).isAfter(before);
+            status.setRollbackOnly();
+        });
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM outbox_event WHERE event_key=?",Integer.class,key)).isZero();
+    }
+    /** 不同资产的缺失 episode 查询必须可并行提交，不能在同一个空索引区间互持 gap 锁。 */
+    @Test void researchReadCommittedAllowsConcurrentMissingEpisodeInserts()throws Exception{
+        assertThat(GuardReplay.class.getMethod("consume",String.class).getAnnotation(Transactional.class).isolation())
+                .isEqualTo(Isolation.READ_COMMITTED);
+        var first=episodeInsert(setup());var second=episodeInsert(setup());
+        var bothMissing=new CyclicBarrier(2);var workers=Executors.newFixedThreadPool(2);
+        try{
+            var commits=new ArrayList<Future<Long>>();
+            for(var values:List.of(first,second))commits.add(workers.submit(()->readCommittedTransaction().execute(status->{
+                assertThat(jdbc.queryForObject("SELECT @@transaction_isolation",String.class)).isEqualTo("READ-COMMITTED");
+                store.lockAsset(number(values,"asset_id"));
+                assertThat(store.byKeys("guard_episode",List.of(episodeLookup(values)),true)).isEmpty();
+                awaitBarrier(bothMissing);
+                store.addAllReturning("guard_episode",List.of(values));
+                return number(values,"id");
+            })));
+            var ids=new HashSet<Long>();for(var commit:commits)ids.add(commit.get(20,TimeUnit.SECONDS));
+            assertThat(ids).hasSize(2);
+            for(var values:List.of(first,second))assertThat(store.byKeys("guard_episode",List.of(episodeLookup(values)),false))
+                    .singleElement().satisfies(row->assertThat(number(row,"id")).isEqualTo(number(values,"id")));
+        }finally{workers.shutdownNow();assertThat(workers.awaitTermination(10,TimeUnit.SECONDS)).isTrue();}
+    }
+    /** 先普通读再等待资产锁的事务，获锁后须看到上一事务新提交的 episode，而非旧的 RR 快照。 */
+    @Test void researchReadCommittedSeesEpisodeCommittedWhileWaitingForAssetLock()throws Exception{
+        var values=episodeInsert(setup());long aid=number(values,"asset_id");var lookup=episodeLookup(values);
+        var writerLocked=new CountDownLatch(1);var readerRead=new CountDownLatch(1);var releaseWriter=new CountDownLatch(1);
+        var workers=Executors.newFixedThreadPool(2);
+        try{
+            Future<Long> writer=workers.submit(()->readCommittedTransaction().execute(status->{
+                store.lockAsset(aid);store.addAllReturning("guard_episode",List.of(values));writerLocked.countDown();
+                awaitLatch(releaseWriter);return number(values,"id");
+            }));
+            Future<Long> reader=workers.submit(()->{
+                awaitLatch(writerLocked);
+                return readCommittedTransaction().execute(status->{
+                    // JDBC 普通读建立数据库快照，不把空结果留在 MyBatis 一级缓存中。
+                    assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM guard_episode WHERE asset_id=?",Long.class,aid)).isZero();
+                    readerRead.countDown();store.lockAsset(aid);
+                    var rows=store.byKeys("guard_episode",List.of(lookup),false);assertThat(rows).hasSize(1);
+                    return number(rows.getFirst(),"id");
+                });
+            });
+            awaitLatch(readerRead);releaseWriter.countDown();
+            assertThat(reader.get(20,TimeUnit.SECONDS)).isEqualTo(writer.get(20,TimeUnit.SECONDS));
+        }finally{releaseWriter.countDown();workers.shutdownNow();assertThat(workers.awaitTermination(10,TimeUnit.SECONDS)).isTrue();}
+    }
+    /** 测试使用与 research T2 相同的隔离级别和真实事务连接，等待均有界。 */
+    private TransactionTemplate readCommittedTransaction(){
+        var tx=new TransactionTemplate(manager);tx.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);tx.setTimeout(15);return tx;
+    }
+    /** 只构造真实表必需字段；新资产没有任何 episode，不借用或清理其他测试的事实。 */
+    private Map<String,Object> episodeInsert(Fixture f){
+        var now=store.now();return map("asset_id",store.external("asset",f.asset(),false).get("id"),
+                "sensor_id",store.external("sensor_agent",f.sensor(),false).get("id"),"boot_id",f.boot(),"peer_key","e".repeat(64),
+                "key_epoch",1L,"direction","outbound","transport","tcp","service_port",443,"family","dos_slow",
+                "scope","peer_service","source","model","rule_id","","bundle_id",store.external("guard_release_bundle",f.bundle(),false).get("id"),
+                "bucket_start",db(Instant.ofEpochSecond(now.getEpochSecond()/30*30)),"revision",1L);
+    }
+    /** 使用生产唯一键查询路径，排除插入专用字段及运行时回填的主键。 */
+    private static Map<String,Object> episodeLookup(Map<String,Object> values){
+        var key=new LinkedHashMap<>(values);key.remove("id");key.remove("public_id");key.remove("revision");
+        key.put("service_port_key",key.remove("service_port"));return key;
+    }
+    private static void awaitLatch(CountDownLatch latch){
+        try{assertThat(latch.await(10,TimeUnit.SECONDS)).as("并发测试协调超时").isTrue();}
+        catch(InterruptedException ex){Thread.currentThread().interrupt();throw new AssertionError("并发测试被中断",ex);}
+    }
+    private static void awaitBarrier(CyclicBarrier barrier){
+        try{barrier.await(10,TimeUnit.SECONDS);}
+        catch(InterruptedException ex){Thread.currentThread().interrupt();throw new AssertionError("并发测试被中断",ex);}
+        catch(BrokenBarrierException|TimeoutException ex){throw new AssertionError("并发测试协调失败",ex);}
+    }
+    /** 整批与分批最终证据相同；分批仅多出各自批末判定，不能复用被 final 替换的 prefix。 */
+    @Test void splitBatchesHaveEquivalentTerminalDecisionsAndKeepLatestSnapshots()throws Exception{
+        var rule=object("ruleId","slow-duration","family","dos_slow","field","features.elapsedMs","operator","gte","threshold",4000,"autoEligible",false);
+        Fixture f=setup("dos_slow",List.of(rule),false,GuardContracts.MAX_BATCH_SIZE);Instant at=store.now().minusSeconds(2).truncatedTo(ChronoUnit.SECONDS);
+        long aid=number(store.external("asset",f.asset(),false),"id");
+        List<List<JsonNode>> outcomes=new ArrayList<>();long sequence=1;
+        for(int size:List.of(512,256)){
+            String peer=(size==512?"a":"b").repeat(64);var observations=new ArrayList<ObjectNode>();
+            var prefixes=new ArrayList<ObjectNode>();var finals=new ArrayList<ObjectNode>();
+            for(int i=0;i<256;i++){
+                String parent=id();prefixes.add(observation(f,at,parent,1).put("peerKey",peer));
+                var last=observation(f,at.plusMillis(1),parent,2).put("peerKey",peer).put("profile","flow-final-v1").put("closeReason","eof");
+                if(i%2==0){last.put("firstSeenAt",time(last,"asOf").minusSeconds(1).toString());((ObjectNode)last.path("features")).put("elapsedMs",1000);}
+                finals.add(last);
+            }
+            // 两种切分从相同已存在路径开始；否则中间 prefix 曾创建路径而整批只见 final，episode 数本就可以不同。
+            accept(f,List.of(observation(f,at.minusMillis(1),prefixes.getFirst().path("parentConnectionId").asText(),0).put("peerKey",peer)),sequence++,true);
+            observations.addAll(prefixes);observations.addAll(finals);
+            for(int start=0;start<observations.size();start+=size)accept(f,observations.subList(start,Math.min(start+size,observations.size())),sequence++,true);
+            var normalized=new ArrayList<JsonNode>();
+            for(var episode:store.rows("guard_episode",map("asset_id",aid,"peer_key",peer),false,100)){
+                var decisions=store.rows("guard_decision",map("episode_id",episode.get("id")),false,100);
+                assertThat(decisions).hasSize(size==512?2:3);
+                var decision=decisions.getFirst();var proof=json(decision,"evidence_json");
+                assertThat(proof.path("selectedObservations")).hasSize(256);
+                for(var selected:proof.path("selectedObservations")){
+                    var o=store.external("guard_observation",selected.path("observationId").asText(),false);
+                    assertThat(o.get("profile")).isEqualTo("flow-final-v1");
+                    assertThat(number(o,"snapshot_index")).isEqualTo(2);
+                }
+                normalized.add(object("family",episode.get("family"),"source",episode.get("source"),"ruleId",episode.get("rule_id"),"decision",decision.get("decision"),"reason",decision.get("reason_code"),"detail",proof.path("detailCode"),"selected",proof.path("selectedObservations").size()));
+            }
+            normalized.sort(Comparator.comparing(GuardJson::canonical));outcomes.add(normalized);
+        }
+        assertThat(outcomes.get(0)).isNotEmpty().isEqualTo(outcomes.get(1));
+        assertThat(store.rows("guard_action",map("asset_id",aid),false,100)).isEmpty();
+    }
+    /** 多行插入保留批内去重；冲突必须回滚整个 T1，不能留下之前验证过的部分行。 */
+    @Test void batchIngestPreservesDuplicateAndConflictAtomicity()throws Exception{
+        Fixture f=setup();var at=Instant.now().truncatedTo(ChronoUnit.MICROS);var original=observation(f,at,id(),0);
+        var request=batch(f,List.of(original,original.deepCopy()),1);
+        var accepted=machine("/sensors/"+f.sensor()+"/observation-batches",request,f.sensorCredential());
+        assertThat(accepted.path("acceptedCount").asInt()).isEqualTo(1);assertThat(accepted.path("duplicateCount").asInt()).isEqualTo(1);
+        assertThat(str(store.external("guard_observation_batch",request.path("batchId").asText(),false),"request_sha256")).isEqualTo(hash(request));
+        assertThat(machine("/sensors/"+f.sensor()+"/observation-batches",request,f.sensorCredential())).isEqualTo(accepted);
+        var next=observation(f,at,id(),0);var conflict=next.deepCopy().put("observationId",id());var body=batch(f,List.of(next,conflict),2);
+        var response=mvc.perform(post("/api/v2/machine/sensors/"+f.sensor()+"/observation-batches").header("Authorization","Bearer "+f.sensorCredential()).header("Idempotency-Key",id()).contentType("application/json").content(canonical(body))).andReturn();
+        assertThat(response.getResponse().getStatus()).isEqualTo(409);
+        assertThat(parse(response.getResponse().getContentAsString()).at("/error/code").asText()).isEqualTo("IDEMPOTENCY_CONFLICT");
+        assertThat(store.one("guard_observation",map("public_id",next.path("observationId").asText()),false)).isNull();
+        assertThat(store.one("guard_observation_batch",map("public_id",body.path("batchId").asText()),false)).isNull();
+    }
     /** 多服务端口批次不能交叉关联生成键；下一批 final/规则未命中必须覆盖旧命中证据。 */
     @Test void manyServicePortsKeepTheirOwnEvidenceAndFinalReplacesEachRuleHit()throws Exception{
         var rule=object("ruleId","brute-duration","family","brute_force","field","features.elapsedMs","operator","gte","threshold",4000,"autoEligible",false);
@@ -402,7 +544,11 @@ class GuardIntegrationTest {
             var updated=observation(f,at.plusMillis(1),parent,1).put("servicePort",port).put("profile","flow-final-v1").put("closeReason","eof");
             updated.put("firstSeenAt",time(updated,"asOf").minusSeconds(1).toString());((ObjectNode)updated.path("features")).put("elapsedMs",1000);second.add(updated);
         }
-        accept(f,first,1,true);var asset=store.external("asset",f.asset,false);
+        Instant started=store.now();accept(f,first,1,true);Instant finished=store.now();var asset=store.external("asset",f.asset,false);
+        var inferences=store.rows("guard_inference",map("asset_id",asset.get("id")),false,100);
+        assertThat(inferences).hasSize(first.size());
+        assertThat(inferences.stream().map(i->instant(i.get("completed_at"))).distinct().toList()).hasSize(1);
+        for(var inference:inferences)assertThat(instant(inference.get("completed_at"))).isBetween(started,finished);
         var before=store.rows("guard_episode",map("asset_id",asset.get("id"),"source","rule"),false,100);assertThat(before).hasSize(20);
         for(var episode:before){var e=store.one("guard_episode_evidence",map("episode_id",episode.get("id")),false);
             var o=store.get("guard_observation",number(e,"observation_id"));assertThat(o.get("service_port")).isEqualTo(episode.get("service_port"));assertThat(GuardDetection.flag(e.get("rule_matched"))).isTrue();}

@@ -19,7 +19,9 @@ spring:
         # 有限缓存参数化语句，减少扫描突发中相同 SQL 的驱动解析与准备成本；不改变事务或 TLS。
         cachePrepStmts: true
         prepStmtCacheSize: 256
-        prepStmtCacheSqlLimit: 4096
+        # 256 条批次的预编译 SQL 会超过 4 KiB；保留有界缓存并使用服务器参数绑定，避免每批重解析。
+        prepStmtCacheSqlLimit: 65536
+        useServerPrepStmts: true
   flyway:
     enabled: true
     baseline-on-migrate: false

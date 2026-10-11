@@ -86,6 +86,27 @@ class GuardMulticlassRuntimeTest {
             assertThat(runtime.infer(model,o,Instant.EPOCH).error()).isEqualTo("ARTIFACT_HASH_MISMATCH");
         }finally{runtime.close();}
     }
+    /** 编译输入路径可跨快照复用，不能缓存观察值、放过缺字段或将未知值当作实测零。 */
+    @Test void cachedInputLayoutStillValidatesEachSnapshotsFeaturesAndContexts()throws Exception{
+        var runtime=new GuardModelRuntime(new GuardArtifacts(root.toString()),new GuardContracts(),2000);
+        try{
+            var model=model(GuardOnnxFixture.model(.9f));runtime.validate(model);
+            var original=GuardDomainTest.observation(Instant.EPOCH);
+            assertThat(runtime.infer(model,original,Instant.EPOCH).status()).isEqualTo("succeeded");
+            var missing=original.deepCopy();((ObjectNode)missing.path("features")).putNull("iatMeanUs");
+            assertThat(runtime.infer(model,missing,Instant.EPOCH).status()).isEqualTo("succeeded");
+            ((ObjectNode)missing.path("features")).remove("iatMeanUs");
+            assertThat(runtime.infer(model,missing,Instant.EPOCH).error()).isEqualTo("PROFILE_HASH_MISMATCH");
+            ((ObjectNode)missing.path("features")).put("iatMeanUs",Double.POSITIVE_INFINITY);
+            assertThat(runtime.infer(model,missing,Instant.EPOCH).error()).isEqualTo("MODEL_INPUT_INVALID");
+            var contextMissing=original.deepCopy();
+            for(var context:contextMissing.path("contexts"))if(context.path("windowSeconds").asInt()==1)
+                ((ObjectNode)context).remove("peerBytesOutbound");
+            assertThat(runtime.infer(model,contextMissing,Instant.EPOCH).error()).isEqualTo("PROFILE_HASH_MISMATCH");
+            ((ObjectNode)missing.path("features")).put("iatMeanUs",0);
+            assertThat(runtime.infer(model,missing,Instant.EPOCH).status()).isEqualTo("succeeded");
+        }finally{runtime.close();}
+    }
     @Test void oldIdleSessionsAreEvictedWithoutBlockingNewModelVersions()throws Exception{
         var runtime=new GuardModelRuntime(new GuardArtifacts(root.toString()),new GuardContracts(),2000);
         try{for(int i=0;i<12;i++){

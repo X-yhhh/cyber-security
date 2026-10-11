@@ -1,6 +1,6 @@
 # 传感器 lab 接入与隔离验证
 
-更新于 2026-10-11。传感器接入线（任务单 6.3 L3）S-A—S-D 的设计与代码草稿边界，**待合并验证**：代码尚未经主会话统一编译/测试（含 -race），未合并、未部署、未在真实 lab 运行。本线以 `d103cfd` 为基线，在独立 worktree `feat/l3-sensor-lab` 开发；没有修改 K2 的上传/spool 实现、业务数据库迁移、模型、特征公式、PF/WFP 或前端。
+更新于 2026-10-11。传感器接入线（任务单 6.3 L3）S-A—S-D 的设计与代码边界，已于 2026-10-11 合入 main：`mvn test` 445 项 0 失败（含 `GuardSensorHealthIntegrationTest`），相关 Go 包 `-race` 通过，`guardtargets` 已重编译、执行器 mTLS/engine 51 项通过；未部署、未在真实 lab 运行。本线以 `d103cfd` 为基线，在独立 worktree `feat/l3-sensor-lab` 开发；没有修改 K2 的上传/spool 实现、业务数据库迁移、模型、特征公式、PF/WFP 或前端。
 
 ## 1. 入口与身份
 

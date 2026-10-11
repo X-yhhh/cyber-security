@@ -94,9 +94,9 @@ bin/guardreplaydiff -offline <guardextract 输出> -replay <上一步输出> -re
 
 A7 本轮只完成本机配置与恢复检查：`en0` 活跃、TSO4/TSO6 开启、`net.inet.tcp.tso=1`；没有免密 sudo，`pfctl` 因 `/dev/pf` 权限拒绝。未改变网卡、sysctl、PF、服务或系统配置；静态 PF ABI 与恢复单测通过不等于全局 PF 快照验证。历史 CIC PCAP 的 offload/质量事实不能通过当前本机 TSO 检查修复，本轮不进行实时对端流量对照。
 
-## lab 会话、canary 与可信目标接入（2026-10-11，待合并验证）
+## lab 会话、canary 与可信目标接入（2026-10-11，已合入）
 
-代码草稿，尚未经统一编译/测试（含 `-race`）、未合并、未在真实 lab 运行。独立 `guardlab` 适配模块只读核验后端 `runnable`、配置给定的会话 ID（`runId`）、会话 JCS 摘要（`sessionSha256`）与映射原字节摘要（`mappingSha256`）、runner 签名映射及 PCAP/构建摘要，按登记的固定偏移回放，并经独立 mTLS `guardtargets` 登记器取得 targetRef；租约过期、映射不符或 normal/attack 共用 targetRef 均 fail-closed。单场景用 `-pcap`，非重叠多场景用 `-lab-plan`，共用同一 boot/队列；不更改 K2 的上传/spool 实现。
+已于 2026-10-11 合入 main：`mvn test` 445 项 0 失败（含 `GuardSensorHealthIntegrationTest`），相关 Go 包 `-race` 通过，`guardtargets` 已重编译、执行器 mTLS/engine 51 项通过；未部署、未在真实 lab 运行。独立 `guardlab` 适配模块只读核验后端 `runnable`、配置给定的会话 ID（`runId`）、会话 JCS 摘要（`sessionSha256`）与映射原字节摘要（`mappingSha256`）、runner 签名映射及 PCAP/构建摘要，按登记的固定偏移回放，并经独立 mTLS `guardtargets` 登记器取得 targetRef；租约过期、映射不符或 normal/attack 共用 targetRef 均 fail-closed。单场景用 `-pcap`，非重叠多场景用 `-lab-plan`，共用同一 boot/队列；不更改 K2 的上传/spool 实现。
 
 `guardreplaydiff` 对 `lab_pcap_replay` 摘要自动进入 lab 对拍：除已登记差异字段（`emittedAt,environment,peerKey,targetRef,targetExpiresAt,quality.clockSkewMs`，多场景另加 ID 三项）外，与 research 离线提取逐字段比较。健康链补充了回环替身后端端到端测试（窗口连续、缺口、未知计数、断连重连、重复证明拒绝）。这些都是离线合成验证，不是现场长期采集或 G3 证据。
 

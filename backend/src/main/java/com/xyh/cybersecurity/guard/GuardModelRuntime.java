@@ -16,18 +16,23 @@ import static com.xyh.cybersecurity.guard.GuardJson.*;
 public class GuardModelRuntime {
     private final GuardArtifacts artifacts;private final GuardContracts contracts;private final long timeoutMs;
     private final Semaphore slots=new Semaphore(2);
+    private final Map<String,CachedSession> sessions=new LinkedHashMap<>();
     private final ScheduledExecutorService timer=Executors.newSingleThreadScheduledExecutor(Thread.ofPlatform().daemon().name("guard-onnx-timeout").factory());
     public GuardModelRuntime(GuardArtifacts artifacts,GuardContracts contracts,@Value("${cyber.guard.inference-timeout-ms:2000}") long timeoutMs){this.artifacts=artifacts;this.contracts=contracts;require(timeoutMs>=1&&timeoutMs<=10000,"INVALID_INFERENCE_TIMEOUT");this.timeoutMs=timeoutMs;}
-    @PreDestroy public void close(){timer.shutdownNow();}
+    @PreDestroy public void close(){timer.shutdownNow();synchronized(sessions){for(var s:sessions.values())try{s.session.close();}catch(OrtException ignored){}sessions.clear();}}
     public JsonNode validate(Map<String,Object> model){Loaded l=load(model);try(var options=options();var session=OrtEnvironment.getEnvironment().createSession(l.onnx,options)){shape(session,l.manifest);return object("status","validated","runtimeVersion","1.23.2","numericFeatures",43,"categoricalFeatures",3,"familyScoreOrder",l.familyOrder,"artifactSha256",str(model,"artifact_sha256"));}catch(OrtException e){throw error(422,"ONNX_CONTRACT_INVALID");}}
     public Result infer(Map<String,Object> model,JsonNode observation,Instant now){
         JsonNode manifest=json(model,"manifest_json");String applicability=applicable(manifest,observation);
         if(applicability!=null)return new Result("not_applicable",null,null,Map.of(),applicability,applicability);
         if(!"validated".equals(str(model,"validation_status")))return new Result("failed",null,null,Map.of(),"unavailable","MODEL_UNAVAILABLE");
-        if(!slots.tryAcquire())return new Result("failed",null,null,Map.of(),"unavailable","MODEL_CAPACITY_EXCEEDED");
+        // 并发批次短暂排队等待推理槽；等满推理时限仍无空槽才按容量不足失败，不无界排队。
+        try{if(!slots.tryAcquire(timeoutMs,TimeUnit.MILLISECONDS))return new Result("failed",null,null,Map.of(),"unavailable","MODEL_CAPACITY_EXCEEDED");}
+        catch(InterruptedException e){Thread.currentThread().interrupt();return new Result("failed",null,null,Map.of(),"unavailable","MODEL_UNAVAILABLE");}
+        CachedSession held=null;
         try {Loaded l=load(model);var env=OrtEnvironment.getEnvironment();
-            try(var options=options();var session=env.createSession(l.onnx,options);var run=new OrtSession.RunOptions()){
-                shape(session,manifest);Tensors t=tensors(observation,manifest,l.preprocessing);
+            held=session(model,l);var session=held.session;
+            try(var run=new OrtSession.RunOptions()){
+                Tensors t=tensors(observation,manifest,l.preprocessing);
                 try(var values=OnnxTensor.createTensor(env,new float[][]{t.values});var missing=OnnxTensor.createTensor(env,new float[][]{t.missing});var codes=OnnxTensor.createTensor(env,new long[][]{t.codes})){
                     AtomicBoolean expired=new AtomicBoolean();ScheduledFuture<?> deadline=timer.schedule(()->{expired.set(true);try{run.setTerminate(true);}catch(OrtException ignored){}},timeoutMs,TimeUnit.MILLISECONDS);
                     try(var result=session.run(Map.of("numeric_values",values,"numeric_missing",missing,"categorical_codes",codes),Set.of("attack_score","family_scores"),run)){
@@ -43,8 +48,24 @@ public class GuardModelRuntime {
                 }
             }
         }catch(com.xyh.cybersecurity.common.api.ApiRequestException e){return new Result("failed",null,null,Map.of(),"unavailable",e.code());}
-        catch(Exception e){return new Result("failed",null,null,Map.of(),"unavailable","MODEL_UNAVAILABLE");}finally{slots.release();}
+        catch(Exception e){return new Result("failed",null,null,Map.of(),"unavailable","MODEL_UNAVAILABLE");}finally{if(held!=null)synchronized(sessions){held.users--;}slots.release();}
     }
+    /** 每次仍核验原件摘要；只复用相同不可变 manifest 的 ORT 会话，最多 8 个，不能以缓存掩盖制品替换。 */
+    private CachedSession session(Map<String,Object> model,Loaded loaded)throws OrtException{
+        String key=str(model,"manifest_sha256");
+        synchronized(sessions){
+            var prior=sessions.get(key);if(prior!=null){prior.users++;return prior;}
+            // 只淘汰无在途推理的旧会话，不能在并发 run 时关闭其 native 资源。
+            if(sessions.size()>=8){var old=sessions.entrySet().stream().filter(e->e.getValue().users==0).findFirst();
+                require(old.isPresent(),"MODEL_CAPACITY_EXCEEDED");old.get().getValue().session.close();sessions.remove(old.get().getKey());}
+            try(var options=options()){
+                var created=OrtEnvironment.getEnvironment().createSession(loaded.onnx,options);
+                try{shape(created,loaded.manifest);}catch(RuntimeException|OrtException e){created.close();throw e;}
+                var cached=new CachedSession(created);cached.users=1;sessions.put(key,cached);return cached;
+            }
+        }
+    }
+    private static final class CachedSession {final OrtSession session;int users;CachedSession(OrtSession session){this.session=session;}}
     /** 后端始终以 ORT Java 1.23.2 加载；manifest 记录冻结时的导出/核验运行时，只接受已做 1.23.2 全量对拍的版本（P6 p6-l1-02：1.27.0 对 1.23.2）。 */
     static final Set<String> VERIFIED_EXPORT_RUNTIMES=Set.of("1.23.2","1.27.0");
     private Loaded load(Map<String,Object> model){String ref=str(model,"manifest_ref");JsonNode manifest=artifacts.json(ref,str(model,"manifest_sha256"));contracts.manifest(manifest);require(manifest.equals(json(model,"manifest_json")),"MODEL_MANIFEST_MISMATCH");

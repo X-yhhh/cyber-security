@@ -358,6 +358,13 @@ func (u *Uploader) Run(ctx context.Context) error {
 			attempt = 0
 			continue
 		}
+		if u.o.Now().Sub(lastHeartbeat) >= u.o.HeartbeatEvery {
+			// 持续发送批次时也按期心跳，偏差测值才不会在长回放中过期；失败不阻塞数据发送。
+			if err := u.heartbeat(ctx); err != nil && !Retryable(err) {
+				return u.setFatal(err)
+			}
+			lastHeartbeat = u.o.Now()
+		}
 		seq, body, batch, ok, err := u.o.Spool.Next()
 		if err != nil {
 			return u.setFatal(err)
@@ -371,13 +378,6 @@ func (u *Uploader) Run(ctx context.Context) error {
 			}
 			attempt = 0
 			continue
-		}
-		if u.o.Now().Sub(lastHeartbeat) >= u.o.HeartbeatEvery {
-			// 周期心跳失败不阻塞数据发送；偏差过期后健康窗口自然上报 null。
-			if err := u.heartbeat(ctx); err != nil && !Retryable(err) {
-				return u.setFatal(err)
-			}
-			lastHeartbeat = u.o.Now()
 		}
 		select {
 		case <-ctx.Done():

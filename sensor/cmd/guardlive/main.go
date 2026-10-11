@@ -208,6 +208,13 @@ func startUpload(c config, fresh bool, timeout time.Duration) (*uploadSession, e
 	runCtx, runCancel := context.WithCancel(context.Background())
 	s := &uploadSession{up: up, remote: remote, build: build, cancel: runCancel, done: make(chan error, 1), timeout: timeout}
 	go func() { s.done <- up.Run(runCtx) }()
+	if fresh {
+		// 首个心跳完成前导出的快照只能带 null 偏差；采集开始前最多等待 10 秒取得首个测值。
+		deadline := time.Now().Add(10 * time.Second)
+		for _, ok := up.Skew(); !ok && time.Now().Before(deadline); _, ok = up.Skew() {
+			time.Sleep(50 * time.Millisecond)
+		}
+	}
 	return s, nil
 }
 
@@ -330,9 +337,14 @@ func run() error {
 	}
 	defer w.Close()
 	var emitted, skipped int64
+	var clockSkew func() (int64, bool)
+	if upload != nil {
+		// 观察的 clockSkewMs 取上传心跳的新鲜实测值；过期或未测到即为 null，不填常数。
+		clockSkew = upload.up.Skew
+	}
 	e, err := hostguard.New(hostguard.Config{AssetID: c.AssetID, SensorID: c.SensorID, BootID: c.BootID,
 		CaptureScopeID: c.CaptureScopeID, LocalAddresses: c.LocalAddresses, PeerSecret: secret, KeyEpoch: c.KeyEpoch,
-		Environment: c.Environment, Emit: func(v hostguard.Emission) error {
+		Environment: c.Environment, ClockSkew: clockSkew, Emit: func(v hostguard.Emission) error {
 			if !inScope(c, v.Observation) {
 				skipped++
 				return nil

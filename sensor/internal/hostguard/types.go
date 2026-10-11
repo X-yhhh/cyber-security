@@ -123,7 +123,9 @@ type Config struct {
 	MTU                                                            int
 	MaxFlows, MaxConnections, MaxBufferedPackets, MaxContextEvents int
 	ClockSkewMs                                                    *float64
-	Emit                                                           func(Emission) error
+	// ClockSkew 返回最近一次新鲜的实测偏差（毫秒）；非 nil 时取代静态 ClockSkewMs，无新鲜测值即为 null，不造零。
+	ClockSkew func() (int64, bool)
+	Emit      func(Emission) error
 	// Lease 仅在已验证头、明确 TCP 方向、新包及非 research 环境下调用。
 	Lease func(Observation, Endpoints) (string, time.Time, error)
 }

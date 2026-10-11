@@ -21,43 +21,77 @@ public class GuardDetection {
         if(batch!=null){var binding=store.one("guard_asset_binding",map("asset_id",batch.get("asset_id"),"status","active"),false);
             if(binding!=null){var bundle=store.get("guard_release_bundle",number(binding,"bundle_id"));var model=store.get("guard_model",number(bundle,"model_id"));
                 var observations=new ArrayList<>(store.rows("guard_observation",map("batch_id",batch.get("id")),false,100));observations.sort(Comparator.comparing(r->instant(r.get("as_of"))));
+                List<Scored> scored=new ArrayList<>();
                 for(var o:observations){if(store.one("guard_inference",map("observation_id",o.get("id"),"model_id",model.get("id")),false)!=null)continue;
                     JsonNode observation=json(o,"payload_json");var result=runtime.infer(model,observation,store.now());var inf=store.add("guard_inference",map("observation_id",o.get("id"),"asset_id",o.get("asset_id"),"model_id",model.get("id"),"status",result.status(),"score",result.score(),"family",result.family(),"family_scores_json",result.familyScores().isEmpty()?null:canonical(node(result.familyScores())),"applicability",result.applicability(),"manifest_sha256",model.get("manifest_sha256"),"completed_at",db(store.now()),"error_code",result.error()));
-                    correlate(o,inf,bundle,binding);
+                    scored.add(new Scored(o,inf));
                 }
+                correlate(scored,bundle,binding,null);
             }
         }
         store.update("consumed_message",number(prior,"id"),map("status","consumed","consumed_at",db(store.now())));
     }
+    /** 已推理的观察及其不可变推理事实。 */
+    public record Scored(Map<String,Object> observation,Map<String,Object> inference){}
+    /** 本批触及的 episode 路径；trigger 为该路径本批最后到达（按 asOf 排序）的最新快照。 */
+    private record Touch(Map<String,Object> episode,Map<String,Object> trigger,String family,String source,String ruleId,String scope){}
     /** 模型类别与每条规则独立成桶；未命中事实也保留，降分和改类覆盖旧投影。 */
-    public JsonNode correlate(Map<String,Object> observation,Map<String,Object> inference,Map<String,Object> bundle,Map<String,Object> binding){
-        JsonNode policy=json(store.get("guard_decision_policy",number(bundle,"policy_id")),"definition_json"),o=json(observation,"payload_json");JsonNode result=object("decision","observe");
-        for(JsonNode fp:policy.path("familyPolicies")){
-            String family=fp.path("family").asText();JsonNode d=project(observation,inference,bundle,binding,family,"model","",false,family.equals(str(inference,"family")));if(d!=null)result=d;
-        }
-        for(JsonNode rule:policy.path("rulePolicies")){
-            var evaluation=GuardRules.evaluate(rule,o);String ruleId=rule.path("ruleId").asText(),family=rule.path("family").asText();
-            store.add("guard_rule_evaluation",map("asset_id",observation.get("asset_id"),"observation_id",observation.get("id"),"policy_id",bundle.get("policy_id"),"rule_version","host-guard-rules/1","rule_id",ruleId,"family",family,"matched",evaluation.matched(),"applicable",evaluation.applicable(),"payload_json",canonical(object("rule",rule,"value",evaluation.value(),"asOf",o.get("asOf"),"matched",evaluation.matched(),"applicable",evaluation.applicable()))));
-            JsonNode d=project(observation,inference,bundle,binding,family,"rule",ruleId,evaluation.matched(),evaluation.matched());if(d!=null)result=d;
-        }return result;
+    public JsonNode correlate(Map<String,Object> observation,Map<String,Object> inference,Map<String,Object> bundle,Map<String,Object> binding){return correlate(observation,inference,bundle,binding,null);}
+    /** J1 研究旁路追加不可执行的准备度证明，正式绑定仍走原有门禁。 */
+    public JsonNode correlate(Map<String,Object> observation,Map<String,Object> inference,Map<String,Object> bundle,Map<String,Object> binding,JsonNode hypotheticalPolicy){
+        return correlate(List.of(new Scored(observation,inference)),bundle,binding,hypotheticalPolicy);
     }
-    private JsonNode project(Map<String,Object> observation,Map<String,Object> inference,Map<String,Object> bundle,Map<String,Object> binding,String family,String detectionSource,String ruleId,boolean matched,boolean create){
-        long aid=number(observation,"asset_id");var asset=store.lockAsset(aid);JsonNode o=json(observation,"payload_json");var p=store.get("guard_decision_policy",number(bundle,"policy_id"));JsonNode policy=json(p,"definition_json");Instant now=store.now();
-        var target=o.path("targetRef").isNull()?null:store.one("guard_target_binding",map("target_ref",o.path("targetRef").asText()),false);Map<String,Object> targetBudget=null;
-        if(target!=null){long tid=number(target,"budget_target_id");targetBudget=budget.lock(aid,tid);budget.recover(aid,tid,now);targetBudget=budget.lock(aid,tid);now=budget.monotonic(aid);}
-        String scope=GuardDecisionEngine.familyPolicy(policy,family).path("scope").asText("peer_service");
-        if(!latest(observation))return null;
+    /**
+     * 一个观察批次的 T2：逐条写规则事实并更新各路径的最新证据投影，批末对每个被触及的 episode 只判定一次。
+     * 判定只使用截至批末已到达的证据（契约 8.0），同批被新快照取代的旧快照不参与；决策数随批次而非观察数增长，
+     * 避免大 episode 中每条观察都重读并复制全部证据。
+     */
+    public JsonNode correlate(List<Scored> batch,Map<String,Object> bundle,Map<String,Object> binding,JsonNode hypotheticalPolicy){
+        var p=store.get("guard_decision_policy",number(bundle,"policy_id"));JsonNode policy=json(p,"definition_json");JsonNode result=object("decision","observe");
+        Map<Long,Touch> touched=new LinkedHashMap<>();Map<Map<String,Object>,Map<String,Object>> episodes=new HashMap<>();
+        for(var item:batch){
+            var observation=item.observation();var inference=item.inference();JsonNode o=json(observation,"payload_json");
+            require(hypotheticalPolicy==null||(binding==null&&"research".equals(o.path("environment").asText())),"REPLAY_REAL_TARGET_FORBIDDEN");
+            boolean latest=latest(observation);
+            for(JsonNode fp:policy.path("familyPolicies")){
+                String family=fp.path("family").asText();stage(touched,episodes,observation,o,inference,bundle,policy,family,"model","",false,family.equals(str(inference,"family")),latest);
+            }
+            for(JsonNode rule:policy.path("rulePolicies")){
+                var evaluation=GuardRules.evaluate(rule,o);String ruleId=rule.path("ruleId").asText(),family=rule.path("family").asText();
+                store.add("guard_rule_evaluation",map("asset_id",observation.get("asset_id"),"observation_id",observation.get("id"),"policy_id",bundle.get("policy_id"),"rule_version","host-guard-rules/1","rule_id",ruleId,"family",family,"matched",evaluation.matched(),"applicable",evaluation.applicable(),"payload_json",canonical(object("rule",rule,"value",evaluation.value(),"asOf",o.get("asOf"),"matched",evaluation.matched(),"applicable",evaluation.applicable()))));
+                stage(touched,episodes,observation,o,inference,bundle,policy,family,"rule",ruleId,evaluation.matched(),evaluation.matched(),latest);
+            }
+        }
+        for(var touch:touched.values())result=decide(touch,bundle,binding,p,policy,hypotheticalPolicy);
+        return result;
+    }
+    /** 更新 episode 中该 parent 的最新证据；非最新快照、或尚无 episode 且不应新建时不触及。 */
+    private void stage(Map<Long,Touch> touched,Map<Map<String,Object>,Map<String,Object>> episodes,Map<String,Object> observation,JsonNode o,Map<String,Object> inference,Map<String,Object> bundle,JsonNode policy,String family,String detectionSource,String ruleId,boolean matched,boolean create,boolean latest){
+        if(!latest)return;
+        long aid=number(observation,"asset_id");String scope=GuardDecisionEngine.familyPolicy(policy,family).path("scope").asText("peer_service");
         // 出站扫描只能按原服务记录告警；不能创建仅允许入站的全端口处置作用域。
         if(scope.equals("peer_inbound")&&!"inbound".equals(str(observation,"direction")))scope="peer_service";
         Object servicePort=scope.equals("peer_inbound")?null:observation.get("service_port");if(servicePort==null&&!scope.equals("peer_inbound"))servicePort=0;
         var key=map("asset_id",aid,"sensor_id",observation.get("sensor_id"),"boot_id",observation.get("boot_id"),"peer_key",observation.get("peer_key"),"key_epoch",observation.get("key_epoch"),"direction",observation.get("direction"),"transport",observation.get("transport"),"service_port",servicePort,"family",family,"scope",scope,"source",detectionSource,"rule_id",ruleId,"bundle_id",bundle.get("id"),"bucket_start",db(Instant.ofEpochSecond(time(o,"asOf").getEpochSecond()/30*30)));
-        var episode=store.one("guard_episode",key,true);if(episode==null){if(!create)return null;episode=store.add("guard_episode",key);episode=store.get("guard_episode",number(episode,"id"));}
+        // 查找走唯一键 uk_guard_episode 的生成列 service_port_key；按可空 service_port 查只能用前缀，
+        // 会扫描并锁住同一对端的全部 episode（端口扫描时成千上万条）。插入仍写原列，生成列由库计算。
+        var lookup=new LinkedHashMap<>(key);lookup.remove("service_port");lookup.put("service_port_key",servicePort==null?0:servicePort);
+        var episode=episodes.get(key);if(episode==null){episode=store.one("guard_episode",lookup,true);if(episode!=null)episodes.put(key,episode);}
+        if(episode==null){if(!create)return;episode=store.add("guard_episode",key);episode=store.get("guard_episode",number(episode,"id"));episodes.put(key,episode);}
         var prev=store.one("guard_episode_evidence",map("episode_id",episode.get("id"),"parent_connection_id",observation.get("parent_connection_id"),"source",detectionSource,"rule_id",ruleId),true);
         var values=map("episode_id",episode.get("id"),"parent_connection_id",observation.get("parent_connection_id"),"observation_id",observation.get("id"),"inference_id",inference.get("id"),"score",detectionSource.equals("model")?inference.get("score"):null,"family",detectionSource.equals("model")?inference.get("family"):family,"source",detectionSource,"rule_id",ruleId,"rule_matched",matched,"family_scores_json",detectionSource.equals("model")?inference.get("family_scores_json"):null,"as_of",observation.get("as_of"));
         if(prev==null)store.add("guard_episode_evidence",values);else store.update("guard_episode_evidence",number(prev,"id"),values);
         store.audit(null,"guard.episode.evidence_selected",str(episode,"public_id"),aid,null,object("observationId",observation.get("public_id"),"source",detectionSource,"ruleId",ruleId,"replacedObservationId",prev==null?null:store.get("guard_observation",number(prev,"observation_id")).get("public_id")));
-        List<GuardDecisionEngine.Evidence> evidence=new ArrayList<>();boolean modelAvailable=true;for(var e:store.rows("guard_episode_evidence",map("episode_id",episode.get("id")),false,10000)){
-            var source=store.get("guard_observation",number(e,"observation_id"));if(!latest(source))continue;modelAvailable&="succeeded".equals(str(store.get("guard_inference",number(e,"inference_id")),"status"));evidence.add(new GuardDecisionEngine.Evidence(json(source,"payload_json"),e.get("score")==null?null:((Number)e.get("score")).doubleValue(),str(e,"family"),str(e,"source"),str(e,"rule_id"),flag(e.get("rule_matched")),str(source,"content_sha256")));}
+        touched.put(number(episode,"id"),new Touch(episode,observation,family,detectionSource,ruleId,scope));
+    }
+    /** 对一个 episode 按 T1—T9 判定一次；目标、预算与授权按 trigger 及全部选定证据逐条复核。 */
+    private JsonNode decide(Touch touch,Map<String,Object> bundle,Map<String,Object> binding,Map<String,Object> p,JsonNode policy,JsonNode hypotheticalPolicy){
+        var observation=touch.trigger();var episode=touch.episode();String family=touch.family(),detectionSource=touch.source(),ruleId=touch.ruleId(),scope=touch.scope();
+        long aid=number(observation,"asset_id");var asset=store.lockAsset(aid);JsonNode o=json(observation,"payload_json");Instant now=store.now();
+        var target=o.path("targetRef").isNull()?null:store.one("guard_target_binding",map("target_ref",o.path("targetRef").asText()),false);Map<String,Object> targetBudget=null;
+        if(target!=null){long tid=number(target,"budget_target_id");targetBudget=budget.lock(aid,tid);budget.recover(aid,tid,now);targetBudget=budget.lock(aid,tid);now=budget.monotonic(aid);}
+        List<GuardDecisionEngine.Evidence> evidence=new ArrayList<>();boolean modelAvailable=true;for(var e:mapper.episodeEvidence(number(episode,"id"))){
+            modelAvailable&="succeeded".equals(str(e,"inference_status"));evidence.add(new GuardDecisionEngine.Evidence(json(e,"observation_payload_json"),e.get("score")==null?null:((Number)e.get("score")).doubleValue(),str(e,"family"),str(e,"source"),str(e,"rule_id"),flag(e.get("rule_matched")),str(e,"observation_content_sha256")));}
         var executor=target==null?null:store.get("guard_executor",number(target,"executor_id"));boolean healthy=health.current(number(observation,"capture_scope_id"),now)&&!mapper.batchGap(number(observation,"sensor_id"),str(observation,"boot_id"));
         String budgetReason=target==null?null:eligibility.protection(bundle,policy,target,o,family);
         if(budgetReason==null&&target!=null)budgetReason=budget.check(aid,number(target,"budget_target_id"),policy,now,now.plusSeconds(policy.path("maxTtlSeconds").asLong()));
@@ -65,23 +99,27 @@ public class GuardDetection {
         boolean validTarget=eligibility.target(target,o,now,policy,family);
         boolean authorized=eligibility.authorized(asset,bundle,binding,policy,o,executor,now,family);
         // 汇总的每条快照都须满足同一目标和运行资格，不能由最后一条观察替其余证据放行。
-        for(var e:evidence){JsonNode selected=e.observation();
+        // research 无目标、无执行授权，正式门禁始终拒绝；旁路不能借现场资格提升为可执行。
+        if(hypotheticalPolicy==null)for(var e:evidence){JsonNode selected=e.observation();
             capable&=eligibility.capability(bundle,policy,selected,family);
             validTarget&=eligibility.target(target,selected,now,policy,family);
             healthy&=health.current(number(store.external("guard_capture_scope",selected.path("captureScopeId").asText(),false),"id"),now)
                     &&!mapper.batchGap(number(store.external("sensor_agent",selected.path("sensorId").asText(),false),"id"),selected.path("bootId").asText());
             authorized&=eligibility.authorized(asset,bundle,binding,policy,selected,executor,now,family);
         }
+        if(hypotheticalPolicy!=null){capable=false;healthy=false;validTarget=false;authorized=false;}
         var gates=new GuardDecisionEngine.Gates(capable,healthy,validTarget,authorized,budgetReason);
         var outcome=GuardDecisionEngine.evaluate(policy,evidence,now,gates,family,detectionSource,ruleId);
         if(outcome.qualifiedEvidence()&&target!=null){Instant latest=outcome.selected().stream().map(e->time(e.observation(),"asOf")).max(Comparator.naturalOrder()).orElseThrow();budget.evidence(number(target,"budget_target_id"),latest);targetBudget=budget.lock(aid,number(target,"budget_target_id"));}
         String decisionId=id();var refs=new ArrayList<JsonNode>();for(var e:outcome.selected())refs.add(object("observationId",e.observation().get("observationId"),"contentSha256",e.contentHash(),"parentConnectionId",e.observation().get("parentConnectionId"),"asOf",e.observation().get("asOf"),"family",e.family(),"source",e.source(),"ruleId",e.ruleId()));
-        var auth=store.get("asset_authorization",number(binding,"authorization_id"));var model=store.get("guard_model",number(bundle,"model_id"));var capability=eligibility.matchingCapability(bundle,policy,o,family);
-        JsonNode proof=object("digestVersion","guard-evidence/1","decisionContractVersion",DECISION,"protocolVersions",versions(),"decisionId",decisionId,"decisionAt",now.toString(),"family",family,"source",detectionSource,"ruleId",ruleId,"scope",scope,"environment",o.get("environment"),"modelId",model.get("public_id"),"manifestSha256",model.get("manifest_sha256"),"policySha256",p.get("definition_sha256"),"bundleId",bundle.get("public_id"),"bundleSubjectSha256",bundle.get("subject_sha256"),"capabilityId",capability==null?null:capability.get("public_id"),"capabilitySha256",capability==null?null:hash(json(capability,"payload_json")),"authorizationId",auth.get("public_id"),"authorizationRevision",auth.get("revision"),"targetBinding",target==null?null:json(target,"payload_json"),"budgetTargetId",target==null?null:store.get("guard_budget_target",number(target,"budget_target_id")).get("public_id"),"budgetRevision",targetBudget==null?null:targetBudget.get("revision"),"healthProofSha256",targetBudget==null?null:targetBudget.get("health_proof_sha256"),"labSession",null,"selectedObservations",refs,"reasonCode",outcome.reason(),"detailCode",outcome.detail());
+        var auth=binding==null?null:store.get("asset_authorization",number(binding,"authorization_id"));var model=store.get("guard_model",number(bundle,"model_id"));var capability=eligibility.matchingCapability(bundle,policy,o,family);
+        JsonNode proof=object("digestVersion","guard-evidence/1","decisionContractVersion",DECISION,"protocolVersions",versions(),"decisionId",decisionId,"decisionAt",now.toString(),"family",family,"source",detectionSource,"ruleId",ruleId,"scope",scope,"environment",o.get("environment"),"modelId",model.get("public_id"),"manifestSha256",model.get("manifest_sha256"),"policySha256",p.get("definition_sha256"),"bundleId",bundle.get("public_id"),"bundleSubjectSha256",bundle.get("subject_sha256"),"capabilityId",capability==null?null:capability.get("public_id"),"capabilitySha256",capability==null?null:hash(json(capability,"payload_json")),"authorizationId",auth==null?null:auth.get("public_id"),"authorizationRevision",auth==null?null:auth.get("revision"),"targetBinding",target==null?null:json(target,"payload_json"),"budgetTargetId",target==null?null:store.get("guard_budget_target",number(target,"budget_target_id")).get("public_id"),"budgetRevision",targetBudget==null?null:targetBudget.get("revision"),"healthProofSha256",targetBudget==null?null:targetBudget.get("health_proof_sha256"),"labSession",null,"selectedObservations",refs,"reasonCode",outcome.reason(),"detailCode",outcome.detail());
+        ((com.fasterxml.jackson.databind.node.ObjectNode)proof).put("triggerObservationId",str(observation,"public_id"));
+        if(hypotheticalPolicy!=null)((com.fasterxml.jackson.databind.node.ObjectNode)proof).set("hypothetical",GuardReplayReadiness.proof(GuardReplayReadiness.evaluate(hypotheticalPolicy,json(model,"manifest_json"),evidence,now,family,detectionSource,ruleId,modelAvailable)));
         var decision=store.insert("guard_decision",map("public_id",decisionId,"episode_id",episode.get("id"),"asset_id",aid,"bundle_id",bundle.get("id"),"decision_revision",episode.get("revision"),"decision_contract_version",DECISION,"decision",outcome.decision(),"reason_code",outcome.reason(),"budget_target_id",target==null?null:target.get("budget_target_id"),"budget_revision",targetBudget==null?null:targetBudget.get("revision"),"evidence_sha256",hash(proof),"evidence_json",canonical(proof),"decided_at",db(now)));
         cases.detected(episode,decision);
         store.update("guard_episode",number(episode,"id"),map("revision",number(episode,"revision")+1));store.outbox("guard.decision.recorded",decisionId,object("decisionId",decisionId));
-        if(outcome.reason()==null&&"block_candidate".equals(outcome.decision()))actions.create(decision,bundle,binding,target,policy,"auto",null);
+        if(!"research".equals(o.path("environment").asText())&&outcome.reason()==null&&"block_candidate".equals(outcome.decision()))actions.create(decision,bundle,binding,target,policy,"auto",null);
         return object("id",decisionId,"episodeId",episode.get("public_id"),"decision",outcome.decision(),"reasonCode",outcome.reason(),"detailCode",outcome.detail());
     }
     /** 因果排序跨桶复核；新快照尚未消费时也使旧动作失效。 */

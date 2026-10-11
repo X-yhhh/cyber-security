@@ -1,0 +1,78 @@
+# lab 验证会话契约 v1
+
+2026-10-11，B4/L1—L4。结构版本 `host-guard-lab/1.0`，报告口径 `host-guard-g3-report/1.0`。这是独立的会话协议，不修改 rc.2 观察、rc.4 策略或 J1 v9 评分规则。开发只使用合成事实；真实 G3 仍须 J1/J2、P5/P6、专项授权和网络层隔离。
+
+## 身份、摘要及准入
+
+创建请求为 `{sessionRef, sha256, runnerIdentity}`。引用必须在后端配置的 artifact-root 中；`sha256` 是**签名封装文件原字节** SHA-256。封装沿用 `GuardSignatures` 的 `{payload,keyId,algorithm,signature}`，Ed25519 签署 payload 的 RFC8785 JCS；runner 必须在现有 report-trust-file 登记。`sessionSha256` 则是 payload 的 JCS 摘要，二者不能互换。
+
+payload 的字段见 [合成示例](examples/lab-session.json)。身份绑定包括外部 sessionId、lab assetId、lab bundleId/subjectSha256、authorizationId/revision、sensorId/bootId、executorId/executorBootId、runnerIdentity、有效期和超时秒数。会话一经创建不可换输入、身份或时间偏移；恢复使用同一会话，换 boot 必须另建会话。同一 sensor/boot 只能绑定一个会话，避免历史观察跨会话复用。
+
+`scenarioRef/scenarioSha256` 与 `mappingRef/mappingSha256` 绑定两个原字节文件：
+
+- 场景：`{contractVersion, scenarios:[{scenarioId,family,source,ruleId,trialAutoEligible,autoIneligibleReason,pcapRef,pcapSha256,sourceStart,sourceEnd}]}`。family 为 normal 或四攻击类；source 为 model/rule，rule 来源必须给 ruleId，model 为 null。`trialAutoEligible` 只表示本次试验拟验证的来源资格，不是 G3 已通过或平台自动资格。
+- 映射：`{contractVersion,mappingId,sessionId,entries:[{scenarioId,targetBindingId,peerKey,keyEpoch,captureScopeId,targetRef}]}`。每场景一个登记目标；原始 peer 的脱敏映射由签名 runner 与隔离证明核验，不接收任意地址或 shell 命令。既有目标绑定负责协议、方向、端口、预算目标及执行器身份；与授权 executionScopes 同时匹配才可准入。normal 和 attack 不可共享 targetRef。
+
+  targetBindingId/targetRef 是初始租约锚点，并不延长现有 15 秒租约。后续可换 targetRef，但必须属于同一稳定预算目标、scopeDigest、sensor/boot、executor/boot；每条观察/命令按其实际发生时刻复核租约。开始/恢复读取该稳定目标的最新有效租约。续租由传感器/执行器线负责，本线不会制造或延长租约。
+- `provenance` 固定 datasetSha256、splitSha256、labelRulesSha256、codeSha256、modelSha256、policySha256、extractorSha256、executorSha256。模型/策略/提取器/评价计划摘要与 release subject/登记事实复核；数据、切分和标签规则由签名 P6 证据绑定。
+- `proofs` 的 p5/p6/isolation/admission 都为 `{ref,sha256,runnerIdentity}` 签名文件。p5/p6 沿用 platform/final 报告 subject 和 protocolVersions；p5 绑定 executorSha256，p6 绑定 provenance 中的数据/切分/标签摘要与 sourceEligibility。隔离证明绑定 sessionId、assetId、mappingSha256、executorId、validUntil、networkIsolationVerified=true；必须由不同于 runner 的预配隔离核验身份签署。admission 绑定 sessionId/subjectSha256、J1/J2 已通过、M2 至少两类且含 brute_force。合成模式也核验签名及绑定，但不要求 J1/J2 已通过；执行门始终拒绝其真实动作，报告永远 `passed=false`。
+
+创建、批准、开始和恢复都复核当前授权、资产、机器、输入和签名。`evaluation.run` 仅能申请/运行评价；批准另需 `authorization.approve` 且申请人与批准人不同。本线不会激活 bundle、调用适配器或创建/领取命令。已登记会话的 sensor 在既有 GuardEligibility 判定与领取路径附加会话门：资格/运行/授权到期、撤销、超时或换 boot 时拒绝新动作；清理和回执继续可用。未登记过会话的旧 P5 平台测试入口保留兼容。发布组合必须是 lab 环境且已独立批准（status 为 approved，或批准后已激活的 active；approved_by 非空）——candidate、evaluated、suspended、retired 及任何 research 组合一律以 `LAB_ENVIRONMENT_INVALID`/`LAB_BUNDLE_NOT_APPROVED` 拒绝。批准组合不等于已取得本次 G3 要证明的 `lab_auto` 类别等级；P5/P6 及专项授权仍是必需条件。
+
+## 时钟
+
+time 包含 sourceStart、labStart、offsetMicros、warmupStart、scoringStart、scoringEnd。后三者是原始时间域，满足 sourceStart ≤ warmupStart ≤ scoringStart < scoringEnd；`labStart = sourceStart + offsetMicros`，speed 固定 1。各场景 sourceStart/sourceEnd 在评分窗口内。观察使用同一固定偏移；接收、命令及执行回执使用真实 UTC 墙钟。开始时必须尚未越过平移后的 warmupStart；恢复不重置偏移。没有时间的事件保留 null，不以 now 补齐发生时刻。
+
+## API、权限与状态
+
+所有人工写接口使用原有 session/CSRF 与 UUID `Idempotency-Key`；除创建外需 `If-Match`（正整数 revision）。重复请求先核验当前权限，再读取幂等结果；新键也受自然唯一键及合法迁移约束。
+
+| 方法/路径（前缀 /api/v2） | 权限与语义 |
+|---|---|
+| POST /lab-validation-runs | evaluation.run，201；创建 pending 资格 / registered 运行 |
+| GET /lab-validation-runs | evaluation.read；`cursor,limit(1—200),status`（运行状态），资产范围谓词在 LIMIT 前执行，不可见游标 404 |
+| GET /lab-validation-runs/{id} | evaluation.read，资产范围内返回脱敏状态、引用和摘要 |
+| POST /lab-validation-runs/{id}/decisions | authorization.approve；`{decision:approve/reject,reason}`，独立批准 |
+| POST /lab-validation-runs/{id}/starts | evaluation.run；`{}`，active 资格才能 registered→running |
+| POST /lab-validation-runs/{id}/interruptions | evaluation.run；`{reason}`，running→interrupted |
+| POST /lab-validation-runs/{id}/resumptions | evaluation.run；`{}`，复核后 interrupted→running，不换身份/时钟 |
+| POST /lab-validation-runs/{id}/completions | evaluation.run；`{outcome:completed/failed,reason}`，运行结束不等于 G3 通过 |
+| POST /lab-validation-runs/{id}/revocations | automation.stop；`{reason}`，即任务单的“作废”：撤销资格、未终态运行置 cancelled 并记停止请求，不声称规则已清理 |
+| POST /lab-validation-runs/{id}/reconciliations | evaluation.run；`{}`，过期→expired，运行超时→interrupted；不发送动作 |
+| POST /lab-validation-runs/{id}/events | evaluation.run；登记下节的事实引用，追加，不修改终态 |
+| GET /lab-validation-runs/{id}/events?after=0&limit=50 | evaluation.read；会话内递增序号游标，limit 1—200 |
+| GET /lab-validation-runs/{id}/report-input | evaluation.read；导出固定格式快照供纯离线报告工具 |
+| POST /lab-validation-runs/{id}/reports | evaluation.run；`{reportRef,sha256,runnerIdentity}`，验签且逐字段对比服务端重算结果 |
+| GET /machine/sensors/{sensorId}/lab-validation-runs/{id} | machine.sensor.read；仅本会话 sensor/asset/boot，可读交接契约 |
+
+机器查询的 `state` 增加 `runnable` 和 `reasonCodes`。消费端必须检查 `runnable === true`，不能只看 active/running。当前授权、修订、资产环境、执行身份、发布组合或冻结元数据/签名失效时，仍返回该结构但 runnable=false，reasonCodes 包含原稳定码；归属或 boot 不符仍顶层拒绝。非活动资格为 LAB_ELIGIBILITY_INACTIVE，运行非 running 为 LAB_RUN_NOT_RUNNING，超时为 LAB_RUN_TIMED_OUT，合成模式为 LAB_SYNTHETIC_ONLY。此轮询不检查短租约，也不重复读取整个 PCAP；租约由独立链路逐包核验，PCAP 在首次登记及开始/恢复时校验原件。
+
+V20 `status` 仍仅 pending/active/revoked；过期返回独立 effectiveEligibility=expired，底层授权被撤销或版本变化返回 blocked/blockedReason，不把 completed 塞入资格列。运行状态 registered/running/interrupted/completed/failed/cancelled/expired。终态不倒退，允许迟到的清理证据追加。GET 不写库；有效期和超时即时影响可运行性，显式 reconciliation 追加状态事实。停止请求、规则清理和报告导入彼此独立。非法迁移（未开始就完成、完成后再开始/恢复、终态后再中断）统一 422 `STATE_CONFLICT`。
+
+research 与 lab 互不混用：`/replay-runs` 只接受白名单字段（多余的 environment/runKind 等字段 400 `UNKNOWN_FIELD`）和已批准 research 组合，lab 组合以 `REPLAY_BUNDLE_NOT_APPROVED` 拒绝，开始时绑定的传感器所属资产也必须是 research；`/lab-validation-runs` 只接受 environment=lab 的签名清单、lab 资产和 lab 组合，research 资产/组合以 `LAB_ENVIRONMENT_INVALID` 拒绝。两条路由的 ID 分属不同表，交叉引用返回 404。会话报告导入固定 run_kind=canary，通用 release-bundles/imports 拒绝 G3 报告版本。
+
+## 运行事实
+
+事件请求：`{eventId,scenarioId,kind,referenceId}`；kind 为 observation/decision/command/receipt/verified_receipt。referenceId 引用已有后台事实；不接收客户端自报 applied/cleared 或任意时间。decision 的触发观察与所有选择观察必须属于当前绑定、时间窗和目标，command/action 必须沿同一 decision 链。verified_receipt 还须已有 projected=true、同 executor/boot 的有效 reconciliation；使用实际核验时刻。普通 receipt 保持 unverified，dispatched/issued 不作 applied；撤销请求和 TTL 到时不作 cleared。事件保留 source/rule/family、外部链路 ID、拒绝原因、原发生时间、接收时间和摘要。
+
+采集与事件采用不同口径：传感器继续上传全部合法观察，包括预热、低质量、过期或空 targetRef；中央 observation 事件只引用该场景 sourceStart/sourceEnd 内且有可用 targetRef 的观察。预热/评分窗外观察进入 `quality.outsideScoringWindow`，不进入评分分母或执行证据。已知身份且触发观察在窗外的决策列入 `outsideScoringDecisionIds`；身份或时刻未知的决策仍需关联。所有命令始终检查，不因窗外而隐藏。
+
+`quality.qualified` 与 `qualifiedCoverage` 保留纯采集质量含义。新增 `executionQualified`/`executionQualifiedCoverage` 还要求评分窗、有效引用和接收时效；`nonExecutable`、`missingTargetRef`、`expiredTargetRef`、`staleEvidence`、`invalidTiming` 分别保留拒绝原因计数（可重叠）。10 秒时效按观察 asOf 到不可变后端入库 created_at 计算，不用报告生成时刻，也不补造未知时间或新租约。空引用或已登记但到期的引用不使诊断报告失败；非空引用的跨资产、稳定目标、scopeDigest 或 boot 冲突仍硬拒绝。executionQualified 只表示当时具备这些必要关联条件，不代表已执行动作。拟自动来源没有合资格执行观察时不能通过。
+
+场景结束另用 `{eventId,scenarioId,kind:scenario_result,reportRef,sha256}`，只接受本 session runner 签名的 `{contractVersion,sessionId,sessionSha256,scenarioId,mappingSha256,startedAt,endedAt,completed}`；起止必须覆盖预登记场景且不在未来。此证据仅说明 runner 的回放结束，质量计数和观察数量由后端事实重算，不接受 runner 自报成功或误封禁数。缺失场景结束证据不计正常完整时长。
+
+重复 eventId 或同 kind/referenceId 自然键必须内容一致；冲突 409。不因乱序回执倒退运行终态。映射/身份/作用域拒绝使用稳定错误码，错误日志不含原始端点。输入快照有界且超限明确报错，不静默截断报告；unlinkedCommandIds/unlinkedDecisionIds 列出遗漏事实，任一非空不能判通过。
+
+## 报告
+
+报告为现有签名封装中的 canary payload，带 `reportVersion`、protocolVersions、subjectSha256、evaluationPlanSha256、sessionId/sessionSha256、inputSha256、provenance、每场景时间线（labStart→firstAlertAt→firstIssuedAt→firstAppliedAt→lastClearedAt 及 alert/issue/application/cleanupLatencyMs）、`classes` 逐类结果（四攻击类按名称排序；场景、来源、最差状态、首个告警/生效时延，无场景为 not_evaluated）和 `unverifiedItems` 未验证项（场景缺口、缺类、未关联命令/决策、正常时长缺失、运行未完成、合成证据，顺序固定）。生成、签名、验签、导入、封存、批准、激活是独立步骤。签名复用 P5 报告的 Ed25519/JCS 封装与私钥规则，验签只信任既有 report-trust-file。导入复用 guard_evaluation_run；合成或不完整报告可保存诊断，但不具有 passed 状态。
+
+四类告警、所有拟自动来源的 verified applied/cleared、每条已签发命令的清理、正常累计 ≥1800000ms 且误封禁率≤1次/小时为计算项。正常时长按已完成场景相加，另列同一资产时间区间并集，不能说成单主机连续观测；边界频率用整数交叉乘法判断。质量同时给出合格快照比例 qualifiedCoverage。正常误封禁必须有 expired 核验来证明 TTL 恢复，单独 revoked 只证明人工清理。误封禁按 normal 场景实际核验 applied 的不同 command 计数；缺失 applied 但已核验清理的命令保持不确定，不当作零误封。
+
+质量由原始观察重算：quality 标志全 false 且时钟可信才计合格；offload、不可判定及分母明确列出。洪泛/慢速无合格覆盖不得宣称类别自动资格。攻击起点到告警/生效时延只报告，不套用 J1 的 2 秒门槛。结果区分 passed/failed/not_evaluated/unverified，合成数据额外标 synthetic，不形成正式 G3 通过。固定保留 L3 慢速 0/29、困难良性 0/42、L2 未评估和测试集范围局限。
+
+## 存储与并行集成
+
+本线按任务单使用 V25（紧接 V24）；不修改 V1—V24 的 SQL 原字节或 Flyway 历史。V20 保存不可变资格；V25 新增 guard_lab_run 状态投影与 guard_lab_event 追加事实，复用既有观察/动作/回执与 guard_evaluation_run。JCS 原件以 LONGTEXT 保存并 JSON_VALID 检查，避免 MySQL JSON 数值改写。迁移测试覆盖空库到 V25 与 V24→V25 单步，结果待主会话统一执行后记录。
+
+独立 GuardLab* 控制器/服务/mapper 避开 GuardQueries、GuardReplay、GuardDetection、GuardIngest 和 GuardMapper/Store 的并行修改。GuardEligibility 仅追加可选注入的会话门及一次授权前置检查，GuardCatalog 仅增加 G3 报告分流拒绝。其他并行线如需迁移应另取 V26 及以上；若版本号冲突，不开 outOfOrder 绕过，由集成人重新分配尚未落库的迁移号。业务库迁移、真实 lab、报告批准和激活均需后续独立授权。

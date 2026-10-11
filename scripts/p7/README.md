@@ -1,5 +1,7 @@
 # P7 策略、交付包与 research 回放
 
+B4 的独立 lab 会话、传感器交接和 G3 纯报告工具见 [lab 工具说明](lab.md)与 [lab v1 契约](../../docs/contracts/lab-validation.md)。这部分采用独立的 V20/V25 会话事实，不改变下述 research/J1 路径。
+
 本目录实现 B2 策略生成和 B3 分步导入。B2 生成器读取冻结审计、候选层、P4 部署绑定与可选 P6 报告，写出新的 decision-policy JSON；生成器不调用 P4 API。B3 导入器登记并封存已备好的制品，独立审批在脚本外进行。两个工具均不自动审批、不激活、不读取 test、不修改旧候选。输出通过 Schema 不代表发布资格或 G3 通过。
 
 ## 输入契约

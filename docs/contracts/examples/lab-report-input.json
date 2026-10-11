@@ -1,0 +1,422 @@
+{
+  "contractVersion": "host-guard-lab/1.0",
+  "session": {
+    "contractVersion": "host-guard-lab/1.0",
+    "sessionId": "00000000-0000-4000-8000-000000000100",
+    "assetId": "00000000-0000-4000-8000-000000000002",
+    "bundleId": "00000000-0000-4000-8000-000000000014",
+    "authorizationId": "00000000-0000-4000-8000-000000000015",
+    "authorizationRevision": 1,
+    "environment": "lab",
+    "runnerIdentity": "fixture-runner",
+    "evidenceKind": "synthetic",
+    "validFrom": "2026-10-10T23:59:00Z",
+    "validUntil": "2026-10-11T01:00:00Z",
+    "timeoutSeconds": 3600,
+    "protocolVersions": {
+      "observation": "host-guard/5.0.0-rc.2",
+      "decision": "host-guard-decision/2026-10-08.1",
+      "evaluation": "host-guard-evaluation/2026-10-08.1",
+      "health": "host-guard-capture-health/1.0.0"
+    },
+    "subjectSha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "evaluationPlanSha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "sensorId": "00000000-0000-4000-8000-000000000003",
+    "bootId": "00000000-0000-4000-8000-000000000004",
+    "executorId": "00000000-0000-4000-8000-000000000012",
+    "executorBootId": "00000000-0000-4000-8000-000000000018",
+    "mappingRef": "lab/mapping.json",
+    "mappingSha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "mappingId": "00000000-0000-4000-8000-000000000101",
+    "scenarioRef": "lab/scenarios.json",
+    "scenarioSha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "provenance": {
+      "datasetSha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "splitSha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "labelRulesSha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "codeSha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "modelSha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "policySha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "extractorSha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "executorSha256": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    "proofs": {
+      "p5": {
+        "ref": "lab/p5.json",
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+        "runnerIdentity": "fixture-runner"
+      },
+      "p6": {
+        "ref": "lab/p6.json",
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+        "runnerIdentity": "fixture-runner"
+      },
+      "isolation": {
+        "ref": "lab/isolation.json",
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+        "runnerIdentity": "fixture-isolation"
+      },
+      "admission": {
+        "ref": "lab/admission.json",
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+        "runnerIdentity": "fixture-runner"
+      }
+    },
+    "time": {
+      "sourceStart": "2020-01-01T00:00:00Z",
+      "labStart": "2026-10-11T00:00:00Z",
+      "offsetMicros": 213840000000000,
+      "warmupStart": "2020-01-01T00:00:00Z",
+      "scoringStart": "2020-01-01T00:00:00Z",
+      "scoringEnd": "2020-01-01T00:30:00Z"
+    },
+    "speed": 1
+  },
+  "sessionSha256": "306d45fae3d8302b3b860c0aa12a72d2e5a6d5a8713face854a80363da554f16",
+  "runStatus": "completed",
+  "scenarios": [
+    {
+      "scenarioId": "port_scan-1",
+      "family": "port_scan",
+      "source": "model",
+      "ruleId": null,
+      "trialAutoEligible": true,
+      "autoIneligibleReason": null,
+      "pcapRef": "lab/port_scan-1.pcap",
+      "pcapSha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sourceStart": "2020-01-01T00:00:00Z",
+      "sourceEnd": "2020-01-01T00:15:00Z",
+      "quality": {
+        "snapshots": 10,
+        "qualified": 10,
+        "offloadSuspected": 0,
+        "unknown": 0,
+        "indeterminate": 0,
+        "executionQualified": 10,
+        "nonExecutable": 0,
+        "missingTargetRef": 0,
+        "expiredTargetRef": 0,
+        "staleEvidence": 0,
+        "invalidTiming": 0,
+        "outsideScoringWindow": {
+          "snapshots": 0,
+          "qualified": 0,
+          "offloadSuspected": 0,
+          "unknown": 0,
+          "indeterminate": 0,
+          "executionQualified": 0,
+          "nonExecutable": 0,
+          "missingTargetRef": 0,
+          "expiredTargetRef": 0,
+          "staleEvidence": 0,
+          "invalidTiming": 0
+        }
+      }
+    },
+    {
+      "scenarioId": "brute_force-2",
+      "family": "brute_force",
+      "source": "model",
+      "ruleId": null,
+      "trialAutoEligible": true,
+      "autoIneligibleReason": null,
+      "pcapRef": "lab/brute_force-2.pcap",
+      "pcapSha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sourceStart": "2020-01-01T00:00:00Z",
+      "sourceEnd": "2020-01-01T00:15:00Z",
+      "quality": {
+        "snapshots": 10,
+        "qualified": 10,
+        "offloadSuspected": 0,
+        "unknown": 0,
+        "indeterminate": 0,
+        "executionQualified": 10,
+        "nonExecutable": 0,
+        "missingTargetRef": 0,
+        "expiredTargetRef": 0,
+        "staleEvidence": 0,
+        "invalidTiming": 0,
+        "outsideScoringWindow": {
+          "snapshots": 0,
+          "qualified": 0,
+          "offloadSuspected": 0,
+          "unknown": 0,
+          "indeterminate": 0,
+          "executionQualified": 0,
+          "nonExecutable": 0,
+          "missingTargetRef": 0,
+          "expiredTargetRef": 0,
+          "staleEvidence": 0,
+          "invalidTiming": 0
+        }
+      }
+    },
+    {
+      "scenarioId": "dos_flood-3",
+      "family": "dos_flood",
+      "source": "model",
+      "ruleId": null,
+      "trialAutoEligible": false,
+      "autoIneligibleReason": "not requested for this synthetic trial",
+      "pcapRef": "lab/dos_flood-3.pcap",
+      "pcapSha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sourceStart": "2020-01-01T00:00:00Z",
+      "sourceEnd": "2020-01-01T00:15:00Z",
+      "quality": {
+        "snapshots": 10,
+        "qualified": 10,
+        "offloadSuspected": 0,
+        "unknown": 0,
+        "indeterminate": 0,
+        "executionQualified": 10,
+        "nonExecutable": 0,
+        "missingTargetRef": 0,
+        "expiredTargetRef": 0,
+        "staleEvidence": 0,
+        "invalidTiming": 0,
+        "outsideScoringWindow": {
+          "snapshots": 0,
+          "qualified": 0,
+          "offloadSuspected": 0,
+          "unknown": 0,
+          "indeterminate": 0,
+          "executionQualified": 0,
+          "nonExecutable": 0,
+          "missingTargetRef": 0,
+          "expiredTargetRef": 0,
+          "staleEvidence": 0,
+          "invalidTiming": 0
+        }
+      }
+    },
+    {
+      "scenarioId": "dos_slow-4",
+      "family": "dos_slow",
+      "source": "model",
+      "ruleId": null,
+      "trialAutoEligible": false,
+      "autoIneligibleReason": "not requested for this synthetic trial",
+      "pcapRef": "lab/dos_slow-4.pcap",
+      "pcapSha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sourceStart": "2020-01-01T00:00:00Z",
+      "sourceEnd": "2020-01-01T00:15:00Z",
+      "quality": {
+        "snapshots": 10,
+        "qualified": 10,
+        "offloadSuspected": 0,
+        "unknown": 0,
+        "indeterminate": 0,
+        "executionQualified": 10,
+        "nonExecutable": 0,
+        "missingTargetRef": 0,
+        "expiredTargetRef": 0,
+        "staleEvidence": 0,
+        "invalidTiming": 0,
+        "outsideScoringWindow": {
+          "snapshots": 0,
+          "qualified": 0,
+          "offloadSuspected": 0,
+          "unknown": 0,
+          "indeterminate": 0,
+          "executionQualified": 0,
+          "nonExecutable": 0,
+          "missingTargetRef": 0,
+          "expiredTargetRef": 0,
+          "staleEvidence": 0,
+          "invalidTiming": 0
+        }
+      }
+    },
+    {
+      "scenarioId": "normal-5",
+      "family": "normal",
+      "source": "model",
+      "ruleId": null,
+      "trialAutoEligible": false,
+      "autoIneligibleReason": "not requested for this synthetic trial",
+      "pcapRef": "lab/normal-5.pcap",
+      "pcapSha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sourceStart": "2020-01-01T00:00:00Z",
+      "sourceEnd": "2020-01-01T00:15:00Z",
+      "quality": {
+        "snapshots": 10,
+        "qualified": 10,
+        "offloadSuspected": 0,
+        "unknown": 0,
+        "indeterminate": 0,
+        "executionQualified": 10,
+        "nonExecutable": 0,
+        "missingTargetRef": 0,
+        "expiredTargetRef": 0,
+        "staleEvidence": 0,
+        "invalidTiming": 0,
+        "outsideScoringWindow": {
+          "snapshots": 0,
+          "qualified": 0,
+          "offloadSuspected": 0,
+          "unknown": 0,
+          "indeterminate": 0,
+          "executionQualified": 0,
+          "nonExecutable": 0,
+          "missingTargetRef": 0,
+          "expiredTargetRef": 0,
+          "staleEvidence": 0,
+          "invalidTiming": 0
+        }
+      }
+    },
+    {
+      "scenarioId": "normal-6",
+      "family": "normal",
+      "source": "model",
+      "ruleId": null,
+      "trialAutoEligible": false,
+      "autoIneligibleReason": "not requested for this synthetic trial",
+      "pcapRef": "lab/normal-6.pcap",
+      "pcapSha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sourceStart": "2020-01-01T00:00:00Z",
+      "sourceEnd": "2020-01-01T00:15:00Z",
+      "quality": {
+        "snapshots": 10,
+        "qualified": 10,
+        "offloadSuspected": 0,
+        "unknown": 0,
+        "indeterminate": 0,
+        "executionQualified": 10,
+        "nonExecutable": 0,
+        "missingTargetRef": 0,
+        "expiredTargetRef": 0,
+        "staleEvidence": 0,
+        "invalidTiming": 0,
+        "outsideScoringWindow": {
+          "snapshots": 0,
+          "qualified": 0,
+          "offloadSuspected": 0,
+          "unknown": 0,
+          "indeterminate": 0,
+          "executionQualified": 0,
+          "nonExecutable": 0,
+          "missingTargetRef": 0,
+          "expiredTargetRef": 0,
+          "staleEvidence": 0,
+          "invalidTiming": 0
+        }
+      }
+    }
+  ],
+  "events": [
+    {
+      "scenarioId": "port_scan-1",
+      "kind": "scenario_result",
+      "completed": true,
+      "occurredAt": "2026-10-11T00:15:00Z"
+    },
+    {
+      "scenarioId": "port_scan-1",
+      "kind": "decision",
+      "decision": "alert",
+      "occurredAt": "2026-10-11T00:00:30Z",
+      "reasonCode": null
+    },
+    {
+      "scenarioId": "port_scan-1",
+      "kind": "command",
+      "commandId": "00000000-0000-4000-8000-000000000400",
+      "occurredAt": "2026-10-11T00:00:31Z",
+      "verification": "verified"
+    },
+    {
+      "scenarioId": "port_scan-1",
+      "kind": "verified_receipt",
+      "commandId": "00000000-0000-4000-8000-000000000400",
+      "occurredAt": "2026-10-11T00:00:32Z",
+      "verification": "verified",
+      "status": "applied"
+    },
+    {
+      "scenarioId": "port_scan-1",
+      "kind": "verified_receipt",
+      "commandId": "00000000-0000-4000-8000-000000000400",
+      "occurredAt": "2026-10-11T00:01:02Z",
+      "verification": "verified",
+      "status": "expired"
+    },
+    {
+      "scenarioId": "brute_force-2",
+      "kind": "scenario_result",
+      "completed": true,
+      "occurredAt": "2026-10-11T00:15:00Z"
+    },
+    {
+      "scenarioId": "brute_force-2",
+      "kind": "decision",
+      "decision": "alert",
+      "occurredAt": "2026-10-11T00:00:30Z",
+      "reasonCode": null
+    },
+    {
+      "scenarioId": "brute_force-2",
+      "kind": "command",
+      "commandId": "00000000-0000-4000-8000-000000000401",
+      "occurredAt": "2026-10-11T00:00:31Z",
+      "verification": "verified"
+    },
+    {
+      "scenarioId": "brute_force-2",
+      "kind": "verified_receipt",
+      "commandId": "00000000-0000-4000-8000-000000000401",
+      "occurredAt": "2026-10-11T00:00:32Z",
+      "verification": "verified",
+      "status": "applied"
+    },
+    {
+      "scenarioId": "brute_force-2",
+      "kind": "verified_receipt",
+      "commandId": "00000000-0000-4000-8000-000000000401",
+      "occurredAt": "2026-10-11T00:01:02Z",
+      "verification": "verified",
+      "status": "expired"
+    },
+    {
+      "scenarioId": "dos_flood-3",
+      "kind": "scenario_result",
+      "completed": true,
+      "occurredAt": "2026-10-11T00:15:00Z"
+    },
+    {
+      "scenarioId": "dos_flood-3",
+      "kind": "decision",
+      "decision": "alert",
+      "occurredAt": "2026-10-11T00:00:30Z",
+      "reasonCode": null
+    },
+    {
+      "scenarioId": "dos_slow-4",
+      "kind": "scenario_result",
+      "completed": true,
+      "occurredAt": "2026-10-11T00:15:00Z"
+    },
+    {
+      "scenarioId": "dos_slow-4",
+      "kind": "decision",
+      "decision": "alert",
+      "occurredAt": "2026-10-11T00:00:30Z",
+      "reasonCode": null
+    },
+    {
+      "scenarioId": "normal-5",
+      "kind": "scenario_result",
+      "completed": true,
+      "occurredAt": "2026-10-11T00:15:00Z"
+    },
+    {
+      "scenarioId": "normal-6",
+      "kind": "scenario_result",
+      "completed": true,
+      "occurredAt": "2026-10-11T00:15:00Z"
+    }
+  ],
+  "unlinkedCommandIds": [],
+  "unlinkedDecisionIds": [],
+  "outsideScoringDecisionIds": []
+}

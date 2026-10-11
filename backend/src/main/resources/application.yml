@@ -13,6 +13,13 @@ spring:
       data-source-properties:
         connectionTimeZone: UTC
         forceConnectionTimeZoneToSession: true
+        # 会话只读/自动提交状态只经 JDBC API 改变，由驱动本地跟踪；否则每条语句前多一次
+        # SELECT @@session.transaction_read_only 往返（J1 扫描片段实测约占全部往返的一半）。
+        useLocalSessionState: true
+        # 有限缓存参数化语句，减少扫描突发中相同 SQL 的驱动解析与准备成本；不改变事务或 TLS。
+        cachePrepStmts: true
+        prepStmtCacheSize: 256
+        prepStmtCacheSqlLimit: 4096
   flyway:
     enabled: true
     baseline-on-migrate: false

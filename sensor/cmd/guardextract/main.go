@@ -51,6 +51,7 @@ func run() error {
 	report := flag.String("report", "", "不存在的去敏运行摘要")
 	startAt := flag.String("start", "", "可选分区起点 RFC3339；该时刻前不读入引擎")
 	endAt := flag.String("end", "", "可选分区终点 RFC3339；该时刻后不读入引擎")
+	captureAt := flag.String("capture-start", "", "可选采集起点 RFC3339：引擎与上下文覆盖从此起算，须不晚于首个读入报文")
 	flag.Parse()
 	if *cp == "" || *in == "" || *out == "" || *report == "" {
 		return fmt.Errorf("必须指定 config/pcap/out/report")
@@ -131,9 +132,21 @@ func run() error {
 		return err
 	}
 	start := time.Now()
+	var capture time.Time
+	if *captureAt != "" {
+		if capture, err = time.Parse(time.RFC3339Nano, *captureAt); err != nil {
+			return fmt.Errorf("capture-start 时间无效")
+		}
+		if err = e.Tick(capture); err != nil {
+			return err
+		}
+	}
 	if err = hostguard.WalkPCAP(*in, func(data []byte, ci gopacket.CaptureInfo, seq uint64) error {
 		if !begin.IsZero() && ci.Timestamp.Before(begin) || !end.IsZero() && ci.Timestamp.After(end) {
 			return nil
+		}
+		if !capture.IsZero() && ci.Timestamp.Before(capture) {
+			return fmt.Errorf("采集起点晚于首个读入报文")
 		}
 		return e.Frame(data, ci.Length, ci.Timestamp, seq)
 	}); err != nil {
@@ -179,6 +192,7 @@ func run() error {
 	r := map[string]any{"version": hostguard.Version, "status": "completed", "mode": "research_offline", "os": runtime.GOOS, "arch": runtime.GOARCH, "go": runtime.Version(), "stats": e.Stats, "distribution": distribution, "pcapSha256": pcapHash, "observationsSha256": outputHash, "configSha256": configHash, "binarySha256": binaryHash, "elapsedSeconds": time.Since(start).Seconds(), "historicalCaptureDrops": nil, "automaticExecutionSupported": false}
 	r["partitionStart"] = *startAt
 	r["partitionEnd"] = *endAt
+	r["captureStart"] = *captureAt
 	if *ledger != "" {
 		h, err := digest(*ledger)
 		if err != nil {

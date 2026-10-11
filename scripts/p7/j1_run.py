@@ -220,6 +220,12 @@ def process_privileges(pids):
     return dict(at=stamp(), runnerUid=os.geteuid(), processes=owned, executorOrPfctlProcesses=executors)
 
 
+def capture_start(segment):
+    """片段登记的采集起点（原事件时间，RFC3339 微秒）；未登记则为空，回放与离线均从首包起算。"""
+    us = segment.get("captureStartUs")
+    return [] if us is None else ["-capture-start", datetime.fromtimestamp(us / 1e6, UTC).isoformat(timespec="microseconds").replace("+00:00", "Z")]
+
+
 def pf_snapshot():
     commands = [["/usr/bin/sudo", "-n", "/sbin/pfctl", "-s", "info"],
                 ["/usr/bin/sudo", "-n", "/sbin/pfctl", "-sr"],
@@ -314,7 +320,13 @@ class Run:
             # 沿用已冻结的片段清单（PCAP 引用与摘要逐项不变），只重新绑定修复后的二进制与源码清单。
             origin = self.artifact / self.args.rebind_scenario_ref
             draft = json.loads(origin.read_text())
-            rebound = dict(scenarioRef=self.args.rebind_scenario_ref, scenarioSha256=sha(origin), segmentsSha256=jcs(draft["segments"]))
+            rebound = dict(scenarioRef=self.args.rebind_scenario_ref, scenarioSha256=sha(origin),
+                           segmentsSha256=jcs([{k: v for k, v in s.items() if k != "captureStartUs"} for s in draft["segments"]]))
+            if self.args.capture_warmup_seconds:
+                # 传感器在首包前已运行：采集起点 = 原首包 − 预热，PCAP 字节与片段边界不变；登记于回放前。
+                for segment in draft["segments"]:
+                    segment["captureStartUs"] = segment["sourceFirstUs"] - self.args.capture_warmup_seconds * 1_000_000
+                rebound["captureWarmupSeconds"] = self.args.capture_warmup_seconds
             for segment in draft["segments"]:
                 self.artifact.joinpath(segment["pcapRef"]).resolve().relative_to(self.artifact)
                 if sha(self.artifact / segment["pcapRef"]) != segment["pcapSha256"]:
@@ -324,8 +336,8 @@ class Run:
         manifest = json.loads((self.package / "model-manifest.json").read_text())
         policy = json.loads((self.package / "policy-research.json").read_text())
         lab = json.loads((self.package / "policy-m1-lab.json").read_text())
-        same = ["familyPolicies", "rulePolicies", "maxEvidenceAgeMs", "minEvidenceSpanMs", "contextWindowSeconds", "minPeerFlowStarts", "profile"]
-        if any(policy[k] != lab[k] for k in same):
+        same = ["familyPolicies", "rulePolicies", "maxEvidenceAgeMs", "minEvidenceSpanMs", "contextWindowSeconds", "minPeerFlowStarts", "profile", "acceptedProfiles"]
+        if any(policy.get(k) != lab.get(k) for k in same):
             raise RuntimeError("research numerical policy differs from M1")
         self.public.mkdir(parents=True, mode=0o700, exist_ok=False)
         (self.public / "clips").mkdir(mode=0o700)
@@ -359,12 +371,14 @@ class Run:
                      extractorSha256=manifest["extractorSha256"], sourceManifestSha256=sha(self.work / "source-manifest.json"),
                      deliveryInventorySha256=jcs(inventory), baseCommit=subprocess.run(["git", "rev-parse", "HEAD"],
                           check=True, capture_output=True, text=True).stdout.strip(),
-                     closeoutSha256=self.args.closeout_sha, replayConcurrency=len(draft["segments"]),
+                     closeoutSha256=self.args.closeout_sha,
+                     replayConcurrency=sum(s["family"] == "normal" for s in draft["segments"]) + min(self.args.attack_concurrency, sum(s["family"] != "normal" for s in draft["segments"])),
                      registrationVerificationSha256=sha(self.work/"registration-verification.json"),
                      gatesExcludedFromHypothetical=["liveCaptureHealth", "targetBinding", "executionAuthorization", "protectionAndBudget"],
-                     serverThreads=self.args.server_threads)
+                     serverThreads=self.args.server_threads, packageRef=self.args.package_ref,
+                     attackConcurrency=self.args.attack_concurrency)
         if rebound:
-            if jcs(draft["segments"]) != rebound["segmentsSha256"]:
+            if jcs([{k: v for k, v in s.items() if k != "captureStartUs"} for s in draft["segments"]]) != rebound["segmentsSha256"]:
                 raise RuntimeError("rebinding changed frozen segments")
             draft["reboundFrom"] = rebound
         write(self.public / "scenario.json", draft, 0o400)
@@ -422,11 +436,14 @@ class Run:
 
     def reference(self, state):
         path = self.work / f"round-{state['round']}"
+        completed_segments = []
         for segment in self.scenario["segments"]:
+            if self.args.diagnostic_segments and segment["segmentId"] not in self.args.diagnostic_segments:
+                continue
             directory = path / segment["segmentId"]
             log = (directory / "reference.log").open("xb")
             command = [str(self.work / "bin/guardextract"), "-config", str(directory/"extract-config.json"), "-pcap", str(self.artifact/segment["pcapRef"]),
-                       "-out", str(directory/"extracted.jsonl"), "-ledger", str(directory/"ledger.jsonl"), "-report", str(directory/"extract-report.json")]
+                       "-out", str(directory/"extracted.jsonl"), "-ledger", str(directory/"ledger.jsonl"), "-report", str(directory/"extract-report.json")] + capture_start(segment)
             subprocess.run(command, stdout=log, stderr=subprocess.STDOUT, check=True)
             with (directory/"extracted.jsonl").open() as source, (directory/"offline.jsonl").open("x") as target:
                 for line in source:
@@ -441,31 +458,62 @@ class Run:
             subprocess.run(command, stdout=log, stderr=subprocess.STDOUT, check=True)
             log.close()
             (directory/"reference.jsonl").chmod(0o600)
-        event("offline_reference_completed", round=state["round"], segments=len(state["bindings"]))
+            completed_segments.append(segment["segmentId"])
+        event("offline_reference_completed", round=state["round"], segments=len(completed_segments),
+              selectedSegments=completed_segments)
 
     def replay(self, state):
         path = self.work / f"round-{state['round']}"
         bindings = [{k: r[k] for k in ("segmentId", "sensorId", "bootId")} for r in state["bindings"]]
         self.operator.v2(f"/replay-runs/{state['replayRunId']}/starts", dict(scenarioRef=self.replay_ref+"/scenario.json", closeoutRef=self.replay_ref+"/closeout.json", bindings=bindings))
-        jobs = []
-        # 每个捕获域独立以 1 倍速走文件；正常片段并发仅缩短墙钟等待，不累计成全网能力。
-        for segment in sorted(self.scenario["segments"], key=lambda s: s["family"] != "normal"):
+        if self.args.record_jfr:
+            # JFR 仅保存到私有诊断目录，分析本轮实际 T1/T2 成本，不改变执行门禁或验收时限。
+            subprocess.run([str(self.java.parent/"jcmd"), str(self.process.pid), "JFR.configure", "stackdepth=128"],
+                           check=True, capture_output=True)
+            subprocess.run([str(self.java.parent/"jcmd"), str(self.process.pid), "JFR.start", "name=j1",
+                            "settings=profile", "dumponexit=true", "filename="+str(self.work/"private/replay.jfr")],
+                           check=True, capture_output=True)
+        jobs, privileges = [], []
+        def launch(segment):
             directory = path / segment["segmentId"]
             log = (directory / "live.log").open("xb")
+            # 进程内排空时限放宽到 10 分钟，确认时间如实计入 J1-5，不再中途退出改由外部续传。
             command = [str(self.work/"bin/guardlive"), "-config", str(directory/"live-config.json"), "-pcap", str(self.artifact/segment["pcapRef"]),
-                       "-out", str(directory/"live.jsonl"), "-report", str(directory/"live-report.json"), "-drain-timeout", "30s"]
-            p = subprocess.Popen(command, stdout=log, stderr=subprocess.STDOUT)
-            jobs.append((segment, directory, p, log))
-        event("replay_started", round=state["round"], concurrency=len(jobs), speedPerSegment=1)
-        write(path/"privileges.json", process_privileges([self.process.pid]+[p.pid for _, _, p, _ in jobs]))
-        started = time.monotonic()
-        while any(p.poll() is None for _, _, p, _ in jobs):
+                       "-out", str(directory/"live.jsonl"), "-report", str(directory/"live-report.json"), "-drain-timeout", "10m"] + capture_start(segment)
+            process = subprocess.Popen(command, stdout=log, stderr=subprocess.STDOUT)
+            jobs.append((segment, directory, process, log))
+            privileges.append(process_privileges([self.process.pid, process.pid]))
+        # 每个捕获域独立以 1 倍速走文件；正常片段同时运行作为背景负载，攻击片段按 --attack-concurrency 分批，
+        # 并发数如实登记，正常时长之和不当作单主机连续正常时间。
+        normal = [s for s in self.scenario["segments"] if s["family"] == "normal"]
+        attacks = [s for s in self.scenario["segments"] if s["family"] != "normal"]
+        if self.args.diagnostic_segments:
+            # 仅诊断：只跑指定片段，结果不得作为 J1 判定（审计会因片段缺失而失败）。
+            normal = [s for s in normal if s["segmentId"] in self.args.diagnostic_segments]
+            attacks = [s for s in attacks if s["segmentId"] in self.args.diagnostic_segments]
+            for segment in normal:
+                launch(segment)
+            pending = list(attacks)
+        if not self.args.diagnostic_segments:
+            for segment in normal:
+                launch(segment)
+            pending = list(attacks)
+        event("replay_started", round=state["round"], normalConcurrency=len(normal), attackConcurrency=self.args.attack_concurrency,
+              selectedSegments=[s["segmentId"] for s in normal + attacks], diagnosticOnly=bool(self.args.diagnostic_segments), speedPerSegment=1)
+        started = last = time.monotonic()
+        while pending or any(p.poll() is None for _, _, p, _ in jobs):
+            running = sum(p.poll() is None for s, _, p, _ in jobs if s["family"] != "normal")
+            while pending and running < self.args.attack_concurrency:
+                launch(pending.pop(0)); running += 1
             if self.process.poll() is not None:
                 raise RuntimeError("backend stopped during replay")
-            if time.monotonic()-started > 1800:
+            if time.monotonic()-started > 7200:
                 raise RuntimeError("replay capture timeout")
-            time.sleep(20)
-            event("replay_progress", round=state["round"], completed=sum(p.poll() is not None for _,_,p,_ in jobs), total=len(jobs), elapsedSeconds=round(time.monotonic()-started))
+            time.sleep(1)
+            if time.monotonic()-last >= 20:
+                last = time.monotonic()
+                event("replay_progress", round=state["round"], completed=sum(p.poll() is not None for _,_,p,_ in jobs), total=len(normal)+len(attacks), elapsedSeconds=round(last-started))
+        write(path/"privileges.json", privileges)
         for segment, directory, p, log in jobs:
             log.close()
             report = json.loads((directory/"live-report.json").read_text()) if (directory/"live-report.json").exists() else {}
@@ -475,7 +523,32 @@ class Run:
             self.compare(directory)
         # 从真实数据库导出本轮不可变事实；不导出凭据、口令哈希或其他资产数据。
         self.export(state)
+        if self.args.record_jfr:
+            subprocess.run([str(self.java.parent/"jcmd"), str(self.process.pid), "JFR.stop", "name=j1"],
+                           check=True, capture_output=True)
+            (self.work/"private/replay.jfr").chmod(0o600)
         event("replay_completed", round=state["round"], elapsedSeconds=round(time.monotonic()-started))
+
+    def diagnostic(self, state):
+        """部分片段只形成诊断证据；不登记 completed，不生成 J1 汇总或允许 J2。"""
+        from j1_audit import analyze_segment, qualifying_sources
+        policy = json.loads((self.package/"policy-research.json").read_text())
+        thresholds = {p["family"]: p["alertThreshold"] for p in policy["familyPolicies"]}
+        minimum = {p["family"]: p["minDistinctFlows"] for p in policy["familyPolicies"]}
+        closeout = json.loads((self.public/"closeout.json").read_text())
+        path = self.work/f"round-{state['round']}"
+        results = []
+        for segment in self.scenario["segments"]:
+            if segment["segmentId"] not in self.args.diagnostic_segments:
+                continue
+            qualifying = qualifying_sources(closeout,segment["family"])
+            binding = next(b for b in state["bindings"] if b["segmentId"] == segment["segmentId"])
+            results.append(analyze_segment(path/segment["segmentId"], segment, binding, thresholds,
+                                           minimum.get(segment["family"], 1), path/"diagnostic"/segment["segmentId"], qualifying))
+        write(self.work/"diagnostic.json", dict(stage="J1-diagnostic", diagnosticOnly=True, j1Passed=None, J2Allowed=False,
+              replayRunId=state["replayRunId"], scenarioSha256=self.scenario_sha, segmentResults=results,
+              limitation="只回放选定片段，隔离会话未登记 completed；不能代替两轮完整 J1 验收。"))
+        event("diagnostic_completed", segments=len(results), J2Allowed=False)
 
     def compare(self, directory):
         """原报告不改；续传完成另登记比较摘要，原时延/失败状态仍用于 J1 判定。"""
@@ -632,10 +705,13 @@ class Run:
                   [self.package/"policy-research.json", self.package/"policy-m1-lab.json"]))
             write(self.work/"database-before.json", self.db.snapshot(self.schema))
             self.freeze()
-            for round_number in (1, 2):
+            for round_number in ((1,) if self.args.diagnostic_segments else (1, 2)):
                 state = self.identities(round_number)
                 self.reference(state)
                 self.replay(state)
+                if self.args.diagnostic_segments:
+                    self.diagnostic(state)
+                    break
                 from j1_audit import assess_round
                 report = assess_round(self.work/f"round-{round_number}", self.scenario, self.scenario_sha)
                 write(self.work/f"round-{round_number}"/"result.json", report, 0o400)
@@ -656,8 +732,9 @@ class Run:
                     self.process.wait()
             write(self.work/"pf-after.json", pf_snapshot())
             write(self.work/"stopped.json", dict(at=stamp(), backendExitCode=None if self.process is None else self.process.poll(), schema=self.schema, port=self.args.port))
-        from j1_audit import assess_all
-        assess_all(self.work)
+        if not self.args.diagnostic_segments:
+            from j1_audit import assess_all
+            assess_all(self.work)
 
 
 def main():
@@ -680,10 +757,18 @@ def main():
     parser.add_argument("--resume",action="store_true",help="只恢复已有 schema/spool；不重采集、不覆盖历史证据")
     parser.add_argument("--rebind-scenario-ref", help="沿用已冻结清单的片段（逐项不变），为修复后的二进制登记新的场景文件")
     parser.add_argument("--server-threads", type=int, default=6, help="后端 Tomcat 线程数；推理仍受 2 个推理槽约束")
+    parser.add_argument("--capture-warmup-seconds", type=int, default=0, help="与 --rebind-scenario-ref 合用：登记首包前的采集预热秒数")
+    parser.add_argument("--diagnostic-segments", nargs="*", default=None, help="仅诊断：只回放这些片段，不产生可判定结果")
+    parser.add_argument("--record-jfr", action="store_true", help="仅部分片段诊断时记录私有 JFR 性能证据")
+    parser.add_argument("--attack-concurrency", type=int, default=18, help="同时回放的攻击片段数；正常片段始终同时运行")
     args = parser.parse_args()
     if not args.java.is_file() or not (args.work/"bin/backend.jar").is_file():
         raise RuntimeError("frozen JDK25/backend binary is required")
     if args.resume and not args.scenario_ref:parser.error("resume requires frozen scenario-ref")
+    if args.diagnostic_segments is not None and not args.diagnostic_segments:parser.error("diagnostic requires at least one segment")
+    if args.resume and args.diagnostic_segments:parser.error("diagnostic cannot resume a formal run")
+    if args.record_jfr and not args.diagnostic_segments:parser.error("JFR recording requires diagnostic segments")
+    if args.attack_concurrency < 1 or args.attack_concurrency > 18:parser.error("attack-concurrency must be 1..18")
     run=Run(args)
     run.resume() if args.resume else run.run()
 

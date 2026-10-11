@@ -21,6 +21,14 @@ public class GuardStore {
     public Instant now(){return mapper.now().toInstant(ZoneOffset.UTC);}
     public Map<String,Object> insert(String t,Map<String,Object> v){mapper.insert(t,v);return v;}
     public Map<String,Object> add(String t,Map<String,Object> v){v.putIfAbsent("public_id",id());return insert(t,v);}
+    /** 批量追加不需回读主键的事实行；每行补 public_id，按 500 行分段。 */
+    public void addAll(String t,List<Map<String,Object>> rows){for(var r:rows)r.putIfAbsent("public_id",id());for(int i=0;i<rows.size();i+=500)mapper.insertAll(t,rows.subList(i,Math.min(rows.size(),i+500)));}
+    /** 同表严格批量新增并回填主键；校验每行独立主键后才允许建立外键关联，失败由外层事务回滚。 */
+    public void addAllReturning(String t,List<Map<String,Object>> rows){
+        for(var r:rows)r.putIfAbsent("public_id",id());
+        for(int i=0;i<rows.size();i+=500)mapper.insertAllReturning(t,rows.subList(i,Math.min(rows.size(),i+500)));
+        require(rows.stream().allMatch(r->r.get("id") instanceof Number)&&rows.stream().map(r->r.get("id")).distinct().count()==rows.size(),"BATCH_KEYS_UNAVAILABLE");
+    }
     public void update(String t,long id,Map<String,Object> v){if(!MUTABLE.contains(t))throw new IllegalArgumentException("Immutable fact");mapper.update(t,id,v);}
     public List<Map<String,Object>> rows(String t,Map<String,Object> w,boolean lock,int limit){return mapper.select(t,w,lock,limit,null,null,null);}
     public List<Map<String,Object>> visible(String t,Map<String,Object> w,long actor,String permission,int limit,Long before){return mapper.select(t,w,false,limit,actor,permission,before);}

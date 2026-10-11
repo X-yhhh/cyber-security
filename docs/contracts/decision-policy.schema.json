@@ -77,6 +77,19 @@
         "flow-final-v1"
       ]
     },
+    "acceptedProfiles": {
+      "type": "array",
+      "description": "可选：自动路径接受的快照 profile 集合，须包含 profile；缺失时只接受 profile",
+      "items": {
+        "type": "string",
+        "enum": [
+          "flow-prefix-v1",
+          "flow-final-v1"
+        ]
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
     "alertThreshold": {
       "type": "number",
       "minimum": 0,

@@ -50,11 +50,15 @@ public class GuardEligibility {
         return capability(bundle,policy,o,policy.path("family").asText());
     }
     public boolean capability(Map<String,Object> bundle,JsonNode policy,JsonNode o,String family){
-        if(!CONTRACT.equals(o.path("contractVersion").asText())||!policy.path("profile").equals(o.path("profile")))return false;
+        if(!CONTRACT.equals(o.path("contractVersion").asText())||!profileAccepted(policy,o)||o.path("environment").asText().equals("research"))return false;
         var p=store.get("guard_decision_policy",number(bundle,"policy_id"));var m=store.get("guard_model",number(bundle,"model_id"));
         if(!DECISION.equals(str(p,"decision_contract_version"))||number(p,"model_id")!=number(m,"id")||!"validated".equals(str(m,"validation_status"))||GuardModelRuntime.applicable(json(m,"manifest_json"),o)!=null)return false;
         String env=o.path("environment").asText();if(env.equals("research"))return false;
         return matchingCapability(bundle,policy,o,family)!=null;
+    }
+    /** 策略接受的快照 profile：有 acceptedProfiles 时按集合判定，否则只接受 profile（旧策略语义不变）。 */
+    public static boolean profileAccepted(JsonNode policy,JsonNode o){
+        return policy.has("acceptedProfiles")?GuardAdministration.contains(policy.get("acceptedProfiles"),o.path("profile").asText()):policy.path("profile").equals(o.path("profile"));
     }
     public Map<String,Object> matchingCapability(Map<String,Object> bundle,JsonNode policy,JsonNode o){
         return matchingCapability(bundle,policy,o,policy.path("family").asText());

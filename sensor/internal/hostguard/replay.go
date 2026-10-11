@@ -31,8 +31,11 @@ func (SystemClock) Sleep(ctx context.Context, d time.Duration) error {
 
 // ReplayOptions 控制冻结 PCAP 的 1 倍速回放。Start/End 为原事件时间分区，语义与 guardextract 相同。
 type ReplayOptions struct {
-	Clock        ReplayClock
-	Start, End   time.Time
+	Clock      ReplayClock
+	Start, End time.Time
+	// CaptureStart 非零时表示传感器在该原事件时刻已开始采集：引擎时钟与上下文覆盖从此起算，
+	// 1 倍速等待到首个报文；它不得晚于首个分区内报文，也不读取更早的报文。零值保持首包起算。
+	CaptureStart time.Time
 	TickInterval time.Duration
 	Observe      func(LiveSample)
 }
@@ -73,6 +76,21 @@ func ReplayPCAP(ctx context.Context, path string, e *Engine, o ReplayOptions) (R
 	}
 	e.emissionClock = clock.Now
 	started := false
+	if !o.CaptureStart.IsZero() {
+		r.WallStart = clock.Now().UTC()
+		r.Offset = r.WallStart.Truncate(time.Second).Add(time.Second).Sub(o.CaptureStart.UTC().Truncate(time.Second))
+		at := o.CaptureStart.Add(r.Offset)
+		for now := clock.Now(); now.Before(at); now = clock.Now() {
+			if err := clock.Sleep(ctx, at.Sub(now)); err != nil {
+				return r, err
+			}
+		}
+		if err := e.Tick(at); err != nil {
+			return r, err
+		}
+		started = true
+	}
+	sawPacket := false
 	var lastSample time.Time
 	sample := func(at time.Time) {
 		if o.Observe == nil {
@@ -90,10 +108,15 @@ func ReplayPCAP(ctx context.Context, path string, e *Engine, o ReplayOptions) (R
 		if err := ctx.Err(); err != nil {
 			return err
 		}
+		if !o.CaptureStart.IsZero() && ci.Timestamp.Before(o.CaptureStart) {
+			return fmt.Errorf("采集起点晚于分区内首个报文")
+		}
 		if !started {
 			r.WallStart = clock.Now().UTC()
-			r.SourceFirst = ci.Timestamp.UTC()
 			r.Offset = r.WallStart.Truncate(time.Second).Add(time.Second).Sub(ci.Timestamp.UTC().Truncate(time.Second))
+		}
+		if !sawPacket {
+			r.SourceFirst = ci.Timestamp.UTC()
 		}
 		shifted := ci.Timestamp.Add(r.Offset)
 		for {
@@ -121,7 +144,7 @@ func ReplayPCAP(ctx context.Context, path string, e *Engine, o ReplayOptions) (R
 		if err := e.Frame(data, ci.Length, shifted, seq); err != nil {
 			return err
 		}
-		started = true
+		started, sawPacket = true, true
 		r.Packets++
 		if ci.Timestamp.After(r.SourceLast) {
 			r.SourceLast = ci.Timestamp.UTC()
@@ -134,7 +157,7 @@ func ReplayPCAP(ctx context.Context, path string, e *Engine, o ReplayOptions) (R
 	if err != nil {
 		return r, err
 	}
-	if !started {
+	if !sawPacket {
 		return r, fmt.Errorf("回放分区内没有报文")
 	}
 	if err = e.Close(); err != nil {

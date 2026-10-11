@@ -50,7 +50,7 @@ public class GuardModelRuntime {
         }catch(com.xyh.cybersecurity.common.api.ApiRequestException e){return new Result("failed",null,null,Map.of(),"unavailable",e.code());}
         catch(Exception e){return new Result("failed",null,null,Map.of(),"unavailable","MODEL_UNAVAILABLE");}finally{if(held!=null)synchronized(sessions){held.users--;}slots.release();}
     }
-    /** 每次仍核验原件摘要；只复用相同不可变 manifest 的 ORT 会话，最多 8 个，不能以缓存掩盖制品替换。 */
+    /** 只复用经 load 核验的相同不可变 manifest；最多 8 个会话，不关闭在途 native 资源。 */
     private CachedSession session(Map<String,Object> model,Loaded loaded)throws OrtException{
         String key=str(model,"manifest_sha256");
         synchronized(sessions){
@@ -68,7 +68,22 @@ public class GuardModelRuntime {
     private static final class CachedSession {final OrtSession session;int users;CachedSession(OrtSession session){this.session=session;}}
     /** 后端始终以 ORT Java 1.23.2 加载；manifest 记录冻结时的导出/核验运行时，只接受已做 1.23.2 全量对拍的版本（P6 p6-l1-02：1.27.0 对 1.23.2）。 */
     static final Set<String> VERIFIED_EXPORT_RUNTIMES=Set.of("1.23.2","1.27.0");
-    private Loaded load(Map<String,Object> model){String ref=str(model,"manifest_ref");JsonNode manifest=artifacts.json(ref,str(model,"manifest_sha256"));contracts.manifest(manifest);require(manifest.equals(json(model,"manifest_json")),"MODEL_MANIFEST_MISMATCH");
+    /** 已逐文件校验摘要的制品：四个文件的路径/大小/修改时间/fileKey 指纹不变且未超 60 秒时复用，否则完整重读重验。 */
+    private record Verified(Loaded loaded,List<Object> fingerprint,long verifiedAtNanos){}
+    private final Map<String,Verified> verified=new HashMap<>();
+    private Loaded load(Map<String,Object> model){
+        String key=str(model,"manifest_sha256")+"|"+str(model,"manifest_ref");List<Object> fingerprint=fingerprint(str(model,"manifest_ref"));
+        synchronized(verified){var v=verified.get(key);
+            if(v!=null&&fingerprint!=null&&v.fingerprint().equals(fingerprint)&&System.nanoTime()-v.verifiedAtNanos()<60_000_000_000L&&v.loaded().manifest().equals(json(model,"manifest_json")))return v.loaded();}
+        Loaded loaded=verify(model);
+        if(fingerprint!=null&&fingerprint.equals(fingerprint(str(model,"manifest_ref"))))synchronized(verified){verified.put(key,new Verified(loaded,fingerprint,System.nanoTime()));}
+        return loaded;}
+    private List<Object> fingerprint(String ref){
+        try{var out=new ArrayList<Object>();for(String name:List.of(ref,GuardArtifacts.sibling(ref,"preprocessing.json"),GuardArtifacts.sibling(ref,"calibration.json"),GuardArtifacts.sibling(ref,"model.onnx"))){
+                var path=artifacts.path(name);var a=java.nio.file.Files.readAttributes(path,java.nio.file.attribute.BasicFileAttributes.class);
+                out.add(List.of(path.toString(),a.size(),a.lastModifiedTime(),String.valueOf(a.fileKey())));}
+            return out;}catch(Exception e){return null;}}
+    private Loaded verify(Map<String,Object> model){String ref=str(model,"manifest_ref");JsonNode manifest=artifacts.json(ref,str(model,"manifest_sha256"));contracts.manifest(manifest);require(manifest.equals(json(model,"manifest_json")),"MODEL_MANIFEST_MISMATCH");
         require(VERIFIED_EXPORT_RUNTIMES.contains(manifest.at("/runtime/runtimeVersion").asText())&&manifest.at("/runtime/opset").asInt()==17,"MODEL_RUNTIME_UNSUPPORTED");
         JsonNode preprocessing=artifacts.json(GuardArtifacts.sibling(ref,"preprocessing.json"),text(manifest,"preprocessingSha256"));artifacts.read(GuardArtifacts.sibling(ref,"calibration.json"),text(manifest,"calibrationSha256"),1024*1024);
         require("train".equals(preprocessing.path("fitRole").asText())&&preprocessing.path("vocabularies").isArray()&&preprocessing.path("vocabularies").size()==3,"PREPROCESSING_INVALID");

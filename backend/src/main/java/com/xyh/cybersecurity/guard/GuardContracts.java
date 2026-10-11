@@ -68,5 +68,6 @@ public class GuardContracts {
             require(ids.add(r.path("ruleId").asText()),"INVALID_RULE_POLICY");
             require(GuardAdministration.contains(profile.path("numericFeatures"),r.path("field").asText()),"INVALID_RULE_FIELD");
         }
-        require(n.path("autoThreshold").asDouble()>=n.path("alertThreshold").asDouble()&&n.path("minEvidenceSpanMs").asLong()<=n.path("maxEvidenceAgeMs").asLong(),"INVALID_POLICY_THRESHOLDS");}
+        require(n.path("autoThreshold").asDouble()>=n.path("alertThreshold").asDouble()&&n.path("minEvidenceSpanMs").asLong()<=n.path("maxEvidenceAgeMs").asLong(),"INVALID_POLICY_THRESHOLDS");
+        require(!n.has("acceptedProfiles")||GuardAdministration.contains(n.get("acceptedProfiles"),n.path("profile").asText()),"INVALID_POLICY_PROFILES");}
 }

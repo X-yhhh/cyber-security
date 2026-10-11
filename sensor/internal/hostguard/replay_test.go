@@ -184,3 +184,44 @@ func TestReplayPartitionAndCancel(t *testing.T) {
 		t.Fatal("空分区不能报告完成")
 	}
 }
+
+// 采集起点早于首包：上下文覆盖从起点算，回放与先 Tick 起点的离线提取逐字段一致，1 倍速等待包含预热。
+func TestReplayCaptureStartWarmup(t *testing.T) {
+	path, frames := replayFixture(t)
+	capture := frames[0].TS.Truncate(time.Microsecond).Add(-30 * time.Second)
+	var offline, replay []Observation
+	e, _ := New(config(&offline))
+	if err := e.Tick(capture); err != nil {
+		t.Fatal(err)
+	}
+	if err := ReadPCAP(path, e); err != nil {
+		t.Fatal(err)
+	}
+	wall := time.Date(2026, 10, 8, 9, 30, 15, 987654321, time.UTC)
+	clock := &fakeClock{now: wall}
+	r, _ := New(config(&replay))
+	res, err := ReplayPCAP(context.Background(), path, r, ReplayOptions{Clock: clock, CaptureStart: capture})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.SourceFirst.Equal(frames[0].TS.Truncate(time.Microsecond)) || clock.sleeps < 30*time.Second {
+		t.Fatalf("预热未按 1 倍速等待或首包记录错误: %+v sleeps=%v", res, clock.sleeps)
+	}
+	if len(offline) == 0 || len(offline) != len(replay) {
+		t.Fatalf("观察数量不一致 %d/%d", len(offline), len(replay))
+	}
+	for i := range offline {
+		want := offline[i]
+		want.EmittedAt = time.Time{}
+		if got := unshift(replay[i], res.Offset); !reflect.DeepEqual(got, want) {
+			t.Fatalf("第 %d 条不一致", i)
+		}
+	}
+	if offline[0].Contexts[0].CoverageMs != 1000 || offline[0].Contexts[2].CoverageMs != 30000 {
+		t.Fatalf("预热后首个快照的覆盖应为完整窗口: %+v", offline[0].Contexts)
+	}
+	late, _ := New(config(&replay))
+	if _, err := ReplayPCAP(context.Background(), path, late, ReplayOptions{Clock: &fakeClock{now: wall}, CaptureStart: frames[0].TS.Add(time.Second)}); err == nil {
+		t.Fatal("采集起点晚于首包必须拒绝")
+	}
+}

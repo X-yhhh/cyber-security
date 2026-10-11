@@ -25,7 +25,7 @@ python3 -B scripts/p6/evaluate.py run \
   --registration .cache/p6-round-2/l1/registration.json
 ```
 
-示例是 T4 调用形态，不是运行授权；`NEW_REGISTERED_ID` 须取新计划登记值，真实读取须先获授权。本次 T1 没有运行该流程。准备新包见 [T1 使用说明](../../docs/p3/t1-tooling.md)。若依赖安装在本次受控目录，调用时通过 `PYTHONPATH` 引用，不能修改全局 Python 或已有环境。Windows L3 使用其已冻结的 `sealed-test/dataset.jsonl`，只报告受控慢速攻击与困难良性；不宣称全新独立 holdout。L2 的可选 A7 未完成时显式记为未准备，不生成占位成绩。
+示例是 T4 调用形态，不是运行授权；`NEW_REGISTERED_ID` 须取新计划登记值，真实读取须先获授权。本次 T1 没有运行该流程。准备新包见 [T1 使用说明](../../docs/p3/t1-tooling.md)。若依赖安装在本次受控目录，调用时通过 `PYTHONPATH` 引用，不能修改全局 Python 或已有环境。Windows L3 使用其已冻结的 `sealed-test/dataset.jsonl`，只报告受控慢速攻击与困难良性；不宣称全新独立 holdout。L2 的 P3 A7 仍未完成时显式记为未准备，不生成占位成绩。
 
 ## 冻结与读取边界
 

@@ -185,7 +185,7 @@ def r5(observations, family, minimum):
                 clockAndContextEligibilityExcluded=True)
 
 
-def analyze_segment(directory, segment, binding, thresholds, minimum, output=None):
+def analyze_segment(directory, segment, binding, thresholds, minimum, output=None, qualifying=frozenset({("model","")})):
     output=Path(output) if output is not None else directory
     output.mkdir(parents=True,exist_ok=True)
     offline = rows(directory/"offline.jsonl")
@@ -272,6 +272,17 @@ def analyze_segment(directory, segment, binding, thresholds, minimum, output=Non
         if not any(qualifies(live_by[r["observationId"]],live_i[r["observationId"]],d["family"],d["source"],d["ruleId"],live_rules,thresholds) for r in d["evidence"]["selectedObservations"]):continue
         alert_batches[observation_batch[d["evidence"]["triggerObservationId"]]].add((d["family"],d["source"]))
         if d["family"]==segment["family"] and (correct_first is None or instant(d["decidedAt"])<correct_first):correct_first=instant(d["decidedAt"])
+    # 按来源：每个来源路径在本片段首个告警批次中的类别；可自动来源首个告警即为本类则 J1-8 成立。
+    source_batches=defaultdict(lambda:defaultdict(set));source_correct={}
+    for d in db_d:
+        if d["decision"] not in ("alert","block_candidate"):continue
+        if not any(qualifies(live_by[r["observationId"]],live_i[r["observationId"]],d["family"],d["source"],d["ruleId"],live_rules,thresholds) for r in d["evidence"]["selectedObservations"]):continue
+        key=(d["source"],d["ruleId"]);source_batches[key][observation_batch[d["evidence"]["triggerObservationId"]]].add(d["family"])
+        if d["family"]==segment["family"]:
+            t=instant(d["decidedAt"]);source_correct[key]=min(source_correct.get(key,t),t)
+    source_first={f"{k[0]}:{k[1]}":sorted(v[min(v)]) for k,v in source_batches.items()}
+    passing=[k for k,v in source_batches.items() if k in qualifying and v[min(v)]=={segment["family"]}]
+    qualified_delay=min(((source_correct[k]-attack_start).total_seconds() for k in passing if k in source_correct),default=None)
     first_batch=min(alert_batches,default=None)
     first_batch_paths=sorted(alert_batches[first_batch]) if first_batch is not None else []
     first_correct_delay=None if correct_first is None else (correct_first-attack_start).total_seconds()
@@ -349,6 +360,8 @@ def analyze_segment(directory, segment, binding, thresholds, minimum, output=Non
                 firstAlertFamily=None if actual_first_alert is None else actual_first_alert[1], firstAlertDelaySeconds=first_alert_delay,
                 firstAlertBatchSequence=first_batch, firstAlertBatchPaths=[dict(family=f,source=src) for f,src in first_batch_paths],
                 firstCorrectClassAlertDelaySeconds=first_correct_delay,
+                sourceFirstAlertFamilies=source_first,qualifyingSourcesWithCorrectFirstAlert=[f"{k[0]}:{k[1]}" for k in passing],
+                qualifiedFirstAlertDelaySeconds=qualified_delay,
                 firstCandidateDelaySeconds=first_candidate_delay, hypotheticalCandidateDecisions=len(candidates),
                 hypotheticalCandidateIncidents=len(candidate_counts), hypotheticalReasons=dict(reasons),
                 qualityEligibleConnections=len(eligible_parents), normalFalseConnections=normal_false,
@@ -366,10 +379,20 @@ def analyze_segment(directory, segment, binding, thresholds, minimum, output=Non
     return result
 
 
+def qualifying_sources(closeout, family):
+    """只取该类已登记的离线来源资格；模型来源同样不能被无条件加入。"""
+    qualification = closeout["classEligibility"].get(family, {})
+    result = {("model", "")} if qualification.get("modelOnly", {}).get("offlineEligible") else set()
+    return result | {("rule", rule) for rule, value in qualification.get("ruleOnly", {}).items() if value.get("offlineEligible")}
+
+
 def assess_round(path, scenario, scenario_sha, output=None):
     output=Path(output) if output is not None else path
     state=read(path/"state.json")
-    artifact=Path.home()/"Workspace/ai/artifacts/cyber-guard/packages/host-guard-round2-20261010-r2"
+    artifacts=Path.home()/"Workspace/ai/artifacts/cyber-guard"
+    artifact=artifacts/scenario.get("packageRef","packages/host-guard-round2-20261010-r2")
+    # 按该类 P6 来源资格判定；只告警规则保留在总体误报、来源与严格读法中。
+    closeout=next(read(p) for p in (artifacts/"replays").glob("*/closeout.json") if sha(p)==scenario["closeoutSha256"])
     policy=read(artifact/"policy-research.json")
     if sha(artifact/"policy-research.json") != scenario["policyRawSha256"]:
         raise ValueError("frozen audit policy hash mismatch")
@@ -378,7 +401,7 @@ def assess_round(path, scenario, scenario_sha, output=None):
     results=[]
     for segment in scenario["segments"]:
         binding=next(r for r in state["bindings"] if r["segmentId"]==segment["segmentId"])
-        results.append(analyze_segment(path/segment["segmentId"],segment,binding,thresholds,minimum.get(segment["family"],1),output/segment["segmentId"]))
+        results.append(analyze_segment(path/segment["segmentId"],segment,binding,thresholds,minimum.get(segment["family"],1),output/segment["segmentId"],qualifying_sources(closeout,segment["family"])))
     all_connections=sum(r["connections"] for r in results)
     mismatch=sum(r["mismatchedConnections"] for r in results)
     normal=[r for r in results if r["family"]=="normal"]
@@ -398,8 +421,12 @@ def assess_round(path, scenario, scenario_sha, output=None):
         group=[r for r in results if r["family"]==family]
         limit=10 if family in ("port_scan","dos_flood") else 20
         # strict：首个告警批次只含本类；perClass：本类最先出现的正确类别告警（模型或规则来源）。两种读法分列，判定口径另行登记。
-        class_results[family]={"J1-8":all(r["firstAlertBatchPaths"] and {p["family"] for p in r["firstAlertBatchPaths"]}=={family} for r in group),
-                               "J1-9":all(r["firstAlertDelaySeconds"] is not None and 0<=r["firstAlertDelaySeconds"]<=limit for r in group),
+        # 判定口径（2026-10-11 登记）：J1-8 按来源——可自动来源（模型，或离线达标规则）在该片段的首个告警为本类；
+        # J1-9 取该来源首个本类告警的时延。只告警规则的错类告警与严格读法（首个告警批次只含本类）另列，不参与判定。
+        class_results[family]={"J1-8":all(r["qualifyingSourcesWithCorrectFirstAlert"] for r in group),
+                               "J1-9":all(r["qualifiedFirstAlertDelaySeconds"] is not None and 0<=r["qualifiedFirstAlertDelaySeconds"]<=limit for r in group),
+                               "J1-8-strict":all(r["firstAlertBatchPaths"] and {p["family"] for p in r["firstAlertBatchPaths"]}=={family} for r in group),
+                               "J1-9-anyFirstAlert":all(r["firstAlertDelaySeconds"] is not None and 0<=r["firstAlertDelaySeconds"]<=limit for r in group),
                                "J1-8-perClass":all(r["firstCorrectClassAlertDelaySeconds"] is not None for r in group),
                                "J1-9-perClass":all(r["firstCorrectClassAlertDelaySeconds"] is not None and 0<=r["firstCorrectClassAlertDelaySeconds"]<=limit for r in group),
                                "J1-10":all(r["firstCandidateDelaySeconds"] is not None and 0<=r["firstCandidateDelaySeconds"]<=limit for r in group)}
@@ -409,6 +436,45 @@ def assess_round(path, scenario, scenario_sha, output=None):
                 normal=dict(qualityEligibleConnections=normal_count,falseConnections=normal_false,falsePositiveRate=normal_false/normal_count if normal_count else None,
                             durationHours=normal_hours,hypotheticalCandidateIncidents=normal_candidates,hypotheticalCandidateIncidentsPerHour=normal_candidates/normal_hours),
                 auditSha256=sha(Path(__file__)),reportIsResearchOnly=True)
+
+
+def runtime_configuration(work, scenario):
+    """并发和墙钟来自实际启动/完成日志；缺证据时标未知，不套用某一轮的固定值。"""
+    starts, finishes = {}, {}
+    for path in sorted(work.glob("run-stdout*.log")):
+        for line in path.read_text().splitlines():
+            try:
+                value = json.loads(line)
+            except (ValueError, TypeError):
+                continue
+            if not isinstance(value, dict) or "round" not in value:
+                continue
+            if value.get("event") == "replay_started":
+                starts[value["round"]] = value
+            elif value.get("event") == "replay_completed":
+                finishes[value["round"]] = value
+    return dict(independentCaptureDomains=len(scenario["segments"]), rounds=[dict(
+        round=number, normalConcurrency=starts.get(number, {}).get("normalConcurrency"),
+        attackConcurrency=starts.get(number, {}).get("attackConcurrency"),
+        speedPerSegment=starts.get(number, {}).get("speedPerSegment"),
+        elapsedSeconds=finishes.get(number, {}).get("elapsedSeconds")) for number in (1, 2)])
+
+
+def run_limitations(work, scenario, configuration):
+    configs = configuration["rounds"]
+    concurrency = "; ".join(f"第 {r['round']} 轮正常并发 {r['normalConcurrency']}、攻击并发上限 {r['attackConcurrency']}" for r in configs
+                            if r["normalConcurrency"] is not None and r["attackConcurrency"] is not None)
+    elapsed = "/".join(f"{r['elapsedSeconds']/60:.2f}" for r in configs if r["elapsedSeconds"] is not None)
+    shortest = min((s for s in scenario["segments"] if s["family"] == "port_scan"), key=lambda s:s["observedDurationSeconds"], default=None)
+    recovery = any(work.glob("round-*/*/drain-report*.json")) or any(work.glob("backend-resume*.log"))
+    result = ["公开基准 validation 演练不授予真实资产自动执行资格。",
+              f"{configuration['independentCaptureDomains']} 个独立虚拟捕获域；{concurrency or '实际并发缺运行日志证据'}。不能证明全网覆盖或单域合并正常与攻击时的误报。",
+              f"正常片段累计 {scenario['normalDurationSeconds']/60:.2f} 分钟是事件时长之和；两轮墙钟 {elapsed+' 分钟' if elapsed else '缺运行日志证据'}，不能当作连续独立正常样本。",
+              "每类多个时间窗口不等于多个独立攻击来源。" + (f"{shortest['segmentId']} 只有 {shortest['observedDurationSeconds']:.6f} 秒报文跨度。" if shortest else ""),
+              "假想准备度排除现场健康、目标、执行授权、保护/预算门禁；actionable 始终为 false。"]
+    if recovery:
+        result.append("恢复只续传同一冻结二进制/原证书和 spool；原采集、确认与等待时间计入开销。")
+    return result
 
 
 def assess_all(work, audited=False, audit_root=None):
@@ -423,8 +489,10 @@ def assess_all(work, audited=False, audit_root=None):
     pf_equal=pf_before[1:]==pf_after[1:]
     # 无免密 sudo 时以权限边界代替全局快照：后端与全部 guardlive 均非 root，且运行期间无执行器/pfctl 进程。
     privileges=[read(work/f"round-{r}/privileges.json") for r in (1,2) if (work/f"round-{r}/privileges.json").exists()]
-    privilege_proof=len(privileges)==2 and all(x["runnerUid"]!=0 and len(x["processes"])==len(scenario["segments"])+1
-                                                and all(q["uid"]!=0 for q in x["processes"]) and not x["executorOrPfctlProcesses"] for x in privileges)
+    # 每次启动 guardlive 时记录后端与该进程的有效 uid 及执行器/pfctl 进程；旧格式为单个对象。
+    entries=[e for x in privileges for e in (x if isinstance(x,list) else [x])]
+    privilege_proof=len(privileges)==2 and len(entries)>=2*len(scenario["segments"]) and all(x["runnerUid"]!=0 and len(x["processes"])>=2
+                                                and all(q["uid"]!=0 for q in x["processes"]) and not x["executorOrPfctlProcesses"] for x in entries)
     os_rules_proof="pf_snapshot" if pf_verified else "privilege_boundary" if privilege_proof else None
     safety &= (pf_verified and pf_equal) or (not pf_verified and privilege_proof)
     left={r["segmentId"]:r for r in reports[0]["segmentResults"]}
@@ -440,6 +508,7 @@ def assess_all(work, audited=False, audit_root=None):
     classes={family:{key:all(r["classGates"][family][key] for r in reports) for key in ("J1-8","J1-9","J1-10")} for family in reports[0]["classGates"]}
     m2=[f for f,g in classes.items() if g["J1-8"] and g["J1-9"] and g["J1-10"]]
     passed=all(gates.values()) and all(g["J1-8"] and g["J1-9"] for g in classes.values())
+    configuration=runtime_configuration(work,scenario)
     summary=dict(stage="J1",executionCompleted=True,j1Passed=passed,scenarioSha256=sha(work/"scenario.json"),globalGates=gates,classGates=classes,
                  plannedM2=m2,m2MinimumMet=len(m2)>=2 and "brute_force" in m2,J2Allowed=passed and len(m2)>=2 and "brute_force" in m2,
                  testRead=False,newFits=0,thresholdsChanged=False,commandDelta=after["counts"]["guard_command"]-before["counts"]["guard_command"],
@@ -453,10 +522,7 @@ def assess_all(work, audited=False, audit_root=None):
                                       classificationProofSha256=sha(work/"classification-reproducibility.json")),
                  bindings={k:scenario[k] for k in ["modelSha256","manifestSha256","policySha256","sensorSha256","backendSha256","extractorSha256","deliveryInventorySha256"]},
                  pfFinalSnapshot=str(final_pf.relative_to(work)),
-                 limitations=["公开基准 validation 演练不授予真实资产自动执行资格。","18 个独立虚拟捕获域并发，不能证明全网覆盖或单域合并正常与攻击时的误报。",
-                              "正常片段累计约 49.74 分钟是六段事件时长之和，墙钟并发运行约 9 分钟。","每类三段时间窗口不等于三个独立攻击来源；第三扫描片段只有约 0.039 秒报文跨度。",
-                              "中断后以同一冻结二进制/原证书和 spool 续传；采集未重复，原等待时间计入开销。",
-                              "假想准备度排除现场健康、目标、执行授权、保护/预算门禁；actionable 始终为 false。"],
+                 runConfiguration=configuration,limitations=run_limitations(work,scenario,configuration),
                  fallback="按计划 9.3 查明 S/B/T；不足类别仅告警，M2 不满足 brute_force 加另一类时停止 J2/P8，不降低标准。" if not passed or len(m2)<2 or "brute_force" not in m2 else None)
     destination=work/("summary-audit-final.json" if audited else "summary.json")
     if audited:
@@ -498,7 +564,14 @@ def assess_all(work, audited=False, audit_root=None):
         proof=read(policy_projection)
         lines += ["", "## M1 原策略与 MySQL 投影精度", "", f"冻结 research/M1 的来源数值相同，原策略 canonical 摘要仍与登记相同。B3 已知的 MySQL JSON 精度问题在本次隔离副本继续存在：{len(proof['differences'])} 个 alert/auto 阈值发生末位变化，MySQL 投影摘要为 `{proof['mysqlProjectionCanonicalSha256']}`。两轮使用同一投影，离线参照读取同一来源策略；因此不能宣称数据库投影数值逐位无损。纯 JSON 查询复现该差异，未调阈值，归 B。", "",
                   "逐项差异见 policy-mysql-roundtrip-diagnosis.json；对冻结 ONNX float32 分数的比较区间另核验，不能据此删除严格精度失败记录。", ""]
-    (work/"REPORT.md").write_text("\n".join(lines)+"\n")
+    report_path=work/"REPORT.md"
+    if report_path.exists():
+        revision=1
+        preserved=work/f"REPORT-before-audit-v{revision}.md"
+        while preserved.exists():
+            revision+=1;preserved=work/f"REPORT-before-audit-v{revision}.md"
+        preserved.write_bytes(report_path.read_bytes())
+    report_path.write_text("\n".join(lines)+"\n")
     return summary
 
 
@@ -543,11 +616,11 @@ def detailed_report(work,scenario,reports):
     for report in reports:
         segments=report["segmentResults"];normal=report["normal"]
         lines.append(f"| {report['round']} | {sum(s['observations'] for s in segments)} | {report['connections']} | {normal['falseConnections']}/{normal['qualityEligibleConnections']} | {report['mismatchedConnections']} | {sum(s['inferenceFailures'] for s in segments)} | {sum(s['inferenceTimeouts'] for s in segments)} | {sum(s.get('clockKnownSnapshots',0) for s in segments)} |")
-    lines += ["", "| 轮次/片段 | 首次类别（模型/规则） | 首次告警秒 | P95 决策秒 | P95 提交上界秒 | 最后报文后归零秒 |", "|---|---|---:|---:|---:|---:|"]
+    lines += ["", "| 轮次/片段 | 首次类别（模型/规则） | 任意首报秒 | 合资格本类首报秒 | P95 决策秒 | P95 提交上界秒 | 最后报文后归零秒 |", "|---|---|---:|---:|---:|---:|---:|"]
     for report in reports:
         for s in report["segmentResults"]:
-            lines.append(f"| {report['round']}/{s['segmentId']} | {s['firstAlertFamily'] or '无'}（{s.get('firstModelAlertFamily') or '无'}/{s.get('firstRuleAlertFamily') or '无'}） | {number(s['firstAlertDelaySeconds'])} | {number(s['p95EmissionToDecisionSeconds'])} | {number(s['p95EmissionToCommitUpperBoundSeconds'])} | {s['drainAfterLastPacketSeconds']:.3f} |")
-    lines += ["", "J1-9 单列首次任意告警的时间，首次类别正确另由 J1-8 判定；错误类别的早告警不能据此取得类别资格。提交上界使用真实 T2 响应后持久 spool ack 的 mtime；它包括排队、事务提交和应答等待。原始 live-report 的 upload_incomplete/非零退出均保留，续传比较摘要不覆盖采集时间或原状态。", "",
+            lines.append(f"| {report['round']}/{s['segmentId']} | {s['firstAlertFamily'] or '无'}（{s.get('firstModelAlertFamily') or '无'}/{s.get('firstRuleAlertFamily') or '无'}） | {number(s['firstAlertDelaySeconds'])} | {number(s.get('qualifiedFirstAlertDelaySeconds'))} | {number(s['p95EmissionToDecisionSeconds'])} | {number(s['p95EmissionToCommitUpperBoundSeconds'])} | {s['drainAfterLastPacketSeconds']:.3f} |")
+    lines += ["", "J1-8 按该类离线合资格来源路径的首个告警批次类别判定；J1-9 取此来源首个本类告警时延。低精度只告警规则的错误早报仍保留，但不借其取得类别资格。提交上界使用真实 T2 响应后持久 spool ack 的 mtime，包含排队、事务提交和应答等待；续传不能覆盖原时延。", "",
               "## R3：整组 profile 与最新替换", "", "| 轮次 | prefix-only | mixed | final-only | prefix→final 替换 | 选中旧快照次数 |", "|---|---:|---:|---:|---:|---:|"]
     for report in reports:
         groups=Counter();reasons=defaultdict(Counter)
@@ -558,7 +631,7 @@ def detailed_report(work,scenario,reports):
         stale=sum(s["r3"]["selectedSupersededSnapshotReferences"] for s in report["segmentResults"])
         lines.append(f"| {report['round']} | {groups['prefix_only']} | {groups['mixed']} | {groups['final_only']} | {replacements} | {stale} |")
         lines += ["", f"第 {report['round']} 轮假想拒绝原因（逐决策）：`{json.dumps({k:dict(v) for k,v in reasons.items()},ensure_ascii=False,sort_keys=True)}`。", ""]
-    lines += ["整组 mixed/final 的 capability 拒绝保留；同 parent 的 final/降分/改类会替换旧 prefix，选中投影不回退旧高分快照凑数。离线相同分组和拒绝原因见每段 r3.reference；本次不验证领取时更新，因为无执行器与命令领取。", "",
+    lines += ["按冻结策略的 acceptedProfiles（缺省仅 profile）逐条核验整组；同 parent 的 final/降分/改类替换旧 prefix，不回退旧高分快照凑数。各组实际拒绝原因见表及 r3.reference；本次没有命令领取验证。", "",
               "## R5：10 秒窗口的质量连接", "", "机会按 source/service/asOf 的全部同刻更新之后计一次，latest parent 只保留最新，超出 10 秒剔除。纯质量分子检查 captureGap/latePacket/truncated/offloadSuspected/capacityDrop；时钟、profile capability、分数、上下文资格另列。", "",
               "| 轮次/片段 | 下限 | 质量达到下限/机会 | prefix 达到下限/机会 | 质量快照/全部 | offload | 最大质量连接 |", "|---|---:|---|---|---|---:|---:|"]
     for report in reports:
@@ -566,12 +639,15 @@ def detailed_report(work,scenario,reports):
             r=s["r5"]
             if r:
                 lines.append(f"| {report['round']}/{s['segmentId']} | {r['minDistinctFlows']} | {r['qualityQualifiedOpportunities']}/{r['opportunities']} ({r['qualityQualifiedRatio']:.2%}) | {r['prefixQualifiedOpportunities']}/{r['opportunities']} ({r['prefixQualifiedRatio']:.2%}) | {r['qualityQualifiedSnapshots']}/{r['snapshots']} ({r['qualitySnapshotRatio']:.2%}) | {r['offloadSuspected']} | {r['maxQualityDistinctFlows']} |")
-    lines += ["", "达到纯质量连接下限仍须通过整组 capability、时钟和上下文门禁。本次未知 clockSkewMs 不造为 0，也不放宽 offloadSuspected；质量结果不能替代自动资格。", "",
+    segments=[s for report in reports for s in report["segmentResults"]]
+    known=sum(s.get("clockKnownSnapshots",0) for s in segments);observations=sum(s["observations"] for s in segments)
+    p95=max((s["p95EmissionToCommitUpperBoundSeconds"] or 0 for s in segments),default=0)
+    lines += ["", "纯质量连接下限与完整自动资格分开，保留 offloadSuspected、时钟、上下文和 profile 门禁。", "",
               "## 退回与保底", "",
-              "- S：guardlive 上传心跳测到偏差，但当前引擎未将该测值写入观察 quality.clockSkewMs；假想准备度保留 CLOCK_UNTRUSTED 拒绝。需按真实测量与过期边界修复，不伪造零偏差。",
-              "- B：18 域并发与双 HTTP/推理槽的冻结运行出现积压、应答超时及同一 T1 摘要的 T2 并发重试；恢复仅重发原 spool。先检查批处理成本、事务快照/重复消费、规则早于正确类别触发及连接告警差异；未解释差异保留为缺陷。MySQL 8 JSON 往返另有浮点末位变化：直接二进制 DOUBLE 保留原值，但同值经 CAST AS JSON 再取 DOUBLE 会改变；Java 解析/JCS 未改变。严格逐字段口径保持失败，不加容差隐藏。",
-              "- T：模型来源与规则来源分别记录；模型路径的漏报/错类只能在 validation 查根因，新增拟合须有新预算。本次不针对 J1 片段调阈值，不使用 test。",
-              "- 计划 M2 不足至少两类且含 brute_force 时，执行 9.3 保底：保持只告警，停止 J2/P8，不降低标准。", ""]
+              f"- S：本轮 {known}/{observations} 条观察带在线实测时钟偏差；离线保持 null。是否通过链路一致性按 J1-1 的逐字段结果判定。",
+              f"- B：本轮最大分段 P95 提交上界 {p95:.3f} 秒；J1-5 仍要求所有片段 ≤2 秒且最后报文后 30 秒内排空。JSON 原文、推理及连接差异按本轮事实核验，不套用历史失败原因。",
+              "- T/R5：未满足的类别按来源与质量分别定位；只在 validation 查因，不针对 J1 调阈值或新增拟合。历史 PCAP 的 offload 标记不能由当前 Mac 系统配置抹除。",
+              "- J1-1—7 与四类 J1-8/9 须全部通过才能进入 J2。M2 保底线（至少两类且含 brute_force）单独判定，达到保底线不豁免 J1 的失败项。", ""]
     return lines
 
 

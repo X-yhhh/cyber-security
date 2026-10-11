@@ -18,6 +18,9 @@ public class GuardArtifacts {
             byte[] bytes=Files.readAllBytes(p);require(bytes.length<=max,"ARTIFACT_TOO_LARGE");if(expected!=null)require(sha(bytes).equals(expected),"ARTIFACT_HASH_MISMATCH");return bytes;
         }catch(IOException e){throw error(422,"ARTIFACT_UNAVAILABLE");}
     }
+    /** 只解析经同一白名单与根目录约束的真实路径，用于元数据指纹；内容仍须经 read 校验。 */
+    public Path path(String ref)throws IOException{require(root!=null,"ARTIFACT_ROOT_NOT_CONFIGURED");require(ref!=null&&ref.matches("[A-Za-z0-9][A-Za-z0-9._/-]{0,240}")&&!ref.contains(".."),"ARTIFACT_REFERENCE_INVALID");
+        Path base=root.toRealPath(),p=base.resolve(ref).toRealPath();require(p.startsWith(base)&&Files.isRegularFile(p),"ARTIFACT_REFERENCE_INVALID");return p;}
     public JsonNode json(String ref,String expected){return parse(new String(read(ref,expected,1024*1024),java.nio.charset.StandardCharsets.UTF_8));}
     public static String sibling(String ref,String name){int i=ref.lastIndexOf('/');return (i<0?"":ref.substring(0,i+1))+name;}
 }

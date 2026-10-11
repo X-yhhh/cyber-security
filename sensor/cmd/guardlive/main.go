@@ -253,6 +253,7 @@ func run() error {
 	pcapPath := flag.String("pcap", "", "以 1 倍速只读回放冻结 PCAP/PCAPNG（research），不打开网卡、不注入报文")
 	startAt := flag.String("start", "", "-pcap 可选分区起点 RFC3339（原事件时间）")
 	endAt := flag.String("end", "", "-pcap 可选分区终点 RFC3339（原事件时间）")
+	captureAt := flag.String("capture-start", "", "-pcap 可选采集起点 RFC3339（原事件时间）：引擎与上下文覆盖从此起算，须不晚于首个报文")
 	report := flag.String("report", "", "可选：不存在的去敏运行摘要")
 	drain := flag.Bool("drain", false, "只续传 upload.spoolDir 中本 bootId 未确认的批次，不采集")
 	drainTimeout := flag.Duration("drain-timeout", 60*time.Second, "结束时等待上传确认的上限")
@@ -402,7 +403,13 @@ func run() error {
 		if !begin.IsZero() && !end.IsZero() && !begin.Before(end) {
 			return fmt.Errorf("分区范围无效")
 		}
-		res, err := hostguard.ReplayPCAP(ctx, *pcapPath, e, hostguard.ReplayOptions{Start: begin, End: end, Observe: func(s hostguard.LiveSample) { lastSample = s; observe(s) }})
+		var capture time.Time
+		if *captureAt != "" {
+			if capture, err = time.Parse(time.RFC3339Nano, *captureAt); err != nil {
+				return fmt.Errorf("capture-start 时间无效")
+			}
+		}
+		res, err := hostguard.ReplayPCAP(ctx, *pcapPath, e, hostguard.ReplayOptions{Start: begin, End: end, CaptureStart: capture, Observe: func(s hostguard.LiveSample) { lastSample = s; observe(s) }})
 		if err != nil {
 			return fmt.Errorf("回放未完成: %w", err)
 		}
@@ -412,7 +419,7 @@ func run() error {
 		}
 		// 原事件时间与墙钟分开：观察内事件时间 = 原时间 + timeOffsetMicros；emittedAt 为真实墙钟。
 		summary["replay"] = map[string]any{"speed": 1, "timeOffsetMicros": res.Offset.Microseconds(), "sourceFirstPacketAt": res.SourceFirst, "sourceLastPacketAt": res.SourceLast,
-			"wallStartedAt": res.WallStart, "wallFinishedAt": res.WallEnd, "packets": res.Packets, "maxLagMs": res.MaxLag.Milliseconds(), "pcapSha256": pcapHash, "partitionStart": *startAt, "partitionEnd": *endAt}
+			"wallStartedAt": res.WallStart, "wallFinishedAt": res.WallEnd, "packets": res.Packets, "maxLagMs": res.MaxLag.Milliseconds(), "pcapSha256": pcapHash, "partitionStart": *startAt, "partitionEnd": *endAt, "captureStart": *captureAt}
 	default:
 		summary["mode"] = "live"
 		if *duration < time.Second || *duration > 30*time.Minute || time.Now().Add(*duration).After(c.AuthorizedUntil) {

@@ -87,3 +87,9 @@ bin/guardreplaydiff -offline <guardextract 输出> -replay <上一步输出> -re
 ## P5 本机目标服务
 
 新增 `cmd/guardtargets`，将 P2 易失注册表以独立回环 mTLS 服务运行；不持有防火墙权限。保留旧lease/resolve，新增resolve-lease返回原始lastPacketAt/expiresAt，供P5在安装前核验新鲜度。配置包含明确期限和collector/executor分离证书指纹；退出销毁引用，执行器boot变化须重新配对。构建为 `go build -o bin/guardtargets ./cmd/guardtargets`，运行与执行器对接见[执行器说明](../executor/README.md)。现有guardlive仍是research入口，不因新增目标服务自动取得真实执行资格。
+
+## J1 V3 v8 research 收口边界（2026-10-11）
+
+两轮 1 倍速文件回放已经完成，观察/模型/规则/决策经真实 mTLS 进入隔离 MySQL 副本，正式证据见 `.cache/j1-20261011-v8/REPORT.md` 与 `.cache/j1v3-20261011/closeout.json`。J1 未通过，J2/P8 保持关闭；research 未接 target 或执行器，动作/命令增量为 0，研究组合已批准但未激活。此结果不能证明真实接口长期采集、全入站健康链或自动处置资格。
+
+A7 本轮只完成本机配置与恢复检查：`en0` 活跃、TSO4/TSO6 开启、`net.inet.tcp.tso=1`；没有免密 sudo，`pfctl` 因 `/dev/pf` 权限拒绝。未改变网卡、sysctl、PF、服务或系统配置；静态 PF ABI 与恢复单测通过不等于全局 PF 快照验证。历史 CIC PCAP 的 offload/质量事实不能通过当前本机 TSO 检查修复，本轮不进行实时对端流量对照。

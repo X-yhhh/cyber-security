@@ -372,7 +372,7 @@ class GuardIntegrationTest {
         ObjectNode late=(ObjectNode)receipt.deepCopy();late.put("receiptId",id()).put("status","applied").put("ruleHandle","fixture-rule").set("effectiveBlockUntil",command.at("/payload/blockUntil"));late.putNull("revocationId");machine("/executors/"+f.executor+"/receipts",late,f.executorCredential);assertThat(str(store.external("guard_action",aid,false),"observed_state")).isEqualTo("revoked");
     }
     void accept(Fixture f,List<? extends JsonNode> observations,long sequence,boolean consume)throws Exception{
-        var b=batch(f,observations,sequence);assertThat(machine("/sensors/"+f.sensor+"/observation-batches",b,f.sensorCredential).path("acceptedCount").asInt()).isEqualTo(observations.size());
+        var b=batch(f,observations,sequence);var receipt=machine("/sensors/"+f.sensor+"/observation-batches",b,f.sensorCredential);assertThat(receipt.path("acceptedCount").asInt()).withFailMessage("receipt=%s",receipt).isEqualTo(observations.size());
         if(consume)detection.consume(id(),"guard.observation.accepted",object("batchId",b.get("batchId")));
     }
     @Test void scanGroupsPortsButKeepsModelRuleAndIdentitySeparate()throws Exception{
@@ -391,6 +391,26 @@ class GuardIntegrationTest {
         accept(f,List.of(different),2,true);var isolated=store.one("guard_episode",map("asset_id",asset.get("id"),"key_epoch",2,"source","model"),false);assertThat(store.rows("guard_episode_evidence",map("episode_id",isolated.get("id")),false,10)).hasSize(1);
         var target=store.one("guard_target_binding",map("target_ref",f.target),false);var policy=json(store.external("guard_decision_policy",f.policy,false),"definition_json");
         assertThat(new GuardEligibility(store,true,ROOT.resolve("protection.json").toString()).target(target,first,store.now(),policy,"dos_slow")).isFalse();
+    }
+    /** 多服务端口批次不能交叉关联生成键；下一批 final/规则未命中必须覆盖旧命中证据。 */
+    @Test void manyServicePortsKeepTheirOwnEvidenceAndFinalReplacesEachRuleHit()throws Exception{
+        var rule=object("ruleId","brute-duration","family","brute_force","field","features.elapsedMs","operator","gte","threshold",4000,"autoEligible",false);
+        Fixture f=setup("brute_force",List.of(rule));Instant at=Instant.now().truncatedTo(ChronoUnit.SECONDS);
+        var first=new ArrayList<ObjectNode>();var second=new ArrayList<ObjectNode>();
+        for(int port=2000;port<2020;port++){
+            String parent=id();first.add(observation(f,at,parent,0).put("servicePort",port));
+            var updated=observation(f,at.plusMillis(1),parent,1).put("servicePort",port).put("profile","flow-final-v1").put("closeReason","eof");
+            updated.put("firstSeenAt",time(updated,"asOf").minusSeconds(1).toString());((ObjectNode)updated.path("features")).put("elapsedMs",1000);second.add(updated);
+        }
+        accept(f,first,1,true);var asset=store.external("asset",f.asset,false);
+        var before=store.rows("guard_episode",map("asset_id",asset.get("id"),"source","rule"),false,100);assertThat(before).hasSize(20);
+        for(var episode:before){var e=store.one("guard_episode_evidence",map("episode_id",episode.get("id")),false);
+            var o=store.get("guard_observation",number(e,"observation_id"));assertThat(o.get("service_port")).isEqualTo(episode.get("service_port"));assertThat(GuardDetection.flag(e.get("rule_matched"))).isTrue();}
+        accept(f,second,2,true);
+        assertThat(store.rows("guard_episode",map("asset_id",asset.get("id"),"source","rule"),false,100)).hasSize(20);
+        for(var episode:before){var e=store.one("guard_episode_evidence",map("episode_id",episode.get("id")),false);
+            assertThat(GuardDetection.flag(e.get("rule_matched"))).isFalse();assertThat(store.get("guard_observation",number(e,"observation_id")).get("profile")).isEqualTo("flow-final-v1");
+            assertThat(str(store.one("guard_decision",map("episode_id",episode.get("id")),false),"decision")).isEqualTo("observe");}
     }
     /** B1：全入站豁免五条件满足时 lab 可签发全入站命令并审计预期区间；能力集合不符只下发撤销。 */
     @Test void exemptInboundCapabilityIssuesCommandWithAuditedRangesInLab()throws Exception{

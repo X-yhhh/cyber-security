@@ -34,7 +34,9 @@ public class GuardDetection {
     /** 已推理的观察及其不可变推理事实。 */
     public record Scored(Map<String,Object> observation,Map<String,Object> inference){}
     /** 本批触及的 episode 路径；trigger 为该路径本批最后到达（按 asOf 排序）的最新快照。 */
-    private record Touch(Map<String,Object> episode,Map<String,Object> trigger,String family,String source,String ruleId,String scope){}
+    private record Touch(Map<String,Object> episode,Map<String,Object> trigger,String family,String source,String ruleId,String scope,List<JsonNode> selections){}
+    /** 最新观察的一条来源路径；组合键只读，不能把回填主键的可变插入行用作 HashMap 键。 */
+    private record Stage(Map<String,Object> key,Map<String,Object> observation,Map<String,Object> inference,String family,String source,String ruleId,String scope,boolean matched,boolean create){}
     /** 模型类别与每条规则独立成桶；未命中事实也保留，降分和改类覆盖旧投影。 */
     public JsonNode correlate(Map<String,Object> observation,Map<String,Object> inference,Map<String,Object> bundle,Map<String,Object> binding){return correlate(observation,inference,bundle,binding,null);}
     /** J1 研究旁路追加不可执行的准备度证明，正式绑定仍走原有门禁。 */
@@ -48,51 +50,86 @@ public class GuardDetection {
      */
     public JsonNode correlate(List<Scored> batch,Map<String,Object> bundle,Map<String,Object> binding,JsonNode hypotheticalPolicy){
         var p=store.get("guard_decision_policy",number(bundle,"policy_id"));JsonNode policy=json(p,"definition_json");JsonNode result=object("decision","observe");
-        Map<Long,Touch> touched=new LinkedHashMap<>();Map<Map<String,Object>,Map<String,Object>> episodes=new HashMap<>();
+        if(batch.isEmpty())return result;
+        // 先按固定顺序持有资产锁，再批量读取最新性/episode/projection；与原逐条路径保留同一事务和因果排序。
+        var memo=new HashMap<List<Object>,Object>();
+        batch.stream().map(s->number(s.observation(),"asset_id")).distinct().sorted().forEach(aid->memo.put(List.of("asset",aid),store.lockAsset(aid)));
+        var latest=mapper.latestObservationIds(batch.stream().map(s->number(s.observation(),"id")).toList());
+        Map<Long,Touch> touched=new LinkedHashMap<>();List<Map<String,Object>> ruleFacts=new ArrayList<>();List<Stage> stages=new ArrayList<>();
         for(var item:batch){
             var observation=item.observation();var inference=item.inference();JsonNode o=json(observation,"payload_json");
             require(hypotheticalPolicy==null||(binding==null&&"research".equals(o.path("environment").asText())),"REPLAY_REAL_TARGET_FORBIDDEN");
-            boolean latest=latest(observation);
+            boolean current=latest.contains(number(observation,"id"));
             for(JsonNode fp:policy.path("familyPolicies")){
-                String family=fp.path("family").asText();stage(touched,episodes,observation,o,inference,bundle,policy,family,"model","",false,family.equals(str(inference,"family")),latest);
+                String family=fp.path("family").asText();if(current)stages.add(path(observation,o,inference,bundle,policy,family,"model","",false,family.equals(str(inference,"family"))));
             }
             for(JsonNode rule:policy.path("rulePolicies")){
                 var evaluation=GuardRules.evaluate(rule,o);String ruleId=rule.path("ruleId").asText(),family=rule.path("family").asText();
-                store.add("guard_rule_evaluation",map("asset_id",observation.get("asset_id"),"observation_id",observation.get("id"),"policy_id",bundle.get("policy_id"),"rule_version","host-guard-rules/1","rule_id",ruleId,"family",family,"matched",evaluation.matched(),"applicable",evaluation.applicable(),"payload_json",canonical(object("rule",rule,"value",evaluation.value(),"asOf",o.get("asOf"),"matched",evaluation.matched(),"applicable",evaluation.applicable()))));
-                stage(touched,episodes,observation,o,inference,bundle,policy,family,"rule",ruleId,evaluation.matched(),evaluation.matched(),latest);
+                ruleFacts.add(map("asset_id",observation.get("asset_id"),"observation_id",observation.get("id"),"policy_id",bundle.get("policy_id"),"rule_version","host-guard-rules/1","rule_id",ruleId,"family",family,"matched",evaluation.matched(),"applicable",evaluation.applicable(),"payload_json",canonical(object("rule",rule,"value",evaluation.value(),"asOf",o.get("asOf"),"matched",evaluation.matched(),"applicable",evaluation.applicable()))));
+                if(current)stages.add(path(observation,o,inference,bundle,policy,family,"rule",ruleId,evaluation.matched(),evaluation.matched()));
             }
         }
-        for(var touch:touched.values())result=decide(touch,bundle,binding,p,policy,hypotheticalPolicy);
+        if(!ruleFacts.isEmpty())store.addAll("guard_rule_evaluation",ruleFacts);
+        project(stages,touched);
+        // 批内只读事实（模型、健康窗口、批次连续性、匹配能力）在同一事务中不变，按键复用，避免每个 episode 重复查询。
+        for(var touch:touched.values()){
+            // 证据选择审计按 episode 每批一条，按到达顺序列出本批全部选中与被替换的快照。
+            store.audit(null,"guard.episode.evidence_selected",str(touch.episode(),"public_id"),number(touch.episode(),"asset_id"),null,object("selections",touch.selections()));
+            result=decide(touch,bundle,binding,p,policy,hypotheticalPolicy,memo);}
         return result;
     }
-    /** 更新 episode 中该 parent 的最新证据；非最新快照、或尚无 episode 且不应新建时不触及。 */
-    private void stage(Map<Long,Touch> touched,Map<Map<String,Object>,Map<String,Object>> episodes,Map<String,Object> observation,JsonNode o,Map<String,Object> inference,Map<String,Object> bundle,JsonNode policy,String family,String detectionSource,String ruleId,boolean matched,boolean create,boolean latest){
-        if(!latest)return;
+    /** 组合键与处置作用域保持原语义；此处不查询或创建数据库事实。 */
+    private Stage path(Map<String,Object> observation,JsonNode o,Map<String,Object> inference,Map<String,Object> bundle,JsonNode policy,String family,String detectionSource,String ruleId,boolean matched,boolean create){
         long aid=number(observation,"asset_id");String scope=GuardDecisionEngine.familyPolicy(policy,family).path("scope").asText("peer_service");
         // 出站扫描只能按原服务记录告警；不能创建仅允许入站的全端口处置作用域。
         if(scope.equals("peer_inbound")&&!"inbound".equals(str(observation,"direction")))scope="peer_service";
         Object servicePort=scope.equals("peer_inbound")?null:observation.get("service_port");if(servicePort==null&&!scope.equals("peer_inbound"))servicePort=0;
         var key=map("asset_id",aid,"sensor_id",observation.get("sensor_id"),"boot_id",observation.get("boot_id"),"peer_key",observation.get("peer_key"),"key_epoch",observation.get("key_epoch"),"direction",observation.get("direction"),"transport",observation.get("transport"),"service_port",servicePort,"family",family,"scope",scope,"source",detectionSource,"rule_id",ruleId,"bundle_id",bundle.get("id"),"bucket_start",db(Instant.ofEpochSecond(time(o,"asOf").getEpochSecond()/30*30)));
-        // 查找走唯一键 uk_guard_episode 的生成列 service_port_key；按可空 service_port 查只能用前缀，
-        // 会扫描并锁住同一对端的全部 episode（端口扫描时成千上万条）。插入仍写原列，生成列由库计算。
-        var lookup=new LinkedHashMap<>(key);lookup.remove("service_port");lookup.put("service_port_key",servicePort==null?0:servicePort);
-        var episode=episodes.get(key);if(episode==null){episode=store.one("guard_episode",lookup,true);if(episode!=null)episodes.put(key,episode);}
-        if(episode==null){if(!create)return;episode=store.add("guard_episode",key);episode=store.get("guard_episode",number(episode,"id"));episodes.put(key,episode);}
-        var prev=store.one("guard_episode_evidence",map("episode_id",episode.get("id"),"parent_connection_id",observation.get("parent_connection_id"),"source",detectionSource,"rule_id",ruleId),true);
+        return new Stage(Collections.unmodifiableMap(columns(key,key.keySet())),observation,inference,family,detectionSource,ruleId,scope,matched,create);
+    }
+    /** SQL 等值组合键归一化：JDBC 的 unsigned BIGINT/生成键可分别为 BigInteger/Long，DATETIME 也可为 Timestamp。 */
+    private static Map<String,Object> columns(Map<String,Object> row,Set<String> columns){var result=new LinkedHashMap<String,Object>();for(String key:columns){Object v=row.get(key);result.put(key,v instanceof Number n?n.longValue():v instanceof java.util.Date d?db(d.toInstant()):v);}return result;}
+    private static Map<String,Object> evidenceKey(Stage stage,Map<String,Object> episode){return map("episode_id",number(episode,"id"),"parent_connection_id",stage.observation().get("parent_connection_id"),"source",stage.source(),"rule_id",stage.ruleId());}
+    /** 批量锁定有限组合键，严格新增 episode 与证据；降分/改类仍替换全部已存在路径，不能只处理命中路径。 */
+    private void project(List<Stage> stages,Map<Long,Touch> touched){
+        if(stages.isEmpty())return;
+        var keys=stages.stream().map(Stage::key).distinct().toList();var lookups=new ArrayList<Map<String,Object>>();
+        for(var key:keys){var lookup=new LinkedHashMap<>(key);Object port=lookup.remove("service_port");lookup.put("service_port_key",port==null?0:port);lookups.add(lookup);}
+        var episodes=new HashMap<Map<String,Object>,Map<String,Object>>();
+        for(int i=0;i<lookups.size();i+=500)for(var row:mapper.selectKeys("guard_episode",lookups.subList(i,Math.min(i+500,lookups.size())),true))episodes.put(columns(row,keys.getFirst().keySet()),row);
+        var inserts=new LinkedHashMap<Map<String,Object>,Map<String,Object>>();
+        for(var stage:stages)if(stage.create()&&!episodes.containsKey(stage.key()))inserts.computeIfAbsent(stage.key(),k->{var row=new LinkedHashMap<>(k);row.put("revision",1L);return row;});
+        if(!inserts.isEmpty()){store.addAllReturning("guard_episode",new ArrayList<>(inserts.values()));episodes.putAll(inserts);}
+        var evidenceKeys=stages.stream().filter(s->episodes.containsKey(s.key())).map(s->evidenceKey(s,episodes.get(s.key()))).distinct().toList();
+        var priorEvidence=new HashMap<Map<String,Object>,Map<String,Object>>();
+        for(int i=0;i<evidenceKeys.size();i+=500)for(var row:mapper.evidenceKeys(evidenceKeys.subList(i,Math.min(i+500,evidenceKeys.size()))))priorEvidence.put(columns(row,evidenceKeys.getFirst().keySet()),row);
+        var addedEvidence=new ArrayList<Map<String,Object>>();
+        for(var stage:stages){var episode=episodes.get(stage.key());if(episode==null)continue;
+            stage(touched,stage,episode,priorEvidence.get(evidenceKey(stage,episode)),addedEvidence);}
+        if(!addedEvidence.isEmpty())store.addAll("guard_episode_evidence",addedEvidence);
+    }
+    /** 更新 parent 最新投影，审计引用原观察 UUID；新增事实在批末统一写入，再进入判定。 */
+    private void stage(Map<Long,Touch> touched,Stage stage,Map<String,Object> episode,Map<String,Object> prev,List<Map<String,Object>> addedEvidence){
+        var observation=stage.observation();var inference=stage.inference();String detectionSource=stage.source(),ruleId=stage.ruleId(),family=stage.family();boolean matched=stage.matched();
         var values=map("episode_id",episode.get("id"),"parent_connection_id",observation.get("parent_connection_id"),"observation_id",observation.get("id"),"inference_id",inference.get("id"),"score",detectionSource.equals("model")?inference.get("score"):null,"family",detectionSource.equals("model")?inference.get("family"):family,"source",detectionSource,"rule_id",ruleId,"rule_matched",matched,"family_scores_json",detectionSource.equals("model")?inference.get("family_scores_json"):null,"as_of",observation.get("as_of"));
-        if(prev==null)store.add("guard_episode_evidence",values);else store.update("guard_episode_evidence",number(prev,"id"),values);
-        store.audit(null,"guard.episode.evidence_selected",str(episode,"public_id"),aid,null,object("observationId",observation.get("public_id"),"source",detectionSource,"ruleId",ruleId,"replacedObservationId",prev==null?null:store.get("guard_observation",number(prev,"observation_id")).get("public_id")));
-        touched.put(number(episode,"id"),new Touch(episode,observation,family,detectionSource,ruleId,scope));
+        if(prev==null)addedEvidence.add(values);else store.update("guard_episode_evidence",number(prev,"id"),values);
+        var selection=object("observationId",observation.get("public_id"),"source",detectionSource,"ruleId",ruleId,"replacedObservationId",prev==null?null:prev.get("observation_public_id"));
+        var prior=touched.get(number(episode,"id"));var selections=prior==null?new ArrayList<JsonNode>():prior.selections();selections.add(selection);
+        touched.put(number(episode,"id"),new Touch(episode,observation,family,detectionSource,ruleId,stage.scope(),selections));
     }
     /** 对一个 episode 按 T1—T9 判定一次；目标、预算与授权按 trigger 及全部选定证据逐条复核。 */
-    private JsonNode decide(Touch touch,Map<String,Object> bundle,Map<String,Object> binding,Map<String,Object> p,JsonNode policy,JsonNode hypotheticalPolicy){
+    @SuppressWarnings("unchecked")
+    private static <T> T memo(Map<List<Object>,Object> memo,List<Object> key,java.util.function.Supplier<T> load){
+        if(memo.containsKey(key))return (T)memo.get(key);T value=load.get();memo.put(key,value);return value;}
+    private JsonNode decide(Touch touch,Map<String,Object> bundle,Map<String,Object> binding,Map<String,Object> p,JsonNode policy,JsonNode hypotheticalPolicy,Map<List<Object>,Object> cache){
         var observation=touch.trigger();var episode=touch.episode();String family=touch.family(),detectionSource=touch.source(),ruleId=touch.ruleId(),scope=touch.scope();
-        long aid=number(observation,"asset_id");var asset=store.lockAsset(aid);JsonNode o=json(observation,"payload_json");Instant now=store.now();
+        long aid=number(observation,"asset_id");Map<String,Object> asset=memo(cache,List.of("asset",aid),()->store.lockAsset(aid));JsonNode o=json(observation,"payload_json");Instant now=store.now();
         var target=o.path("targetRef").isNull()?null:store.one("guard_target_binding",map("target_ref",o.path("targetRef").asText()),false);Map<String,Object> targetBudget=null;
         if(target!=null){long tid=number(target,"budget_target_id");targetBudget=budget.lock(aid,tid);budget.recover(aid,tid,now);targetBudget=budget.lock(aid,tid);now=budget.monotonic(aid);}
         List<GuardDecisionEngine.Evidence> evidence=new ArrayList<>();boolean modelAvailable=true;for(var e:mapper.episodeEvidence(number(episode,"id"))){
             modelAvailable&="succeeded".equals(str(e,"inference_status"));evidence.add(new GuardDecisionEngine.Evidence(json(e,"observation_payload_json"),e.get("score")==null?null:((Number)e.get("score")).doubleValue(),str(e,"family"),str(e,"source"),str(e,"rule_id"),flag(e.get("rule_matched")),str(e,"observation_content_sha256")));}
-        var executor=target==null?null:store.get("guard_executor",number(target,"executor_id"));boolean healthy=health.current(number(observation,"capture_scope_id"),now)&&!mapper.batchGap(number(observation,"sensor_id"),str(observation,"boot_id"));
+        var executor=target==null?null:store.get("guard_executor",number(target,"executor_id"));Instant decidedAt=now;boolean healthy=memo(cache,List.of("health",number(observation,"capture_scope_id"),number(observation,"sensor_id"),str(observation,"boot_id")),
+                ()->health.current(number(observation,"capture_scope_id"),decidedAt)&&!mapper.batchGap(number(observation,"sensor_id"),str(observation,"boot_id")));
         String budgetReason=target==null?null:eligibility.protection(bundle,policy,target,o,family);
         if(budgetReason==null&&target!=null)budgetReason=budget.check(aid,number(target,"budget_target_id"),policy,now,now.plusSeconds(policy.path("maxTtlSeconds").asLong()));
         boolean capable=eligibility.capability(bundle,policy,o,family)&&modelAvailable;
@@ -112,11 +149,14 @@ public class GuardDetection {
         var outcome=GuardDecisionEngine.evaluate(policy,evidence,now,gates,family,detectionSource,ruleId);
         if(outcome.qualifiedEvidence()&&target!=null){Instant latest=outcome.selected().stream().map(e->time(e.observation(),"asOf")).max(Comparator.naturalOrder()).orElseThrow();budget.evidence(number(target,"budget_target_id"),latest);targetBudget=budget.lock(aid,number(target,"budget_target_id"));}
         String decisionId=id();var refs=new ArrayList<JsonNode>();for(var e:outcome.selected())refs.add(object("observationId",e.observation().get("observationId"),"contentSha256",e.contentHash(),"parentConnectionId",e.observation().get("parentConnectionId"),"asOf",e.observation().get("asOf"),"family",e.family(),"source",e.source(),"ruleId",e.ruleId()));
-        var auth=binding==null?null:store.get("asset_authorization",number(binding,"authorization_id"));var model=store.get("guard_model",number(bundle,"model_id"));var capability=eligibility.matchingCapability(bundle,policy,o,family);
+        var auth=binding==null?null:store.get("asset_authorization",number(binding,"authorization_id"));Map<String,Object> model=memo(cache,List.of("model",number(bundle,"model_id")),()->store.get("guard_model",number(bundle,"model_id")));
+        Map<String,Object> capability=memo(cache,List.of("capability",family,o.path("addressFamily").asText(),o.path("transport").asText(),o.path("direction").asText(),o.path("profile").asText(),o.path("environment").asText()),
+                ()->eligibility.matchingCapability(bundle,policy,o,family));
         JsonNode proof=object("digestVersion","guard-evidence/1","decisionContractVersion",DECISION,"protocolVersions",versions(),"decisionId",decisionId,"decisionAt",now.toString(),"family",family,"source",detectionSource,"ruleId",ruleId,"scope",scope,"environment",o.get("environment"),"modelId",model.get("public_id"),"manifestSha256",model.get("manifest_sha256"),"policySha256",p.get("definition_sha256"),"bundleId",bundle.get("public_id"),"bundleSubjectSha256",bundle.get("subject_sha256"),"capabilityId",capability==null?null:capability.get("public_id"),"capabilitySha256",capability==null?null:hash(json(capability,"payload_json")),"authorizationId",auth==null?null:auth.get("public_id"),"authorizationRevision",auth==null?null:auth.get("revision"),"targetBinding",target==null?null:json(target,"payload_json"),"budgetTargetId",target==null?null:store.get("guard_budget_target",number(target,"budget_target_id")).get("public_id"),"budgetRevision",targetBudget==null?null:targetBudget.get("revision"),"healthProofSha256",targetBudget==null?null:targetBudget.get("health_proof_sha256"),"labSession",null,"selectedObservations",refs,"reasonCode",outcome.reason(),"detailCode",outcome.detail());
         ((com.fasterxml.jackson.databind.node.ObjectNode)proof).put("triggerObservationId",str(observation,"public_id"));
         if(hypotheticalPolicy!=null)((com.fasterxml.jackson.databind.node.ObjectNode)proof).set("hypothetical",GuardReplayReadiness.proof(GuardReplayReadiness.evaluate(hypotheticalPolicy,json(model,"manifest_json"),evidence,now,family,detectionSource,ruleId,modelAvailable)));
-        var decision=store.insert("guard_decision",map("public_id",decisionId,"episode_id",episode.get("id"),"asset_id",aid,"bundle_id",bundle.get("id"),"decision_revision",episode.get("revision"),"decision_contract_version",DECISION,"decision",outcome.decision(),"reason_code",outcome.reason(),"budget_target_id",target==null?null:target.get("budget_target_id"),"budget_revision",targetBudget==null?null:targetBudget.get("revision"),"evidence_sha256",hash(proof),"evidence_json",canonical(proof),"decided_at",db(now)));
+        String proofText=canonical(proof);
+        var decision=store.insert("guard_decision",map("public_id",decisionId,"episode_id",episode.get("id"),"asset_id",aid,"bundle_id",bundle.get("id"),"decision_revision",episode.get("revision"),"decision_contract_version",DECISION,"decision",outcome.decision(),"reason_code",outcome.reason(),"budget_target_id",target==null?null:target.get("budget_target_id"),"budget_revision",targetBudget==null?null:targetBudget.get("revision"),"evidence_sha256",sha(proofText.getBytes(java.nio.charset.StandardCharsets.UTF_8)),"evidence_json",proofText,"decided_at",db(now)));
         cases.detected(episode,decision);
         store.update("guard_episode",number(episode,"id"),map("revision",number(episode,"revision")+1));store.outbox("guard.decision.recorded",decisionId,object("decisionId",decisionId));
         if(!"research".equals(o.path("environment").asText())&&outcome.reason()==null&&"block_candidate".equals(outcome.decision()))actions.create(decision,bundle,binding,target,policy,"auto",null);

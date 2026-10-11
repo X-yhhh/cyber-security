@@ -30,6 +30,13 @@ class GuardReplayReadinessTest {
     @Test void finalReplacementRejectsWholeGroup(){var p=GuardReplayReadiness.policy(policy(),closeout());
         var outcome=GuardReplayReadiness.evaluate(p,manifest(),List.of(evidence("a",1,"flow-prefix-v1"),evidence("b",2,"flow-final-v1")),now,"dos_slow","model","");
         assertThat(outcome.reason()).isEqualTo("CAPABILITY_NOT_SUPPORTED");assertThat(outcome.decision()).isEqualTo("alert");}
+    /** acceptedProfiles 显式列出两种快照时，prefix/final 混组按同一门槛计数；未列出的 profile 仍整组拒绝。 */
+    @Test void acceptedProfilesAdmitFinalSnapshots(){var base=policy();((com.fasterxml.jackson.databind.node.ObjectNode)base).set("acceptedProfiles",node(List.of("flow-prefix-v1","flow-final-v1")));
+        var p=GuardReplayReadiness.policy(base,closeout());var both=object("profiles",List.of("flow-prefix-v1","flow-final-v1"),"supportedScope",manifest().get("supportedScope"));
+        var mixed=List.of(evidence("a",1,"flow-prefix-v1"),evidence("b",2,"flow-final-v1"));
+        assertThat(GuardReplayReadiness.evaluate(p,both,mixed,now,"dos_slow","model","").decision()).isEqualTo("block_candidate");
+        assertThat(GuardEligibility.profileAccepted(policy(),evidence("b",2,"flow-final-v1").observation())).isFalse();
+        assertThat(GuardEligibility.profileAccepted(base,evidence("b",2,"flow-final-v1").observation())).isTrue();}
     @Test void sameParentAndExpiredEvidenceCannotMeetCount(){var p=GuardReplayReadiness.policy(policy(),closeout());
         for(var group:List.of(List.of(evidence("a",1,"flow-prefix-v1"),evidence("a",2,"flow-prefix-v1")),
                 List.of(evidence("a",1,"flow-prefix-v1"),evidence("b",11,"flow-prefix-v1"))))

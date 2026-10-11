@@ -90,6 +90,26 @@ class J1AuditTest(unittest.TestCase):
             work=Path(root);self.classification_fixture(work,True)
             self.assertFalse(audit.classification_reproducibility(work)["identical"])
 
+    def test_unqualified_model_and_other_family_rule_do_not_gain_source_qualification(self):
+        closeout={"classEligibility":{
+            "dos_flood":{"modelOnly":{"offlineEligible":False},"ruleOnly":{"flood":{"offlineEligible":False}}},
+            "port_scan":{"modelOnly":{"offlineEligible":True},"ruleOnly":{"scan":{"offlineEligible":True}}}}}
+        self.assertEqual(audit.qualifying_sources(closeout,"dos_flood"),set())
+        self.assertEqual(audit.qualifying_sources(closeout,"port_scan"),{("model",""),("rule","scan")})
+
+    def test_report_concurrency_and_wall_time_come_from_actual_run_logs(self):
+        with tempfile.TemporaryDirectory() as root:
+            work=Path(root);scenario={"segments":[{"segmentId":"port_scan-3","family":"port_scan","observedDurationSeconds":.039}],"normalDurationSeconds":2984.448246}
+            (work/"run-stdout.log").write_text("\n".join(json.dumps(v) for v in [
+                {"event":"replay_started","round":1,"normalConcurrency":6,"attackConcurrency":1,"speedPerSegment":1},
+                {"event":"replay_completed","round":1,"elapsedSeconds":1049}])+"\n")
+            config=audit.runtime_configuration(work,scenario);limitations=audit.run_limitations(work,scenario,config)
+            self.assertEqual(config["rounds"][0]["attackConcurrency"],1)
+            self.assertIsNone(config["rounds"][1]["elapsedSeconds"])
+            text="\n".join(limitations)
+            self.assertIn("17.48",text);self.assertIn("攻击并发上限 1",text)
+            self.assertNotIn("9 分钟",text);self.assertNotIn("中断",text)
+
 
 if __name__=="__main__":
     unittest.main()

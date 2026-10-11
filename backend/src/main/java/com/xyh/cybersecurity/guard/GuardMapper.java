@@ -13,6 +13,19 @@ public interface GuardMapper {
     @InsertProvider(type=Sql.class,method="insert")
     @Options(useGeneratedKeys=true,keyProperty="values.id")
     int insert(@Param("table") String table,@Param("values") Map<String,Object> values);
+    /** 同表多行追加；只用于不需要回读自增键的事实表，列集合取首行。 */
+    @InsertProvider(type=Sql.class,method="insertAll")
+    int insertAll(@Param("table") String table,@Param("rows") List<Map<String,Object>> rows);
+    /** 严格批量新增并回填各行主键；不使用 IGNORE/UPSERT，唯一键冲突由事务回滚处理。 */
+    @InsertProvider(type=Sql.class,method="insertAll")
+    @Options(useGeneratedKeys=true,keyProperty="rows.id")
+    int insertAllReturning(@Param("table") String table,@Param("rows") List<Map<String,Object>> rows);
+    /** 仅按内部白名单组合键读取有限集合；用于持有资产锁后的 episode 批量投影，不作无界扫描。 */
+    @SelectProvider(type=Sql.class,method="selectKeys")
+    List<Map<String,Object>> selectKeys(@Param("table") String table,@Param("keys") List<Map<String,Object>> keys,@Param("lock") boolean lock);
+    /** 同批 parent 投影一次回读；观察 UUID 只用于替换审计，事实仍由外键绑定。 */
+    @SelectProvider(type=Sql.class,method="evidenceKeys")
+    List<Map<String,Object>> evidenceKeys(@Param("keys") List<Map<String,Object>> keys);
     @UpdateProvider(type=Sql.class,method="update")
     int update(@Param("table") String table,@Param("id") long id,@Param("values") Map<String,Object> values);
     @Select("SELECT UTC_TIMESTAMP(6)") java.time.LocalDateTime now();
@@ -46,6 +59,15 @@ public interface GuardMapper {
     /** 跨 episode/时间桶复核同一连接的最新已到达快照，不能使用插入顺序代替因果时间。 */
     @Select("SELECT * FROM guard_observation WHERE asset_id=#{asset} AND sensor_id=#{sensor} AND boot_id=#{boot} AND parent_connection_id=#{parent} ORDER BY as_of DESC,snapshot_index DESC,id DESC LIMIT 1")
     Map<String,Object> latestParent(@Param("asset") long asset,@Param("sensor") long sensor,@Param("boot") String boot,@Param("parent") String parent);
+    /** 批量复核最新已到达快照；跨桶排序与 latestParent 相同，不以当前批次内的最大值代替全库事实。 */
+    @Select("""
+        <script>SELECT o.id FROM guard_observation o WHERE o.id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+        AND o.id=(SELECT n.id FROM guard_observation n
+          WHERE n.asset_id=o.asset_id AND n.sensor_id=o.sensor_id AND n.boot_id=o.boot_id AND n.parent_connection_id=o.parent_connection_id
+          ORDER BY n.as_of DESC,n.snapshot_index DESC,n.id DESC LIMIT 1)</script>
+        """)
+    Set<Long> latestObservationIds(@Param("ids") List<Long> ids);
     /** 一次读出最新投影、不可变观察和推理状态，保留原有跨桶 latest 及 10000 条上限。 */
     @Select("""
         SELECT e.*,o.payload_json observation_payload_json,o.content_sha256 observation_content_sha256,i.status inference_status
@@ -116,6 +138,21 @@ public interface GuardMapper {
         }
         private static String col(String t,String c) {if(!COLUMNS.get(t).contains(c))throw new IllegalArgumentException("Unknown column");return "`"+c+"`";}
         @SuppressWarnings("unchecked")
+        private static String keysWhere(String t,String alias,Map<String,Object> p){
+            var keys=(List<Map<String,Object>>)p.get("keys");
+            if(keys.isEmpty()||keys.size()>800)throw new IllegalArgumentException("Invalid key count");
+            List<String> alternatives=new ArrayList<>();
+            for(int i=0;i<keys.size();i++){
+                if(keys.get(i).isEmpty())throw new IllegalArgumentException("Empty key");
+                List<String> terms=new ArrayList<>();
+                for(String k:keys.get(i).keySet())terms.add(alias+"."+col(t,k)+(keys.get(i).get(k)==null?" IS NULL":"=#{keys["+i+"]."+k+"}"));
+                alternatives.add("("+String.join(" AND ",terms)+")");
+            }
+            return "("+String.join(" OR ",alternatives)+")";
+        }
+        public static String selectKeys(Map<String,Object> p){String t=table(p);return "SELECT t.* FROM "+t+" t WHERE "+keysWhere(t,"t",p)+(Boolean.TRUE.equals(p.get("lock"))?" FOR UPDATE":"");}
+        public static String evidenceKeys(Map<String,Object> p){return "SELECT e.*,o.public_id observation_public_id FROM guard_episode_evidence e JOIN guard_observation o ON o.id=e.observation_id WHERE "+keysWhere("guard_episode_evidence","e",p)+" FOR UPDATE";}
+        @SuppressWarnings("unchecked")
         public static String select(Map<String,Object> p) {
             String t=table(p);Map<String,Object> w=(Map<String,Object>)p.get("where");
             StringBuilder sql=new StringBuilder("SELECT t.* FROM "+t+" t WHERE 1=1");
@@ -137,6 +174,14 @@ public interface GuardMapper {
             List<String> cols=new ArrayList<>(),params=new ArrayList<>();
             for(String k:v.keySet()){cols.add(col(t,k));params.add("#{values."+k+"}");}
             return "INSERT INTO "+t+" ("+String.join(",",cols)+") VALUES ("+String.join(",",params)+")";
+        }
+        @SuppressWarnings("unchecked")
+        public static String insertAll(Map<String,Object> p) {
+            String t=table(p);var rows=(List<Map<String,Object>>)p.get("rows");List<String> keys=new ArrayList<>(rows.getFirst().keySet()),values=new ArrayList<>();
+            for(int i=0;i<rows.size();i++){if(!rows.get(i).keySet().equals(new HashSet<>(keys)))throw new IllegalArgumentException("Row columns differ");
+                List<String> params=new ArrayList<>();for(String k:keys)params.add("#{rows["+i+"]."+k+"}");values.add("("+String.join(",",params)+")");}
+            List<String> cols=new ArrayList<>();for(String k:keys)cols.add(col(t,k));
+            return "INSERT INTO "+t+" ("+String.join(",",cols)+") VALUES "+String.join(",",values);
         }
         @SuppressWarnings("unchecked")
         public static String update(Map<String,Object> p) {

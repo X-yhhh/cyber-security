@@ -188,6 +188,7 @@ def validate_policy(policy):
     errors = schema_errors(policy)
     require(not errors, "rc.4 Schema 校验失败: " + ", ".join(
         ("/" + "/".join(map(str, error.absolute_path))) + ":" + error.validator for error in errors))
+    require("acceptedProfiles" not in policy or policy["profile"] in policy["acceptedProfiles"], "acceptedProfiles 必须包含主 profile")
     rows = exact_families(policy["familyPolicies"], "policy.familyPolicies")
     for family, row in rows.items():
         require(row["scope"] == ("peer_inbound" if family == "port_scan" else "peer_service"), "非法类别作用域")

@@ -1,6 +1,6 @@
 # host-guard v5 机器契约
 
-P1/P2 已收口。此目录提供当前 **5 个 Schema、1 个特征 profile、5 个结构示例**：观测、profile 和回执沿用 `host-guard/5.0.0-rc.2`；manifest 与命令已随 P4 升级为 rc.3；策略于 2026-10-08 单独升为 rc.4。P3—P8 的业务规则统一见 [检测与处置契约](../检测与处置契约.md)，不再维护独立澄清附录。
+更新于 2026-10-11。P1/P2 已收口。此目录提供当前 **5 个 Schema、1 个特征 profile、5 个结构示例**：观测、profile 和回执沿用 `host-guard/5.0.0-rc.2`；manifest 与命令已随 P4 升级为 rc.3；策略于 2026-10-08 单独升为 rc.4。P3—P8 的业务规则统一见 [检测与处置契约](../检测与处置契约.md)，不再维护独立澄清附录。
 
 | 文件 | 规范 |
 |---|---|
@@ -11,7 +11,7 @@ P1/P2 已收口。此目录提供当前 **5 个 Schema、1 个特征 profile、5
 | [action-command.schema.json](action-command.schema.json) | 不可变 payload 及签名封装 |
 | [action-receipt.schema.json](action-receipt.schema.json) | 执行、拒绝、核对与恢复回执 |
 
-结构版本与决策/评价版本分别绑定。当前 `host-guard-decision/2026-10-08.1`、第二轮 `host-guard-evaluation/2026-10-08.1` 和 `host-guard-capture-health/1.0.0` 由计划、policyVersion 和发布组合绑定；旧评价 `2026-10-07.1` 仅保留 candidate-v2 的历史解释。新评价登记单对端冻结准入及按模型/每条规则判定资格，完整策略仍待真实部署绑定，尚未封口或评价。P4 已实现对应多分类和规则决策；结构验证不代表 P6/G1—G2、P7/G3 或现场部署通过。
+结构版本与决策/评价版本分别绑定。当前 `host-guard-decision/2026-10-08.1`、第二轮 `host-guard-evaluation/2026-10-08.1` 和 `host-guard-capture-health/1.0.0` 由计划、policyVersion 和发布组合绑定；旧评价 `2026-10-07.1` 仅保留 candidate-v2 的历史解释。新评价登记单对端冻结准入及按模型/每条规则判定资格；research 组合已批准但未激活。P4 已实现对应多分类和规则决策；结构验证不代表 P6/G1—G2、P7/G3 或现场部署通过。J1 V3 v8 两轮 research 回放已 completed，但 J1 未通过，J2/P8 保持关闭。
 
 Schema 只能证明结构，不能证明时间先后、算术、归属、授权、签名、预算或实际 OS 效果。`contexts.5.*` 指 `windowSeconds=5` 的对象，不是数组第五项。正文和结构必须同时满足。
 
@@ -48,6 +48,10 @@ observation、feature-profile 与 action-receipt 不变；默认策略示例所�
 | examples/decision-policy.json | 同步为 rc.4，四类 `modelAutoEligible=false` |
 
 新增必填字段是不兼容变更，因此升版本，不使用默认值：默认 true 会在缺字段时放开自动，默认 false 会静默改变旧策略含义。决策版本同步升为 `host-guard-decision/2026-10-08.1`；rc.3 策略和 `2026-10-06.1` 决策版本的策略保留为历史，P4 不再接受登记或激活。
+
+### 可选 acceptedProfiles（2026-10-11）
+
+rc.4 内追加可选字段 `acceptedProfiles`（`flow-prefix-v1`/`flow-final-v1` 子集，非空、不重复，须包含 `profile`，P4 以 `INVALID_POLICY_PROFILES` 拒绝不合规值）。缺失时只接受 `profile`，既有策略语义与摘要不变，因此不升 contractVersion。起因是 J1 实测短连接类别只产生 final 快照、整组被 `CAPABILITY_NOT_SUPPORTED` 拒绝；按 2026-10-11 用户决策，派生策略 `host-guard-decision/2026-10-08.1+profiles-20261011`（交付包 r3）接受两种 profile，登记见[后续实施计划 J1 V3 正式收口](../后续实施计划.md#j1-v3-回放演练r7不需要-lab-授权)。
 
 ## 图内 opset 核验（2026-10-08）
 

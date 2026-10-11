@@ -43,7 +43,7 @@ public final class GuardReplayReadiness {
     /** 推理失败或不适用也阻止规则自动准备度；规则告警仍由原判定器保留。 */
     public static GuardDecisionEngine.Outcome evaluate(JsonNode policy,JsonNode manifest,
             List<GuardDecisionEngine.Evidence> evidence,Instant now,String family,String source,String ruleId,boolean modelAvailable) {
-        boolean capability=modelAvailable&&evidence.stream().allMatch(e->policy.path("profile").equals(e.observation().path("profile"))
+        boolean capability=modelAvailable&&evidence.stream().allMatch(e->GuardEligibility.profileAccepted(policy,e.observation())
                 &&GuardModelRuntime.applicable(manifest,e.observation())==null);
         return GuardDecisionEngine.evaluate(policy,evidence,now,
                 new GuardDecisionEngine.Gates(capability,true,true,true,null),family,source,ruleId);

@@ -51,7 +51,7 @@ sh executor/python.sh -B scripts/p7/compose_policy.py inspect \
   --policy .cache/p3c-20261007/candidate-v2/decision-policy.json
 ~~~
 
-Python 44 项测试覆盖缺字段、哈希不符、类别不全、阈值越界、无报告请求自动、来源开关矛盾、自动缺收口或收口不符、保护集结构，以及旧规则、非法 JSON、输出不覆盖等路径。CLI 测试实际生成文件并与已存样例比较。GuardComposedPolicyTest 读取合成输出，调用真实 GuardContracts.policy()，并对拍保护集 RFC8785 摘要；与 GuardDomainTest 共 12 项通过（JDK 25.0.2）。
+历史基线为 Python 44 项；当前 P7 回归已扩展为 82 项，覆盖缺字段、哈希不符、类别不全、阈值越界、无报告请求自动、来源开关矛盾、自动缺收口或收口不符、保护集结构，以及旧规则、非法 JSON、输出不覆盖等路径。CLI 测试实际生成文件并与已存样例比较。当前 `GuardComposedPolicyTest`、`GuardDomainTest`、`GuardReplayReadinessTest` 共 18 项通过（JDK 25.0.2）。
 
 ## 原候选与当前部署边界
 
@@ -102,7 +102,7 @@ P7_IMPORT_IT_ENABLED=true P7_PYTHON_WRAPPER="$PWD/executor/python.sh" \
 
 `GuardIntegrationTest` 的 B3 用例由 P7_IMPORT_IT_ENABLED 显式开启：Python CLI 经回环 HTTP 桥进入真实 Spring MVC、安全过滤器和 MySQL 事务，分别验证新登记能力与复用四条已登记签名 lab_auto 能力（含 peer_inbound 豁免），覆盖完整合成导入、越权、跳步、哈希不符、策略/发布包自审拒绝。该测试不会执行真实防火墙或激活发布组合。隔离 worktree 可通过 P7_PYTHON_WRAPPER 复用已安装依赖的包装器，无需复制虚拟环境。
 
-Z2 集成复验（2026-10-10）：P7 Python 60 项通过；JDK 25.0.2、启用隔离 MySQL/RabbitMQ 变量与 P7_IMPORT_IT_ENABLED 的 `mvn verify` 共 300 项，280 项通过、20 项按外部条件跳过，失败/错误均为 0。其中上述两种 CLI 导入均执行，V22→V23 单步迁移保留旧 Flyway 整行、全部账号及四条既有 lab_auto 能力。跳过项包括真实联合 lab、真实模型/原始回放夹具和跨语言执行协议，不能计为本次运行验收。
+Z2 集成复验（2026-10-10）是历史结果：P7 Python 60 项通过；JDK 25.0.2、启用隔离 MySQL/RabbitMQ 变量与 P7_IMPORT_IT_ENABLED 的 `mvn verify` 共 300 项，280 项通过、20 项按外部条件跳过，失败/错误均为 0。其中上述两种 CLI 导入均执行，V22→V23 单步迁移保留旧 Flyway 整行、全部账号及四条既有 lab_auto 能力。跳过项包括真实联合 lab、真实模型/原始回放夹具和跨语言执行协议，不能计为本次运行验收。当前 V24 业务库迁移与 J1 v8 验证见下文。
 
 ## B4 research 回放会话
 
@@ -134,6 +134,10 @@ sh executor/python.sh -B -m unittest discover -s scripts/p7 -p test_j1_audit.py 
 sh executor/python.sh -B scripts/p7/j1_audit.py "$J1_RUN_DIR" --finalize
 ```
 
-2026-10-10—11 本轮 J1 两轮均 completed，完整报告在 `.cache/j1-20261010-v5/REPORT.md`，最终综合事实为 `summary-audit-final-v3.json`。J1 未通过、计划 M2 为空，按 9.3 保底停止 J2/P8。J1-2/3/4/7 通过；失败为 JSON 浮点往返、持续积压、首次规则错类/类别时延与时钟/profile 拒绝。零动作/命令已核验，OS 全局快照未验证；源业务库仍 V23、全量内容未变，临时服务已停。JDK 25 相关回归与 V24 迁移测试通过，P7 Python 74 项通过；代码、文档和私有运行证据均未提交/推送。
+2026-10-10—11 的 v8 J1 两轮均 completed，完整报告在 `.cache/j1-20261011-v8/REPORT.md`，最终综合事实为 `summary-audit-final-v2.json`。J1 未通过：J1-1/2/3/4/6/7 通过，J1-5 失败，`dos_flood` 的 J1-9/J1-10 失败；计划 M2 为 `port_scan`、`brute_force`、`dos_slow`，但 J2/P8 保持关闭。零动作/命令已核验，研究组合已批准但未激活，OS 全局 PF 快照因权限边界未验证；临时服务已停。本机业务库已为 V24，迁移失败为 0。
 
-2026-10-11 修复复跑用 `--rebind-scenario-ref replays/j1-20261010-v3/scenario.json` 沿用同一冻结片段（逐项校验 PCAP 摘要），只为新二进制登记新场景；`--server-threads` 设置后端线程数（默认 6）。运行器在后端迁移后先用 `policy_text.py` 把策略恢复为原件字节（结果写入 `policy-text-restore.json`），并为每轮记录 `privileges.json` 作为无免密 sudo 时 J1-6 的权限边界证据。结果见 `.cache/j1-20261011-v7/REPORT.md` 与计划中的 J1 修复复跑记录。
+`derive_policy.py` 从已登记策略派生新版本：只允许改 `policyId`/`policyVersion` 并按 manifest.profiles 增设 `acceptedProfiles`，其余字段与来源不同即拒绝，输出附差异记录；不读 test、不登记、不审批。v8 的 r3 包策略由它派生（`policyVersion` `host-guard-decision/2026-10-08.1+profiles-20261011`）。
+
+2026-10-11 v8 复跑沿用同一冻结片段并为新二进制登记新场景；`--server-threads` 设置后端线程数（默认 6）。运行器在后端迁移后先用 `policy_text.py` 把策略恢复为原件字节（结果写入 `policy-text-restore.json`），并为每轮记录 `privileges.json` 作为无免密 sudo 时 J1-6 的权限边界证据。收口记录为 `.cache/j1v3-20261011/closeout.json`；A7 仅完成本机配置/恢复检查：`en0` 的 TSO4/TSO6 与 `net.inet.tcp.tso=1` 保持现状，未执行 TSO/PF 切换，历史 PCAP 质量未被改写。
+
+J1 收口验证摘要：`GuardIntegrationTest` 18/18、P7 Python 82/82、Java P7 回归 18/18、A7 PF 恢复单测 9/9，`compileall` 与 `git diff --check` 通过。上述结果不授予 J2、G3、P8 或真实资产自动执行资格。

@@ -56,3 +56,7 @@ rc.4 内追加可选字段 `acceptedProfiles`（`flow-prefix-v1`/`flow-final-v1`
 ## 图内 opset 核验（2026-10-08）
 
 不改 Schema、不升结构版本，是对现有 `runtime.opset` 字段的消费方语义收紧。此前 `GuardModelRuntime` 只核对 manifest 声明的 `runtime.opset=17`，不读图本身；T2 原始导出图默认域重复声明 `[15, 15]`，与声明 17 的 manifest 组合时仍被接受（R1 反向对照发现）。现在加载前只解析 ModelProto 第 8 字段 `opset_import`：默认域须唯一且等于声明值，任一域重复或字节损坏时返回 `ONNX_CONTRACT_INVALID`，不新增错误码。冻结工具产出的单一默认域 17 图（含 candidate-v2、T1.7 探针和第二轮候选）不受影响。
+
+## lab 会话与报告（B4）
+
+[lab v1 契约](lab-validation.md)定义独立资格/运行状态、短租约续期、固定时间平移、事实引用和报告导入，不修改上述五个 Schema 或其集合哈希。最小合成文件为[会话](examples/lab-session.json)、[场景](examples/lab-scenarios.json)、[映射](examples/lab-mapping.json)、[报告输入](examples/lab-report-input.json)与[期望报告](examples/lab-report-expected.json)。样例中的零哈希、固定日期和未签名输入只用于结构说明及 Java/Python 对拍，不构成真实授权。使用方法见 [lab 工具](../../scripts/p7/lab.md)。

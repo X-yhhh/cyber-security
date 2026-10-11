@@ -69,7 +69,8 @@ class GuardMigrationIntegrationTest {
                 st.execute("INSERT INTO sys_user(user_key,username,display_name,password_hash,status) VALUES ('p4-preserved','p4-preserved','迁移哨兵','not-a-real-password-hash','active')");
                 st.execute("INSERT INTO guard_capability(public_id,capability_key,version,platform,level,payload_json,created_by) SELECT 'b1000000-0000-4000-8000-000000000001','pre-v22','1','macos','lab_auto','{}',id FROM sys_user WHERE user_key='p4-preserved'");
             }
-            var flyway=Flyway.configure().dataSource(url,user,pass).locations("classpath:db/migration").load();flyway.migrate();flyway.validate();
+            // 保留此测试的 V20→V24 历史口径；后续 lab 迁移由 GuardLabMigrationIntegrationTest 独立覆盖。
+            var flyway=Flyway.configure().dataSource(url,user,pass).locations("classpath:db/migration").target("24").load();flyway.migrate();flyway.validate();
             try(var c=DriverManager.getConnection(url,user,pass);var st=c.createStatement()){
                 try(var r=st.executeQuery("SELECT VERSION()")){r.next();assertThat(r.getString(1)).startsWith("8.");}
                 try(var r=st.executeQuery("SELECT password_hash FROM sys_user WHERE user_key='p4-preserved'")){r.next();assertThat(r.getString(1)).isEqualTo("not-a-real-password-hash");}

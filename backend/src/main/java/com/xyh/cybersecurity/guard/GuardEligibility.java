@@ -12,6 +12,10 @@ import static com.xyh.cybersecurity.guard.GuardJson.*;
 public class GuardEligibility {
     private final GuardStore store;private final boolean automation;
     private final JsonNode protection;
+    private GuardLabExecutionGate labGate;
+    /** Spring 运行路径追加会话有效性检查；原三参构造保留给纯领域测试。 */
+    @org.springframework.beans.factory.annotation.Autowired
+    void labGate(GuardLabExecutionGate gate){this.labGate=gate;}
     public GuardEligibility(GuardStore store,@Value("${cyber.guard.automation-enabled:false}") boolean automation,@Value("${cyber.guard.protection-file:}") String protectionFile){this.store=store;this.automation=automation;
         JsonNode p=null;if(!protectionFile.isBlank())try{p=parse(java.nio.file.Files.readString(java.nio.file.Path.of(protectionFile)));fields(p,"protectedBudgetTargetIds protectedServicePorts","");}catch(java.io.IOException e){throw new IllegalStateException("保护配置不可读");}
         // 启动即按执行器同一规则校验端口，运行中不再因保护文件格式在判定路径抛错。
@@ -78,6 +82,7 @@ public class GuardEligibility {
         return authorized(asset,bundle,binding,policy,o,executor,now,policy.path("family").asText());
     }
     public boolean authorized(Map<String,Object> asset,Map<String,Object> bundle,Map<String,Object> binding,JsonNode policy,JsonNode o,Map<String,Object> executor,Instant now,String family){
+        if(labGate!=null&&!labGate.permits(o,bundle,now))return false;
         if(!automation||"alert_only".equals(policy.path("mode").asText())||!"active".equals(str(asset,"status"))||!"active".equals(str(bundle,"status"))||binding==null||!"active".equals(str(binding,"status"))||executor==null||!"active".equals(str(executor,"status")))return false;
         if(!str(asset,"environment").equals(str(bundle,"environment"))||number(binding,"bundle_id")!=number(bundle,"id"))return false;
         var p=store.get("guard_decision_policy",number(bundle,"policy_id"));if(!"reviewed".equals(str(p,"status")))return false;

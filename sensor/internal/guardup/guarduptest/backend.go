@@ -16,7 +16,9 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
+	"fmt"
 	"io"
+	"math"
 	"math/big"
 	"net"
 	"net/http"
@@ -24,6 +26,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -113,6 +116,14 @@ type Backend struct {
 	statuses    []string
 	heartbeats  int
 	certSubject string
+	// 以下仅在 SetStrictHealth 后启用，模拟 GuardHealth.accept/verify；默认保持原有只查链行为。
+	healthNow      func() time.Time
+	healthFault    func(seq int64, attempt int) string
+	healthAttempts map[int64]int
+	healthBySeq    map[string]string
+	healthStored   map[string]map[string]any
+	healthDigest   map[string]string
+	healthStatus   map[string]string
 }
 
 func NewBackend(cfg Approved) *Backend {
@@ -124,6 +135,46 @@ func (f *Backend) SetFault(fn func(seq int64, attempt int) string) {
 	f.fault = fn
 	f.mu.Unlock()
 }
+
+// SetStrictHealth 按后端 GuardHealth 规则判定健康窗口：now 为服务端接收时钟；同一
+// (observerSessionId, sequence) 或 healthWindowId 的不同内容返回 409，内容相同则幂等返回原判定。
+func (f *Backend) SetStrictHealth(now func() time.Time) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.healthNow = now
+	f.healthAttempts = map[int64]int{}
+	f.healthBySeq = map[string]string{}
+	f.healthStored = map[string]map[string]any{}
+	f.healthDigest = map[string]string{}
+	f.healthStatus = map[string]string{}
+}
+
+// SetHealthFault 按 (窗口 sequence, 第几次尝试) 返回 "503" 或 "drop"（已受理但断开连接），只用于严格模式。
+func (f *Backend) SetHealthFault(fn func(seq int64, attempt int) string) {
+	f.mu.Lock()
+	f.healthFault = fn
+	f.mu.Unlock()
+}
+
+// HealthAttempts 返回严格模式下某窗口序号的请求次数（含幂等重放）。
+func (f *Backend) HealthAttempts(seq int64) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.healthAttempts[seq]
+}
+
+// HealthWindows 按首次受理顺序返回已入库窗口（JSON 解码后的副本）。
+func (f *Backend) HealthWindows() []map[string]any {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]map[string]any, len(f.health))
+	for i, m := range f.health {
+		b, _ := json.Marshal(m)
+		json.Unmarshal(b, &out[i])
+	}
+	return out
+}
+
 func (f *Backend) SetDown(v bool)         { f.mu.Lock(); f.down = v; f.mu.Unlock() }
 func (f *Backend) Attempts(seq int64) int { f.mu.Lock(); defer f.mu.Unlock(); return f.attempts[seq] }
 func (f *Backend) CertSubject() string    { f.mu.Lock(); defer f.mu.Unlock(); return f.certSubject }
@@ -227,6 +278,26 @@ func (f *Backend) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if op == "observation-batches" {
 		okStatus = 202
 	}
+	healthDrop := false
+	if op == "health-windows" && f.healthNow != nil {
+		// 严格模式按窗口 sequence 统计全部尝试（含幂等重放），并注入 503/已受理断连。
+		var seq int64
+		if m, ok := tree.(map[string]any); ok {
+			if n, ok := m["sequence"].(json.Number); ok {
+				seq, _ = n.Int64()
+			}
+		}
+		f.healthAttempts[seq]++
+		action := ""
+		if f.healthFault != nil {
+			action = f.healthFault(seq, f.healthAttempts[seq])
+		}
+		if action == "503" {
+			reply(503, envelope(nil, "SERVICE_UNAVAILABLE"))
+			return
+		}
+		healthDrop = action == "drop"
+	}
 	if old, ok := f.keys[op+key]; ok {
 		if old[0] != reqHash {
 			reply(409, envelope(nil, "IDEMPOTENCY_CONFLICT"))
@@ -315,6 +386,10 @@ func (f *Backend) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		reply(202, resp)
 		return
 	case "health-windows":
+		if f.healthNow != nil {
+			f.strictHealth(w, reply, op+key, body, reqHash, healthDrop)
+			return
+		}
 		var m map[string]any
 		dd := json.NewDecoder(bytes.NewReader(body))
 		dd.UseNumber()
@@ -348,4 +423,119 @@ func (f *Backend) Start(t testing.TB, p PKI) *httptest.Server {
 	srv.StartTLS()
 	t.Cleanup(srv.Close)
 	return srv
+}
+
+// strictHealth 在持锁状态下执行，顺序与 GuardHealth.accept 一致：先按 healthWindowId 或
+// (observerSessionId, sequence) 查重复——内容相同幂等返回原判定，不同则 409；再按前一序号窗口验证。
+func (f *Backend) strictHealth(w http.ResponseWriter, reply func(int, []byte), cacheKey string, body []byte, digest string, drop bool) {
+	var m map[string]any
+	d := json.NewDecoder(bytes.NewReader(body))
+	d.UseNumber()
+	if d.Decode(&m) != nil {
+		reply(400, envelope(nil, "INVALID_REQUEST"))
+		return
+	}
+	id, _ := m["healthWindowId"].(string)
+	session, _ := m["observerSessionId"].(string)
+	number, _ := m["sequence"].(json.Number)
+	seq, err := number.Int64()
+	if !uuidPattern.MatchString(id) || !uuidPattern.MatchString(session) || err != nil || seq < 1 {
+		reply(422, envelope(nil, "INVALID_HEALTH_WINDOW"))
+		return
+	}
+	start, e1 := time.Parse(time.RFC3339Nano, fmt.Sprint(m["intervalStart"]))
+	end, e2 := time.Parse(time.RFC3339Nano, fmt.Sprint(m["intervalEnd"]))
+	if e1 != nil || e2 != nil || !start.Before(end) || end.Sub(start) > 5*time.Second {
+		reply(422, envelope(nil, "INVALID_HEALTH_WINDOW"))
+		return
+	}
+	slot := session + "/" + strconv.FormatInt(seq, 10)
+	old := id
+	if _, ok := f.healthDigest[old]; !ok {
+		old = f.healthBySeq[slot]
+	}
+	if old != "" {
+		if f.healthDigest[old] != digest {
+			reply(409, envelope(nil, "IDEMPOTENCY_CONFLICT"))
+			return
+		}
+		reply(200, envelope(map[string]any{"healthWindowId": old, "verificationStatus": f.healthStatus[old], "contentSha256": digest}, ""))
+		return
+	}
+	now := f.healthNow()
+	previousID := f.healthBySeq[session+"/"+strconv.FormatInt(seq-1, 10)]
+	st := strictVerify(m, f.healthStored[previousID], f.healthDigest[previousID], start, end, seq, now)
+	f.health = append(f.health, m)
+	f.healthHash = append(f.healthHash, digest)
+	f.statuses = append(f.statuses, st)
+	f.healthBySeq[slot] = id
+	f.healthStored[id] = m
+	f.healthDigest[id] = digest
+	f.healthStatus[id] = st
+	resp := envelope(map[string]any{"healthWindowId": id, "verificationStatus": st, "contentSha256": digest, "serverTime": now.UTC().Format(time.RFC3339Nano)}, "")
+	f.keys[cacheKey] = [2]string{digest, string(resp)}
+	if drop {
+		// 已持久受理但响应在途丢失：客户端只能看到连接中断，须以原字节/原键重试。
+		if hj, ok := w.(http.Hijacker); ok {
+			if conn, _, err := hj.Hijack(); err == nil {
+				conn.Close()
+				return
+			}
+		}
+	}
+	reply(200, resp)
+}
+
+// strictVerify 移植 GuardHealth.verify 的判定顺序；prev 为空表示前一序号未入库。
+func strictVerify(b, prev map[string]any, prevHash string, start, end time.Time, seq int64, now time.Time) string {
+	if end.After(now) || now.Sub(end) > 10*time.Second {
+		return "HEALTH_DELAY_EXCEEDED"
+	}
+	skew, ok := b["clockSkewMs"].(json.Number)
+	if !ok {
+		return "CLOCK_UNTRUSTED"
+	}
+	if v, err := skew.Float64(); err != nil || math.Abs(v) > 1000 {
+		return "CLOCK_UNTRUSTED"
+	}
+	if gap, _ := b["captureGap"].(bool); gap {
+		return "CAPTURE_GAP"
+	}
+	cs, _ := b["counterStart"].(map[string]any)
+	ce, _ := b["counterEnd"].(map[string]any)
+	for _, k := range []string{"packetsSeen", "kernelDrops", "capacityDrops"} {
+		x, ok1 := cs[k].(json.Number)
+		y, ok2 := ce[k].(json.Number)
+		if !ok1 || !ok2 {
+			return "COUNTER_UNKNOWN"
+		}
+		a, _ := x.Int64()
+		z, _ := y.Int64()
+		if z < a || k != "packetsSeen" && z != a {
+			return "CAPTURE_DROPS"
+		}
+	}
+	if seq == 1 {
+		if b["previousSha256"] == nil {
+			return "healthy"
+		}
+		return "HEALTH_CHAIN_INCOMPLETE"
+	}
+	if prev == nil || b["previousSha256"] != prevHash {
+		return "HEALTH_CHAIN_INCOMPLETE"
+	}
+	if previousEnd, err := time.Parse(time.RFC3339Nano, fmt.Sprint(prev["intervalEnd"])); err != nil || !previousEnd.Equal(start) {
+		return "HEALTH_CHAIN_INCOMPLETE"
+	}
+	for _, k := range []string{"observerSessionId", "sensorId", "assetId", "captureScopeId", "configSha256", "buildSha256"} {
+		if prev[k] != b[k] {
+			return "HEALTH_IDENTITY_CHANGED"
+		}
+	}
+	x, _ := json.Marshal(prev["counterEnd"])
+	y, _ := json.Marshal(b["counterStart"])
+	if !bytes.Equal(x, y) {
+		return "HEALTH_CHAIN_INCOMPLETE"
+	}
+	return "healthy"
 }

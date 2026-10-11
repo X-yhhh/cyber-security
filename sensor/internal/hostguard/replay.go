@@ -38,6 +38,10 @@ type ReplayOptions struct {
 	CaptureStart time.Time
 	TickInterval time.Duration
 	Observe      func(LiveSample)
+	// FixedOffset 仅用于已登记 lab 时钟；所有场景共用，不得由每个报文重新选择。
+	FixedOffset *time.Duration
+	// Check 在等待和处理前检查外部会话状态；不修改提取器状态或时间。
+	Check func() error
 }
 
 // ReplayResult 把原事件时间与墙钟分开记录：原时间 = 观察中的事件时间 - Offset。
@@ -74,14 +78,35 @@ func ReplayPCAP(ctx context.Context, path string, e *Engine, o ReplayOptions) (R
 	if !e.clock.IsZero() || e.closed {
 		return r, fmt.Errorf("回放需要新的引擎")
 	}
+	if o.FixedOffset != nil && (o.CaptureStart.IsZero() || *o.FixedOffset%time.Microsecond != 0) {
+		return r, fmt.Errorf("固定偏移须绑定原始采集起点及微秒精度")
+	}
+	check := func() error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if o.Check != nil {
+			return o.Check()
+		}
+		return nil
+	}
+	if err := check(); err != nil {
+		return r, err
+	}
 	e.emissionClock = clock.Now
 	started := false
 	if !o.CaptureStart.IsZero() {
 		r.WallStart = clock.Now().UTC()
 		r.Offset = r.WallStart.Truncate(time.Second).Add(time.Second).Sub(o.CaptureStart.UTC().Truncate(time.Second))
+		if o.FixedOffset != nil {
+			r.Offset = *o.FixedOffset
+		}
 		at := o.CaptureStart.Add(r.Offset)
 		for now := clock.Now(); now.Before(at); now = clock.Now() {
-			if err := clock.Sleep(ctx, at.Sub(now)); err != nil {
+			if err := check(); err != nil {
+				return r, err
+			}
+			if err := clock.Sleep(ctx, min(tick, at.Sub(now))); err != nil {
 				return r, err
 			}
 		}
@@ -105,7 +130,7 @@ func ReplayPCAP(ctx context.Context, path string, e *Engine, o ReplayOptions) (R
 		if !o.Start.IsZero() && ci.Timestamp.Before(o.Start) || !o.End.IsZero() && ci.Timestamp.After(o.End) {
 			return nil
 		}
-		if err := ctx.Err(); err != nil {
+		if err := check(); err != nil {
 			return err
 		}
 		if !o.CaptureStart.IsZero() && ci.Timestamp.Before(o.CaptureStart) {
@@ -120,6 +145,9 @@ func ReplayPCAP(ctx context.Context, path string, e *Engine, o ReplayOptions) (R
 		}
 		shifted := ci.Timestamp.Add(r.Offset)
 		for {
+			if err := check(); err != nil {
+				return err
+			}
 			now := clock.Now()
 			if !now.Before(shifted) {
 				break

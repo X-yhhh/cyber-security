@@ -48,11 +48,12 @@ type TargetLease struct {
 	ExpiresAt time.Time `json:"expiresAt"`
 }
 type targetEntry struct {
-	binding   TargetBinding
-	endpoints Endpoints
-	last      time.Time
-	lease     TargetLease
-	deadline  time.Time
+	binding    TargetBinding
+	endpoints  Endpoints
+	last       time.Time
+	lease      TargetLease
+	deadline   time.Time
+	registered bool
 }
 type TargetRegistry struct {
 	mu        sync.Mutex
@@ -62,6 +63,7 @@ type TargetRegistry struct {
 	now       func() time.Time
 	lastClock time.Time
 	invalid   bool
+	register  func(TargetBinding, Endpoints, TargetLease) error
 }
 
 // NewTargetRegistry 是易失的 P2 原型；进程重启不恢复引用，也不具有防火墙权限。
@@ -91,6 +93,21 @@ func NewTargetRegistry(s TargetScope, now func() time.Time) (*TargetRegistry, er
 	}
 	s.LocalAddresses = append([]netip.Addr(nil), s.LocalAddresses...)
 	return &TargetRegistry{scope: s, entries: map[string]targetEntry{}, byTarget: map[string]string{}, now: now}, nil
+}
+
+// NewRegisteredTargetRegistry 供独立可信解析器使用：后台确认后才发布租约。
+// 此模式下同一引用的 expiresAt 不变，过期重新签发引用，避免修改已落库绑定的幂等内容。
+// 原 NewTargetRegistry 行为保持不变，既有冻结运行不受影响。
+func NewRegisteredTargetRegistry(s TargetScope, now func() time.Time, register func(TargetBinding, Endpoints, TargetLease) error) (*TargetRegistry, error) {
+	if register == nil {
+		return nil, ErrTarget
+	}
+	r, err := NewTargetRegistry(s, now)
+	if err != nil {
+		return nil, err
+	}
+	r.register = register
+	return r, nil
 }
 func Binding(o Observation, executorBoot string) TargetBinding {
 	return bindingForScope(o, executorBoot, "peer_service")
@@ -172,8 +189,28 @@ func (r *TargetRegistry) issueForScope(o Observation, end Endpoints, targetScope
 	}
 	expires := o.LastPacketAt.Add(15 * time.Second)
 	lease := TargetLease{ref, expires}
-	r.entries[ref] = targetEntry{b, end, o.LastPacketAt, lease, now.Add(expires.Sub(now))}
+	if old, ok := r.entries[ref]; ok && r.register != nil {
+		lease = old.lease
+		if !old.registered {
+			if err := r.register(b, end, lease); err != nil {
+				return TargetLease{}, ErrTarget
+			}
+		}
+		old.last = o.LastPacketAt
+		old.registered = true
+		r.entries[ref] = old
+		return lease, nil
+	}
+	r.entries[ref] = targetEntry{binding: b, endpoints: end, last: o.LastPacketAt, lease: lease, deadline: now.Add(expires.Sub(now))}
 	r.byTarget[key] = ref
+	if r.register != nil {
+		if err := r.register(b, end, lease); err != nil {
+			return TargetLease{}, ErrTarget
+		}
+		v := r.entries[ref]
+		v.registered = true
+		r.entries[ref] = v
+	}
 	return lease, nil
 }
 func (r *TargetRegistry) resolve(ref string, b TargetBinding) (Endpoints, error) {
@@ -183,7 +220,7 @@ func (r *TargetRegistry) resolve(ref string, b TargetBinding) (Endpoints, error)
 		return Endpoints{}, err
 	}
 	v, ok := r.entries[ref]
-	if !ok || !r.valid(b) || !reflect.DeepEqual(v.binding, b) {
+	if !ok || r.register != nil && !v.registered || !r.valid(b) || !reflect.DeepEqual(v.binding, b) {
 		return Endpoints{}, ErrTarget
 	}
 	return v.endpoints, nil
@@ -198,7 +235,7 @@ func (r *TargetRegistry) resolveLease(ref string, b TargetBinding) (any, error) 
 		return nil, err
 	}
 	v, ok := r.entries[ref]
-	if !ok || !r.valid(b) || !reflect.DeepEqual(v.binding, b) {
+	if !ok || r.register != nil && !v.registered || !r.valid(b) || !reflect.DeepEqual(v.binding, b) {
 		return nil, ErrTarget
 	}
 	return struct {

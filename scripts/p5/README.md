@@ -108,3 +108,7 @@ bash executor/python.sh -m unittest discover -s scripts/p5 -p 'test_*.py'
 4. 签名报告：`platform_report.py` 只接受真实证据——`--lab-run` 为 `e1e2-lab` 证据副本，`--e3-summary` 为 `orchestrate.py --mode pf` 汇总，`--e3-launch` 为对应各轮 `e3-executor` 证据副本。每条汇总场景都须有同一运行目录、退出码 0、root 侧 `result.json` 为 `realPF=true` 的启动记录，否则以 `REPORT_E3_ROOT_EVIDENCE_MISSING` 等错误拒绝。私钥须在仓库外且权限 0600。
 
 T3.8b 的执行记录与证据位置见 [后续实施计划](../../docs/后续实施计划.md#t3-冻结准备mac零拟合)。
+
+## K9 subject 报告上下文
+
+`subject_report.py generate/verify` 需要 `--execution-context <受控 JSON>`。其中记录隔离克隆 schema、引导 platform/canary 文件的原字节 SHA-256 与专用 `e3-bootstrap-<runId>` keyId、源库运行前后逐表 `{rows,sha256}`、源库与克隆中 r4 的 `{bundleId,subjectSha256}` 及一致性结论。工具在生成和验签时拒绝字段缺失、源库前后不一致或克隆 subject 不匹配；正式 payload 仍固定 `evidenceKind=real_pf`，不接受非 root 或 `realPF=false` 的执行证据。摘要必须由编排器实读源库生成；报告中的一致性标记本身不构成数据库证明。

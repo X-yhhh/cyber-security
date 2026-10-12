@@ -25,7 +25,7 @@ payload 的字段见 [合成示例](examples/lab-session.json)。身份绑定包
 
 组合批准、平台能力表中的 lab_auto 和 G3 类别等级分别表示不同事实。G3 导入允许 approved/active 的 lab 组合；其他环境或已撤销组合拒绝。只有正式 lab 会话已 completed、正常时长与误封恢复通过、命令/决策无未关联项、全部命令已核验清理，才为同一来源全部登记场景通过且明确 trialAutoEligible 的类别/来源追加 lab_auto。未通过类别不会抹掉其他通过来源；synthetic 永不登记等级。登记保存到不可变 report 事件并引用 guard_evaluation_run，不改写冻结策略或平台能力表。GET /lab-validation-runs/{id}/qualifications 返回来源、评价引用、subject 和组合当前是否可用。
 
-K6 subject_report.py 必须重算完整 subject 的 JCS，并核对运行前冻结的 subject 与 root 运行记录、实际执行配置一致。旧平台证据缺失该绑定时只能保留其历史含义，不得事后补签为 r4 证据。正式报告仍须 A6 真实运行后签发；隔离 schema 的专用 synthetic 信任文件不进入业务库。
+K6 subject_report.py 必须重算完整 subject 的 JCS，并核对运行前冻结的 subject 与 root 运行记录、实际执行配置一致。正式 platform/canary 还须由 `--execution-context` 提供 `cloneSchema`、至少两份 `{sha256,keyId}` 引导报告原字节摘要、`businessBefore/businessAfter` 逐表 `{rows,sha256}`、`sourceBundle/cloneBundle` 的 `{bundleId,subjectSha256}` 及 `subjectMatchesSource=true`。生成与验签均要求源库前后逐表一致、两个 bundle 绑定与本次完整 subject 一致；原有真实 PF、root 记录和运行时绑定门禁不变。上下文摘要由编排器对源库读取生成，报告工具不以自报布尔值代替数据库读取。旧平台证据缺失该绑定时只能保留其历史含义，不得事后补签为 r4 证据。正式报告仍须 A6 真实运行后签发；隔离 schema 的专用 synthetic 信任文件不进入业务库。
 
 `/release-bundles/{id}/imports` 在验签后显式拒绝 `evidenceKind=bootstrap` 或 `synthetic`，错误码 `REPORT_EVIDENCE_KIND_NOT_ALLOWED`；仅隔离克隆启动时可显式设置 `cyber.guard.bootstrap-reports-enabled=true`。该开关缺省为 false，lab profile 和业务库启动方式均不默认开启。K7-R 隔离演练显式开启它；正式 K6 `subject_report.py` 的报告固定为 `evidenceKind=real_pf`，不得带引导或合成类别。报告身份验签和既有封存、独立批准检查仍须逐项通过。
 

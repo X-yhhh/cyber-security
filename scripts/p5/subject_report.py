@@ -11,6 +11,7 @@ import base64
 import hashlib
 import json
 from pathlib import Path
+import re
 import sys
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import serialization
@@ -107,15 +108,43 @@ def collect(summaries, launches, kind, binding):
     return {"items": items, "executorSha256": executor_hashes.pop(),"subjectBinding":binding}
 
 
-def build(kind, subject_value, evidence):
+def check_execution_context(context, binding):
+    """核对克隆来源与逐表摘要；签名上下文不能靠自报相等来替代源库对拍。"""
+    require(isinstance(context, dict) and set(context) == {
+        "cloneSchema", "bootstrapReports", "businessBefore", "businessAfter",
+        "sourceBundle", "cloneBundle", "subjectMatchesSource"}, "REPORT_EXECUTION_CONTEXT_INVALID")
+    require(isinstance(context["cloneSchema"], str) and
+            re.fullmatch(r"cyber_guard_[a-z0-9_]+", context["cloneSchema"]), "REPORT_EXECUTION_CONTEXT_INVALID")
+    reports = context["bootstrapReports"]
+    require(isinstance(reports, list) and len(reports) >= 2 and
+            all(isinstance(row, dict) and set(row) == {"sha256", "keyId"} and
+                isinstance(row["sha256"], str) and re.fullmatch(r"[0-9a-f]{64}", row["sha256"]) and
+                isinstance(row["keyId"], str) and row["keyId"].startswith("e3-bootstrap-")
+                for row in reports) and len({row["sha256"] for row in reports}) == len(reports),
+            "REPORT_EXECUTION_CONTEXT_INVALID")
+    before, after = context["businessBefore"], context["businessAfter"]
+    require(isinstance(before, dict) and bool(before) and before == after and
+            all(isinstance(name, str) and isinstance(row, dict) and set(row) == {"rows", "sha256"} and
+                type(row["rows"]) is int and row["rows"] >= 0 and isinstance(row["sha256"], str) and
+                re.fullmatch(r"[0-9a-f]{64}", row["sha256"]) for name, row in before.items()),
+            "REPORT_BUSINESS_SNAPSHOT_MISMATCH")
+    expected = {"bundleId": binding["bundleId"], "subjectSha256": binding["subjectSha256"]}
+    require(context["sourceBundle"] == expected and context["cloneBundle"] == expected and
+            context["subjectMatchesSource"] is True, "REPORT_CLONE_SUBJECT_MISMATCH")
+    return context
+
+
+def build(kind, subject_value, evidence, execution_context):
     hashed, subject = subject_hash(subject_value)
     require(kind in {"platform", "canary"} and evidence.get("items"), "REPORT_EVIDENCE_EMPTY")
     binding=validate_binding(evidence['subjectBinding'])
     require(hashed==binding['subjectSha256'] and subject==binding['subject'],'REPORT_SUBJECT_MISMATCH')
+    context = check_execution_context(execution_context, binding)
     return {"reportVersion": REPORT_VERSION, "runKind": kind, "passed": True, "evidenceKind": "real_pf",
             "subjectSha256": hashed, "evaluationPlanSha256": subject["evaluationPlanSha256"],
             "protocolVersions": subject["protocolVersions"], "executorSha256": evidence["executorSha256"],
-            "evidence": evidence["items"], "limitations": ["P5 joint execution evidence; no G3 category qualification"]}
+            "evidence": evidence["items"], "executionContext": context,
+            "limitations": ["P5 joint execution evidence; no G3 category qualification"]}
 
 
 def sign(payload, key, runner):
@@ -123,6 +152,13 @@ def sign(payload, key, runner):
 
 
 def verify(envelope, trust, expected):
+    require(isinstance(expected, dict) and expected.get("evidenceKind") == "real_pf" and
+            expected.get("runKind") in {"platform", "canary"}, "REPORT_KIND_INVALID")
+    context = expected.get("executionContext")
+    require(isinstance(context, dict) and isinstance(context.get("sourceBundle"), dict),
+            "REPORT_EXECUTION_CONTEXT_INVALID")
+    check_execution_context(context, {"bundleId": context["sourceBundle"].get("bundleId"),
+                                      "subjectSha256": expected["subjectSha256"]})
     require(set(envelope) == {"payload", "keyId", "algorithm", "signature"} and envelope["algorithm"] == "Ed25519", "SIGNATURE_INVALID")
     require(envelope["keyId"] in trust, "REPORT_IDENTITY_UNTRUSTED")
     try:
@@ -151,6 +187,7 @@ def main():
         p.add_argument("--subject", type=Path, required=True)
         p.add_argument("--e3-summary", type=Path, action="append", default=[])
         p.add_argument("--root-launch", type=Path, action="append", default=[])
+        p.add_argument("--execution-context", type=Path, required=True)
         if command == "generate":
             p.add_argument("--output", type=Path, required=True)
         else:
@@ -168,7 +205,8 @@ def main():
         write(args.output, sign(payload, args.private_key, args.runner_identity))
     else:
         binding=validate_binding(load(args.subject))
-        payload = build(args.kind, binding, collect(args.e3_summary, args.root_launch, args.kind,binding))
+        payload = build(args.kind, binding, collect(args.e3_summary, args.root_launch, args.kind,binding),
+                        load(args.execution_context))
         if args.command == "verify":
             print(json.dumps(verify(load(args.input), load(args.trust), payload)))
         else:

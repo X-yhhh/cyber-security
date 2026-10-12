@@ -18,6 +18,13 @@ class SubjectReportTest(unittest.TestCase):
         self.subject={k:'a'*64 for k in ('manifestSha256','policySha256','featureProfileSha256','extractorSha256','evaluationPlanSha256')}
         self.subject.update(contractVersion='host-guard/5.0.0-rc.3',protocolVersions={'observation':'host-guard/5.0.0-rc.2'},modelId='model',policyId='policy',capabilityIds=['a','b'],environment='lab')
         self.binding=dict(bundleId='00000000-0000-4000-8000-000000000001',subject=self.subject,subjectSha256=report.digest(self.subject))
+        snapshot={'guard_release_bundle':{'rows':1,'sha256':'c'*64},'sys_user':{'rows':2,'sha256':'d'*64}}
+        bundle={'bundleId':self.binding['bundleId'],'subjectSha256':self.binding['subjectSha256']}
+        self.context=dict(cloneSchema='cyber_guard_fixture_1',bootstrapReports=[
+            {'sha256':'1'*64,'keyId':'e3-bootstrap-fixture'},
+            {'sha256':'2'*64,'keyId':'e3-bootstrap-fixture'}],
+            businessBefore=snapshot,businessAfter=copy.deepcopy(snapshot),sourceBundle=bundle,
+            cloneBundle=copy.deepcopy(bundle),subjectMatchesSource=True)
         self.runtime=dict(subjectSha256=self.binding['subjectSha256'],bundleId=self.binding['bundleId'],policySha256=self.subject['policySha256'],capabilityIds=['a','b'],verifiedBeforeExecution=True)
         self.launches=[];self.summaries=[]
         for scope in ('peer_service','peer_inbound'):
@@ -37,7 +44,7 @@ class SubjectReportTest(unittest.TestCase):
     def dump(self,path,value):path.write_bytes(canonical(value))
     def collect(self,summaries=None,launches=None,kind='platform'):
         return report.collect(self.summaries if summaries is None else summaries,self.launches if launches is None else launches,kind,self.binding)
-    def payload(self):return report.build('platform',self.subject,self.collect())
+    def payload(self):return report.build('platform',self.subject,self.collect(),self.context)
 
     def test_jcs_subject_sign_verify(self):
         p=self.payload();e=report.sign(p,self.keypath,'fixture')
@@ -45,7 +52,20 @@ class SubjectReportTest(unittest.TestCase):
         self.assertEqual(p['subjectSha256'],report.digest(self.subject))
         changed=copy.deepcopy(self.subject);changed['policySha256']='c'*64
         with self.assertRaisesRegex(Rejected,'REPORT_SUBJECT_MISMATCH'):
-            report.build('platform',changed,self.collect())
+            report.build('platform',changed,self.collect(),self.context)
+
+    def test_execution_context_rejects_missing_or_mismatched_evidence(self):
+        for change, code in ((None,'REPORT_EXECUTION_CONTEXT_INVALID'),
+                             ({'cloneBundle':{'bundleId':self.binding['bundleId'],'subjectSha256':'f'*64}},'REPORT_CLONE_SUBJECT_MISMATCH'),
+                             ({'businessAfter':{'sys_user':{'rows':3,'sha256':'d'*64}}},'REPORT_BUSINESS_SNAPSHOT_MISMATCH')):
+            context=copy.deepcopy(self.context)
+            if change is None:context=None
+            else:context.update(change)
+            with self.assertRaisesRegex(Rejected,code):
+                report.build('platform',self.subject,self.collect(),context)
+        payload=self.payload();payload.pop('executionContext')
+        with self.assertRaisesRegex(Rejected,'REPORT_EXECUTION_CONTEXT_INVALID'):
+            report.verify(report.sign(payload,self.keypath,'fixture'),self.trust,payload)
 
     def test_hash_only_or_wrong_claim_is_rejected(self):
         for value in ({'subjectSha256':'a'*64},{'subject':self.subject,'subjectSha256':'b'*64}):
@@ -82,9 +102,10 @@ class SubjectReportTest(unittest.TestCase):
 
     def test_cli_generate_sign_verify(self):
         subject=self.root/'subject.json';self.dump(subject,self.binding)
+        context=self.root/'execution-context.json';self.dump(context,self.context)
         trust=self.root/'trust.json';self.dump(trust,self.trust)
         raw=self.root/'raw.json';signed=self.root/'signed.json'
-        common=['--kind','platform','--subject',str(subject)]
+        common=['--kind','platform','--subject',str(subject),'--execution-context',str(context)]
         for p in self.summaries:common+=['--e3-summary',str(p)]
         for p in self.launches:common+=['--root-launch',str(p)]
         base=[sys.executable,'-B',str(report.ROOT/'scripts/p5/subject_report.py')]

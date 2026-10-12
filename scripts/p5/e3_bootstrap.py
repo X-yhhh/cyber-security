@@ -116,13 +116,16 @@ def segments(args):
     frozen = {r["scenarioId"]: r for r in freeze_scenarios(source, args.artifacts)}
     selection = {v["segmentId"]: v for v in load(args.selection)}
     result = {}
-    for scope, (segment, family) in SEGMENTS.items():
+    chosen = dict(SEGMENTS, peer_inbound=(args.inbound_segment, "port_scan"))
+    for scope, (segment, family) in chosen.items():
         row = frozen[segment]
         require(row["family"] == family, "K9_SEGMENT_FAMILY_MISMATCH")
         mapping = original_mapping(row, selection[segment], args.artifacts)
         require(scope == "peer_inbound" or len(mapping["ports"]) == 1, "K9_SEGMENT_SERVICE_PORT_AMBIGUOUS")
         result[scope] = {"segmentId": segment, "family": family, "pcap": str((args.artifacts / row["pcapRef"]).resolve()),
                          "sha256": row["pcapSha256"], "host": mapping["host"], "servicePort": mapping["port"],
+                         # 与 lab 回放同一采集起点：上下文覆盖从登记的预热起点起算，保留原预热和报文间隔。
+                         "captureStart": row["captureStart"],
                          "peerCount": len(mapping["peers"])}
     return result
 
@@ -214,6 +217,10 @@ def run(args):
         boot = bootstrap_reports(work, args.artifacts, source, facts["subject"], clone)
         state["bootstrapReports"] = [{"sha256": r["sha256"], "keyId": r["runnerIdentity"]} for r in boot["reports"]]
         env = tool_env(args)
+        if args.rounds:
+            require(args.mode == "rehearse", "K9_ROUNDS_DIAGNOSTIC_ONLY")
+            env["P5_SUBJECT_ROUNDS"] = args.rounds
+            state["diagnosticRounds"] = args.rounds.split(",")
         common = ["--subject-binding", str(work / "subject-binding.json"), "--subject-schema", clone,
                   "--subject-artifact-root", str(args.artifacts), "--subject-report-trust", str(work / "private/bootstrap-trust.json")]
         code = orchestrate(args, env, work / "bootstrap", ["--mode", "rehearse", "--subject-step", "bootstrap",
@@ -259,7 +266,7 @@ def run(args):
             write(work / "execution-context.json", context)
         write(attempt / "state.json", state)
         record(args.attempts, attempt, state)
-    if args.mode == "rehearse":
+    if args.mode == "rehearse" and not args.rounds:
         state["k6"] = rehearsal_report(args, work, attempt)
         write(attempt / "k6.json", state["k6"])
     return state
@@ -307,6 +314,8 @@ def main():
     parser.add_argument("--bundle-id", required=True)
     parser.add_argument("--subject-sha256", default=R4_SUBJECT_SHA256)
     parser.add_argument("--authorization-reference", help="pf：A6 单轮授权引用")
+    parser.add_argument("--inbound-segment", default=SEGMENTS["peer_inbound"][0], help="peer_inbound 使用的已登记 port_scan 片段")
+    parser.add_argument("--rounds", help="仅诊断：逗号分隔的 scope-scenario；不完整矩阵不生成 K6 报告")
     parser.add_argument("--directory", type=Path, default=ROOT / ".cache/k9-20261012")
     parser.add_argument("--attempts", type=Path, default=ROOT / ".cache/k9-20261012/attempts.json")
     parser.add_argument("--artifacts", type=Path, default=HOME / "ai/artifacts/cyber-guard")

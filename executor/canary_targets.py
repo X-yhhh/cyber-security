@@ -43,13 +43,19 @@ class CanaryTargets:
             "targetCertificate": str(self.pki / "executor.pem"), "targetKey": str(self.pki / "executor.key")}
         self.resolver = TargetResolver(lambda: self.resolver_config)
 
-    def lease(self, mode, port, peer_port):
+    # 回环 canary 对端 127.0.0.2 的固定域分离键；映射后的观察与租约共用。
+    PEER_KEY = "a" * 64
+
+    def lease(self, mode, port, peer_port, last=None):
+        """last 为该对端最新报文时刻（默认现在）；与传感器逐包取租约相同，只刷新最近报文时刻。"""
         c, now = self.engine.config(), time.time()
+        last = now if last is None else last
+        require(last <= now, "TARGET_REF_STALE")
         observation = parse((SCHEMAS / "examples/observation.json").read_bytes())
         observation.update({k: c[k] for k in ("assetId", "sensorId", "captureScopeId", "environment")})
-        observation.update(bootId=self.boot, direction="inbound", servicePort=port, peerKey="a" * 64,
-                           keyEpoch=1, firstSeenAt=stamp(now - 1), asOf=stamp(now),
-                           lastPacketAt=stamp(now), emittedAt=stamp(now))
+        observation.update(bootId=self.boot, direction="inbound", servicePort=port, peerKey=self.PEER_KEY,
+                           keyEpoch=1, firstSeenAt=stamp(last - 1), asOf=stamp(last),
+                           lastPacketAt=stamp(last), emittedAt=stamp(now))
         request = {"observation": observation, "scope": mode,
                    "endpoints": {"Local": f"127.0.0.1:{port}", "Peer": f"127.0.0.2:{peer_port}", "Protocol": 6}}
         deadline = time.monotonic() + 3

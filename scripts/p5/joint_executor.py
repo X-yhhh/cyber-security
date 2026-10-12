@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 from executor.__main__ import cycle, flush, heartbeat as send_heartbeat
 from executor.canary_targets import CanaryTargets
-from executor.common import Rejected, canonical, digest, parse, read_private, require, stamp, write_new
+from executor.common import Rejected, canonical, digest, instant, parse, read_private, require, stamp, write_new
 from executor.config import RuntimeConfig
 from executor.contract import capability_set_sha256, protected_ports_sha256
 from executor.engine import Engine
@@ -238,14 +238,20 @@ def run(directory, work=None, owner=None):
         require(engine.healthy_recovery(), "LAB_RECOVERY_START_FAILED")
         control = FaultTransport(ControlPlane(engine.config), data["scenario"])
         cycle(engine, control)
-        reply({"executorBoot": engine.boot, "collectorBoot": targets.boot})
+        reply({"executorBoot": engine.boot, "collectorBoot": targets.boot, "canaryPeerKey": targets.PEER_KEY})
+        known = {}
         for line in CHANNEL["in"]:
-            operation = parse(line)["operation"]
+            message = parse(line)
+            operation = message["operation"]
             if operation == "lease":
-                binding, registered = targets.lease(data["scope"], port, 55123)
-                registration = control.post("target-bindings", registered, registered["bindingId"])
+                # 回放期间按最新报文刷新同一引用的最近报文时刻；同一 targetRef 只向控制面登记一次，沿用首次截止。
+                last = instant(message["lastPacketAt"]) if "lastPacketAt" in message else None
+                binding, registered = targets.lease(data["scope"], port, 55123, last)
+                if binding["targetRef"] not in known:
+                    known[binding["targetRef"]] = (control.post("target-bindings", registered, registered["bindingId"]), registered["expiresAt"])
+                registration, expires = known[binding["targetRef"]]
                 reply({"binding": {**binding, "stableTargetToken": registered["stableTargetToken"],
-                                   "leaseExpiresAt": registered["expiresAt"]}, "registration": registration})
+                                   "leaseExpiresAt": expires}, "registration": registration})
             elif operation == "heartbeat":
                 # 回放期间保持执行器心跳新鲜；不领取命令，领取仍只在 apply 中发生。
                 reply({"pendingRecovery": send_heartbeat(engine, control)})

@@ -30,6 +30,8 @@ import static org.assertj.core.api.Assertions.*;
 @ActiveProfiles("lab")
 class GuardE3SubjectTest extends GuardJointLabTest {
     @Autowired GuardEligibility eligibility;
+    /** 契约上限 512；扫描突发时较大批次可复用同批判定缓存，减少积压。 */
+    static final int BATCH=500;
     static final Set<String> MAPPED=Set.of("environment","peerKey","targetRef","targetExpiresAt","quality.clockSkewMs");
 
     static String env(String name){String v=System.getenv(name);assertThat(v).withFailMessage("missing %s",name).isNotBlank();return v;}
@@ -69,7 +71,7 @@ class GuardE3SubjectTest extends GuardJointLabTest {
         human("/authorizations/"+auth+"/decisions",object("decision","approve","reason","K9 克隆内回环 E3"),reviewer,"1");
         String captureScope=id();JsonNode sensor=human("/sensors",object("assetId",asset,"platform","macos","captureScopeId",captureScope),operator,null);
         JsonNode executor=human("/executors",object("assetId",asset,"platform","macos","capabilityProbeRef","k9:e3-subject"),operator,null);
-        JsonNode config=object("contractVersion",CONTRACT,"profileSha256",contracts.profileHash(),"captureHealthVersion",HEALTH,"interfaceIds",List.of("lo0"),"limits",object("maxBatchSize",100),"captureScopeId",captureScope,"addressFamily","ipv4","buildSha256",build);
+        JsonNode config=object("contractVersion",CONTRACT,"profileSha256",contracts.profileHash(),"captureHealthVersion",HEALTH,"interfaceIds",List.of("lo0"),"limits",object("maxBatchSize",BATCH),"captureScopeId",captureScope,"addressFamily","ipv4","buildSha256",build);
         String configId=human("/sensors/"+sensor.path("id").asText()+"/configs",config,operator,null).path("id").asText();
         human("/sensor-configs/"+configId+"/decisions",object("decision","approve","reason","K9 冻结片段回放构建"),reviewer,"1");
         var current=store.external("guard_release_bundle",bid,false);assertThat(str(current,"status")).isIn("approved","active");
@@ -99,6 +101,8 @@ class GuardE3SubjectTest extends GuardJointLabTest {
         if("pf".equals(System.getenv("P5_FIREWALL"))){assertThat(selectedScope).isIn("peer_service","peer_inbound");assertThat(selectedScenario).isIn("revoke","disconnect","receipt_loss");}
         for(String scope:List.of("peer_service","peer_inbound"))for(String scenario:List.of("revoke","disconnect","receipt_loss")){
             if(selectedScope!=null&&!selectedScope.equals(scope)||selectedScenario!=null&&!selectedScenario.equals(scenario))continue;
+            // 诊断用：只跑指定轮次；K6 覆盖检查会拒绝不完整矩阵，因此不能借此产出报告。
+            String rounds=System.getenv("P5_SUBJECT_ROUNDS");if(rounds!=null&&!Arrays.asList(rounds.split(",")).contains(scope+"-"+scenario))continue;
             JsonNode segment=segments.get(scope);Path pcap=segmentPcap(segment);String family=segment.path("family").asText();
             String capability=capabilities.entrySet().stream().filter(e->e.getValue().path("family").asText().equals(family)&&e.getValue().path("scopeRegistered").asText().equals(scope)).map(Map.Entry::getKey).findFirst().orElseThrow();
             Round r=prepare(bid,scope,segment,capability,build);
@@ -121,11 +125,13 @@ class GuardE3SubjectTest extends GuardJointLabTest {
             try(var reader=new BufferedReader(new InputStreamReader(process.getInputStream(),StandardCharsets.UTF_8));
                 var writer=new BufferedWriter(new OutputStreamWriter(process.getOutputStream(),StandardCharsets.UTF_8))){
                 JsonNode ready=receive(reader);String boot=ready.path("collectorBoot").asText();
-                Feed feed=new Feed(r,boot,dir,reader,writer,build);feed.sensorHeartbeat();feed.health();
-                feed.lease();
+                Feed feed=new Feed(r,boot,dir,reader,writer,build);feed.peerKey=ready.path("canaryPeerKey").asText();assertThat(feed.peerKey).matches("[0-9a-f]{64}");feed.sensorHeartbeat();feed.health();
+                // 租约在首条观察出现时才申请，与传感器按报文取租约一致；预热期间没有执行引用。
                 live=feed.start(guardlive,pcap,segment);
                 var asset=store.external("asset",r.asset(),false);
-                Map<String,Object> action=feed.run(live,()->store.one("guard_action",map("asset_id",asset.get("id")),false));
+                Map<String,Object> action;
+                try{action=feed.run(live,()->store.one("guard_action",map("asset_id",asset.get("id")),false));}
+                finally{privateJson(dir.resolve("feed-timing.json"),node(feed.timing));}
                 assertThat(action).withFailMessage("No action from frozen replay: %s",feed.diagnostics(asset.get("id"))).isNotNull();
                 live.destroy();if(!live.waitFor(10,TimeUnit.SECONDS))live.destroyForcibly();
                 var applied=exchange(reader,writer,"apply");assertThat(applied.path("installed").asBoolean()).isTrue();
@@ -156,7 +162,7 @@ class GuardE3SubjectTest extends GuardJointLabTest {
     final class Feed{
         final Round r;final String boot,build;final Path dir;final BufferedReader reader;final BufferedWriter writer;
         String targetRef,peerKey;Instant expiresAt;long sequence=0,healthSequence=0,posted=0,leases=0;String healthPrevious;Instant healthEnd;final String observer=id();
-        Instant firstPosted,actionSeenAt;final List<String> skipped=new ArrayList<>();
+        Instant firstPosted,actionSeenAt;final List<String> skipped=new ArrayList<>();final List<JsonNode> timing=new ArrayList<>();
         Feed(Round r,String boot,Path dir,BufferedReader reader,BufferedWriter writer,String build){this.r=r;this.boot=boot;this.dir=dir;this.reader=reader;this.writer=writer;this.build=build;}
         Double skewMs;
         /** 上传侧心跳顺带按服务端时间测偏差（与 guardup 相同口径：响应时间减往返中点）。 */
@@ -166,18 +172,43 @@ class GuardE3SubjectTest extends GuardJointLabTest {
             Instant after=Instant.now();
             if(reply.hasNonNull("serverTime")){Instant middle=before.plus(Duration.between(before,after).dividedBy(2));skewMs=Duration.between(middle,Instant.parse(reply.path("serverTime").asText())).toNanos()/1e6;}
         }
+        /** 健康窗必须首尾相接且每窗不超过 5 秒；批量处理占用较久时按 4 秒分段补齐，不留间断。 */
         void health()throws Exception{
-            Instant end=Instant.now().truncatedTo(ChronoUnit.MICROS);Instant start=healthEnd==null?end.minusSeconds(1):healthEnd;if(!start.isBefore(end))return;
+            Instant now=Instant.now().truncatedTo(ChronoUnit.MICROS);Instant start=healthEnd==null?now.minusSeconds(1):healthEnd;
+            while(start.isBefore(now)){Instant end=start.plusSeconds(4).isBefore(now)?start.plusSeconds(4):now;healthWindow(start,end);start=end;}
+        }
+        void healthWindow(Instant start,Instant end)throws Exception{
             ObjectNode h=GuardDomainTest.health(end,++healthSequence,healthPrevious);h.put("intervalStart",start.toString()).put("assetId",r.asset()).put("sensorId",r.sensor()).put("captureScopeId",r.scope())
                     .put("observerSessionId",observer).put("configSha256",r.configHash()).put("buildSha256",build);
             JsonNode accepted=machine("/sensors/"+r.sensor()+"/health-windows",h,r.sensorCredential());assertThat(accepted.path("verificationStatus").asText()).isEqualTo("healthy");
             healthPrevious=accepted.path("contentSha256").asText();healthEnd=end;
         }
         /** guardtargets 租约截止固定；过期后才换引用，与 lab 传感器语义一致。 */
-        void lease()throws Exception{
-            if(expiresAt!=null){Instant wait=expiresAt.plusMillis(20);while(Instant.now().isBefore(wait))Thread.sleep(10);}
-            JsonNode leased=exchange(reader,writer,"lease");JsonNode b=leased.get("binding");targetRef=b.path("targetRef").asText();peerKey=b.path("peerKey").asText();
-            expiresAt=Instant.parse(b.path("leaseExpiresAt").asText());leases++;
+        Instant lastRefresh,refreshedPacket,nextBeat=Instant.MIN;long refreshes=0;
+        /** 每 2 秒补健康窗、传感器心跳与执行器心跳（不领取命令）。 */
+        void beat()throws Exception{if(Instant.now().isBefore(nextBeat))return;health();sensorHeartbeat();exchange(reader,writer,"heartbeat");nextBeat=Instant.now().plusSeconds(2);}
+        void lease()throws Exception{lease(null);}
+        /** packet 为触发本次租约的报文时刻（首条可执行观察）；缺省为现在。截止 = packet + 15 秒，与观察契约一致。 */
+        void lease(Instant packet)throws Exception{
+            String previous=targetRef;Instant deadline=Instant.now().plusSeconds(20);
+            while(true){
+                if(expiresAt!=null){Instant wait=expiresAt.plusMillis(20);while(Instant.now().isBefore(wait))Thread.sleep(10);}
+                ObjectNode request=object("operation","lease");if(packet!=null)request.put("lastPacketAt",packet.toString());
+                writer.write(canonical(request));writer.newLine();writer.flush();JsonNode leased=receive(reader);JsonNode b=leased.get("binding");
+                // 回环 canary 解析器在最近报文后 15 秒内沿用原引用；控制面登记截止已过时等它换新引用，期间观察不带执行引用。
+                if(previous==null||!previous.equals(b.path("targetRef").asText())){targetRef=b.path("targetRef").asText();peerKey=b.path("peerKey").asText();
+                    expiresAt=Instant.parse(b.path("leaseExpiresAt").asText());leases++;lastRefresh=Instant.now();refreshedPacket=null;return;}
+                assertThat(Instant.now()).isBefore(deadline);Thread.sleep(500);
+            }
+        }
+        /** 与传感器逐包取租约一致：同一引用只刷新解析器的最近报文时刻，不延长控制面登记的截止。 */
+        void refresh(List<JsonNode> batch)throws Exception{
+            Instant now=Instant.now();if(expiresAt==null||lastRefresh!=null&&Duration.between(lastRefresh,now).toMillis()<1000||!now.plusSeconds(1).isBefore(expiresAt))return;
+            Instant latest=null;for(var o:batch)if(targetRef.equals(o.path("targetRef").asText(null))){Instant at=Instant.parse(o.path("lastPacketAt").asText());if(latest==null||at.isAfter(latest))latest=at;}
+            if(latest==null||refreshedPacket!=null&&!latest.isAfter(refreshedPacket))return;
+            writer.write(canonical(object("operation","lease","lastPacketAt",latest.toString())));writer.newLine();writer.flush();JsonNode b=receive(reader).get("binding");
+            assertThat(b.path("targetRef").asText()).isEqualTo(targetRef);assertThat(Instant.parse(b.path("leaseExpiresAt").asText())).isEqualTo(expiresAt);
+            lastRefresh=now;refreshedPacket=latest;refreshes++;
         }
         Process start(Path guardlive,Path pcap,JsonNode segment)throws Exception{
             byte[] secret=new byte[32];new SecureRandom().nextBytes(secret);Path key=dir.resolve("replay-peer.key");Files.write(key,secret);
@@ -186,7 +217,7 @@ class GuardE3SubjectTest extends GuardJointLabTest {
                     "authorizedUntil",Instant.now().plusSeconds(3600).truncatedTo(ChronoUnit.SECONDS).toString());
             privateJson(dir.resolve("replay-config.json"),cfg);
             return new ProcessBuilder(guardlive.toString(),"-config",dir.resolve("replay-config.json").toString(),"-pcap",pcap.toString(),"-out",dir.resolve("replay.jsonl").toString(),
-                    "-report",dir.resolve("replay-report.json").toString()).redirectOutput(dir.resolve("replay.stdout").toFile()).redirectError(dir.resolve("replay.log").toFile()).start();
+                    "-report",dir.resolve("replay-report.json").toString(),"-capture-start",segment.path("captureStart").asText()).redirectOutput(dir.resolve("replay.stdout").toFile()).redirectError(dir.resolve("replay.log").toFile()).start();
         }
         ObjectNode mapped(JsonNode raw){
             ObjectNode o=(ObjectNode)raw.deepCopy();
@@ -200,25 +231,35 @@ class GuardE3SubjectTest extends GuardJointLabTest {
             JsonNode q=o.get("quality");Instant now=Instant.now();
             boolean defective=q.path("capacityDrop").asBoolean()||q.path("captureGap").asBoolean()||q.path("latePacket").asBoolean()||q.path("offloadSuspected").asBoolean()||q.path("truncated").asBoolean();
             boolean executable=o.path("direction").asText().equals("inbound")&&o.path("servicePort").isNumber()&&!defective&&q.path("clockSkewMs").isNumber()
-                    &&Math.abs(q.path("clockSkewMs").asDouble())<=1000&&Duration.between(Instant.parse(o.path("lastPacketAt").asText()),now).toMillis()<=10000&&expiresAt.isAfter(now);
+                    &&Math.abs(q.path("clockSkewMs").asDouble())<=1000&&Duration.between(Instant.parse(o.path("lastPacketAt").asText()),now).toMillis()<=10000&&expiresAt!=null&&expiresAt.isAfter(now)
+                    // 观察契约：targetExpiresAt 位于 [lastPacketAt, lastPacketAt+15s]；租约之前的报文不携带该引用。
+                    &&!expiresAt.isAfter(Instant.parse(o.path("lastPacketAt").asText()).plusSeconds(15))&&!expiresAt.isBefore(Instant.parse(o.path("lastPacketAt").asText()));
             if(executable)o.put("targetRef",targetRef).put("targetExpiresAt",expiresAt.toString());else o.putNull("targetRef").putNull("targetExpiresAt");
             return o;
         }
         Map<String,Object> run(Process live,java.util.concurrent.Callable<Map<String,Object>> action)throws Exception{
-            Path out=dir.resolve("replay.jsonl");long offset=0;StringBuilder partial=new StringBuilder();Instant nextBeat=Instant.now();
+            Path out=dir.resolve("replay.jsonl");long offset=0;StringBuilder partial=new StringBuilder();
             Instant deadline=Instant.now().plusSeconds(Long.parseLong(System.getenv().getOrDefault("P5_SUBJECT_FEED_SECONDS","180")));
             try(var mapped=Files.newBufferedWriter(dir.resolve("mapped.jsonl"),StandardOpenOption.CREATE_NEW)){
                 while(Instant.now().isBefore(deadline)){
-                    if(!Instant.now().isBefore(nextBeat)){health();sensorHeartbeat();exchange(reader,writer,"heartbeat");nextBeat=Instant.now().plusSeconds(2);}
-                    if(Instant.now().plusMillis(300).isAfter(expiresAt))lease();
+                    beat();
+                    if(expiresAt!=null&&Instant.now().plusMillis(300).isAfter(expiresAt))lease();
                     var lines=new ArrayList<JsonNode>();
                     if(Files.exists(out)){try(var ch=Files.newByteChannel(out)){ch.position(offset);var buf=java.nio.ByteBuffer.allocate(1<<20);int n=ch.read(buf);if(n>0){offset+=n;partial.append(new String(buf.array(),0,n,StandardCharsets.UTF_8));}}}
                     int nl;while((nl=partial.indexOf("\n"))>=0){String line=partial.substring(0,nl);partial.delete(0,nl+1);if(!line.isBlank())lines.add(parse(line));}
-                    for(int i=0;i<lines.size();i+=100){
-                        var batch=new ArrayList<JsonNode>();for(var raw:lines.subList(i,Math.min(lines.size(),i+100))){var o=mapped(raw);batch.add(o);mapped.write(canonical(o));mapped.newLine();}
+                    if(expiresAt==null){Instant first=null;for(var o:lines)if(o.path("direction").asText().equals("inbound")&&o.path("servicePort").isNumber()){Instant at=Instant.parse(o.path("lastPacketAt").asText());if(first==null||at.isBefore(first))first=at;}
+                        if(first!=null)lease(first);}
+                    for(int i=0;i<lines.size();i+=BATCH){
+                        var batch=new ArrayList<JsonNode>();for(var raw:lines.subList(i,Math.min(lines.size(),i+BATCH))){var o=mapped(raw);batch.add(o);mapped.write(canonical(o));mapped.newLine();}
                         if(firstPosted==null)firstPosted=Instant.now();
-                        accept(fixture(),batch,++sequence,true);posted+=batch.size();
-                        var found=action.call();if(found!=null){actionSeenAt=Instant.now();mapped.flush();return found;}
+                        refresh(batch);
+                        beat();Instant began=Instant.now();var b=batch(fixture(),batch,++sequence);var receipt=machine("/sensors/"+r.sensor()+"/observation-batches",b,r.sensorCredential());
+                        assertThat(receipt.path("acceptedCount").asInt()).withFailMessage("receipt=%s",receipt).isEqualTo(batch.size());Instant accepted=Instant.now();
+                        detection.consume(id(),"guard.observation.accepted",object("batchId",b.get("batchId")));posted+=batch.size();
+                        var found=action.call();
+                        timing.add(object("sequence",sequence,"size",batch.size(),"startedAt",began.toString(),"millis",Duration.between(began,Instant.now()).toMillis(),"acceptMillis",Duration.between(began,accepted).toMillis(),
+                                "maxLastPacketAt",batch.stream().map(o->o.path("lastPacketAt").asText()).max(String::compareTo).orElse(null),"targetExpiresAt",String.valueOf(expiresAt),"action",found!=null));
+                        if(found!=null){actionSeenAt=Instant.now();mapped.flush();return found;}
                     }
                     if(lines.isEmpty()&&!live.isAlive()&&partial.isEmpty()){var found=action.call();return found;}
                     Thread.sleep(50);
@@ -234,7 +275,7 @@ class GuardE3SubjectTest extends GuardJointLabTest {
         }
         JsonNode summary(JsonNode segment)throws Exception{
             return object("segmentId",segment.path("segmentId"),"pcapSha256",segment.path("sha256"),"family",segment.path("family"),"servicePort",segment.path("servicePort"),
-                    "observationsPosted",posted,"batches",sequence,"leases",leases,"healthWindows",healthSequence,"firstPostedAt",String.valueOf(firstPosted),"actionSeenAt",String.valueOf(actionSeenAt),
+                    "observationsPosted",posted,"batches",sequence,"leases",leases,"leaseRefreshes",refreshes,"healthWindows",healthSequence,"firstPostedAt",String.valueOf(firstPosted),"actionSeenAt",String.valueOf(actionSeenAt),
                     "replayJsonlSha256",sha(Files.readAllBytes(dir.resolve("replay.jsonl"))),"mappedJsonlSha256",sha(Files.readAllBytes(dir.resolve("mapped.jsonl"))),
                     "mappedFields",node(new TreeSet<>(MAPPED)),"guardliveSha256",build);
         }

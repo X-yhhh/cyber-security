@@ -53,6 +53,12 @@ observation、feature-profile 与 action-receipt 不变；默认策略示例所�
 
 rc.4 内追加可选字段 `acceptedProfiles`（`flow-prefix-v1`/`flow-final-v1` 子集，非空、不重复，须包含 `profile`，P4 以 `INVALID_POLICY_PROFILES` 拒绝不合规值）。缺失时只接受 `profile`，既有策略语义与摘要不变，因此不升 contractVersion。起因是 J1 实测短连接类别只产生 final 快照、整组被 `CAPABILITY_NOT_SUPPORTED` 拒绝；按 2026-10-11 用户决策，派生策略 `host-guard-decision/2026-10-08.1+profiles-20261011`（交付包 r3）接受两种 profile，登记见[后续实施计划 J1 V3 正式收口](../后续实施计划.md#j1-v3-回放演练r7不需要-lab-授权)。
 
+**能力 profile 兼容（K9-B1，2026-10-12 用户决定）**：上次只改了策略和模型，漏改了 `GuardEligibility.matchingCapability`，它仍要求能力登记的 `profile` 与观察逐字相等。r4 的 lab_auto 能力都声明 `flow-prefix-v1`，而端口扫描只产生 `flow-final-v1` 快照，结果在 T1 一律得到 `CAPABILITY_NOT_SUPPORTED`。
+
+现规则：逐字相等，或者能力与观察的 profile 都在已审查策略的 `acceptedProfiles` 内，即视为兼容。地址族、传输、方向、类别、等级、`supportedCapabilityIds` 与环境仍逐项比较；没有 `acceptedProfiles` 的策略保持逐字相等。
+
+这次改动不改 Schema、能力登记、策略或组合 subject，也不改模型交付包；只是让策略已经审查接受的 final 快照也能走到后续执行门。
+
 ## 图内 opset 核验（2026-10-08）
 
 不改 Schema、不升结构版本，是对现有 `runtime.opset` 字段的消费方语义收紧。此前 `GuardModelRuntime` 只核对 manifest 声明的 `runtime.opset=17`，不读图本身；T2 原始导出图默认域重复声明 `[15, 15]`，与声明 17 的 manifest 组合时仍被接受（R1 反向对照发现）。现在加载前只解析 ModelProto 第 8 字段 `opset_import`：默认域须唯一且等于声明值，任一域重复或字节损坏时返回 `ONNX_CONTRACT_INVALID`，不新增错误码。冻结工具产出的单一默认域 17 图（含 candidate-v2、T1.7 探针和第二轮候选）不受影响。

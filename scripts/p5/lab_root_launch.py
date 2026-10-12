@@ -19,8 +19,8 @@ import sys
 import time
 
 RUNS = "/private/var/root/hostguard-lab"
-TASKS = ("p1-probe", "e1e2-lab", "e3-executor")
-E3_SECRETS = ("credential", "budget.key")
+TASKS = ("p1-probe", "e1e2-lab", "e3-executor", "g3-executor")
+E3_SECRETS = ("credential", "budget.key", "targetKey.pem")
 
 
 def sha(path):
@@ -70,10 +70,13 @@ def main():
     parser.add_argument("--rendezvous", help="e3-executor：orchestrate.py --mode pf 的运行目录")
     parser.add_argument("--scope", choices=("peer_service", "peer_inbound"))
     parser.add_argument("--scenario", choices=("revoke", "disconnect", "receipt_loss"))
-    parser.add_argument("--ready-marker", help="e3-executor：副本核验完成后创建的就绪标记（新绝对路径），用户侧据此再启动后端")
+    parser.add_argument("--ready-marker", help="e3-executor/g3-executor：副本核验完成后创建的就绪标记（新绝对路径），用户侧据此再启动后端")
+    parser.add_argument("--max-seconds", type=int, default=5400, help="g3-executor：会话最长秒数（不含排空）")
     args = parser.parse_args()
     if (args.task == "e3-executor") != bool(args.rendezvous and args.scope and args.scenario):
         fail("E3_ROUND_ARGUMENTS_REQUIRED")
+    if args.task == "g3-executor" and not (args.rendezvous and not args.scope and not args.scenario and 60 <= args.max_seconds <= 7200):
+        fail("G3_ARGUMENTS_REQUIRED")
     if os.geteuid() != 0 or sys.flags.isolated != 1:
         fail("ROOT_ISOLATED_PYTHON_REQUIRED")
     if not re.fullmatch(r"[a-z0-9][a-z0-9-]{5,62}", args.run_id) or not re.fullmatch(r"[0-9a-f]{64}", args.manifest_sha256):
@@ -123,6 +126,23 @@ def main():
     elif args.task == "e1e2-lab":
         command = [python, "-B", "-s", "-m", "executor.pf_lab", "--directory", evidence,
                    "--guardtargets", os.path.join(bundle, "guardtargets")]
+    elif args.task == "g3-executor":
+        # 正式 G3：常驻执行器与独立恢复器，只读取 rendezvous 中 owner 所有的数据文件。
+        if not os.path.isabs(args.rendezvous) or os.path.realpath(args.rendezvous) != args.rendezvous:
+            fail("E3_RENDEZVOUS_INVALID")
+        info = os.lstat(args.rendezvous)
+        if not stat.S_ISDIR(info.st_mode) or info.st_uid != args.owner_uid:
+            fail("E3_RENDEZVOUS_UNTRUSTED")
+        if args.ready_marker:
+            if not os.path.isabs(args.ready_marker) or os.path.lexists(args.ready_marker):
+                fail("E3_READY_MARKER_INVALID")
+            marker = os.open(args.ready_marker, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+            os.fchown(marker, args.owner_uid, -1)
+            os.close(marker)
+        os.mkdir(evidence, 0o700)
+        record.update(rendezvous=args.rendezvous, maxSeconds=args.max_seconds)
+        command = [python, "-B", "-s", os.path.join(app, "scripts/p5/g3_executor.py"), "--directory", args.rendezvous,
+                   "--work", evidence, "--owner-uid", str(args.owner_uid), "--max-seconds", str(args.max_seconds)]
     else:
         # 单轮 E3：等待用户态中继建好管道；只读其数据文件的副本，root 工作目录即证据目录。
         if not os.path.isabs(args.rendezvous) or os.path.realpath(args.rendezvous) != args.rendezvous:
@@ -161,7 +181,7 @@ def main():
         # 子任务输出另存一份随证据交回，便于定位失败；原 launch.log 仍保留在 root 目录。
         with open(os.path.join(run, "task.log"), "xb") as task_log:
             try:
-                exit_code = subprocess.run(command, cwd=app, env=env, timeout=1800, stdout=task_log,
+                exit_code = subprocess.run(command, cwd=app, env=env, timeout=args.max_seconds + 600 if args.task == "g3-executor" else 1800, stdout=task_log,
                                            stderr=subprocess.STDOUT).returncode
             except subprocess.TimeoutExpired:
                 # run() 已终止并回收子任务；照常写启动记录并交回证据，记为失败。

@@ -17,10 +17,12 @@ public class GuardLabExecutionGate {
     public boolean permits(JsonNode observation,java.util.Map<String,Object> bundle,Instant now) {
         if(!"lab".equals(observation.path("environment").asText()))return true;
         var sensor=store.external("sensor_agent",uuid(observation,"sensorId"),false);
-        Long owner=mapper.owner(number(sensor,"id"),uuid(observation,"bootId"));
+        long sid=number(sensor,"id");String boot=uuid(observation,"bootId");
+        // 批内判定作用域中复用会话归属与运行行（写入方都先锁同一资产）；作用域外每次查询。
+        Long owner=GuardStore.scoped("lab-owner:"+sid+":"+boot,()->mapper.owner(sid,boot));
         // 原 P5 平台验证入口兼容；一旦登记过会话，不允许换 boot 退回无会话路径。
-        if(owner==null)return mapper.managedSensor(number(sensor,"id"))==0;
-        var session=store.get("guard_validation_session",owner);var run=mapper.run(owner);
+        if(owner==null)return GuardStore.<Integer>scoped("lab-managed:"+sid,()->mapper.managedSensor(sid))==0;
+        var session=store.get("guard_validation_session",owner);var run=GuardStore.scoped("lab-run:"+owner,()->mapper.run(owner));
         if(!"active".equals(str(session,"status"))||run==null||!"running".equals(str(run,"status"))
                 ||number(session,"asset_id")!=number(sensor,"asset_id")||number(session,"bundle_id")!=number(bundle,"id"))return false;
         var p=json(run,"manifest_jcs");

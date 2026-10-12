@@ -118,25 +118,32 @@ public class GuardDetection {
                 JsonNode value=json(row,"payload_json");long oid=number(row,"id");remember(oid,str(row,"content_sha256"),value);content.put(oid,value);}
             for(var rows:evidenceByEpisode.values())for(var row:rows){JsonNode value=content.get(number(row,"observation_id"));require(value!=null,"RESOURCE_NOT_FOUND");row.put("observation_node",value);}
         }
-        // research 已明示无执行路径，可在同一事务批量落库；真实动作仍逐项预留预算，保持动作间依赖。
-        List<Map<String,Object>> deferred=hypotheticalPolicy==null?null:new ArrayList<>();
+        // 不产生动作的判定在同一事务批量落库（research 全部如此）；会产生动作的判定先落库已暂存判定，再逐项写入并预留预算，保持动作间依赖与先后顺序。
+        List<Map<String,Object>> deferred=new ArrayList<>();
         // 批内只读事实（模型、健康窗口、批次连续性、匹配能力）在同一事务中不变，按键复用，避免每个 episode 重复查询。
         try(var phase=GuardBatchProfile.phase("evidence_audit")){
             store.auditSystemAll("guard.episode.evidence_selected",touched.values().stream().map(t->new GuardStore.AuditProof(str(t.episode(),"public_id"),number(t.episode(),"asset_id"),JSON.createObjectNode().set("selections",JSON.createArrayNode().addAll(t.selections())))).toList());
         }
         // 研究批次没有动作间依赖，以投影完成后的数据库时刻共同判定；正式路径仍逐项读取当前时间。
         Instant batchDecisionAt=hypotheticalPolicy==null?null:store.now();
-        try(var phase=GuardBatchProfile.phase("episode_decision")){for(var touch:touched.values()){
+        var episodes=new HashMap<Long,Map<String,Object>>();for(var touch:touched.values())episodes.put(number(touch.episode(),"id"),touch.episode());
+        try(var phase=GuardBatchProfile.phase("episode_decision");var reads=store.readScope()){for(var touch:touched.values()){
             // 证据选择审计按 episode 每批一条，按到达顺序列出本批全部选中与被替换的快照。
-            result=decide(touch,bundle,binding,p,policy,hypotheticalPolicy,memo,evidenceByEpisode.getOrDefault(number(touch.episode(),"id"),List.of()),deferred,batchDecisionAt);}
-            if(deferred!=null&&!deferred.isEmpty()){
-                store.addAllReturning("guard_decision",deferred);
-                var episodes=new HashMap<Long,Map<String,Object>>();for(var touch:touched.values())episodes.put(number(touch.episode(),"id"),touch.episode());
-                cases.detectedBatch(episodes,deferred);
-                store.updateAll("guard_episode",episodes.values().stream().map(e->map("id",e.get("id"),"revision",number(e,"revision")+1)).toList());
-                store.insertAll("outbox_event",deferred.stream().map(d->map("event_key",id(),"aggregate_type","guard","aggregate_id",d.get("public_id"),"topic","guard.decision.recorded","payload_json",canonical(object("decisionId",d.get("public_id"))),"status","pending")).toList());
-            }}
+            result=decide(touch,bundle,binding,p,policy,hypotheticalPolicy,memo,evidenceByEpisode.getOrDefault(number(touch.episode(),"id"),List.of()),deferred,batchDecisionAt,episodes);}
+            flush(deferred,episodes);}
         return result;
+    }
+    /** 批量写入暂存判定：决策、案件链接/时间线、episode 修订与 outbox；每个 episode 每批只判定一次。 */
+    private void flush(List<Map<String,Object>> deferred,Map<Long,Map<String,Object>> episodes){
+        if(deferred.isEmpty())return;
+        try(var phase=GuardBatchProfile.phase("decision_flush")){
+            store.addAllReturning("guard_decision",deferred);
+            var decided=new LinkedHashMap<Long,Map<String,Object>>();for(var d:deferred){long eid=number(d,"episode_id");decided.put(eid,episodes.get(eid));}
+            cases.detectedBatch(decided,deferred);
+            store.updateAll("guard_episode",decided.values().stream().map(e->map("id",e.get("id"),"revision",number(e,"revision")+1)).toList());
+            store.insertAll("outbox_event",deferred.stream().map(d->map("event_key",id(),"aggregate_type","guard","aggregate_id",d.get("public_id"),"topic","guard.decision.recorded","payload_json",canonical(object("decisionId",d.get("public_id"))),"status","pending")).toList());
+            deferred.clear();
+        }
     }
     /** 组合键与处置作用域保持原语义；此处不查询或创建数据库事实。 */
     private Stage path(Map<String,Object> observation,JsonNode o,Map<String,Object> inference,Map<String,Object> bundle,JsonNode policy,String family,String detectionSource,String ruleId,boolean matched,boolean create){
@@ -181,34 +188,49 @@ public class GuardDetection {
     @SuppressWarnings("unchecked")
     private static <T> T memo(Map<List<Object>,Object> memo,List<Object> key,java.util.function.Supplier<T> load){
         if(memo.containsKey(key))return (T)memo.get(key);T value=load.get();memo.put(key,value);return value;}
-    private JsonNode decide(Touch touch,Map<String,Object> bundle,Map<String,Object> binding,Map<String,Object> p,JsonNode policy,JsonNode hypotheticalPolicy,Map<List<Object>,Object> cache,List<Map<String,Object>> selectedEvidence,List<Map<String,Object>> deferred,Instant batchDecisionAt){
+    private JsonNode decide(Touch touch,Map<String,Object> bundle,Map<String,Object> binding,Map<String,Object> p,JsonNode policy,JsonNode hypotheticalPolicy,Map<List<Object>,Object> cache,List<Map<String,Object>> selectedEvidence,List<Map<String,Object>> deferred,Instant batchDecisionAt,Map<Long,Map<String,Object>> episodes){
+        // 目标租约、健康窗口与执行器心跳每次判定重新读取；不变配置在批内作用域复用。
+        store.forgetVolatile();
         var observation=touch.trigger();var episode=touch.episode();String family=touch.family(),detectionSource=touch.source(),ruleId=touch.ruleId(),scope=touch.scope();
         long aid=number(observation,"asset_id");Map<String,Object> asset=memo(cache,List.of("asset",aid),()->store.lockAsset(aid));
         JsonNode remembered=recalled(number(observation,"id"),str(observation,"content_sha256"));
         JsonNode o=remembered==null?json(observation,"payload_json"):remembered;Instant now=batchDecisionAt==null?store.now():batchDecisionAt;
         var target=o.path("targetRef").isNull()?null:store.one("guard_target_binding",map("target_ref",o.path("targetRef").asText()),false);Map<String,Object> targetBudget=null;
+        var budgetPhase=GuardBatchProfile.phase("decide_budget");
         if(target!=null){long tid=number(target,"budget_target_id");targetBudget=budget.lock(aid,tid);budget.recover(aid,tid,now);targetBudget=budget.lock(aid,tid);now=budget.monotonic(aid);}
         List<GuardDecisionEngine.Evidence> evidence=new ArrayList<>();boolean modelAvailable=true;for(var e:selectedEvidence){
             modelAvailable&="succeeded".equals(str(e,"inference_status"));evidence.add(new GuardDecisionEngine.Evidence((JsonNode)e.get("observation_node"),e.get("score")==null?null:((Number)e.get("score")).doubleValue(),str(e,"family"),str(e,"source"),str(e,"rule_id"),flag(e.get("rule_matched")),str(e,"observation_content_sha256")));}
         var executor=target==null?null:store.get("guard_executor",number(target,"executor_id"));Instant decidedAt=now;boolean healthy=memo(cache,List.of("health",number(observation,"capture_scope_id"),number(observation,"sensor_id"),str(observation,"boot_id")),
                 ()->health.current(number(observation,"capture_scope_id"),decidedAt)&&!mapper.batchGap(number(observation,"sensor_id"),str(observation,"boot_id")));
-        String budgetReason=target==null?null:eligibility.protection(bundle,policy,target,o,family);
-        if(budgetReason==null&&target!=null)budgetReason=budget.check(aid,number(target,"budget_target_id"),policy,now,now.plusSeconds(policy.path("maxTtlSeconds").asLong()));
+        budgetPhase.close();var gatePhase=GuardBatchProfile.phase("decide_gates");
         boolean capable=eligibility.capability(bundle,policy,o,family)&&modelAvailable;
         boolean validTarget=eligibility.target(target,o,now,policy,family);
         boolean authorized=eligibility.authorized(asset,bundle,binding,policy,o,executor,now,family);
         // 汇总的每条快照都须满足同一目标和运行资格，不能由最后一条观察替其余证据放行。
         // research 无目标、无执行授权，正式门禁始终拒绝；旁路不能借现场资格提升为可执行。
+        // 同一次判定的 now 固定：健康与批次连续性只取决于捕获域/传感器/boot，按此三元组复用，结果与逐条查询相同。
+        var healthByScope=new HashMap<List<String>,Boolean>();final Instant at=now;
         if(hypotheticalPolicy==null)for(var e:evidence){JsonNode selected=e.observation();
             capable&=eligibility.capability(bundle,policy,selected,family);
             validTarget&=eligibility.target(target,selected,now,policy,family);
-            healthy&=health.current(number(store.external("guard_capture_scope",selected.path("captureScopeId").asText(),false),"id"),now)
-                    &&!mapper.batchGap(number(store.external("sensor_agent",selected.path("sensorId").asText(),false),"id"),selected.path("bootId").asText());
+            healthy&=healthByScope.computeIfAbsent(List.of(selected.path("captureScopeId").asText(),selected.path("sensorId").asText(),selected.path("bootId").asText()),
+                    k->health.current(number(store.external("guard_capture_scope",k.get(0),false),"id"),at)
+                    &&!mapper.batchGap(number(store.external("sensor_agent",k.get(1),false),"id"),k.get(2)));
             authorized&=eligibility.authorized(asset,bundle,binding,policy,selected,executor,now,family);
         }
+        gatePhase.close();
         if(hypotheticalPolicy!=null){capable=false;healthy=false;validTarget=false;authorized=false;}
-        var gates=new GuardDecisionEngine.Gates(capable,healthy,validTarget,authorized,budgetReason);
-        var outcome=GuardDecisionEngine.evaluate(policy,evidence,now,gates,family,detectionSource,ruleId);
+        // 保护/预算原因只在 T9（授权之后的最后一步）读取，二者均为只读检查：先不带预算原因评估，
+        // 只有走到最后一步（block_candidate）时才查询并重新评估，结果与始终先查询完全相同。
+        GuardDecisionEngine.Outcome outcome;String budgetReason=null;
+        try(var phase=GuardBatchProfile.phase("decide_evaluate")){
+            outcome=GuardDecisionEngine.evaluate(policy,evidence,now,new GuardDecisionEngine.Gates(capable,healthy,validTarget,authorized,null),family,detectionSource,ruleId);
+            if(target!=null&&"block_candidate".equals(outcome.decision())){
+                budgetReason=eligibility.protection(bundle,policy,target,o,family);
+                if(budgetReason==null)budgetReason=budget.check(aid,number(target,"budget_target_id"),policy,now,now.plusSeconds(policy.path("maxTtlSeconds").asLong()));
+                if(budgetReason!=null)outcome=GuardDecisionEngine.evaluate(policy,evidence,now,new GuardDecisionEngine.Gates(capable,healthy,validTarget,authorized,budgetReason),family,detectionSource,ruleId);
+            }
+        }
         if(outcome.qualifiedEvidence()&&target!=null){Instant latest=outcome.selected().stream().map(e->time(e.observation(),"asOf")).max(Comparator.naturalOrder()).orElseThrow();budget.evidence(number(target,"budget_target_id"),latest);targetBudget=budget.lock(aid,number(target,"budget_target_id"));}
         // 只挂接不可变标量节点，避免 valueToTree 在大型 episode 中反复复制已校验的 JSON。
         String decisionId=id();var refs=JSON.createArrayNode();for(var e:outcome.selected()){
@@ -224,14 +246,19 @@ public class GuardDetection {
         ((com.fasterxml.jackson.databind.node.ObjectNode)proof).put("triggerObservationId",str(observation,"public_id"));
         if(hypotheticalPolicy!=null){JsonNode manifest=memo(cache,List.of("model-manifest",number(model,"id")),()->json(model,"manifest_json"));
             ((com.fasterxml.jackson.databind.node.ObjectNode)proof).set("hypothetical",GuardReplayReadiness.proof(GuardReplayReadiness.evaluate(hypotheticalPolicy,manifest,evidence,now,family,detectionSource,ruleId,modelAvailable)));}
+        var writePhase=GuardBatchProfile.phase("decide_write");
+        try{
         String proofText=canonicalFact(proof);
         var decision=map("public_id",decisionId,"episode_id",episode.get("id"),"asset_id",aid,"bundle_id",bundle.get("id"),"decision_revision",episode.get("revision"),"decision_contract_version",DECISION,"decision",outcome.decision(),"reason_code",outcome.reason(),"budget_target_id",target==null?null:target.get("budget_target_id"),"budget_revision",targetBudget==null?null:targetBudget.get("revision"),"evidence_sha256",sha(proofText.getBytes(java.nio.charset.StandardCharsets.UTF_8)),"evidence_json",proofText,"decided_at",db(now));
-        if(deferred!=null){deferred.add(decision);return object("id",decisionId,"episodeId",episode.get("public_id"),"decision",outcome.decision(),"reasonCode",outcome.reason(),"detailCode",outcome.detail());}
+        boolean acts=!"research".equals(o.path("environment").asText())&&outcome.reason()==null&&"block_candidate".equals(outcome.decision());
+        if(hypotheticalPolicy!=null||!acts){deferred.add(decision);return object("id",decisionId,"episodeId",episode.get("public_id"),"decision",outcome.decision(),"reasonCode",outcome.reason(),"detailCode",outcome.detail());}
+        flush(deferred,episodes);
         store.insert("guard_decision",decision);
         cases.detected(episode,decision);
         store.update("guard_episode",number(episode,"id"),map("revision",number(episode,"revision")+1));store.outbox("guard.decision.recorded",decisionId,object("decisionId",decisionId));
-        if(!"research".equals(o.path("environment").asText())&&outcome.reason()==null&&"block_candidate".equals(outcome.decision()))actions.create(decision,bundle,binding,target,policy,"auto",null);
+        actions.create(decision,bundle,binding,target,policy,"auto",null);
         return object("id",decisionId,"episodeId",episode.get("public_id"),"decision",outcome.decision(),"reasonCode",outcome.reason(),"detailCode",outcome.detail());
+        }finally{writePhase.close();}
     }
     /** 因果排序跨桶复核；新快照尚未消费时也使旧动作失效。 */
     private boolean latest(Map<String,Object> row){var newest=mapper.latestParent(number(row,"asset_id"),number(row,"sensor_id"),str(row,"boot_id"),str(row,"parent_connection_id"));return newest!=null&&number(newest,"id")==number(row,"id");}

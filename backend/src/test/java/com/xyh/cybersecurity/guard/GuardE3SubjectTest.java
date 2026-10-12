@@ -255,9 +255,11 @@ class GuardE3SubjectTest extends GuardJointLabTest {
                         refresh(batch);
                         beat();Instant began=Instant.now();var b=batch(fixture(),batch,++sequence);var receipt=machine("/sensors/"+r.sensor()+"/observation-batches",b,r.sensorCredential());
                         assertThat(receipt.path("acceptedCount").asInt()).withFailMessage("receipt=%s",receipt).isEqualTo(batch.size());Instant accepted=Instant.now();
-                        detection.consume(id(),"guard.observation.accepted",object("batchId",b.get("batchId")));posted+=batch.size();
+                        Instant consumeStart=Instant.now();
+                        try(var profiled=GuardBatchProfile.batch(b.get("batchId").asText())){detection.consume(id(),"guard.observation.accepted",object("batchId",b.get("batchId")));}
+                        Instant consumed=Instant.now();posted+=batch.size();
                         var found=action.call();
-                        timing.add(object("sequence",sequence,"size",batch.size(),"startedAt",began.toString(),"millis",Duration.between(began,Instant.now()).toMillis(),"acceptMillis",Duration.between(began,accepted).toMillis(),
+                        timing.add(object("sequence",sequence,"size",batch.size(),"startedAt",began.toString(),"millis",Duration.between(began,Instant.now()).toMillis(),"acceptMillis",Duration.between(began,accepted).toMillis(),"consumeMillis",Duration.between(consumeStart,consumed).toMillis(),
                                 "maxLastPacketAt",batch.stream().map(o->o.path("lastPacketAt").asText()).max(String::compareTo).orElse(null),"targetExpiresAt",String.valueOf(expiresAt),"action",found!=null));
                         if(found!=null){actionSeenAt=Instant.now();mapped.flush();return found;}
                     }

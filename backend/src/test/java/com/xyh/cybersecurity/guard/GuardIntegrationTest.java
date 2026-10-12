@@ -40,7 +40,10 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 @AutoConfigureMockMvc(print=MockMvcPrint.NONE)
 @EnabledIfEnvironmentVariable(named="DB_TEST_BASE_URL",matches=".+")
 class GuardIntegrationTest {
-    static final String SCHEMA="cyber_guard_api_p4_"+UUID.randomUUID().toString().replace("-","");
+    /** K9：仅 E3 subject 入口复用编排器建好的业务库克隆，不新建、不删除，其余用例仍用随机 schema。 */
+    static final String SUBJECT_SCHEMA=System.getenv("P5_SUBJECT_SCHEMA");
+    static final String SCHEMA=SUBJECT_SCHEMA!=null?subjectSchema(SUBJECT_SCHEMA):"cyber_guard_api_p4_"+UUID.randomUUID().toString().replace("-","");
+    static String subjectSchema(String name){if(!name.matches("cyber_guard_k9_[0-9a-f]{32}"))throw new IllegalStateException("K9_SUBJECT_SCHEMA_INVALID");return name;}
     static final Path ROOT=Path.of(System.getenv().getOrDefault("P5_RUN_DIR","target/guard-fixtures")).toAbsolutePath();
     static final JsonNode PROTECTION=object("protectedBudgetTargetIds",List.of(),"protectedServicePorts",List.of(22,53,3389));
     static KeyPair signing;
@@ -48,12 +51,13 @@ class GuardIntegrationTest {
         Files.createDirectories(ROOT);signing=KeyPairGenerator.getInstance("Ed25519").generateKeyPair();Files.write(ROOT.resolve("signing.der"),signing.getPrivate().getEncoded());Files.setPosixFilePermissions(ROOT.resolve("signing.der"),PosixFilePermissions.fromString("rw-------"));
         Files.writeString(ROOT.resolve("trust.json"),canonical(object("fixture-runner",Base64.getEncoder().encodeToString(signing.getPublic().getEncoded()))));Files.writeString(ROOT.resolve("protection.json"),canonical(PROTECTION));
         String base=System.getenv("DB_TEST_BASE_URL").replaceAll("/+$","");String username=System.getenv("DB_TEST_USERNAME"),password=System.getenv("DB_TEST_PASSWORD");
-        try(var c=DriverManager.getConnection(base,username,password);var s=c.createStatement()){s.execute("CREATE DATABASE "+SCHEMA+" CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin");}
+        if(SUBJECT_SCHEMA==null)try(var c=DriverManager.getConnection(base,username,password);var s=c.createStatement()){s.execute("CREATE DATABASE "+SCHEMA+" CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin");}
         String url=base+"/"+SCHEMA+"?connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true";Flyway.configure().dataSource(url,username,password).load().migrate();
         r.add("spring.datasource.url",()->url);r.add("spring.datasource.username",()->username);r.add("spring.datasource.password",()->password);r.add("spring.flyway.enabled",()->false);r.add("cyber.security.login-throttle.hmac-key",()->"isolated-test-key-with-more-than-thirty-two-bytes");
-        r.add("cyber.guard.artifact-root",()->ROOT.toString());r.add("cyber.guard.signing-key-id",()->"fixture-control");r.add("cyber.guard.signing-key-file",()->ROOT.resolve("signing.der").toString());r.add("cyber.guard.report-trust-file",()->ROOT.resolve("trust.json").toString());r.add("cyber.guard.protection-file",()->ROOT.resolve("protection.json").toString());
+        r.add("cyber.guard.artifact-root",()->SUBJECT_SCHEMA==null?ROOT.toString():System.getenv("P5_SUBJECT_ARTIFACT_ROOT"));if(SUBJECT_SCHEMA!=null)r.add("cyber.model-artifact.root",()->System.getenv("P5_SUBJECT_MODEL_ARTIFACT_ROOT"));r.add("cyber.guard.signing-key-id",()->"fixture-control");r.add("cyber.guard.signing-key-file",()->ROOT.resolve("signing.der").toString());r.add("cyber.guard.report-trust-file",()->SUBJECT_SCHEMA==null?ROOT.resolve("trust.json").toString():System.getenv("P5_SUBJECT_REPORT_TRUST"));r.add("cyber.guard.protection-file",()->ROOT.resolve("protection.json").toString());
     }
     @AfterAll static void dropOwnSchema()throws Exception{
+        if(SUBJECT_SCHEMA!=null)return;
         String base=System.getenv("DB_TEST_BASE_URL").replaceAll("/+$","");
         try(var c=DriverManager.getConnection(base,System.getenv("DB_TEST_USERNAME"),System.getenv("DB_TEST_PASSWORD"));var st=c.createStatement()){st.execute("DROP DATABASE IF EXISTS "+SCHEMA);}
     }

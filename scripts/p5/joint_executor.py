@@ -13,7 +13,7 @@ import time
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
-from executor.__main__ import cycle, flush
+from executor.__main__ import cycle, flush, heartbeat as send_heartbeat
 from executor.canary_targets import CanaryTargets
 from executor.common import Rejected, canonical, digest, parse, read_private, require, stamp, write_new
 from executor.config import RuntimeConfig
@@ -140,16 +140,22 @@ def run(directory, work=None, owner=None):
     mode = os.environ.get("P5_FIREWALL", "rehearse")
     require(mode in ("pf", "rehearse"), "LAB_MODE_REQUIRED")
     c = {k: data[k] for k in ("assetId", "executorId", "sensorId", "captureScopeId", "authorization", "controlPlaneURL", "controlPlaneCA")}
+    # K9 subject 模式登记组合的全部能力及冻结片段的服务端口；缺省保持原夹具的单能力与 443。
+    port = data.get("servicePort", 443)
+    capabilities = data.get("capabilityIds", [data["capabilityId"]])
+    inbound = data.get("inboundCapabilityIds", [data["capabilityId"]] if data["scope"] == "peer_inbound" else [])
+    require(isinstance(port, int) and 0 < port < 65536 and data["capabilityId"] in capabilities
+            and set(inbound) <= set(capabilities), "LAB_INPUT_INVALID")
     c.update(platform="pf", environment="lab", interface="lo0", localAddresses=["127.0.0.1"],
-        peerAddresses=["127.0.0.2"], servicePorts=[443], protectedServicePorts=data["protection"]["protectedServicePorts"],
-        protectedPeers=[], stateDir=str(work / "state"), capabilityIds=[data["capabilityId"]],
+        peerAddresses=["127.0.0.2"], servicePorts=[port], protectedServicePorts=data["protection"]["protectedServicePorts"],
+        protectedPeers=[], stateDir=str(work / "state"), capabilityIds=sorted(capabilities),
         bundleIds=[data["bundleId"]], policyHashes=[data["policySha256"]],
         limits={"maxTtlSeconds": 60, "maxContinuousBlockSeconds": 120, "maxActiveRulesPerAsset": 10, "maxNewActionsPerMinute": 5},
         trustFile=data["commandTrustFile"], budgetKeyFile=str(work / "budget.key"),
         credentialFile=str(work / "credential"))
-    if data["scope"] == "peer_inbound":
-        c["inboundCapabilities"] = [{"capabilityId": data["capabilityId"], "protectionSetSha256": digest(data["protection"]),
-            "protectedPortsSha256": protected_ports_sha256(c["protectedServicePorts"])}]
+    if inbound:
+        c["inboundCapabilities"] = [{"capabilityId": capability, "protectionSetSha256": digest(data["protection"]),
+            "protectedPortsSha256": protected_ports_sha256(c["protectedServicePorts"])} for capability in sorted(inbound)]
     c["capabilityHash"] = capability_set_sha256(c)
     runtime_binding=verify_config(configured(),c)
     require(c["capabilityHash"] == data["capabilityHash"], "LAB_CAPABILITY_MISMATCH")
@@ -236,9 +242,13 @@ def run(directory, work=None, owner=None):
         for line in CHANNEL["in"]:
             operation = parse(line)["operation"]
             if operation == "lease":
-                binding, registered = targets.lease(data["scope"], 443, 55123)
+                binding, registered = targets.lease(data["scope"], port, 55123)
                 registration = control.post("target-bindings", registered, registered["bindingId"])
-                reply({"binding": {**binding, "stableTargetToken": registered["stableTargetToken"]}, "registration": registration})
+                reply({"binding": {**binding, "stableTargetToken": registered["stableTargetToken"],
+                                   "leaseExpiresAt": registered["expiresAt"]}, "registration": registration})
+            elif operation == "heartbeat":
+                # 回放期间保持执行器心跳新鲜；不领取命令，领取仍只在 apply 中发生。
+                reply({"pendingRecovery": send_heartbeat(engine, control)})
             elif operation == "apply":
                 control.inject = data["scenario"] == "receipt_loss"
                 try:

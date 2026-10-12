@@ -138,7 +138,11 @@ public final class GuardJson {
     public static Map<String,Object> map(Object... kv) {Map<String,Object> m=new LinkedHashMap<>();for(int i=0;i<kv.length;i+=2)m.put((String)kv[i],kv[i+1]);return m;}
     public static long number(Map<String,Object> r,String k) {return ((Number)r.get(k)).longValue();}
     public static String str(Map<String,Object> r,String k) {Object v=r.get(k);return v==null?null:v.toString();}
-    public static JsonNode json(Map<String,Object> r,String k) {Object v=r.get(k);return v==null?NullNode.instance:parse(v.toString());}
+    /** 判定只读作用域内按原字符串实例复用解析结果；作用域外每次解析，行为不变。调用方不得修改返回的节点。 */
+    static final ThreadLocal<java.util.IdentityHashMap<Object,JsonNode>> PARSED=new ThreadLocal<>();
+    public static JsonNode json(Map<String,Object> r,String k) {Object v=r.get(k);if(v==null)return NullNode.instance;
+        var cache=PARSED.get();if(cache==null)return parse(v.toString());
+        var hit=cache.get(v);if(hit==null){hit=parse(v.toString());cache.put(v,hit);}return hit;}
     public static void versions(JsonNode n) {
         fields(n,"observation decision evaluation health","");
         require(CONTRACT.equals(n.path("observation").asText())&&DECISION.equals(n.path("decision").asText())

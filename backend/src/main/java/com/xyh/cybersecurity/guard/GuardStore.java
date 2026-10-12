@@ -18,21 +18,53 @@ public class GuardStore {
             "guard_episode","guard_episode_evidence","guard_action","guard_budget_interval","guard_revocation","guard_action_receipt",
             "guard_authorization_lease","consumed_message","security_event","guard_feedback","guard_validation_session","guard_replay_run");
     public GuardStore(GuardMapper mapper,AuditMapper audit){this.mapper=mapper;this.audit=audit;}
+    /**
+     * 批内判定的只读作用域：同一事务且已持资产锁期间，对判定不写入的配置/身份表复用非加锁读取与 JSON 解析结果。
+     * 这些表的写入方（授权、组合、执行器、会话等）都先锁同一资产，作用域内不会被并发修改；经本类写入缓存表时清掉该表。
+     * VOLATILE 中的表（目标租约、健康窗口、执行器心跳）由每次判定开始时 forgetVolatile 清空，只在单次判定内复用。
+     * 加锁读取与其他表始终直达数据库。作用域不可嵌套复用，关闭即丢弃。
+     */
+    private static final Set<String> READ_CACHE=Set.of("guard_decision_policy","guard_model","guard_capability","guard_bundle_capability",
+            "guard_release_bundle","asset_authorization","guard_asset_binding","sensor_agent","guard_executor","guard_budget_target",
+            "guard_capture_scope","guard_validation_session","guard_target_binding","guard_capture_health_window");
+    private static final Set<String> VOLATILE=Set.of("guard_executor","guard_target_binding","guard_capture_health_window");
+    private static final ThreadLocal<Map<String,List<Map<String,Object>>>> READS=new ThreadLocal<>();
+    private static final ThreadLocal<Map<String,Optional<Object>>> VALUES=new ThreadLocal<>();
+    public interface ReadScope extends AutoCloseable {@Override void close();}
+    public ReadScope readScope(){
+        if(READS.get()!=null)return ()->{};
+        READS.set(new HashMap<>());VALUES.set(new HashMap<>());GuardJson.PARSED.set(new IdentityHashMap<>());
+        return ()->{READS.remove();VALUES.remove();GuardJson.PARSED.remove();};
+    }
+    /** 单次判定开始时丢弃易变表的缓存；不变配置继续复用。 */
+    public void forgetVolatile(){var reads=READS.get();if(reads!=null){reads.keySet().removeIf(k->VOLATILE.contains(k.substring(0,k.indexOf('|'))));VALUES.get().keySet().removeIf(k->k.startsWith("volatile:"));}}
+    /** 作用域内按键复用调用方给出的只读结果（含 null）；作用域外直接计算。键以 volatile: 开头的随 forgetVolatile 清空。 */
+    /** 静态工具：作用域内复用，作用域外直接计算；不经实例方法，便于纯领域测试替身。 */
+    @SuppressWarnings("unchecked")
+    public static <T> T scoped(String key,java.util.function.Supplier<T> load){var values=VALUES.get();if(values==null)return load.get();
+        var hit=values.get(key);if(hit==null){hit=Optional.ofNullable(load.get());values.put(key,hit);}return (T)hit.orElse(null);}
+    @SuppressWarnings("unchecked")
+    public <T> T cached(String key,java.util.function.Supplier<T> load){var values=VALUES.get();if(values==null)return load.get();
+        var hit=values.get(key);if(hit==null){hit=Optional.ofNullable(load.get());values.put(key,hit);}return (T)hit.orElse(null);}
+    /** 预算事实的写入使 budget: 缓存失效（预算写入方都先锁同一资产，作用域内只有本事务能写）。 */
+    private static final Set<String> BUDGET_TABLES=Set.of("guard_target_budget","guard_asset_budget","guard_budget_event","guard_budget_interval","guard_action","guard_budget_target");
+    private static void written(String t){var values=VALUES.get();if(values!=null&&BUDGET_TABLES.contains(t))values.keySet().removeIf(k->k.startsWith("budget:"));
+        var reads=READS.get();if(reads!=null&&READ_CACHE.contains(t)){reads.keySet().removeIf(k->k.startsWith(t+"|"));VALUES.get().clear();GuardJson.PARSED.get().clear();}}
     public Instant now(){return mapper.now().toInstant(ZoneOffset.UTC);}
-    public Map<String,Object> insert(String t,Map<String,Object> v){mapper.insert(t,v);return v;}
+    public Map<String,Object> insert(String t,Map<String,Object> v){written(t);mapper.insert(t,v);return v;}
     public Map<String,Object> add(String t,Map<String,Object> v){v.putIfAbsent("public_id",id());return insert(t,v);}
     /** 批量追加不需回读主键的事实行；每行补 public_id，按 500 行分段。 */
-    public void addAll(String t,List<Map<String,Object>> rows){for(var r:rows)r.putIfAbsent("public_id",id());for(int i=0;i<rows.size();i+=500)insertPart(t,rows.subList(i,Math.min(rows.size(),i+500)),false);}
+    public void addAll(String t,List<Map<String,Object>> rows){written(t);for(var r:rows)r.putIfAbsent("public_id",id());for(int i=0;i<rows.size();i+=500)insertPart(t,rows.subList(i,Math.min(rows.size(),i+500)),false);}
     /** 同表严格批量新增并回填主键；校验每行独立主键后才允许建立外键关联，失败由外层事务回滚。 */
     public void addAllReturning(String t,List<Map<String,Object>> rows){
-        for(var r:rows)r.putIfAbsent("public_id",id());
+        written(t);for(var r:rows)r.putIfAbsent("public_id",id());
         for(int i=0;i<rows.size();i+=500)insertPart(t,rows.subList(i,Math.min(rows.size(),i+500)),true);
         require(rows.stream().allMatch(r->r.get("id") instanceof Number)&&rows.stream().map(r->r.get("id")).distinct().count()==rows.size(),"BATCH_KEYS_UNAVAILABLE");
     }
-    public void update(String t,long id,Map<String,Object> v){if(!MUTABLE.contains(t))throw new IllegalArgumentException("Immutable fact");mapper.update(t,id,v);}
+    public void update(String t,long id,Map<String,Object> v){written(t);if(!MUTABLE.contains(t))throw new IllegalArgumentException("Immutable fact");mapper.update(t,id,v);}
     /** 批内投影按主键批量更新，沿用同一可变表白名单和事务；调用方须持有原资产锁。 */
     public void updateAll(String t,List<Map<String,Object>> rows){
-        if(!MUTABLE.contains(t))throw new IllegalArgumentException("Immutable fact");
+        written(t);if(!MUTABLE.contains(t))throw new IllegalArgumentException("Immutable fact");
         var ids=new HashSet<Long>();
         if(rows.stream().anyMatch(r->!(r.get("id") instanceof Number n)||!ids.add(n.longValue())))
             throw new IllegalArgumentException("Invalid update rows");
@@ -42,7 +74,7 @@ public class GuardStore {
         }
     }
     /** 不带 public_id 的表也可严格多行新增；不忽略冲突，不提前提交。 */
-    public void insertAll(String t,List<Map<String,Object>> rows){for(int i=0;i<rows.size();i+=500)insertPart(t,rows.subList(i,Math.min(i+500,rows.size())),false);}
+    public void insertAll(String t,List<Map<String,Object>> rows){written(t);for(int i=0;i<rows.size();i+=500)insertPart(t,rows.subList(i,Math.min(i+500,rows.size())),false);}
     /** 单条多行 INSERT 参加调用方 Spring 事务；不忽略冲突，所需主键由 MyBatis 逐行回填。 */
     private void insertPart(String t,List<Map<String,Object>> rows,boolean returning){
         var plan=GuardMapper.Sql.insertAllPlan(t,rows);
@@ -63,7 +95,11 @@ public class GuardStore {
     private List<Map<String,Object>> indexedKeys(String table,List<Map<String,Object>> keys,boolean lock){
         return mapper.indexedKeys(GuardMapper.Sql.indexedKeysPlan(table,keys,lock));
     }
-    public List<Map<String,Object>> rows(String t,Map<String,Object> w,boolean lock,int limit){return mapper.select(t,w,lock,limit,null,null,null);}
+    public List<Map<String,Object>> rows(String t,Map<String,Object> w,boolean lock,int limit){
+        var reads=READS.get();
+        if(lock||reads==null||!READ_CACHE.contains(t))return mapper.select(t,w,lock,limit,null,null,null);
+        return reads.computeIfAbsent(t+"|"+limit+"|"+w,k->List.copyOf(mapper.select(t,w,false,limit,null,null,null)));
+    }
     public List<Map<String,Object>> visible(String t,Map<String,Object> w,long actor,String permission,int limit,Long before){return mapper.select(t,w,false,limit,actor,permission,before);}
     public Map<String,Object> one(String t,Map<String,Object> w,boolean lock){var r=rows(t,w,lock,1);return r.isEmpty()?null:r.getFirst();}
     public Map<String,Object> get(String t,long id){var r=one(t,map("id",id),false);if(r==null)throw error(404,"RESOURCE_NOT_FOUND");return r;}

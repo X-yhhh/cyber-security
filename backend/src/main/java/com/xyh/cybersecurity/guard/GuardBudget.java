@@ -46,15 +46,17 @@ public class GuardBudget {
         var row=store.insert("guard_target_binding",map("public_id",text(b,"bindingId"),"target_ref",target,"budget_target_id",identity.get("id"),"executor_id",executor.get("id"),"executor_boot_id",text(b,"executorBootId"),"sensor_id",sensor.get("id"),"collector_boot_id",text(b,"collectorBootId"),"capture_scope_id",scope.get("id"),"peer_key",text(b,"peerKey"),"key_epoch",b.get("keyEpoch").longValue(),"scope_digest",scopeDigest,"expires_at",db(expires),"payload_json",canonical(b),"content_sha256",hash(b)));
         store.audit(null,"guard.target.bound",target,aid,null,object("bindingId",row.get("public_id"),"budgetTargetId",identity.get("public_id")));
         return object("bindingId",row.get("public_id"),"budgetTargetId",identity.get("public_id"),"revision",1);}
-    public Map<String,Object> lock(long asset,long target){store.lockAsset(asset);var a=store.one("guard_asset_budget",map("asset_id",asset),true);if(a==null)a=store.add("guard_asset_budget",map("asset_id",asset,"last_monotonic_at",db(store.now())));
+    /** 批内判定作用域中，同一事务已持资产锁且无预算写入时复用加锁读取结果；任何预算写入都使其失效。 */
+    public Map<String,Object> lock(long asset,long target){return store.cached("budget:lock:"+asset+":"+target,()->lockNow(asset,target));}
+    private Map<String,Object> lockNow(long asset,long target){store.lockAsset(asset);var a=store.one("guard_asset_budget",map("asset_id",asset),true);if(a==null)a=store.add("guard_asset_budget",map("asset_id",asset,"last_monotonic_at",db(store.now())));
         var b=store.one("guard_target_budget",map("budget_target_id",target),true);if(b==null)throw error(422,"BUDGET_IDENTITY_UNVERIFIED");return b;}
-    public Instant monotonic(long asset){var b=store.one("guard_asset_budget",map("asset_id",asset),true);Instant now=store.now();if(b!=null&&instant(b.get("last_monotonic_at")).isAfter(now))return instant(b.get("last_monotonic_at"));return now;}
+    public Instant monotonic(long asset){var b=store.cached("budget:asset:"+asset,()->store.one("guard_asset_budget",map("asset_id",asset),true));Instant now=store.now();if(b!=null&&instant(b.get("last_monotonic_at")).isAfter(now))return instant(b.get("last_monotonic_at"));return now;}
     public void evidence(long target,Instant at){var b=store.one("guard_target_budget",map("budget_target_id",target),true);Instant old=instant(b.get("last_evidence_at"));if(old!=null&&!at.isAfter(old))return;
         var after=map("last_evidence_at",db(at),"revision",number(b,"revision")+1);event(b,after,"evidence",object("evidenceAt",at.toString()));store.update("guard_target_budget",number(b,"id"),after);}
     /** 撤销事实绑定稳定目标的预算周期；策略、签名密钥和短期引用轮换不解除墓碑。 */
     public boolean revoked(long target){
-        var b=store.one("guard_target_budget",map("budget_target_id",target),false);
-        var tombstone=store.one("guard_budget_event",map("budget_target_id",target,"event_kind","revoked"),false);
+        var b=store.cached("budget:target:"+target,()->store.one("guard_target_budget",map("budget_target_id",target),false));
+        var tombstone=store.cached("budget:tombstone:"+target,()->store.one("guard_budget_event",map("budget_target_id",target,"event_kind","revoked"),false));
         return b!=null&&tombstone!=null&&instant(b.get("cycle_started_at")).toString().equals(json(tombstone,"proof_json").path("cycleStartedAt").asText());
     }
     /** 在资产→目标锁内追加撤销墓碑；未签发动作也保留事实，重复撤销不重复写入。 */

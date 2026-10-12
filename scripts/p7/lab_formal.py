@@ -201,7 +201,8 @@ class Formal(lab_run.Runner):
                    SERVER_SSL_TRUST_STORE=str(tls / 'trust.p12'), SERVER_SSL_TRUST_STORE_TYPE='PKCS12', SERVER_SSL_TRUST_STORE_PASSWORD=password)
         self.base = 'https://127.0.0.1:' + str(self.args.port)
         self.context = j1_run.ssl_context(tls)
-        self.backend = self.start_process([self.args.java, '--enable-native-access=ALL-UNNAMED', '-Xmx3g',
+        jfr = ['-XX:StartFlightRecording=filename=' + str(self.work / 'backend.jfr') + ',settings=profile,dumponexit=true'] if self.args.jfr else []
+        self.backend = self.start_process([self.args.java, '--enable-native-access=ALL-UNNAMED', '-Xmx3g', *jfr,
             '-Dcyber.guard.automation-enabled=true', '-Dcyber.guard.lab-rehearsal-enabled=false', '-Dcyber.guard.bootstrap-reports-enabled=false',
             '-Dcyber.guard.signing-key-id=' + self.signing_id, '-Dcyber.guard.signing-key-file=' + str(signing_path),
             '-Dcyber.guard.protection-file=' + str(PROTECTION),
@@ -688,6 +689,7 @@ def main():
     parser.add_argument('--authorization-reference', required=True)
     parser.add_argument('--root-timeout', type=int, default=1800)
     parser.add_argument('--probe-seconds', type=int, default=90)
+    parser.add_argument('--jfr', action='store_true', help='诊断：后端开启 JFR profile 录制')
     parser.add_argument('--admission-probe', action='store_true', help='仅诊断（只允许 clone）：执行器只发心跳，检查会话准入与传感器交接后停止')
     parser.add_argument('--backend-jar', type=Path, default=ROOT / '.cache/a18-20261012/bin/backend.jar')
     parser.add_argument('--scenario', type=Path, default=ROOT / '.cache/j2-20261011/g3-scenario.json')

@@ -128,4 +128,4 @@ T3.8b 的执行记录与证据位置见 [后续实施计划](../../docs/后续�
 
 `k9_rehearsal.py` 串起 K9-6 全链路：S1 模拟 A18 → 上述 E3 引导克隆 → 在 S1 做开关关闭时的反例、封存与批准 → `lab_run.py --existing-bundle` 跑一段会话 → 删除 S1。
 
-pf 模式需要 A6：编排器每轮调用 `orchestrate.py --mode pf`，root 侧仍由操作者按 T3.8b 流程启动 `lab_root_launch.py e3-executor`；canary 与正式 K6 报告按上一节单独生成。
+pf 模式需要 A6：编排器每轮调用 `orchestrate.py --mode pf`，root 侧仍由操作者按 T3.8b 流程启动 `lab_root_launch.py e3-executor`；canary 与正式 K6 报告按上一节单独生成。pf 模式必须给 `--ready-dir <绝对目录>`：每轮先等待 root 侧 `--ready-marker <该目录>/e3-<scope>-<scenario>.ready`（默认最长 1800 秒，`--ready-timeout`），再启动后端，否则 JUnit 的 45 秒握手会在 root 复制、核验暂存包期间超时（2026-10-12 A6 首轮第 1 次即因此失败）。root 命令需要 `e3_bootstrap` 运行目录（`pointer.json` 中的 `work`）作 rendezvous，因此先启动用户侧、读到 pointer 后再启动 root；canary 用同一暂存包的 `e1e2-lab` 任务，放在六轮 E3 之后。

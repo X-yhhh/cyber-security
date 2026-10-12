@@ -59,9 +59,29 @@ class E3BootstrapTest(unittest.TestCase):
             k9.preflight(args(mode="pf", source_schema="cyber_security", subject_sha256=sha), db)
         synthetic = Db(finals=[{"id": "f", "status": "passed", "runner": "r", "evidenceKind": "synthetic"}])
         with self.assertRaisesRegex(Exception, "K9_R4_FINAL_NOT_FORMAL"):
-            k9.preflight(args(mode="pf", source_schema="cyber_security", authorization_reference="A6-1", subject_sha256=sha), synthetic)
-        _, source = k9.preflight(args(mode="pf", source_schema="cyber_security", authorization_reference="A6-1", subject_sha256=sha), db)
+            k9.preflight(args(mode="pf", source_schema="cyber_security", authorization_reference="A6-1", subject_sha256=sha,
+                              ready_dir=Path("/tmp/ready")), synthetic)
+        with self.assertRaisesRegex(Exception, "K9_PF_READY_DIR_REQUIRED"):
+            k9.preflight(args(mode="pf", source_schema="cyber_security", authorization_reference="A6-1", subject_sha256=sha), db)
+        with self.assertRaisesRegex(Exception, "K9_PF_READY_DIR_REQUIRED"):
+            k9.preflight(args(mode="pf", source_schema="cyber_security", authorization_reference="A6-1", subject_sha256=sha,
+                              ready_dir=Path("relative")), db)
+        _, source = k9.preflight(args(mode="pf", source_schema="cyber_security", authorization_reference="A6-1", subject_sha256=sha,
+                                      ready_dir=Path("/tmp/ready")), db)
         self.assertEqual(source["bundleId"], BUNDLE)
+
+    def test_pf_round_waits_for_root_ready_marker(self):
+        with tempfile.TemporaryDirectory() as root:
+            marker = Path(root) / "e3-peer_service-revoke.ready"
+            now = [0.0]
+            def pause(seconds):
+                now[0] += seconds
+                if now[0] >= 3:
+                    marker.touch()
+            k9.wait_ready(marker, 10, clock=lambda: now[0], pause=pause)
+            self.assertEqual(now[0], 3)
+            with self.assertRaisesRegex(Exception, "K9_PF_ROOT_NOT_READY"):
+                k9.wait_ready(Path(root) / "missing.ready", 5, clock=lambda: now[0], pause=pause)
 
     def test_refusal_happens_before_any_directory_or_clone(self):
         with tempfile.TemporaryDirectory() as root:

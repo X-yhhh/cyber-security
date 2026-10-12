@@ -27,6 +27,8 @@ payload 的字段见 [合成示例](examples/lab-session.json)。身份绑定包
 
 K6 subject_report.py 必须重算完整 subject 的 JCS，并核对运行前冻结的 subject 与 root 运行记录、实际执行配置一致。旧平台证据缺失该绑定时只能保留其历史含义，不得事后补签为 r4 证据。正式报告仍须 A6 真实运行后签发；隔离 schema 的专用 synthetic 信任文件不进入业务库。
 
+`/release-bundles/{id}/imports` 在验签后显式拒绝 `evidenceKind=bootstrap` 或 `synthetic`，错误码 `REPORT_EVIDENCE_KIND_NOT_ALLOWED`；仅隔离克隆启动时可显式设置 `cyber.guard.bootstrap-reports-enabled=true`。该开关缺省为 false，lab profile 和业务库启动方式均不默认开启。K7-R 隔离演练显式开启它；正式 K6 `subject_report.py` 的报告固定为 `evidenceKind=real_pf`，不得带引导或合成类别。报告身份验签和既有封存、独立批准检查仍须逐项通过。
+
 ### E3/r4 前置闭环与 K9 引导克隆（2026-10-12 登记，规划，未实施）
 
 2026-10-12 用户采纳 K9，并确认“不得绕过批准或激活”只约束业务库。

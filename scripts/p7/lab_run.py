@@ -271,6 +271,7 @@ class Runner:
         self.context = j1_run.ssl_context(tls)
         self.backend = self.start_process([self.args.java, '--enable-native-access=ALL-UNNAMED', '-Xmx2g',
             '-Dcyber.guard.automation-enabled=false', '-Dcyber.guard.lab-rehearsal-enabled=true',
+            '-Dcyber.guard.bootstrap-reports-enabled=true',
             '-Dcyber.guard.artifact-root='+str(self.artifacts), '-Dcyber.guard.report-trust-file='+str(self.work/'private/trust.json'),
             '-Dcyber.model-artifact.root='+str(Path.home()/'Workspace/deliveries'),
             '-Dspring.session.timeout=4h', '-Dserver.servlet.session.timeout=4h', '-Dserver.tomcat.threads.max=12',

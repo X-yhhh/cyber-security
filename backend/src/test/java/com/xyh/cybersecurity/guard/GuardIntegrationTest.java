@@ -36,7 +36,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.*;
 
 /** 固定 ONNX、隔离 MySQL、专用测试身份完成 P4 API/事务闭环，不调用真实防火墙。 */
-@SpringBootTest(properties={"cyber.ingest.consumer.enabled=false","cyber.ingest.outbox-relay.enabled=false","cyber.drift.enabled=false","cyber.guard.automation-enabled=true","cyber.security.local-admin-bootstrap.enabled=false"})
+@SpringBootTest(properties={"cyber.ingest.consumer.enabled=false","cyber.ingest.outbox-relay.enabled=false","cyber.drift.enabled=false","cyber.guard.automation-enabled=true","cyber.security.local-admin-bootstrap.enabled=false","cyber.guard.bootstrap-reports-enabled=true"})
 @AutoConfigureMockMvc(print=MockMvcPrint.NONE)
 @EnabledIfEnvironmentVariable(named="DB_TEST_BASE_URL",matches=".+")
 class GuardIntegrationTest {
@@ -164,6 +164,31 @@ class GuardIntegrationTest {
         assertThat(human(base+"/decisions",approval,reviewer,"2").path("status").asText()).isEqualTo("approved");
         assertThat(human(base+"/activations",activation,reviewer,"3").path("status").asText()).isEqualTo("active");
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM guard_validation_session WHERE bundle_id=(SELECT id FROM guard_release_bundle WHERE public_id=?)",Integer.class,bid)).isZero();
+    }
+    /** 引导开关只影响报告类别，封存、独立批准及资产绑定仍由原链路核验。 */
+    @Test void bootstrapReportsRequireSealIndependentApprovalAndLabBinding() throws Exception {
+        Fixture f=setup();var original=store.external("guard_release_bundle",f.bundle(),false);
+        var subject=json(original,"subject_json");
+        var created=human("/release-bundles",object("modelId",f.model(),"policyId",f.policy(),
+                "featureProfileSha256",contracts.profileHash(),"extractorSha256",subject.get("extractorSha256"),
+                "protocolVersions",versions(),"evaluationPlanId",store.get("guard_evaluation_plan",number(original,"plan_id")).get("public_id"),
+                "capabilityIds",List.of(f.capability()),"environment","lab"),operator,null);
+        String bid=created.path("id").asText(),base="/release-bundles/"+bid;
+        String folder=id();Path dir=ROOT.resolve(folder);Files.createDirectories(dir);var ids=new ArrayList<String>();
+        for(String kind:List.of("final","platform","canary")) {
+            var payload=object("protocolVersions",versions(),"subjectSha256",created.get("subjectSha256"),
+                    "evaluationPlanSha256",subject.get("evaluationPlanSha256"),"runKind",kind,"passed",true,
+                    "evidenceKind",kind.equals("final")?"real_pf":"bootstrap");
+            write(dir,kind+".json",GuardSignatures.sign(payload,"fixture-runner",signing.getPrivate()));
+            ids.add(human(base+"/imports",object("reportRef",folder+"/"+kind+".json",
+                    "sha256",sha(Files.readAllBytes(dir.resolve(kind+".json"))),"runnerIdentity","fixture-runner"),operator,null).path("id").asText());
+        }
+        assertThat(human(base+"/sealings",object("evaluationIds",ids),operator,"1").path("status").asText()).isEqualTo("evaluated");
+        var approval=object("decision","approve","reason","isolated bootstrap lifecycle");
+        rejectedHuman(base+"/decisions",approval,operator,"2",403);
+        assertThat(human(base+"/decisions",approval,reviewer,"2").path("status").asText()).isEqualTo("approved");
+        assertThat(human(base+"/activations",object("assetIds",List.of(f.asset()),
+                "authorizationIds",List.of(f.authorization())),reviewer,"3").path("status").asText()).isEqualTo("active");
     }
     /** B4：research 回放只能引用已批准 research 组合，且请求模型无法携带任何真实目标字段。 */
     @Test void researchReplayRejectsRealTargetReferencesAndRequiresResearchBundle()throws Exception{

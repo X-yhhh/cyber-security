@@ -160,6 +160,36 @@ class GuardLabIntegrationTest {
         var o=(ObjectNode)json(target,"payload_json");o.put("bootId",str(sensor,"guard_boot_id")).put("environment","lab");return o;
     }
 
+    /** 默认关闭的导入闸门按已验签 payload 拒绝引导和合成类别，正式类别仍可进入候选组合。 */
+    @Test void candidateImportRejectsBootstrapAndSyntheticByDefault() throws Exception {
+        jdbc.update("UPDATE guard_release_bundle SET status='candidate' WHERE id=?",bundle.get("id"));
+        String route="/api/v2/release-bundles/"+str(bundle,"public_id")+"/imports";
+        var client=clients.get(operator.id());
+        for(String kind:List.of("bootstrap","synthetic","real_pf")) {
+            var payload=object("protocolVersions",versions(),"subjectSha256",H,"evaluationPlanSha256",H,
+                    "runKind","platform","passed",true,"evidenceKind",kind);
+            var file=write("import-"+kind,payload,true,"fixture-runner");
+            var request=post(route).cookie(client.cookie()).header("X-CSRF-TOKEN",client.csrf())
+                    .header("Idempotency-Key",id()).contentType("application/json").content(canonical(object(
+                            "reportRef",file.get("ref"),"sha256",file.get("sha256"),"runnerIdentity","fixture-runner")));
+            var result=mvc.perform(request).andReturn();
+            if(kind.equals("real_pf"))assertThat(result.getResponse().getStatus()).isBetween(200,201);
+            else {
+                assertThat(result.getResponse().getStatus()).isEqualTo(422);
+                assertThat(parse(result.getResponse().getContentAsString()).at("/error/code").asText())
+                        .isEqualTo("REPORT_EVIDENCE_KIND_NOT_ALLOWED");
+            }
+        }
+        var unknown=write("import-unknown",object("protocolVersions",versions(),"subjectSha256",H,
+                "evaluationPlanSha256",H,"runKind","platform","passed",true,"evidenceKind","real_pf"),true,"fixture-runner");
+        var untrusted=mvc.perform(post(route).cookie(client.cookie()).header("X-CSRF-TOKEN",client.csrf())
+                .header("Idempotency-Key",id()).contentType("application/json").content(canonical(object(
+                        "reportRef",unknown.get("ref"),"sha256",unknown.get("sha256"),"runnerIdentity","untrusted-runner")))).andReturn();
+        assertThat(untrusted.getResponse().getStatus()).isEqualTo(422);
+        assertThat(parse(untrusted.getResponse().getContentAsString()).at("/error/code").asText())
+                .isEqualTo("REPORT_IDENTITY_UNTRUSTED");
+    }
+
     @Test void lifecycleIsIndependentAndHasNoExecutionSideEffects() throws Exception {
         assertThat(create().path("eligibilityStatus").asText()).isEqualTo("pending");
         op("decisions",object("decision","approve","reason","fixture"),"1");op("starts",object(),"2");

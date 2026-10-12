@@ -335,8 +335,10 @@ class Formal(lab_run.Runner):
                     targetKey=base64.b64encode((ipc / 'executor.key').read_bytes()).decode())
         self.root_dir = Path(self.args.rendezvous)
         require(self.root_dir.is_dir() and not (self.root_dir / 'input.json').exists(), 'LAB_RENDEZVOUS_INVALID')
-        write(self.root_dir / 'input.json', data)
         self.state['executorCapabilityHash'] = data['capabilityHash']
+        if self.args.admission_probe:
+            return self.probe_executor(data)
+        write(self.root_dir / 'input.json', data)
         deadline = time.monotonic() + self.args.root_timeout
         while not (self.root_dir / 'boot.json').exists():
             require(not (self.root_dir / 'error.json').exists(), 'LAB_ROOT_EXECUTOR_FAILED')
@@ -353,6 +355,35 @@ class Formal(lab_run.Runner):
             raise ValueError('LAB_EXECUTOR_HEARTBEAT_MISSING')
         self.state.update(executorBootId=self.executor_boot)
         self.save_state()
+
+    def probe_executor(self, data):
+        """仅诊断（克隆）：用户态只发执行器心跳登记 boot，不领取命令、不安装规则。"""
+        import threading
+        self.executor_boot = uid()
+        http = j1_run.Session(self.base, self.context)
+        stop = self.probe_stop = threading.Event()
+        self.probe_latency = []
+        def beat():
+            while not stop.wait(1):
+                began = time.monotonic()
+                try:
+                    http.call('POST', '/api/v2/machine/executors/' + self.executor + '/heartbeats', dict(bootId=self.executor_boot, adapterVersion='hostguard-executor/1',
+                              capabilityHash=data['capabilityHash'], pendingRecovery=False, activeRuleCount=0, clockSkewMs=0),
+                              {'Authorization': 'Bearer ' + self.executor_token, 'Idempotency-Key': uid()}, (200,))
+                    self.probe_latency.append([stamp(), round(time.monotonic() - began, 3)])
+                except Exception as error:
+                    self.state.setdefault('probeHeartbeatErrors', []).append(str(error)[:120])
+        normalized = dict(digestVersion='guard-state/1', assetId=self.asset, executorId=self.executor, executorBootId=self.executor_boot, rules=[], pendingRevocations=[])
+        headers = lambda: {'Authorization': 'Bearer ' + self.executor_token, 'Idempotency-Key': uid()}
+        http.call('POST', '/api/v2/machine/executors/' + self.executor + '/heartbeats', dict(bootId=self.executor_boot, adapterVersion='hostguard-executor/1',
+                  capabilityHash=data['capabilityHash'], pendingRecovery=False, activeRuleCount=0, clockSkewMs=0), headers(), (200,))
+        http.call('POST', '/api/v2/machine/executors/' + self.executor + '/reconciliations', dict(executorBootId=self.executor_boot, observedAt=stamp(),
+                  digestVersion='guard-state/1', stateDigest=digest(normalized), ownedRules=[], pendingRevocations=[], recoveryErrors=[]), headers(), (200,))
+        threading.Thread(target=beat, daemon=True).start()
+        time.sleep(3)
+        row = self.db.query(f"SELECT boot_id FROM guard_executor WHERE public_id='{self.executor}'", self.schema).decode().strip()
+        self.state['probeExecutorBootRegistered'] = row == self.executor_boot
+        self.state.update(executorBootId=self.executor_boot, admissionProbe=True)
 
     def prepare_targets(self):
         ipc = self.work / 'private/ipc'
@@ -590,12 +621,24 @@ class Formal(lab_run.Runner):
         self.start_executor()
         self.prepare_targets()
         self.freeze_session()
+        handoff = self.op.call('GET', '/api/v2/machine/sensors/' + self.sensor + '/lab-validation-runs/' + self.state['sessionId'], None,
+                               {'Authorization': 'Bearer ' + (self.work / 'private/sensor.credential').read_text().strip()})['data']
+        write(self.work / 'handoff-state.json', handoff['state'])
         process = self.start_process([self.work / 'bin/guardlive', '-config', self.work / 'private/sensor.json', '-lab-plan',
                                       '-out', self.work / 'observations.jsonl', '-report', self.work / 'sensor-report.json', '-drain-timeout', '120s'], 'sensor.log')
+        probe_until = time.monotonic() + self.args.probe_seconds
         while process.poll() is None:
             require(self.backend.poll() is None and self.targets.poll() is None, 'LAB_COMPONENT_EXITED')
             require(not (self.root_dir / 'error.json').exists(), 'LAB_ROOT_EXECUTOR_FAILED')
+            if self.args.admission_probe and time.monotonic() > probe_until:
+                process.terminate()
+                process.wait(30)
+                self.state['admissionProbeResult'] = 'sensor_running_after_probe_window'
+                self.save_state()
+                raise ValueError('LAB_ADMISSION_PROBE_DONE')
             time.sleep(1)
+        if self.args.admission_probe:
+            write(self.work / 'probe-latency.json', self.probe_latency)
         require(process.returncode == 0, 'LAB_SENSOR_FAILED')
         self.state['captureComplete'] = True
         self.save_state()
@@ -644,6 +687,8 @@ def main():
     parser.add_argument('--stage-manifest', required=True)
     parser.add_argument('--authorization-reference', required=True)
     parser.add_argument('--root-timeout', type=int, default=1800)
+    parser.add_argument('--probe-seconds', type=int, default=90)
+    parser.add_argument('--admission-probe', action='store_true', help='仅诊断（只允许 clone）：执行器只发心跳，检查会话准入与传感器交接后停止')
     parser.add_argument('--backend-jar', type=Path, default=ROOT / '.cache/a18-20261012/bin/backend.jar')
     parser.add_argument('--scenario', type=Path, default=ROOT / '.cache/j2-20261011/g3-scenario.json')
     parser.add_argument('--artifacts', type=Path, default=HOME / 'ai/artifacts/cyber-guard')
@@ -658,6 +703,7 @@ def main():
     args = parser.parse_args()
     args.artifacts = args.artifacts.resolve()
     args.mode = 'pf'
+    require(not args.admission_probe or args.target == 'clone', 'LAB_PROBE_CLONE_ONLY')
     runner = Formal(args)
     try:
         runner.run()

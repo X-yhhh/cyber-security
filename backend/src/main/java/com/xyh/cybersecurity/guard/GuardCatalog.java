@@ -80,10 +80,10 @@ public class GuardCatalog {
         store.audit(access.human(),"guard.bundle.requested",id,null,null,subject);return object("id",id,"subjectSha256",hash(subject),"status","candidate","revision",1);}
     public JsonNode report(String bundleId,JsonNode b){access.permission("evaluation.run",null);fields(b,"reportRef sha256 runnerIdentity","");var bundle=store.external("guard_release_bundle",bundleId,true);require("candidate".equals(str(bundle,"status")),"STATE_CONFLICT");
         var report=signatures.report(artifacts.json(text(b,"reportRef"),digest(b,"sha256")),text(b,"runnerIdentity"));
+        // 新 G3 报告必须经会话事实重算后导入，通用入口不能绕过跨会话与完整性校验（先于证据类别分流）。
+        require(!report.path("reportVersion").asText().startsWith("host-guard-g3-report/"),"LAB_REPORT_REQUIRES_SESSION_IMPORT");
         // 引导与合成报告只能在显式开启的隔离克隆中导入，正式信任文件是否误含身份不影响此闸门。
         require(bootstrapReportsEnabled||!Set.of("bootstrap","synthetic").contains(report.path("evidenceKind").asText()),"REPORT_EVIDENCE_KIND_NOT_ALLOWED");
-        // 新 G3 报告必须经会话事实重算后导入，通用入口不能绕过跨会话与完整性校验。
-        require(!report.path("reportVersion").asText().startsWith("host-guard-g3-report/"),"LAB_REPORT_REQUIRES_SESSION_IMPORT");
         versions(report.path("protocolVersions"));var plan=store.get("guard_evaluation_plan",number(bundle,"plan_id"));
         require(str(bundle,"subject_sha256").equals(report.path("subjectSha256").asText())&&str(plan,"plan_sha256").equals(report.path("evaluationPlanSha256").asText()),"EVALUATION_PLAN_MISMATCH");
         require(Set.of("development","final","replay","canary","platform").contains(text(report,"runKind")),"EVALUATION_PLAN_MISMATCH");

@@ -67,6 +67,41 @@ class SubjectReportTest(unittest.TestCase):
         with self.assertRaisesRegex(Rejected,'REPORT_EXECUTION_CONTEXT_INVALID'):
             report.verify(report.sign(payload,self.keypath,'fixture'),self.trust,payload)
 
+    def rehearsal_summary(self):
+        """K9 替身矩阵：单个汇总覆盖两种 scope，每轮 result.json 位于汇总同目录。"""
+        parent=self.root/'rehearsal';parent.mkdir();rows=[]
+        for scope in ('peer_service','peer_inbound'):
+            for scenario in ('revoke','disconnect','receipt_loss'):
+                (parent/f'{scope}-{scenario}').mkdir()
+                self.dump(parent/f'{scope}-{scenario}/result.json',dict(scope=scope,scenario=scenario,realPF=False,passed=True,runtimeSubjectBinding=self.runtime))
+                rows.append(dict(scope=scope,scenario=scenario,passed=True))
+        summary=parent/'summary.json'
+        self.dump(summary,dict(realPF=False,passed=True,subjectSchema='cyber_guard_k9_fixture',scenarios=rows,sourceSha256={'executor/engine.py':'b'*64},subjectBinding=self.binding))
+        return summary
+
+    def test_rehearsal_only_yields_synthetic_platform(self):
+        summary=self.rehearsal_summary()
+        evidence=report.collect([summary],[],'platform',self.binding,True)
+        payload=report.build('platform',self.subject,evidence,self.context,True)
+        self.assertEqual(payload['evidenceKind'],'synthetic')
+        envelope=report.sign(payload,self.keypath,'fixture')
+        self.assertTrue(report.verify(envelope,self.trust,payload,True)['signatureVerified'])
+        # 正式验签口径不接受 synthetic；演练路径也不接受 canary 或 root 记录。
+        with self.assertRaisesRegex(Rejected,'REPORT_KIND_INVALID'):report.verify(envelope,self.trust,payload)
+        with self.assertRaisesRegex(Rejected,'REPORT_REHEARSAL_INPUT_INVALID'):report.collect([summary],[],'canary',self.binding,True)
+        with self.assertRaisesRegex(Rejected,'REPORT_REHEARSAL_INPUT_INVALID'):report.collect([summary],self.launches,'platform',self.binding,True)
+
+    def test_rehearsal_rejects_real_pf_claim_missing_round_or_unbound_runtime(self):
+        summary=self.rehearsal_summary();original=report.load(summary)
+        self.dump(summary,dict(original,realPF=True))
+        with self.assertRaisesRegex(Rejected,'REPORT_EVIDENCE_FAILED'):report.collect([summary],[],'platform',self.binding,True)
+        self.dump(summary,dict(original,scenarios=original['scenarios'][:-1]))
+        with self.assertRaisesRegex(Rejected,'REPORT_E3_INCOMPLETE'):report.collect([summary],[],'platform',self.binding,True)
+        self.dump(summary,original)
+        result=summary.parent/'peer_inbound-revoke/result.json'
+        self.dump(result,dict(report.load(result),runtimeSubjectBinding=dict(self.runtime,verifiedBeforeExecution=False)))
+        with self.assertRaisesRegex(Rejected,'REPORT_RUNTIME_SUBJECT_MISMATCH'):report.collect([summary],[],'platform',self.binding,True)
+
     def test_hash_only_or_wrong_claim_is_rejected(self):
         for value in ({'subjectSha256':'a'*64},{'subject':self.subject,'subjectSha256':'b'*64}):
             with self.assertRaises(Rejected):report.subject_hash(value)

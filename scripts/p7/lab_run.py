@@ -15,6 +15,7 @@ import hashlib
 import hmac
 import ipaddress
 import json
+import re
 import os
 from pathlib import Path
 import shutil
@@ -34,7 +35,7 @@ sys.path.insert(0, str(ROOT))
 from scripts.p7 import j1_run, lab_report
 from scripts.p7.j1_register import packet_records, tcp_tuple
 from executor import pki
-from executor.common import canonical
+from executor.common import Rejected, canonical
 
 UTC = timezone.utc
 VERSION = "host-guard-lab/1.1"
@@ -151,6 +152,76 @@ def original_mapping(row, selection, artifacts):
         peers.add(str(ipaddress.ip_address(peer[0])));ports.add(local[0][1])
     require(peers and ports and (row['family']=='normal' or peers=={selection['peer']}),'LAB_ORIGINAL_MAPPING_MISMATCH')
     return dict(host=selection['host'],peers=sorted(peers),ports=sorted(ports),port=min(ports))
+
+
+R4_SUBJECT_SHA256 = 'f02022ba810357d9932e72474ca699253cecebbd3d9367e86694124f85ff9b43'
+
+
+def formal_r4_preflight(db, bundle_id):
+    """只读核对业务库 r4 的激活状态及封存报告；失败时不能启动任何组件。"""
+    from scripts.p5.subject_report import REPORT_VERSION, check_execution_context
+    try:
+        require(str(uuid.UUID(bundle_id)) == bundle_id, 'LAB_PF_R4_NOT_ACTIVE')
+    except (TypeError, ValueError) as error:
+        raise ValueError('LAB_PF_R4_NOT_ACTIVE') from error
+    rows = db.query("SELECT JSON_OBJECT('status',status,'environment',environment,"
+                    "'subjectSha256',subject_sha256,'sealedSha256',sealed_manifest_sha256,"
+                    "'sealed',sealed_manifest_json,'approvedBy',approved_by) "
+                    "FROM guard_release_bundle WHERE public_id='" + bundle_id + "'", 'cyber_security').decode().splitlines()
+    require(len(rows) == 1, 'LAB_PF_R4_NOT_ACTIVE')
+    try:
+        bundle = json.loads(rows[0])
+        subject_sha = bundle['subjectSha256']
+        sealed = bundle['sealed']
+        require(bundle['status'] == 'active' and bundle['environment'] == 'lab'
+                and bundle['approvedBy'] is not None and subject_sha == R4_SUBJECT_SHA256
+                and isinstance(sealed, dict) and bundle['sealedSha256'] == digest(sealed)
+                and sealed['subjectSha256'] == subject_sha and isinstance(sealed['reports'], list)
+                and sealed['reports'], 'LAB_PF_R4_NOT_ACTIVE')
+        kinds = set()
+        for ref in sealed['reports']:
+            evaluation_id = ref['evaluationId']
+            require(str(uuid.UUID(evaluation_id)) == evaluation_id, 'LAB_PF_R4_NOT_ACTIVE')
+            report_rows = db.query("SELECT JSON_OBJECT('kind',run_kind,'status',status,"
+                                   "'reportSha256',report_sha256,'payload',payload_json) "
+                                   "FROM guard_evaluation_run WHERE public_id='" + evaluation_id + "' "
+                                   "AND bundle_id=(SELECT id FROM guard_release_bundle WHERE public_id='" + bundle_id + "')",
+                                   'cyber_security').decode().splitlines()
+            require(len(report_rows) == 1, 'LAB_PF_R4_NOT_ACTIVE')
+            report = json.loads(report_rows[0])
+            kind = report['kind']
+            require(report['status'] == 'passed' and report['reportSha256'] == ref['reportSha256'], 'LAB_PF_R4_NOT_ACTIVE')
+            if kind in ('platform', 'canary'):
+                payload = report['payload']
+                require(payload.get('runKind') == kind and payload.get('reportVersion') == REPORT_VERSION
+                        and payload.get('passed') is True
+                        and payload.get('evidenceKind') == 'real_pf' and payload.get('subjectSha256') == subject_sha
+                        and isinstance(payload.get('executionContext'), dict), 'LAB_PF_R4_NOT_ACTIVE')
+                check_execution_context(payload['executionContext'], {'bundleId': bundle_id, 'subjectSha256': subject_sha})
+                kinds.add(kind)
+        require(kinds == {'platform', 'canary'}, 'LAB_PF_R4_NOT_ACTIVE')
+    except (KeyError, TypeError, AttributeError, Rejected, json.JSONDecodeError, ValueError) as error:
+        raise ValueError('LAB_PF_R4_NOT_ACTIVE') from error
+    return {'bundleId': bundle_id, 'subjectSha256': subject_sha, 'formalKinds': sorted(kinds)}
+
+
+def synthetic_provenance(source, policy, extractor_sha, executor_sha):
+    """synthetic 会话与 K9 S1 共用的冻结 provenance；数据/切分/标签/代码摘要固定为 synthetic 占位。"""
+    value = {k: digest({'synthetic': k}) for k in ('datasetSha256','splitSha256','labelRulesSha256','codeSha256')}
+    value.update(modelSha256=source['bindings']['modelSha256'], policySha256=digest(policy),
+                 extractorSha256=extractor_sha, executorSha256=executor_sha)
+    return value
+
+
+def synthetic_payload(kind, rows, subject_sha, plan_sha, versions, executor_sha, provenance):
+    """隔离演练报告；evidenceKind=synthetic，正式库按 K9-1 开关拒绝。"""
+    return dict(runKind=kind, evidenceKind='synthetic', passed=True, subjectSha256=subject_sha,
+                evaluationPlanSha256=plan_sha, protocolVersions=versions, executorSha256=executor_sha, provenance=provenance,
+                sourceEligibility=[f'{r["family"]}:model:' for r in rows if r['trialAutoEligible']]+['port_scan:rule:scan-ports'])
+
+
+def executor_digest():
+    return digest({'executor/'+p.name:sha(p) for p in sorted((ROOT/'executor').glob('*.py'))})
 
 
 class Api:
@@ -271,7 +342,7 @@ class Runner:
         self.context = j1_run.ssl_context(tls)
         self.backend = self.start_process([self.args.java, '--enable-native-access=ALL-UNNAMED', '-Xmx2g',
             '-Dcyber.guard.automation-enabled=false', '-Dcyber.guard.lab-rehearsal-enabled=true',
-            '-Dcyber.guard.bootstrap-reports-enabled=true',
+            '-Dcyber.guard.bootstrap-reports-enabled='+('true' if getattr(self,'bootstrap_reports',True) else 'false'),
             '-Dcyber.guard.artifact-root='+str(self.artifacts), '-Dcyber.guard.report-trust-file='+str(self.work/'private/trust.json'),
             '-Dcyber.model-artifact.root='+str(Path.home()/'Workspace/deliveries'),
             '-Dspring.session.timeout=4h', '-Dserver.servlet.session.timeout=4h', '-Dserver.tomcat.threads.max=12',
@@ -289,7 +360,30 @@ class Runner:
         reviewer = load(self.args.reviewer_file)
         self.rev = j1_run.Session(self.base, self.context).login({'username': reviewer.get('username','guard-reviewer'),'password':reviewer['password']})
 
+    def prepare_existing_bundle(self):
+        """K9-6：复用源 schema 中已由 K6 报告封存并独立批准的组合，不新建组合或报告。"""
+        plan = load(self.args.import_plan)
+        self.policy = plan['decisionPolicy']
+        self.bundle = self.args.existing_bundle
+        found = self.db.query("SELECT JSON_OBJECT('status',status,'subject',subject_sha256,'revision',revision) FROM guard_release_bundle "
+                              "WHERE public_id='"+str(uuid.UUID(self.bundle))+"'", self.schema).decode().splitlines()
+        require(len(found) == 1, 'LAB_EXISTING_BUNDLE_MISSING')
+        row = json.loads(found[0])
+        require(row['status'] in ('approved','active') and row['subject'] == R4_SUBJECT_SHA256, 'LAB_EXISTING_BUNDLE_INVALID')
+        self.subject_sha = row['subject']
+        self.versions = plan['releaseBundle']['protocolVersions']
+        self.plan_sha = self.policy['evaluationPlanSha256']
+        self.provenance = synthetic_provenance(self.source, self.policy, plan['releaseBundle']['extractorSha256'], self.executor_sha)
+        reports = load(self.args.existing_reports)
+        self.proofs = {kind: reports[kind] for kind in ('final','platform','canary')}
+        for ref in self.proofs.values():
+            require(sha(self.artifacts/ref['ref']) == ref['sha256'], 'LAB_EXISTING_REPORT_MISMATCH')
+        self.state.update(bundleId=self.bundle, bundleRevision=row['revision'], subjectSha256=self.subject_sha)
+        write(self.work/'bundle-lifecycle.json', {'synthetic':True,'existing':True,'status':row['status'],'proofs':self.proofs})
+
     def prepare_bundle(self):
+        if getattr(self.args,'existing_bundle',None):
+            return self.prepare_existing_bundle()
         plan = load(self.args.import_plan)
         policy = plan['decisionPolicy']
         require(digest(policy) == digest(load(self.artifacts/'packages/host-guard-round2-20261011-r4/policy-m2-lab.json')),
@@ -307,16 +401,11 @@ class Runner:
         self.policy = policy
         self.versions = body['protocolVersions']
         self.plan_sha = policy['evaluationPlanSha256']
-        self.provenance = {k: digest({'synthetic': k}) for k in ('datasetSha256','splitSha256','labelRulesSha256','codeSha256')}
-        self.provenance.update(modelSha256=self.source['bindings']['modelSha256'], policySha256=digest(policy),
-                               extractorSha256=body['extractorSha256'], executorSha256=self.executor_sha)
+        self.provenance = synthetic_provenance(self.source, policy, body['extractorSha256'], self.executor_sha)
         reports = []
         self.proofs = {}
         for kind in ('final','platform','canary'):
-            payload = dict(runKind=kind, evidenceKind='synthetic', passed=True, subjectSha256=self.subject_sha,
-                           evaluationPlanSha256=self.plan_sha, protocolVersions=self.versions,
-                           executorSha256=self.executor_sha, provenance=self.provenance,
-                           sourceEligibility=[f'{r["family"]}:model:' for r in self.rows if r['trialAutoEligible']]+['port_scan:rule:scan-ports'])
+            payload = synthetic_payload(kind, self.rows, self.subject_sha, self.plan_sha, self.versions, self.executor_sha, self.provenance)
             ref = self.signed('synthetic-'+kind, payload)
             self.proofs[kind] = ref
             reports.append(self.op.v2('/release-bundles/'+self.bundle+'/imports',
@@ -554,6 +643,10 @@ class Runner:
         require(not self.work.exists(),'LAB_RUN_DIRECTORY_EXISTS')
         os.umask(0o077);self.work.mkdir(parents=True,mode=0o700)
         self.source=load(self.args.scenario);self.rows=freeze_scenarios(self.source,self.artifacts)
+        if getattr(self.args,'scenarios',None):
+            # 只缩小本次会话的场景集合；每段仍按冻结登记逐文件核验，不改任何片段。
+            wanted=self.args.scenarios.split(',');self.rows=[r for r in self.rows if r['scenarioId'] in wanted]
+            require(len(self.rows)==len(wanted),'LAB_SCENARIO_SELECTION_INVALID')
         write(self.work/'frozen-source.json',self.source)
         write(self.work/'frozen-scenarios.json',self.rows)
         if self.args.mode=='dry-run':
@@ -567,14 +660,16 @@ class Runner:
         self.key,self.isolation_key=Ed25519PrivateKey.generate(),Ed25519PrivateKey.generate()
         self.runner_name,self.isolation_name='g3-rehearsal-'+self.state['sessionId'],'g3-isolation-'+self.state['sessionId']
         trust=load(self.args.report_trust)
+        if getattr(self.args,'extra_trust',None):
+            trust.update(load(self.args.extra_trust))
         for name,key in ((self.runner_name,self.key),(self.isolation_name,self.isolation_key)):
             (key_dir/(name+'.der')).write_bytes(key.private_bytes(serialization.Encoding.DER,serialization.PrivateFormat.PKCS8,serialization.NoEncryption()))
             trust[name]=base64.b64encode(key.public_key().public_bytes(serialization.Encoding.DER,serialization.PublicFormat.SubjectPublicKeyInfo)).decode()
         write(self.work/'private/trust.json',trust)
-        self.executor_sha=digest({'executor/'+p.name:sha(p) for p in sorted((ROOT/'executor').glob('*.py'))})
+        self.executor_sha=executor_digest()
         self.db=j1_run.Database(self.args.mysql_service)
         before=self.snapshot();write(self.work/'business-before.json',before)
-        write(self.work/'database-clone.json',self.db.clone('cyber_security',self.schema,self.work/'business-backup.sql'))
+        write(self.work/'database-clone.json',self.db.clone(getattr(self.args,'source_schema','cyber_security'),self.schema,self.work/'business-backup.sql'))
         # 复制口令摘要到隔离库专用申请人，独立审查人仍使用另一个真实账号；不改变业务库权限。
         original=load(self.args.operator_file)
         username='g3-operator-'+self.state['sessionId'][:8]
@@ -654,10 +749,23 @@ def main():
     parser.add_argument('--java',type=Path,default=home/'development/runtimes/java/temurin-25.0.2/Contents/Home/bin/java')
     parser.add_argument('--go',type=Path,default=home/'development/runtimes/go/go-1.26.4/bin/go')
     parser.add_argument('--port',type=int,default=19443)
+    parser.add_argument('--r4-bundle-id',help='pf 前置核验所用的业务库 r4 bundleId')
+    parser.add_argument('--authorization-reference',help='A6 单轮授权引用；本次仅作前置门禁')
+    parser.add_argument('--source-schema',default='cyber_security',help='K9-6：从已模拟 A18 的隔离 schema 克隆')
+    parser.add_argument('--existing-bundle',help='K9-6：复用源 schema 中已批准的 r4，不新建组合')
+    parser.add_argument('--existing-reports',type=Path,help='K9-6：final/platform/canary 的 {ref,sha256,runnerIdentity}')
+    parser.add_argument('--extra-trust',type=Path,help='K9-6：额外的演练报告信任项（仅本次隔离后端）')
+    parser.add_argument('--scenarios',help='逗号分隔的场景子集')
     parser.add_argument('--resume',action='store_true')
     args=parser.parse_args()
-    # 方案 B 的 r4 E3 前置条件尚未解环；在任何数据库、目录或 PF 副作用之前拒绝。
-    require(args.mode!='pf','LAB_PF_BLOCKED_BY_R4_E3_PRECONDITION')
+    # 复用既有组合只用于隔离演练：源必须是 K9 隔离 schema，且须给出证明文件。
+    require(args.source_schema=='cyber_security' or (args.mode=='rehearse' and re.fullmatch(r'cyber_guard_[a-z0-9_]{1,52}',args.source_schema)),
+            'LAB_SOURCE_SCHEMA_INVALID')
+    require((args.existing_bundle is None)==(args.existing_reports is None)
+            and (args.existing_bundle is None or args.source_schema!='cyber_security'),'LAB_EXISTING_BUNDLE_ARGUMENTS_INVALID')
+    if args.mode == 'pf':
+        require(args.r4_bundle_id and args.authorization_reference, 'LAB_PF_R4_NOT_ACTIVE')
+        formal_r4_preflight(j1_run.Database(args.mysql_service), args.r4_bundle_id)
     runner=Runner(args)
     try:
         if args.resume:runner.resume()

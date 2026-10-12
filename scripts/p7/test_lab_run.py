@@ -1,6 +1,7 @@
 """编排器输入冻结、签名和恢复边界；不访问业务库或真实 PF。"""
 import base64
 import copy
+import json
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -58,14 +59,64 @@ class LabRunTest(unittest.TestCase):
         path.write_bytes(b'changed')
         with self.assertRaisesRegex(ValueError,'FILE_MISMATCH'):runner.check_resume(state,self.root,'s')
 
+    def formal_db(self, evidence='real_pf', active=True):
+        bundle_id='c313b44e-e835-441a-9e50-ada7e92fdf0a'
+        subject_sha=runner.R4_SUBJECT_SHA256
+        refs=[{'evaluationId':str(__import__('uuid').uuid4()),'reportSha256':str(i)*64}
+              for i in (1,2,3)]
+        sealed={'subjectSha256':subject_sha,'reports':refs}
+        snapshot={'guard_release_bundle':{'rows':1,'sha256':'a'*64}}
+        context=dict(cloneSchema='cyber_guard_fixture_1',bootstrapReports=[
+            {'sha256':'a'*64,'keyId':'e3-bootstrap-test'},
+            {'sha256':'b'*64,'keyId':'e3-bootstrap-test'}],
+            businessBefore=snapshot,businessAfter=snapshot,
+            sourceBundle={'bundleId':bundle_id,'subjectSha256':subject_sha},
+            cloneBundle={'bundleId':bundle_id,'subjectSha256':subject_sha},subjectMatchesSource=True)
+        bundle=dict(status='active' if active else 'candidate',environment='lab',subjectSha256=subject_sha,
+                    approvedBy=12,sealedSha256=runner.digest(sealed),sealed=sealed)
+        reports={ref['evaluationId']:dict(kind=kind,status='passed',reportSha256=ref['reportSha256'],
+                 payload=dict(runKind=kind,reportVersion='host-guard-subject-report/1.0',passed=True,
+                              evidenceKind=evidence,subjectSha256=subject_sha,executionContext=context))
+                 for ref,kind in zip(refs,('final','platform','canary'))}
+        class Db:
+            def query(self, sql, schema):
+                assert schema=='cyber_security'
+                if 'FROM guard_release_bundle' in sql and 'FROM guard_evaluation_run' not in sql:
+                    return json.dumps(bundle).encode()+b'\n'
+                for key,value in reports.items():
+                    if "public_id='"+key+"'" in sql:return json.dumps(value).encode()+b'\n'
+                return b''
+        return Db(),bundle_id,bundle,reports
+
+    def test_pf_preflight_accepts_only_active_r4_with_formal_sealed_reports(self):
+        db,bundle_id,bundle,reports=self.formal_db()
+        self.assertEqual(runner.formal_r4_preflight(db,bundle_id)['formalKinds'],['canary','platform'])
+        bundle['status']='approved'
+        with self.assertRaisesRegex(ValueError,'LAB_PF_R4_NOT_ACTIVE'):runner.formal_r4_preflight(db,bundle_id)
+        bundle['status']='active';bundle['sealedSha256']='0'*64
+        with self.assertRaisesRegex(ValueError,'LAB_PF_R4_NOT_ACTIVE'):runner.formal_r4_preflight(db,bundle_id)
+        bundle['sealedSha256']=runner.digest(bundle['sealed'])
+        platform=next(row for row in reports.values() if row['kind']=='platform')
+        platform['payload']['evidenceKind']='synthetic'
+        with self.assertRaisesRegex(ValueError,'LAB_PF_R4_NOT_ACTIVE'):runner.formal_r4_preflight(db,bundle_id)
+        platform['payload']['evidenceKind']='real_pf'
+        platform['payload']['executionContext']['businessAfter']={}
+        with self.assertRaisesRegex(ValueError,'LAB_PF_R4_NOT_ACTIVE'):runner.formal_r4_preflight(db,bundle_id)
+
     def test_blocked_pf_mode_has_no_side_effects(self):
-        """r4 E3 前置条件未解环时，正式入口必须在目录或服务创建前拒绝。"""
+        """业务库 r4 未正式激活时，在目录或服务创建前拒绝。"""
         from unittest.mock import patch
         output=self.root/'must-not-exist'
         with patch('sys.argv',['lab_run.py','--mode','pf','--directory',str(output)]), \
              patch.object(runner.j1_run,'Database',side_effect=AssertionError('unexpected database access')), \
              patch.object(runner.subprocess,'Popen',side_effect=AssertionError('unexpected process')):
-            with self.assertRaisesRegex(ValueError,'LAB_PF_BLOCKED_BY_R4_E3_PRECONDITION'):runner.main()
+            with self.assertRaisesRegex(ValueError,'LAB_PF_R4_NOT_ACTIVE'):runner.main()
+        db,bundle_id,_,_=self.formal_db(active=False)
+        with patch('sys.argv',['lab_run.py','--mode','pf','--directory',str(output),
+                               '--r4-bundle-id',bundle_id,'--authorization-reference','A6-test']), \
+             patch.object(runner.j1_run,'Database',return_value=db), \
+             patch.object(runner.subprocess,'Popen',side_effect=AssertionError('unexpected process')):
+            with self.assertRaisesRegex(ValueError,'LAB_PF_R4_NOT_ACTIVE'):runner.main()
         self.assertFalse(output.exists())
 
     def test_substitute_cleanup_requires_original_successful_terminal_record(self):

@@ -48,10 +48,10 @@ def subject_hash(value):
     return result, subject
 
 
-def collect(summaries, launches, kind, binding):
+def collect(summaries, launches, kind, binding, rehearsal=False):
     """证据路径必须由调用方显式提供；不信任摘要中的任意外部引用。"""
     require(kind in {"platform", "canary"}, "REPORT_KIND_INVALID")
-    require(launches, "REPORT_E3_ROOT_EVIDENCE_MISSING")
+    require(rehearsal or launches, "REPORT_E3_ROOT_EVIDENCE_MISSING")
     validate_binding(binding)
     def matched(record, execution=None):
         require(record.get('subjectBinding')==binding,'REPORT_SUBJECT_MISMATCH')
@@ -63,7 +63,34 @@ def collect(summaries, launches, kind, binding):
                     and actual.get('policySha256')==binding['subject']['policySha256']
                     and actual.get('capabilityIds') and set(actual['capabilityIds'])<=set(binding['subject']['capabilityIds']),
                     'REPORT_RUNTIME_SUBJECT_MISMATCH')
-    if kind == "platform":
+    if rehearsal:
+        # K9 无授权演练：替身执行器的 E3 矩阵只能产出 synthetic platform，正式库按 evidenceKind 拒绝。
+        require(kind == "platform" and not launches and summaries, "REPORT_REHEARSAL_INPUT_INVALID")
+        items, executor_hashes = [], set()
+        for path in summaries:
+            summary = load(path)
+            matched(summary)
+            require(summary.get("realPF") is False and summary.get("passed") is True and summary.get("subjectSchema"),
+                    "REPORT_EVIDENCE_FAILED")
+            for scope in sorted({r["scope"] for r in summary["scenarios"]}):
+                rows = [r for r in summary["scenarios"] if r["scope"] == scope]
+                results = []
+                for row in rows:
+                    result_path = Path(path).parent / f"{scope}-{row['scenario']}/result.json"
+                    result = load(result_path)
+                    require(row["passed"] is True and result.get("passed") is True and result.get("realPF") is False
+                            and (result.get("scope"), result.get("scenario")) == (scope, row["scenario"]), "REPORT_EVIDENCE_FAILED")
+                    matched(summary, result)
+                    results.append(sha(result_path))
+                items.append({"kind": "e3-joint-rehearsal", "scope": scope, "summarySha256": sha(path),
+                              "scenarios": sorted(r["scenario"] for r in rows), "resultSha256": results})
+            files = {k: v for k, v in summary.get("sourceSha256", {}).items() if k.startswith("executor/") and k.endswith(".py")}
+            require(files, "REPORT_EXECUTOR_HASH_MISSING")
+            executor_hashes.add(digest(files))
+        for scope in ("peer_service", "peer_inbound"):
+            covered = {s for item in items if item["scope"] == scope for s in item["scenarios"]}
+            require(platform_report.E3_SCENARIOS <= covered, "REPORT_E3_INCOMPLETE")
+    elif kind == "platform":
         rounds = platform_report.e3_rounds(launches)
         for directory in map(Path,launches):
             matched(load(directory/'launch-record.json'),load(directory/'evidence/result.json'))
@@ -134,25 +161,26 @@ def check_execution_context(context, binding):
     return context
 
 
-def build(kind, subject_value, evidence, execution_context):
+def build(kind, subject_value, evidence, execution_context, rehearsal=False):
     hashed, subject = subject_hash(subject_value)
     require(kind in {"platform", "canary"} and evidence.get("items"), "REPORT_EVIDENCE_EMPTY")
     binding=validate_binding(evidence['subjectBinding'])
     require(hashed==binding['subjectSha256'] and subject==binding['subject'],'REPORT_SUBJECT_MISMATCH')
     context = check_execution_context(execution_context, binding)
-    return {"reportVersion": REPORT_VERSION, "runKind": kind, "passed": True, "evidenceKind": "real_pf",
+    return {"reportVersion": REPORT_VERSION, "runKind": kind, "passed": True, "evidenceKind": "synthetic" if rehearsal else "real_pf",
             "subjectSha256": hashed, "evaluationPlanSha256": subject["evaluationPlanSha256"],
             "protocolVersions": subject["protocolVersions"], "executorSha256": evidence["executorSha256"],
             "evidence": evidence["items"], "executionContext": context,
-            "limitations": ["P5 joint execution evidence; no G3 category qualification"]}
+            "limitations": ["P5 joint execution evidence; no G3 category qualification"]
+            + (["K9 rehearsal with memory firewall; not release evidence"] if rehearsal else [])}
 
 
 def sign(payload, key, runner):
     return platform_report.sign(payload, platform_report.private_key(key), runner)
 
 
-def verify(envelope, trust, expected):
-    require(isinstance(expected, dict) and expected.get("evidenceKind") == "real_pf" and
+def verify(envelope, trust, expected, rehearsal=False):
+    require(isinstance(expected, dict) and expected.get("evidenceKind") == ("synthetic" if rehearsal else "real_pf") and
             expected.get("runKind") in {"platform", "canary"}, "REPORT_KIND_INVALID")
     context = expected.get("executionContext")
     require(isinstance(context, dict) and isinstance(context.get("sourceBundle"), dict),
@@ -188,6 +216,7 @@ def main():
         p.add_argument("--e3-summary", type=Path, action="append", default=[])
         p.add_argument("--root-launch", type=Path, action="append", default=[])
         p.add_argument("--execution-context", type=Path, required=True)
+        p.add_argument("--rehearsal", action="store_true", help="K9 替身演练：只生成 synthetic platform")
         if command == "generate":
             p.add_argument("--output", type=Path, required=True)
         else:
@@ -198,17 +227,19 @@ def main():
     p.add_argument("--output", type=Path, required=True)
     p.add_argument("--private-key", type=Path, required=True)
     p.add_argument("--runner-identity", required=True)
+    p.add_argument("--rehearsal", action="store_true")
     args = parser.parse_args()
     if args.command == "sign":
         payload = load(args.input)
-        require(payload.get("reportVersion") == REPORT_VERSION and payload.get("evidenceKind") == "real_pf", "REPORT_KIND_INVALID")
+        require(payload.get("reportVersion") == REPORT_VERSION and
+                payload.get("evidenceKind") == ("synthetic" if args.rehearsal else "real_pf"), "REPORT_KIND_INVALID")
         write(args.output, sign(payload, args.private_key, args.runner_identity))
     else:
         binding=validate_binding(load(args.subject))
-        payload = build(args.kind, binding, collect(args.e3_summary, args.root_launch, args.kind,binding),
-                        load(args.execution_context))
+        payload = build(args.kind, binding, collect(args.e3_summary, args.root_launch, args.kind, binding, args.rehearsal),
+                        load(args.execution_context), args.rehearsal)
         if args.command == "verify":
-            print(json.dumps(verify(load(args.input), load(args.trust), payload)))
+            print(json.dumps(verify(load(args.input), load(args.trust), payload, args.rehearsal)))
         else:
             write(args.output, payload)
 

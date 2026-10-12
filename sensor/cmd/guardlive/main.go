@@ -16,6 +16,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"sync"
 	"syscall"
 	"time"
 
@@ -353,8 +354,15 @@ func run() (runErr error) {
 		if c.labSession != nil && runErr != nil && !writtenSummary {
 			summary["status"] = "failed"
 			summary["errorCode"] = "LAB_RUN_FAILED"
-			if e := c.labSession.Error(); e != nil {
-				summary["errorCode"] = e.Error()
+			e := runErr
+			if recorded := c.labSession.Error(); recorded != nil {
+				e = recorded
+			}
+			for _, code := range []error{guardlab.ErrAdmission, guardlab.ErrMapping, guardlab.ErrLease, guardlab.ErrContinuity} {
+				if errors.Is(e, code) {
+					summary["errorCode"] = code.Error()
+					break
+				}
 			}
 			_ = writeSummary()
 		}
@@ -418,11 +426,13 @@ func run() (runErr error) {
 		// 观察的 clockSkewMs 取上传心跳的新鲜实测值；过期或未测到即为 null，不填常数。
 		clockSkew = upload.up.Skew
 	}
-	engineConfig := hostguard.Config{AssetID: c.AssetID, SensorID: c.SensorID, BootID: c.BootID,
-		CaptureScopeID: c.CaptureScopeID, LocalAddresses: c.LocalAddresses, PeerSecret: secret, KeyEpoch: c.KeyEpoch,
-		Environment: c.Environment, ClockSkew: clockSkew, Emit: func(v hostguard.Emission) error {
-			if c.labSession != nil {
-				mapped, e := c.labSession.MapEmission(v, time.Now())
+	var emitMu sync.Mutex
+	emitFor := func(lab *guardlab.Session) func(hostguard.Emission) error {
+		return func(v hostguard.Emission) error {
+			emitMu.Lock()
+			defer emitMu.Unlock()
+			if lab != nil {
+				mapped, e := lab.MapEmission(v, time.Now())
 				if e != nil {
 					return e
 				}
@@ -445,11 +455,15 @@ func run() (runErr error) {
 					return err
 				}
 			}
-			if c.labSession != nil {
-				return c.labSession.Event(v.Observation)
+			if lab != nil {
+				return lab.Event(v.Observation)
 			}
 			return nil
-		}}
+		}
+	}
+	engineConfig := hostguard.Config{AssetID: c.AssetID, SensorID: c.SensorID, BootID: c.BootID,
+		CaptureScopeID: c.CaptureScopeID, LocalAddresses: c.LocalAddresses, PeerSecret: secret, KeyEpoch: c.KeyEpoch,
+		Environment: c.Environment, ClockSkew: clockSkew, Emit: emitFor(c.labSession)}
 	if c.labSession != nil {
 		engineConfig.Lease = c.labSession.Lease
 		engineConfig.LocalAddresses = []netip.Addr{c.labSession.Local.OriginalLocal}
@@ -472,6 +486,15 @@ func run() (runErr error) {
 	}
 	var lastSample hostguard.LiveSample
 	switch {
+	case *labPlan && c.labSession.Manifest.ContractVersion == guardlab.Version11:
+		summary["mode"] = "lab_pcap_replay"
+		replays, stats, sample, err := concurrentLabReplay(ctx, c.labSession, engineConfig, emitFor, observe)
+		if err != nil {
+			return err
+		}
+		summary["replays"] = replays
+		e.Stats = stats
+		lastSample = sample
 	case *replay != "":
 		summary["mode"] = "research_trace_replay"
 		if err = replayTrace(*replay, e); err != nil {
@@ -529,7 +552,7 @@ func run() (runErr error) {
 			}}
 			if c.labSession != nil {
 				summary["mode"] = "lab_pcap_replay"
-				options.Start = c.labSession.Manifest.Time.WarmupStart
+				options.Start = c.labSession.CaptureStart()
 				options.End = c.labSession.Scenario.SourceEnd
 				options.CaptureStart = options.Start
 				options.FixedOffset = &c.labSession.Offset

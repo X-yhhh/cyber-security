@@ -22,6 +22,7 @@ from executor.engine import Engine
 from executor.platform import PF
 from executor.storage import Store
 from executor.transport import ControlPlane
+from executor.subject_binding import configured, verify_config
 from pf_session import session
 
 
@@ -150,6 +151,7 @@ def run(directory, work=None, owner=None):
         c["inboundCapabilities"] = [{"capabilityId": data["capabilityId"], "protectionSetSha256": digest(data["protection"]),
             "protectedPortsSha256": protected_ports_sha256(c["protectedServicePorts"])}]
     c["capabilityHash"] = capability_set_sha256(c)
+    runtime_binding=verify_config(configured(),c)
     require(c["capabilityHash"] == data["capabilityHash"], "LAB_CAPABILITY_MISMATCH")
     trust = read_private(Path(c["trustFile"]))
     write_new(Path(c["credentialFile"]), data["credential"].encode())
@@ -157,6 +159,7 @@ def run(directory, work=None, owner=None):
     write_new(Path(c["budgetKeyFile"]), key)
     result = {"passed": False, "scope": data["scope"], "scenario": data["scenario"], "realPF": mode == "pf",
               "realControlPlaneHTTPS": True, "realGoMTLS": True, "recovery": "separate_process" if mode == "pf" else "thread_fixture"}
+    if runtime_binding is not None:result['runtimeSubjectBinding']=runtime_binding
     with ExitStack() as stack:
         if mode == "pf":
             helper, check, pf_facts = stack.enter_context(session(work, c["executorId"], os.environ.get("P5_A4_REFERENCE")))

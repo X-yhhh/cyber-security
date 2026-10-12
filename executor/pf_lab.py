@@ -96,6 +96,8 @@ def unknown_rule_probe(engine, report=None):
 
 
 def main(directory, guardtargets):
+    from .subject_binding import configured
+    subject_binding=configured()
     require(sys.platform == "darwin" and os.geteuid() == 0, "LAB_ADMIN_REQUIRED")
     require(directory.is_absolute() and not directory.exists(), "LAB_NEW_DIRECTORY_REQUIRED")
     require(guardtargets.is_absolute() and guardtargets.is_file(), "LAB_TARGET_BINARY_REQUIRED")
@@ -122,6 +124,7 @@ def main(directory, guardtargets):
                "sources": {str(p.relative_to(source.parent.parent)): hashlib.sha256(p.read_bytes()).hexdigest()
                            for p in sorted(source.parent.glob("*.py")) + [source]}, "cleanup": {},
                "userFixturePreexisting": original == USER_ROOT, "userRuleChecks": []}
+    if subject_binding is not None:summary['subjectBinding']=subject_binding
     token = None
     alias = False
     attached = False
@@ -152,6 +155,9 @@ def main(directory, guardtargets):
                      controlPlaneURL="https://127.0.0.1:1", credentialFile=str(root / "unused-credential"),
                      targetURL="https://127.0.0.1:1", targetCA=str(root / "unused-ca"),
                      targetCertificate=str(root / "unused-cert"), targetKey=str(root / "unused-key"))
+            if subject_binding is not None:
+                c.update(bundleIds=[subject_binding['bundleId']],policyHashes=[subject_binding['subject']['policySha256']],
+                         capabilityIds=subject_binding['subject']['capabilityIds'])
             # lab 没有 P4 保护文件：按同一格式自建保护集，并像正式配置一样登记全入站能力。
             protection = {"protectedBudgetTargetIds": [], "protectedServicePorts": c["protectedServicePorts"]}
             c["inboundCapabilities"] = [{"capabilityId": c["capabilityIds"][0], "protectionSetSha256": digest(protection),

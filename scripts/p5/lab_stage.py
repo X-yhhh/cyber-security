@@ -14,6 +14,7 @@ import subprocess
 import sys
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT))
 APP_PATHS = ("executor", "scripts/p1", "scripts/p5", "docs/contracts")
 STDLIB_SKIP = {"site-packages", "test", "idlelib", "tkinter", "turtledemo", "ensurepip", "__pycache__"}
 
@@ -34,6 +35,7 @@ def main():
     parser.add_argument("--commit", required=True, help="已提交的代码版本；不打包工作区未提交改动")
     parser.add_argument("--guardtargets", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--subject-binding", type=Path, help="K6：运行前冻结的 bundleId、完整 subject 和 JCS 摘要")
     args = parser.parse_args()
     output = args.output.resolve()
     if output.exists():
@@ -63,6 +65,12 @@ def main():
                 and Path(p).resolve().is_relative_to(Path(sys.prefix).resolve()))
     copy_tree(site, stage / "site")
     shutil.copy2(args.guardtargets, stage / "guardtargets")
+    binding=None
+    if args.subject_binding:
+        from executor.subject_binding import validate
+        from executor.common import canonical
+        binding=validate(json.loads(args.subject_binding.read_bytes()))
+        (stage/'subject-binding.json').write_bytes(canonical(binding))
     files, links = {}, {}
     for path in sorted(stage.rglob("*")):
         relative = str(path.relative_to(stage))
@@ -79,6 +87,7 @@ def main():
                 "pythonVersion": sys.version.split()[0], "files": files, "symlinks": links,
                 "dyldLibraryPath": f"python/Python.framework/Versions/{base.name}/lib",
                 "dyldFrameworkPath": "python"}
+    if binding is not None:manifest['subjectBinding']=binding
     path = output / "manifest.json"
     path.write_text(json.dumps(manifest, sort_keys=True, indent=1) + "\n")
     print(json.dumps({"commit": commit, "files": len(files), "manifestSha256": sha(path)}))

@@ -277,7 +277,8 @@ class GuardLabIntegrationTest {
             var results=new ArrayList<Integer>();for(var f:pool.invokeAll(tasks))results.add(f.get());assertThat(results).containsExactlyInAnyOrder(200,409);
         }
     }
-    @Test void signedScenarioEventsAndReportCannotBeReusedAcrossSessions() throws Exception {
+    @ParameterizedTest @ValueSource(strings={"approved","active"})
+    void signedScenarioEventsAndReportCannotBeReusedAcrossSessions(String bundleStatus) throws Exception {
         create();op("decisions",object("decision","approve","reason","fixture"),"1");op("starts",object(),"2");now=BASE.plusSeconds(1801);
         var result=object("contractVersion",GuardLabContract.VERSION,"sessionId",manifest.get("sessionId"),"sessionSha256",hash(manifest),"scenarioId","normal-1",
                 "mappingSha256",manifest.get("mappingSha256"),"startedAt",BASE.toString(),"endedAt",BASE.plusSeconds(1800).toString(),"completed",true);
@@ -293,9 +294,17 @@ class GuardLabIntegrationTest {
         var generic=mvc.perform(post("/api/v2/release-bundles/"+str(bundle,"public_id")+"/imports").cookie(client.cookie()).header("X-CSRF-TOKEN",client.csrf())
                 .header("Idempotency-Key",id()).contentType("application/json").content(canonical(reportBody))).andReturn();
         assertThat(parse(generic.getResponse().getContentAsString()).at("/error/code").asText()).isEqualTo("LAB_REPORT_REQUIRES_SESSION_IMPORT");
-        jdbc.update("UPDATE guard_release_bundle SET status='approved' WHERE id=?",bundle.get("id"));
+        jdbc.update("UPDATE guard_release_bundle SET status=? WHERE id=?",bundleStatus,bundle.get("id"));
         var imported=op("reports",reportBody,"5");assertThat(imported.path("signatureVerified").asBoolean()).isTrue();assertThat(imported.path("passed").asBoolean()).isFalse();
+        var qualifications=ok(mvc.perform(get("/api/v2/lab-validation-runs/"+manifest.path("sessionId").asText()+"/qualifications").cookie(client.cookie())).andReturn());
+        assertThat(qualifications.path("sources")).isEmpty();assertThat(qualifications.path("bundleUsable").asBoolean()).isTrue();
+        assertThat(mvc.perform(get("/api/v2/lab-validation-runs/"+manifest.path("sessionId").asText()+"/qualifications")
+                .cookie(clients.get(outsider.id()).cookie())).andReturn().getResponse().getStatus()).isEqualTo(404);
         ((ObjectNode)report).put("sessionId",id());reportFile=write("g3-changed",report,true,"fixture-runner");((ObjectNode)reportBody).set("reportRef",reportFile.get("ref"));((ObjectNode)reportBody).set("sha256",reportFile.get("sha256"));
+        assertThat(call(route("reports"),reportBody,operator,"6",id()).getResponse().getStatus()).isEqualTo(422);
+        jdbc.update("UPDATE guard_release_bundle SET status='suspended' WHERE id=?",bundle.get("id"));
+        assertThat(ok(mvc.perform(get("/api/v2/lab-validation-runs/"+manifest.path("sessionId").asText()+"/qualifications").cookie(client.cookie())).andReturn())
+                .path("bundleUsable").asBoolean()).isFalse();
         assertThat(call(route("reports"),reportBody,operator,"6",id()).getResponse().getStatus()).isEqualTo(422);
         var denied=mvc.perform(get("/api/v2/lab-validation-runs/"+manifest.path("sessionId").asText()).cookie(clients.get(outsider.id()).cookie())).andReturn();assertThat(denied.getResponse().getStatus()).isEqualTo(404);
     }

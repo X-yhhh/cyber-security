@@ -1,5 +1,6 @@
 """回环 lab 的签名命令/PF/独立恢复器 canary；与正式入口使用同一授权门禁，不设例外。"""
 import argparse
+import hashlib
 import base64
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import ExitStack
@@ -18,6 +19,7 @@ from .common import Rejected, canonical, digest, ident, instant, parse, private_
 from .pf_canary import canary_scope
 from .canary_targets import CanaryTargets
 from .canary_control import CanaryControl
+from .subject_binding import configured, verify_config
 
 
 BASE_SCENARIOS = ("ttl", "revoke", "before_ledger", "after_ledger", "after_install", "parallel", "reject",
@@ -51,6 +53,7 @@ def run(config_path, signing_key, key_id, output, mode="peer_service", guardtarg
     require(mode == "peer_service" or guardtargets is not None, "CANARY_REAL_TARGET_REQUIRED")
     engine = build(config_path, resolver=False)
     config = engine.config()
+    runtime_binding=verify_config(configured(),config)
     port, _ = canary_scope(config, mode)
     # 全入站验收走正式授权：命令使用的首个能力必须已在 inboundCapabilities 登记。
     require(mode == "peer_service" or any(item["capabilityId"] == config["capabilityIds"][0]
@@ -73,9 +76,12 @@ def run(config_path, signing_key, key_id, output, mode="peer_service", guardtarg
     threads = []
     recovery = None
     targets = None
-    report = {"platform": "macos-pf", "scope": mode, "scenario": scenario,
+    report = {"kind": "pf_engine_canary", "realPF": config["platform"] == "pf",
+              "executorSha256": digest({"executor/" + p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(Path(__file__).parent.glob("*.py"))}),
+              "platform": "macos-pf", "scope": mode, "scenario": scenario,
               "fixtureResolver": guardtargets is None, "independentRecovery": True,
               "rebootTested": False, "passed": False, "configSha256": digest(config)}
+    if runtime_binding is not None:report['runtimeSubjectBinding']=runtime_binding
 
     def echo(conn):
         with conn:

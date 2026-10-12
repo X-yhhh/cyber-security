@@ -23,8 +23,12 @@ import (
 	"github.com/xyh/cyber-security/sensor/internal/jcs"
 )
 
-const Version = "host-guard-lab/1.0"
-const MappingVersion = "host-guard-sensor-mapping/1.0"
+const Version10 = "host-guard-lab/1.0"
+const Version11 = "host-guard-lab/1.1"
+const Version = Version10
+const MappingVersion10 = "host-guard-sensor-mapping/1.0"
+const MappingVersion11 = "host-guard-sensor-mapping/1.1"
+const MappingVersion = MappingVersion10
 
 var ErrAdmission = errors.New("LAB_ADMISSION_REJECTED")
 var ErrMapping = errors.New("LAB_MAPPING_REJECTED")
@@ -53,6 +57,8 @@ type Config struct {
 	EventsFile    string        `json:"eventsFile"`
 	Targets       TLSConfig     `json:"targets"`
 	Inputs        []ReplayInput `json:"inputs,omitempty"`
+	// Rehearsal 仅允许 synthetic 会话的只读回放；后端执行门仍拒绝全部真实动作。
+	Rehearsal bool `json:"rehearsal,omitempty"`
 }
 
 // ReplayInput 按预登记原时间顺序串行回放；重叠场景须独立捕获域，不能串行伪装同时发生。
@@ -92,12 +98,13 @@ type State struct {
 	ExecutionAuthority   bool       `json:"executionAuthority"`
 }
 type Times struct {
-	SourceStart  time.Time `json:"sourceStart"`
-	LabStart     time.Time `json:"labStart"`
-	OffsetMicros int64     `json:"offsetMicros"`
-	WarmupStart  time.Time `json:"warmupStart"`
-	ScoringStart time.Time `json:"scoringStart"`
-	ScoringEnd   time.Time `json:"scoringEnd"`
+	SourceStart     time.Time        `json:"sourceStart"`
+	LabStart        time.Time        `json:"labStart"`
+	OffsetMicros    int64            `json:"offsetMicros"`
+	ScenarioOffsets map[string]int64 `json:"scenarioOffsets,omitempty"`
+	WarmupStart     time.Time        `json:"warmupStart"`
+	ScoringStart    time.Time        `json:"scoringStart"`
+	ScoringEnd      time.Time        `json:"scoringEnd"`
 }
 type Manifest struct {
 	ContractVersion       string                     `json:"contractVersion"`
@@ -148,16 +155,17 @@ type Scenarios struct {
 	Scenarios       []Scenario `json:"scenarios"`
 }
 type Scenario struct {
-	ScenarioID           string    `json:"scenarioId"`
-	Family               string    `json:"family"`
-	Source               string    `json:"source"`
-	RuleID               *string   `json:"ruleId"`
-	TrialAutoEligible    bool      `json:"trialAutoEligible"`
-	AutoIneligibleReason *string   `json:"autoIneligibleReason"`
-	PCAPRef              string    `json:"pcapRef"`
-	PCAPSHA256           string    `json:"pcapSha256"`
-	SourceStart          time.Time `json:"sourceStart"`
-	SourceEnd            time.Time `json:"sourceEnd"`
+	ScenarioID           string     `json:"scenarioId"`
+	Family               string     `json:"family"`
+	Source               string     `json:"source"`
+	RuleID               *string    `json:"ruleId"`
+	TrialAutoEligible    bool       `json:"trialAutoEligible"`
+	AutoIneligibleReason *string    `json:"autoIneligibleReason"`
+	PCAPRef              string     `json:"pcapRef"`
+	PCAPSHA256           string     `json:"pcapSha256"`
+	CaptureStart         *time.Time `json:"captureStart,omitempty"`
+	SourceStart          time.Time  `json:"sourceStart"`
+	SourceEnd            time.Time  `json:"sourceEnd"`
 }
 
 // PrivateMapping 是 runner 另外签名的本机映射，原始端点永不进入中央日志。
@@ -341,6 +349,25 @@ func offset(t Times) (time.Duration, error) {
 	return o, nil
 }
 
+func supportedVersion(v string) bool        { return v == Version10 || v == Version11 }
+func supportedMappingVersion(v string) bool { return v == MappingVersion10 || v == MappingVersion11 }
+func mappingVersionFor(v string) string {
+	if v == Version11 {
+		return MappingVersion11
+	}
+	return MappingVersion10
+}
+func scenarioOffset(m Manifest, scenarioID string) (time.Duration, error) {
+	if m.ContractVersion != Version11 {
+		return offset(m.Time)
+	}
+	raw, ok := m.Time.ScenarioOffsets[scenarioID]
+	if !ok || raw > int64((1<<63-1)/1000) || raw < int64((-1<<63)/1000) {
+		return 0, ErrAdmission
+	}
+	return time.Duration(raw) * time.Microsecond, nil
+}
+
 // validateHandoff 在每次轮询再次核对资格/时间；可变 revision 不用作不可变输入的替代。
 func validateHandoff(c Config, id Identity, h Handoff, now time.Time) (Manifest, Mapping, Scenarios, error) {
 	var m Manifest
@@ -354,7 +381,8 @@ func validateHandoff(c Config, id Identity, h Handoff, now time.Time) (Manifest,
 	if e != nil || !hash.MatchString(c.SessionSHA256) || d != c.SessionSHA256 || d != h.State.SessionSHA256 || h.State.ID != c.RunID {
 		return bad()
 	}
-	if !h.State.Runnable || len(h.State.ReasonCodes) != 0 || h.State.BlockedReason != nil || h.State.EligibilityStatus != "active" || h.State.EffectiveEligibility != "active" || h.State.RunStatus != "running" || h.State.TimedOut || h.State.StopRequestedAt != nil || h.State.EndedAt != nil || h.State.Revision < 1 || h.State.StartedAt == nil {
+	rehearsal := c.Rehearsal && m.ContractVersion == Version11 && m.EvidenceKind == "synthetic" && !h.State.Runnable && len(h.State.ReasonCodes) == 1 && h.State.ReasonCodes[0] == "LAB_SYNTHETIC_ONLY"
+	if (!rehearsal && (!h.State.Runnable || len(h.State.ReasonCodes) != 0)) || h.State.BlockedReason != nil || h.State.EligibilityStatus != "active" || h.State.EffectiveEligibility != "active" || h.State.RunStatus != "running" || h.State.TimedOut || h.State.StopRequestedAt != nil || h.State.EndedAt != nil || h.State.Revision < 1 || h.State.StartedAt == nil {
 		return bad()
 	}
 	// 会话 ID 与映射摘要须等于运维显式配置值：后端 state.id/public_id 即 manifest.sessionId，
@@ -362,7 +390,7 @@ func validateHandoff(c Config, id Identity, h Handoff, now time.Time) (Manifest,
 	if m.SessionID != c.RunID || !hash.MatchString(c.MappingSHA256) || m.MappingSHA256 != c.MappingSHA256 {
 		return bad()
 	}
-	if m.ContractVersion != Version || m.Environment != "lab" || m.EvidenceKind != "lab" || m.Speed != 1 || !uuid.MatchString(m.SessionID) || m.AssetID != id.AssetID || m.SensorID != id.SensorID || m.BootID != id.BootID || h.State.AssetID != m.AssetID || h.State.BundleID != m.BundleID || h.State.EvidenceKind != m.EvidenceKind || !h.State.ValidUntil.Equal(m.ValidUntil) {
+	if !supportedVersion(m.ContractVersion) || m.Environment != "lab" || (m.EvidenceKind != "lab" && !rehearsal) || m.Speed != 1 || !uuid.MatchString(m.SessionID) || m.AssetID != id.AssetID || m.SensorID != id.SensorID || m.BootID != id.BootID || h.State.AssetID != m.AssetID || h.State.BundleID != m.BundleID || h.State.EvidenceKind != m.EvidenceKind || !h.State.ValidUntil.Equal(m.ValidUntil) {
 		return bad()
 	}
 	if now.Before(m.ValidFrom) || !now.Before(m.ValidUntil) || m.TimeoutSeconds < 10 || m.TimeoutSeconds > 86400 || !m.ValidUntil.After(m.ValidFrom) {
@@ -372,27 +400,54 @@ func validateHandoff(c Config, id Identity, h Handoff, now time.Time) (Manifest,
 		return bad()
 	}
 	o, e := offset(m.Time)
-	if e != nil || m.Time.WarmupStart.Add(o).Before(m.ValidFrom) || !m.Time.ScoringEnd.Add(o).Before(m.ValidUntil) {
+	if e != nil || m.ContractVersion == Version10 && (m.Time.WarmupStart.Add(o).Before(m.ValidFrom) || !m.Time.ScoringEnd.Add(o).Before(m.ValidUntil)) {
 		return bad()
 	}
-	if mp.ContractVersion != Version || sc.ContractVersion != Version || mp.SessionID != m.SessionID || mp.MappingID != m.MappingID || len(mp.Entries) == 0 || len(mp.Entries) != len(sc.Scenarios) || len(mp.Entries) > 64 {
+	if m.ContractVersion == Version11 && len(m.Time.ScenarioOffsets) == 0 {
+		return bad()
+	}
+	if m.ContractVersion == Version10 && len(m.Time.ScenarioOffsets) != 0 {
+		return bad()
+	}
+	if !supportedVersion(mp.ContractVersion) || mp.ContractVersion != m.ContractVersion || !supportedVersion(sc.ContractVersion) || sc.ContractVersion != m.ContractVersion || mp.SessionID != m.SessionID || mp.MappingID != m.MappingID || len(mp.Entries) == 0 || (m.ContractVersion == Version10 && len(mp.Entries) != len(sc.Scenarios)) || len(mp.Entries) > 256 {
 		return bad()
 	}
 	seen, refs, peers := map[string]bool{}, map[string]bool{}, map[string]bool{}
+	normal := map[string]bool{}
+	for _, s := range sc.Scenarios {
+		normal[s.ScenarioID] = s.Family == "normal"
+	}
 	for _, v := range mp.Entries {
-		if seen[v.ScenarioID] || refs[v.TargetRef] || peers[v.PeerKey] || !uuid.MatchString(v.TargetRef) || !uuid.MatchString(v.TargetBindingID) || !uuid.MatchString(v.CaptureScopeID) || !hash.MatchString(v.PeerKey) || v.KeyEpoch < 1 {
+		if (seen[v.ScenarioID] && (m.ContractVersion == Version10 || !normal[v.ScenarioID])) || refs[v.TargetRef] || peers[v.PeerKey] || !uuid.MatchString(v.TargetRef) || !uuid.MatchString(v.TargetBindingID) || !uuid.MatchString(v.CaptureScopeID) || !hash.MatchString(v.PeerKey) || v.KeyEpoch < 1 {
 			return bad()
 		}
 		seen[v.ScenarioID] = true
 		refs[v.TargetRef] = true
 		peers[v.PeerKey] = true
 	}
+	if len(seen) != len(sc.Scenarios) {
+		return bad()
+	}
 	seen = map[string]bool{}
 	for _, s := range sc.Scenarios {
-		if seen[s.ScenarioID] || !scenarioName.MatchString(s.ScenarioID) || !families[s.Family] || s.Source != "model" && s.Source != "rule" || !refsFor(mp, s.ScenarioID) || !hash.MatchString(s.PCAPSHA256) || s.SourceStart.Before(m.Time.ScoringStart) || s.SourceEnd.After(m.Time.ScoringEnd) || !s.SourceEnd.After(s.SourceStart) {
+		scenarioShift, shiftErr := scenarioOffset(m, s.ScenarioID)
+		if seen[s.ScenarioID] || !scenarioName.MatchString(s.ScenarioID) || !families[s.Family] || s.Source != "model" && s.Source != "rule" || !refsFor(mp, s.ScenarioID) || !hash.MatchString(s.PCAPSHA256) || s.SourceStart.Before(m.Time.ScoringStart) || s.SourceEnd.After(m.Time.ScoringEnd) || !s.SourceEnd.After(s.SourceStart) || shiftErr != nil || m.ContractVersion == Version11 && ((s.CaptureStart == nil || s.CaptureStart.After(s.SourceStart) || s.CaptureStart.Add(scenarioShift).Before(m.ValidFrom)) || !s.SourceEnd.Add(scenarioShift).Before(m.ValidUntil)) {
+			return bad()
+		}
+		if m.ContractVersion == Version10 && s.CaptureStart != nil {
 			return bad()
 		}
 		seen[s.ScenarioID] = true
+	}
+	if m.ContractVersion == Version11 {
+		if len(seen) != len(m.Time.ScenarioOffsets) {
+			return bad()
+		}
+		for name := range m.Time.ScenarioOffsets {
+			if !seen[name] {
+				return bad()
+			}
+		}
 	}
 	return m, mp, sc, nil
 }

@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/netip"
@@ -97,7 +98,12 @@ func (t *transport) post(ctx context.Context, path, key, token string, body []by
 			continue
 		}
 		if r.StatusCode < 200 || r.StatusCode >= 300 {
-			return ErrLease
+			for _, code := range []string{"VECTOR_INVALID", "QUALITY_SCOPE_OR_TIME", "ENDPOINT_SCOPE", "SERVICE_PORT", "REFERENCE_CAPACITY", "PACKET_TIME_REGRESSION", "BACKEND_REGISTRATION"} {
+				if r.Header.Get("X-Hostguard-Rejection") == code {
+					return fmt.Errorf("%w: %s", ErrLease, code)
+				}
+			}
+			return fmt.Errorf("%w: HTTP_%d", ErrLease, r.StatusCode)
 		}
 		if Decode(b, out) != nil {
 			return ErrLease

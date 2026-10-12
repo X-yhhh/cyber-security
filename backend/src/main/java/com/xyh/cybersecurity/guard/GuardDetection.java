@@ -73,6 +73,13 @@ public class GuardDetection {
      * 避免大 episode 中每条观察都重读并复制全部证据。
      */
     public JsonNode correlate(List<Scored> batch,Map<String,Object> bundle,Map<String,Object> binding,JsonNode hypotheticalPolicy){
+        return correlate(batch,bundle,binding,hypotheticalPolicy,false);
+    }
+    /** 只供已独立批准的 synthetic lab 会话调用，真实门禁强制关闭，假想路径只读取冻结策略。 */
+    JsonNode rehearse(List<Scored> batch,Map<String,Object> bundle,JsonNode frozenPolicy){
+        return correlate(batch,bundle,null,frozenPolicy,true);
+    }
+    private JsonNode correlate(List<Scored> batch,Map<String,Object> bundle,Map<String,Object> binding,JsonNode hypotheticalPolicy,boolean labRehearsal){
         var p=store.get("guard_decision_policy",number(bundle,"policy_id"));JsonNode policy=json(p,"definition_json");JsonNode result=object("decision","observe");
         if(batch.isEmpty())return result;
         // 先按固定顺序持有资产锁，再批量读取最新性/episode/projection；与原逐条路径保留同一事务和因果排序。
@@ -84,7 +91,7 @@ public class GuardDetection {
             var observation=item.observation();var inference=item.inference();JsonNode o=recalled(number(observation,"id"),str(observation,"content_sha256"));
             if(o==null)o=json(observation,"payload_json");
             remember(number(observation,"id"),str(observation,"content_sha256"),o);
-            require(hypotheticalPolicy==null||(binding==null&&"research".equals(o.path("environment").asText())),"REPLAY_REAL_TARGET_FORBIDDEN");
+            require(hypotheticalPolicy==null||(binding==null&&("research".equals(o.path("environment").asText())||(labRehearsal&&"lab".equals(o.path("environment").asText())))),"REPLAY_REAL_TARGET_FORBIDDEN");
             boolean current=latest.contains(number(observation,"id"));
             for(JsonNode fp:policy.path("familyPolicies")){
                 String family=fp.path("family").asText();if(current)stages.add(path(observation,o,inference,bundle,policy,family,"model","",false,family.equals(str(inference,"family"))));

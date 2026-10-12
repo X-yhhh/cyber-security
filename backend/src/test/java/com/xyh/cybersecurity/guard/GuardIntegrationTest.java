@@ -135,6 +135,36 @@ class GuardIntegrationTest {
         var h=GuardDomainTest.health(Instant.now().truncatedTo(ChronoUnit.MICROS),1,null);h.put("assetId",asset).put("sensorId",f.sensor).put("captureScopeId",scope).put("configSha256",hash(config));machine("/sensors/"+f.sensor+"/health-windows",h,f.sensorCredential);return f;
     }
     JsonNode targetBody(String eid,String sensor,String scope,String boot,String eboot,String target,String token){return object("bindingId",id(),"executorBootId",eboot,"sensorId",sensor,"collectorBootId",boot,"captureScopeId",scope,"targetRef",target,"peerKey","d".repeat(64),"keyEpoch",1,"direction","outbound","transport","tcp","servicePort",443,"addressFamily","ipv4","stableTargetToken",token,"scopeDigest",sha(token.getBytes()),"expiresAt",Instant.now().plusSeconds(14).truncatedTo(ChronoUnit.MICROS).toString());}
+
+    /** K5 方案 B：联合评价先封存，缺任一前置时不得批准或激活；合成夹具不产生 G3 资格。 */
+    @Test void labBundleRequiresJointEvidenceBeforeIndependentApproval() throws Exception {
+        Fixture f=setup();var original=store.external("guard_release_bundle",f.bundle(),false);
+        var subject=json(original,"subject_json");
+        var created=human("/release-bundles",object("modelId",f.model(),"policyId",f.policy(),
+                "featureProfileSha256",contracts.profileHash(),"extractorSha256",subject.get("extractorSha256"),
+                "protocolVersions",versions(),"evaluationPlanId",store.get("guard_evaluation_plan",number(original,"plan_id")).get("public_id"),
+                "capabilityIds",List.of(f.capability()),"environment","lab"),operator,null);
+        String bid=created.path("id").asText(),base="/release-bundles/"+bid;
+        var approval=object("decision","approve","reason","synthetic Scheme B lifecycle");
+        var activation=object("assetIds",List.of(f.asset()),"authorizationIds",List.of(f.authorization()));
+        rejectedHuman(base+"/decisions",approval,reviewer,"1",422);
+        rejectedHuman(base+"/activations",activation,reviewer,"1",422);
+        String folder=id();Path dir=ROOT.resolve(folder);Files.createDirectories(dir);var ids=new ArrayList<String>();
+        for(String kind:List.of("final","platform","canary")) {
+            if(!ids.isEmpty())assertThat(rejectedHuman(base+"/sealings",object("evaluationIds",ids),operator,"1",422)
+                    .at("/error/code").asText()).isEqualTo("JOINT_EVALUATION_REQUIRED");
+            var payload=object("protocolVersions",versions(),"subjectSha256",created.get("subjectSha256"),
+                    "evaluationPlanSha256",subject.get("evaluationPlanSha256"),"runKind",kind,"passed",true,"evidenceKind","synthetic");
+            write(dir,kind+".json",GuardSignatures.sign(payload,"fixture-runner",signing.getPrivate()));
+            ids.add(human(base+"/imports",object("reportRef",folder+"/"+kind+".json",
+                    "sha256",sha(Files.readAllBytes(dir.resolve(kind+".json"))),"runnerIdentity","fixture-runner"),operator,null).path("id").asText());
+        }
+        assertThat(human(base+"/sealings",object("evaluationIds",ids),operator,"1").path("status").asText()).isEqualTo("evaluated");
+        rejectedHuman(base+"/decisions",approval,operator,"2",403);
+        assertThat(human(base+"/decisions",approval,reviewer,"2").path("status").asText()).isEqualTo("approved");
+        assertThat(human(base+"/activations",activation,reviewer,"3").path("status").asText()).isEqualTo("active");
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM guard_validation_session WHERE bundle_id=(SELECT id FROM guard_release_bundle WHERE public_id=?)",Integer.class,bid)).isZero();
+    }
     /** B4：research 回放只能引用已批准 research 组合，且请求模型无法携带任何真实目标字段。 */
     @Test void researchReplayRejectsRealTargetReferencesAndRequiresResearchBundle()throws Exception{
         Fixture f=setup();
@@ -485,7 +515,8 @@ class GuardIntegrationTest {
     /** 整批与分批最终证据相同；分批仅多出各自批末判定，不能复用被 final 替换的 prefix。 */
     @Test void splitBatchesHaveEquivalentTerminalDecisionsAndKeepLatestSnapshots()throws Exception{
         var rule=object("ruleId","slow-duration","family","dos_slow","field","features.elapsedMs","operator","gte","threshold",4000,"autoEligible",false);
-        Fixture f=setup("dos_slow",List.of(rule),false,GuardContracts.MAX_BATCH_SIZE);Instant at=store.now().minusSeconds(2).truncatedTo(ChronoUnit.SECONDS);
+        // 预置快照在 at 前 1ms；保持二者位于同一 30 秒分桶，避免墙钟恰逢边界时误造两个 episode。
+        Fixture f=setup("dos_slow",List.of(rule),false,GuardContracts.MAX_BATCH_SIZE);Instant at=store.now().minusSeconds(2).truncatedTo(ChronoUnit.SECONDS).plusMillis(2);
         long aid=number(store.external("asset",f.asset(),false),"id");
         List<List<JsonNode>> outcomes=new ArrayList<>();long sequence=1;
         for(int size:List.of(512,256)){

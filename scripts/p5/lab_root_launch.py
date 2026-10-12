@@ -109,6 +109,9 @@ def main():
               "manifestSha256": args.manifest_sha256, "authorizationReference": args.authorization_reference,
               "kernelVersion": os.uname().version,
               "launcherBlockedSignals": sorted(str(x) for x in signal.pthread_sigmask(signal.SIG_BLOCK, []))}
+    if manifest.get('subjectBinding') is not None:
+        env['HOSTGUARD_SUBJECT_BINDING']=os.path.join(bundle,'subject-binding.json')
+        record['subjectBinding']=manifest['subjectBinding']
     if args.task == "p1-probe":
         helper = os.path.join(run, "pf-state-helper")
         subprocess.run(["/usr/bin/clang", "-O2", "-Wall", "-Wextra", "-Werror",

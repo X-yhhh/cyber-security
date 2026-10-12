@@ -11,7 +11,7 @@
 | [action-command.schema.json](action-command.schema.json) | 不可变 payload 及签名封装 |
 | [action-receipt.schema.json](action-receipt.schema.json) | 执行、拒绝、核对与恢复回执 |
 
-结构版本与决策/评价版本分别绑定。当前 `host-guard-decision/2026-10-08.1`、第二轮 `host-guard-evaluation/2026-10-08.1` 和 `host-guard-capture-health/1.0.0` 由计划、policyVersion 和发布组合绑定；旧评价 `2026-10-07.1` 仅保留 candidate-v2 的历史解释。新评价登记单对端冻结准入及按模型/每条规则判定资格；research 组合已批准但未激活。P4 已实现对应多分类和规则决策；结构验证不代表 P6/G1—G2、P7/G3 或现场部署通过。J1 V3 v8 两轮 research 回放已 completed，但 J1 未通过，J2/P8 保持关闭。
+结构版本与决策/评价版本分别绑定。当前 `host-guard-decision/2026-10-08.1`、第二轮 `host-guard-evaluation/2026-10-08.1` 和 `host-guard-capture-health/1.0.0` 由计划、policyVersion 和发布组合绑定；旧评价 `2026-10-07.1` 仅保留 candidate-v2 的历史解释。新评价登记单对端冻结准入及按模型/每条规则判定资格；research 组合已批准但未激活。P4 已实现对应多分类和规则决策；结构验证不代表 P6/G1—G2、P7/G3 或现场部署通过。J1 v9 已通过（dos_flood 按 9.3 只告警），J2 无授权准备完成；阶段 0 方案 B 的真实 E3/r4 前置闭环尚未解除，G3 与 P8 未开放。
 
 Schema 只能证明结构，不能证明时间先后、算术、归属、授权、签名、预算或实际 OS 效果。`contexts.5.*` 指 `windowSeconds=5` 的对象，不是数组第五项。正文和结构必须同时满足。
 
@@ -59,4 +59,4 @@ rc.4 内追加可选字段 `acceptedProfiles`（`flow-prefix-v1`/`flow-final-v1`
 
 ## lab 会话与报告（B4）
 
-[lab v1 契约](lab-validation.md)定义独立资格/运行状态、短租约续期、固定时间平移、事实引用和报告导入，不修改上述五个 Schema 或其集合哈希。最小合成文件为[会话](examples/lab-session.json)、[场景](examples/lab-scenarios.json)、[映射](examples/lab-mapping.json)、[报告输入](examples/lab-report-input.json)与[期望报告](examples/lab-report-expected.json)。样例中的零哈希、固定日期和未签名输入只用于结构说明及 Java/Python 对拍，不构成真实授权。使用方法见 [lab 工具](../../scripts/p7/lab.md)。
+[lab v1.1 契约](lab-validation.md)定义独立资格/运行状态、固定期限短租约、场景固定时间平移、事实引用和报告导入，不修改上述五个 Schema 或其集合哈希。最小合成文件为[会话](examples/lab-session.json)、[场景](examples/lab-scenarios.json)、[映射](examples/lab-mapping.json)、[报告输入](examples/lab-report-input.json)与[期望报告](examples/lab-report-expected.json)。样例中的零哈希、固定日期和未签名输入只用于结构说明及 Java/Python 对拍，不构成真实授权。使用方法见 [lab 工具](../../scripts/p7/lab.md)。

@@ -55,6 +55,10 @@ public interface GuardLabMapper {
     @Select("SELECT * FROM guard_lab_event WHERE session_id=#{session} AND fact_key=#{key}")
     Map<String,Object> fact(@Param("session") long session,@Param("key") String key);
 
+    /** 类别登记复用不可变 report 事件；与平台能力表分离，不增设发布状态。 */
+    @Select("SELECT * FROM guard_lab_event WHERE session_id=#{session} AND kind='report' ORDER BY id")
+    List<Map<String,Object>> reports(long session);
+
     @Insert("""
         INSERT INTO guard_lab_event(public_id,session_id,fact_key,scenario_id,kind,occurred_at,payload_jcs,content_sha256,request_sha256)
         VALUES(#{public_id},#{session},#{fact},#{scenario},#{kind},#{occurred},#{payload},#{sha},#{request})

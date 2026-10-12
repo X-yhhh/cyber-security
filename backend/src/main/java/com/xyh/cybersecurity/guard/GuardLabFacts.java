@@ -19,7 +19,7 @@ public class GuardLabFacts {
         this.store=store;this.artifacts=artifacts;this.signatures=signatures;this.mapper=mapper;
     }
 
-    public ObjectNode resolve(JsonNode p,JsonNode scenario,JsonNode mapping,JsonNode request) {
+    public ObjectNode resolve(JsonNode p,JsonNode scenario,JsonNode mappings,JsonNode request) {
         String kind=text(request,"kind");
         var out=object("scenarioId",text(scenario,"scenarioId"),"family",text(scenario,"family"),"source",text(scenario,"source"),
                 "ruleId",scenario.get("ruleId"),"kind",kind,"verification","verified","occurredAt",null,"reasonCode",null);
@@ -27,26 +27,27 @@ public class GuardLabFacts {
             fields(request,"eventId scenarioId kind reportRef sha256","");
             var proof=signatures.report(artifacts.json(text(request,"reportRef"),digest(request,"sha256")),text(p,"runnerIdentity"));
             fields(proof,"contractVersion sessionId sessionSha256 scenarioId mappingSha256 startedAt endedAt completed","");
-            require(VERSION.equals(text(proof,"contractVersion"))&&p.path("sessionId").equals(proof.path("sessionId"))
+            require(Set.of(VERSION_1_0,VERSION_1_1).contains(text(proof,"contractVersion"))&&text(p,"contractVersion").equals(text(proof,"contractVersion"))&&p.path("sessionId").equals(proof.path("sessionId"))
                     &&hash(p).equals(text(proof,"sessionSha256"))&&scenario.path("scenarioId").equals(proof.path("scenarioId"))
                     &&p.path("mappingSha256").equals(proof.path("mappingSha256")),"LAB_RESULT_MISMATCH");
             Instant from=time(proof,"startedAt"),until=time(proof,"endedAt");
             require(!until.isAfter(store.now())&&!from.isAfter(until)&&!from.isBefore(time(p,"validFrom"))
                     &&!until.isAfter(time(p,"validUntil")),"LAB_TIME_INVALID");
             boolean complete=bool(proof,"completed");
-            if(complete)require(!from.isAfter(shift(p,time(scenario,"sourceStart")))
-                    &&!until.isBefore(shift(p,time(scenario,"sourceEnd"))),"LAB_RESULT_INCOMPLETE");
+            if(complete)require(!from.isAfter(shift(p,text(scenario,"scenarioId"),time(scenario,"sourceStart")))
+                    &&!until.isBefore(shift(p,text(scenario,"scenarioId"),time(scenario,"sourceEnd"))),"LAB_RESULT_INCOMPLETE");
             out.put("occurredAt",until.toString());out.put("completed",complete);out.put("startedAt",from.toString());out.put("endedAt",until.toString());
             out.put("reportSha256",text(request,"sha256"));return out;
         }
         fields(request,"eventId scenarioId kind referenceId","");String ref=uuid(request,"referenceId");
+        JsonNode mapping=mappingFor(scenario,mappings,kind,ref);
         out.put("referenceId",ref);
         switch(kind) {
             case "observation" -> {
                 var o=store.external("guard_observation",ref,false);observation(p,scenario,mapping,o);
                 out.put("observationId",ref);out.put("occurredAt",instant(o.get("as_of")).toString());
             }
-            case "decision" -> decision(p,scenario,mapping,store.external("guard_decision",ref,false),out);
+            case "decision" -> decision(p,scenario,mapping,store.external("guard_decision",ref,false),out,false);
             case "command" -> command(p,scenario,mapping,store.external("guard_command",ref,false),out);
             case "receipt", "verified_receipt" -> {
                 var r=store.external("guard_action_receipt",ref,false);var c=store.get("guard_command",number(r,"command_id"));
@@ -69,24 +70,48 @@ public class GuardLabFacts {
         require(!time(out,"occurredAt").isAfter(store.now()),"LAB_TIME_INVALID");return out;
     }
 
+    private JsonNode mappingFor(JsonNode scenario,JsonNode file,String kind,String ref) {
+        Map<String,Object> row;
+        if(kind.equals("observation"))row=store.external("guard_observation",ref,false);
+        else if(kind.equals("decision")) {
+            var decision=store.external("guard_decision",ref,false);
+            row=store.external("guard_observation",text(json(decision,"evidence_json"),"triggerObservationId"),false);
+        }
+        else {
+            var command=kind.equals("command")?store.external("guard_command",ref,false)
+                    :store.get("guard_command",number(store.external("guard_action_receipt",ref,false),"command_id"));
+            var decision=store.get("guard_decision",number(store.get("guard_action",number(command,"action_id")),"decision_id"));
+            row=store.external("guard_observation",text(json(decision,"evidence_json"),"triggerObservationId"),false);
+        }
+        var peer=text(json(row,"payload_json"),"peerKey");
+        for(var mapping:file.path("entries"))if(text(scenario,"scenarioId").equals(mapping.path("scenarioId").asText())
+                &&peer.equals(mapping.path("peerKey").asText()))return mapping;
+        throw error(422,"LAB_FACT_MISMATCH");
+    }
+
     private void observation(JsonNode p,JsonNode scenario,JsonNode mapping,Map<String,Object> row) {
         var o=json(row,"payload_json");
         identity(p,mapping,o);
         lease(p,mapping,text(o,"targetRef"),instant(row.get("as_of")));
         Instant at=instant(row.get("as_of"));
-        require(!at.isBefore(shift(p,time(scenario,"sourceStart")))&&!at.isAfter(shift(p,time(scenario,"sourceEnd"))),"LAB_FACT_MISMATCH");
+        require(!at.isBefore(shift(p,text(scenario,"scenarioId"),time(scenario,"sourceStart")))&&!at.isAfter(shift(p,text(scenario,"scenarioId"),time(scenario,"sourceEnd"))),"LAB_FACT_MISMATCH");
         require(hash(o).equals(str(row,"content_sha256")),"LAB_FACT_DIGEST_INVALID");
     }
 
-    private void decision(JsonNode p,JsonNode scenario,JsonNode mapping,Map<String,Object> row,ObjectNode out) {
+    private void decision(JsonNode p,JsonNode scenario,JsonNode mapping,Map<String,Object> row,ObjectNode out,boolean execution) {
         var proof=json(row,"evidence_json");
         require(text(p,"bundleId").equals(text(proof,"bundleId"))&&text(p,"subjectSha256").equals(text(proof,"bundleSubjectSha256"))
                 &&"lab".equals(proof.path("environment").asText())&&hash(proof).equals(str(row,"evidence_sha256")),"LAB_FACT_MISMATCH");
         // 正常场景允许记录误报的任一攻击来源；攻击场景必须匹配登记的来源及类别。
-        if(!"normal".equals(scenario.path("family").asText()))for(String f:List.of("family","source","ruleId"))
+        if((execution||!VERSION_1_1.equals(p.path("contractVersion").asText()))&&!"normal".equals(scenario.path("family").asText()))for(String f:List.of("family","source","ruleId"))
             require(scenario.path(f).equals(proof.path(f)),"LAB_FACT_MISMATCH");
-        var trigger=store.external("guard_observation",uuid(proof,"triggerObservationId"),false);observation(p,scenario,mapping,trigger);
-        for(var selected:proof.path("selectedObservations"))observation(p,scenario,mapping,store.external("guard_observation",uuid(selected,"observationId"),false));
+        var trigger=store.external("guard_observation",uuid(proof,"triggerObservationId"),false);
+        boolean diagnostic=!execution&&VERSION_1_1.equals(p.path("contractVersion").asText());
+        if(diagnostic) diagnosticObservation(p,scenario,mapping,trigger,false);else observation(p,scenario,mapping,trigger);
+        for(var selected:proof.path("selectedObservations")) {
+            var value=store.external("guard_observation",uuid(selected,"observationId"),false);
+            if(diagnostic) diagnosticObservation(p,scenario,mapping,value,true);else observation(p,scenario,mapping,value);
+        }
         out.put("decisionId",str(row,"public_id"));out.put("observationId",str(trigger,"public_id"));
         out.put("decision",str(row,"decision"));out.put("reasonCode",str(row,"reason_code"));
         out.put("occurredAt",instant(row.get("decided_at")).toString());
@@ -94,9 +119,17 @@ public class GuardLabFacts {
         out.set("source",proof.path("source"));out.set("ruleId",proof.path("ruleId"));out.set("detectedFamily",proof.path("family"));
     }
 
+    /** v1.1 诊断必须容纳预热选择、错类告警及空租约拒绝；此路径不产生可执行证据。 */
+    private void diagnosticObservation(JsonNode p,JsonNode scenario,JsonNode mapping,Map<String,Object> row,boolean selected) {
+        var o=json(row,"payload_json");identity(p,mapping,o);
+        require(hash(o).equals(str(row,"content_sha256")),"LAB_FACT_DIGEST_INVALID");
+        Instant at=instant(row.get("as_of"));
+        require(!at.isBefore(shift(p,text(scenario,"scenarioId"),selected?captureStart(p,scenario):time(scenario,"sourceStart")))
+                &&!at.isAfter(shift(p,text(scenario,"scenarioId"),time(scenario,"sourceEnd"))),"LAB_FACT_MISMATCH");
+    }
     private void command(JsonNode p,JsonNode scenario,JsonNode mapping,Map<String,Object> c,ObjectNode out) {
         var a=store.get("guard_action",number(c,"action_id"));
-        decision(p,scenario,mapping,store.get("guard_decision",number(a,"decision_id")),out);
+        decision(p,scenario,mapping,store.get("guard_decision",number(a,"decision_id")),out,true);
         var cmd=json(c,"payload_json");
         require(text(p,"executorBootId").equals(str(c,"executor_boot_id"))
                 &&text(p,"executorId").equals(cmd.path("executorId").asText())
@@ -114,12 +147,23 @@ public class GuardLabFacts {
      * 时效基于不可变入库时间，不能拿生成报告的当前时间把全部历史样本判过期。
      * warmup/评分窗外数据单列，只有评分窗内合格且引用、时效有效的观察计入 executionQualified。
      */
-    public JsonNode quality(JsonNode p,JsonNode scenario,JsonNode mapping,long asset,long sensor) {
+    public JsonNode quality(JsonNode p,JsonNode scenario,JsonNode mappings,long asset,long sensor) {
+        var total=object();var outside=object();
+        for(var mapping:mappings.path("entries"))if(text(scenario,"scenarioId").equals(text(mapping,"scenarioId"))) {
+            var part=qualitySingle(p,scenario,mapping,asset,sensor);
+            part.fields().forEachRemaining(f->{if(!f.getKey().equals("outsideScoringWindow"))total.put(f.getKey(),total.path(f.getKey()).asLong()+f.getValue().asLong());});
+            part.path("outsideScoringWindow").fields().forEachRemaining(f->outside.put(f.getKey(),outside.path(f.getKey()).asLong()+f.getValue().asLong()));
+        }
+        total.set("outsideScoringWindow",outside);return total;
+    }
+
+    private JsonNode qualitySingle(JsonNode p,JsonNode scenario,JsonNode mapping,long asset,long sensor) {
+        String scenarioId=text(scenario,"scenarioId");
         var rows=mapper.observations(map("asset",asset,"sensor",sensor,"boot",text(p,"bootId"),"peer",text(mapping,"peerKey"),"epoch",mapping.path("keyEpoch").longValue(),
-                "start",db(shift(p,time(p.path("time"),"warmupStart"))),"end",db(shift(p,time(p.path("time"),"scoringEnd")))));
+                "start",db(shift(p,scenarioId,captureStart(p,scenario))),"end",db(shift(p,scenarioId,time(scenario,"sourceEnd")))));
         require(rows.size()<=100000,"LAB_REPORT_TOO_LARGE");
         QualityCounts scoring=new QualityCounts(),outside=new QualityCounts();
-        Instant start=shift(p,time(scenario,"sourceStart")),end=shift(p,time(scenario,"sourceEnd"));
+        Instant start=shift(p,scenarioId,time(scenario,"sourceStart")),end=shift(p,scenarioId,time(scenario,"sourceEnd"));
         Map<String,Map<String,Object>> leases=new HashMap<>();
         for(var row:rows) {
             JsonNode o=json(row,"payload_json"),q=o.path("quality");boolean known=true,good=true;

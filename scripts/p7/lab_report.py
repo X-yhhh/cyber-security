@@ -23,7 +23,9 @@ sys.path.insert(0, str(ROOT / "scripts" / "p5"))
 import platform_report  # noqa: E402  复用既有报告签名与私钥检查；该模块同时把仓库根加入 sys.path
 from executor.common import Rejected, canonical  # noqa: E402
 
-VERSION = "host-guard-lab/1.0"
+VERSION_1_0 = "host-guard-lab/1.0"
+VERSION_1_1 = "host-guard-lab/1.1"
+VERSION = VERSION_1_0
 REPORT = "host-guard-g3-report/1.0"
 FAMILIES = {"port_scan", "brute_force", "dos_flood", "dos_slow"}
 LIMITATIONS = [
@@ -77,20 +79,39 @@ def verified(event, *statuses):
     return event.get("kind") == "verified_receipt" and event.get("verification") == "verified" and event.get("status") in statuses
 
 
+def scenario_offsets(session, scenarios):
+    """v1.1 为每个场景冻结独立平移；v1.0 保持会话单一偏移。"""
+    value = session["time"].get("offsetMicros")
+    require(type(value) is int and -9007199254740991 <= value <= 9007199254740991, "LAB_OFFSET_INVALID")
+    base = timedelta(microseconds=value)
+    require(timestamp(session["time"]["sourceStart"]) + base == timestamp(session["time"]["labStart"]), "LAB_OFFSET_INVALID")
+    version = session["contractVersion"]
+    if version == VERSION_1_0:
+        require("scenarioOffsets" not in session["time"], "LAB_CONTRACT_INVALID")
+        return {s["scenarioId"]: base for s in scenarios}
+    require(version == VERSION_1_1, "LAB_CONTRACT_INVALID")
+    offsets = session["time"].get("scenarioOffsets")
+    require(isinstance(offsets, dict) and offsets and set(offsets) == {s["scenarioId"] for s in scenarios}, "LAB_OFFSET_INVALID")
+    result = {}
+    for sid, raw in offsets.items():
+        require(type(raw) is int and -9007199254740991 <= raw <= 9007199254740991, "LAB_OFFSET_INVALID")
+        result[sid] = timedelta(microseconds=raw)
+    return result
+
+
 def generate(data):
     """与 GuardLabReport 对拍；缺失 applied/cleanup 从不由 TTL 或完成状态补齐。"""
     require(set(data) == {"contractVersion", "session", "sessionSha256", "runStatus", "scenarios", "events", "unlinkedCommandIds", "unlinkedDecisionIds", "outsideScoringDecisionIds"}, "LAB_INPUT_INVALID")
     p = data["session"]
-    require(data["contractVersion"] == VERSION and p["contractVersion"] == VERSION and p["environment"] == "lab", "LAB_CONTRACT_INVALID")
+    require(data["contractVersion"] in {VERSION_1_0, VERSION_1_1} and p["contractVersion"] == data["contractVersion"] and p["environment"] == "lab", "LAB_CONTRACT_INVALID")
     require(digest(p) == data["sessionSha256"], "LAB_REPORT_MISMATCH")
     require(p["evidenceKind"] in {"synthetic", "lab"} and p["speed"] == 1, "LAB_CONTRACT_INVALID")
-    offset = timedelta(microseconds=p["time"]["offsetMicros"])
-    require(timestamp(p["time"]["sourceStart"]) + offset == timestamp(p["time"]["labStart"]), "LAB_OFFSET_INVALID")
     require(isinstance(data["scenarios"], list) and 0 < len(data["scenarios"]) <= 64 and len(data["events"]) <= 20000, "LAB_INPUT_INVALID")
     for key in ("unlinkedCommandIds", "unlinkedDecisionIds", "outsideScoringDecisionIds"):
         require(isinstance(data[key], list) and all(isinstance(item, str) for item in data[key]), "LAB_INPUT_INVALID")
     ids = [s["scenarioId"] for s in data["scenarios"]]
     require(len(ids) == len(set(ids)), "LAB_SCENARIO_INVALID")
+    offsets = scenario_offsets(p, data["scenarios"])
     rows, represented, normal_commands, normal_expired, intervals = [], set(), set(), set(), []
     normal_ms = 0
     uncertain, failed, not_evaluated = bool(data["unlinkedCommandIds"] or data["unlinkedDecisionIds"]), False, False
@@ -100,6 +121,7 @@ def generate(data):
         normal = family == "normal"
         events = [e for e in data["events"] if e.get("scenarioId") == sid]
         complete = any(e.get("kind") == "scenario_result" and e.get("completed") is True for e in events)
+        offset = offsets[sid]
         start, end = timestamp(s["sourceStart"]) + offset, timestamp(s["sourceEnd"]) + offset
         require(end > start, "LAB_TIME_INVALID")
         alert = first(events, lambda e: e.get("kind") == "decision" and e.get("decision") in {"alert", "block_candidate"})

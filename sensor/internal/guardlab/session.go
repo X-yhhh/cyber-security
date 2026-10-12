@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"math"
 	"net/netip"
 	"os"
@@ -43,8 +44,9 @@ type Session struct {
 	locals     []LocalEntry
 	// entries 为中央映射条目；refs 记录本进程内每个已发放 targetRef 归属的场景。
 	// 同一引用不得跨场景复用（尤其 normal 与 attack），否则执行对象被合并。
-	entries []Entry
-	refs    map[string]string
+	entries  []Entry
+	refs     map[string]string
+	refOwner *Session
 }
 
 // Open 核验服务端会话、runner 签名、本机构建和 canary 一一映射，不建立网络抓包句柄。
@@ -68,7 +70,7 @@ func Open(ctx context.Context, c Config, id Identity, reader Reader, leaser Leas
 	if e != nil {
 		return nil, e
 	}
-	if local.ContractVersion != MappingVersion || local.SessionID != m.SessionID || local.SessionSHA256 != c.SessionSHA256 || local.MappingID != m.MappingID || local.MappingSHA256 != m.MappingSHA256 || local.ScenarioSHA256 != m.ScenarioSHA256 || local.BuildSHA256 != id.BuildSHA256 || local.ExtractorSHA256 != m.Provenance["extractorSha256"] || len(local.Entries) != len(mp.Entries) {
+	if !supportedMappingVersion(local.ContractVersion) || local.ContractVersion != mappingVersionFor(m.ContractVersion) || local.SessionID != m.SessionID || local.SessionSHA256 != c.SessionSHA256 || local.MappingID != m.MappingID || local.MappingSHA256 != m.MappingSHA256 || local.ScenarioSHA256 != m.ScenarioSHA256 || local.BuildSHA256 != id.BuildSHA256 || local.ExtractorSHA256 != m.Provenance["extractorSha256"] || len(local.Entries) != len(mp.Entries) {
 		return nil, ErrMapping
 	}
 	s := &Session{Config: c, Manifest: m, identity: id, handoff: h, reader: reader, lease: leaser, mappingSHA: sha}
@@ -81,7 +83,8 @@ func Open(ctx context.Context, c Config, id Identity, reader Reader, leaser Leas
 	}
 	usedOrig, usedCanary, seen := map[netip.Addr]bool{}, map[netip.Addr]bool{}, map[string]bool{}
 	for _, l := range local.Entries {
-		if seen[l.ScenarioID] || !validAddr(l.OriginalLocal) || !validAddr(l.OriginalPeer) || !validAddr(l.CanaryLocal) || !validAddr(l.CanaryPeer) || l.OriginalLocal == l.OriginalPeer || l.CanaryLocal == l.CanaryPeer || usedCanary[l.CanaryPeer] || usedOrig[l.OriginalPeer] {
+		key := l.ScenarioID + ":" + l.OriginalPeer.String()
+		if seen[key] || !validAddr(l.OriginalLocal) || !validAddr(l.OriginalPeer) || !validAddr(l.CanaryLocal) || !validAddr(l.CanaryPeer) || l.OriginalLocal == l.OriginalPeer || l.CanaryLocal == l.CanaryPeer || usedCanary[l.CanaryPeer] || (m.ContractVersion == Version10 && usedOrig[l.OriginalPeer]) {
 			return nil, ErrMapping
 		}
 		// 同一场景固定一个原始来源；多来源必须拆成不同场景/运行和不同 canary。
@@ -90,7 +93,7 @@ func Open(ctx context.Context, c Config, id Identity, reader Reader, leaser Leas
 		}
 		found := false
 		for _, v := range mp.Entries {
-			if v.ScenarioID == l.ScenarioID {
+			if v.ScenarioID == l.ScenarioID && v.PeerKey == l.PeerKey {
 				found = true
 				if v.PeerKey != l.PeerKey || v.PeerKey != peerKey(id.PeerSecret, id, l.CanaryPeer) || v.KeyEpoch != id.KeyEpoch || v.CaptureScopeID != id.CaptureScopeID {
 					return nil, ErrMapping
@@ -104,7 +107,7 @@ func Open(ctx context.Context, c Config, id Identity, reader Reader, leaser Leas
 		if !found {
 			return nil, ErrMapping
 		}
-		seen[l.ScenarioID] = true
+		seen[key] = true
 		usedOrig[l.OriginalPeer] = true
 		usedCanary[l.CanaryPeer] = true
 	}
@@ -122,7 +125,7 @@ func Open(ctx context.Context, c Config, id Identity, reader Reader, leaser Leas
 	return s, nil
 }
 
-// SelectScenario 只选择本次不可变会话中已登记的场景，不更换 boot、offset 或上传队列。
+// SelectScenario 只选择本次不可变会话中已登记的场景，并切换到该场景冻结的时间偏移。
 // 调用方须在上一个引擎关闭后串行调用。
 func (s *Session) SelectScenario(name string) error {
 	var mp Mapping
@@ -155,7 +158,12 @@ func (s *Session) SelectScenario(name string) error {
 	if !found || entry.ScenarioID == "" || scenario.ScenarioID == "" {
 		return ErrMapping
 	}
+	o, e := scenarioOffset(s.Manifest, name)
+	if e != nil {
+		return ErrMapping
+	}
 	s.Local, s.Entry, s.Scenario = local, entry, scenario
+	s.Offset = o
 	return nil
 }
 
@@ -225,30 +233,34 @@ func (s *Session) Preflight(path string) error {
 	}
 	count := 0
 	e = hostguard.WalkPCAP(path, func(b []byte, ci gopacket.CaptureInfo, n uint64) error {
-		if ci.Timestamp.Before(s.Manifest.Time.WarmupStart) || ci.Timestamp.After(s.Scenario.SourceEnd) {
+		if ci.Timestamp.Before(s.CaptureStart()) || ci.Timestamp.After(s.Scenario.SourceEnd) {
 			return nil
 		}
 		p, status := hostguard.Parse(b, ci.Length, ci.Timestamp, n, 1500)
 		if status != "ok" || p.Proto != 6 || p.Src != s.Local.OriginalLocal && p.Dst != s.Local.OriginalLocal {
-			return ErrMapping
+			return fmt.Errorf("%w: packet %d protocol or local identity", ErrMapping, n)
 		}
 		if p.Src == s.Local.OriginalLocal {
-			if p.Dst != s.Local.OriginalPeer {
-				return ErrMapping
+			if _, _, ok := s.mappingForPeer(p.Dst); !ok {
+				return fmt.Errorf("%w: packet %d unregistered peer", ErrMapping, n)
 			}
-			if s.Local.Direction == "inbound" && p.SPort != s.Local.ServicePort || s.Local.Direction == "outbound" && p.DPort != s.Local.ServicePort {
-				return ErrMapping
+			if s.Local.Scope == "peer_service" && (s.Local.Direction == "inbound" && p.SPort != s.Local.ServicePort || s.Local.Direction == "outbound" && p.DPort != s.Local.ServicePort) {
+				return fmt.Errorf("%w: packet %d service scope", ErrMapping, n)
 			}
 		} else {
-			if p.Src != s.Local.OriginalPeer || s.Local.Direction == "inbound" && p.DPort != s.Local.ServicePort || s.Local.Direction == "outbound" && p.SPort != s.Local.ServicePort {
-				return ErrMapping
+			_, _, ok := s.mappingForPeer(p.Src)
+			if !ok || s.Local.Scope == "peer_service" && (s.Local.Direction == "inbound" && p.DPort != s.Local.ServicePort || s.Local.Direction == "outbound" && p.SPort != s.Local.ServicePort) {
+				return fmt.Errorf("%w: packet %d peer or service scope", ErrMapping, n)
 			}
 		}
 		count++
 		return nil
 	})
-	if e != nil || count == 0 {
-		return ErrMapping
+	if e != nil {
+		return e
+	}
+	if count == 0 {
+		return fmt.Errorf("%w: empty capture window", ErrMapping)
 	}
 	after, e := FileSHA256(path)
 	if e != nil || after != sha {
@@ -270,6 +282,9 @@ func (s *Session) Lease(o hostguard.Observation, end hostguard.Endpoints) (strin
 	if s.Error() != nil {
 		return "", time.Time{}, s.Error()
 	}
+	if s.Manifest.ContractVersion == Version11 && (o.Direction != s.Local.Direction || o.ServicePort == nil) {
+		return "", time.Time{}, nil // 方向未知或不在执行范围的合法遥测仍保留，不能为它制造租约。
+	}
 	mapped, ep, e := s.mapObservation(o, end)
 	if e != nil {
 		return "", time.Time{}, s.fail(e)
@@ -277,11 +292,14 @@ func (s *Session) Lease(o hostguard.Observation, end hostguard.Endpoints) (strin
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	l, e := s.lease.Lease(ctx, mapped, ep, s.Local.Scope)
-	if e != nil || !uuid.MatchString(l.Ref) || !l.ExpiresAt.After(time.Now()) || l.ExpiresAt.After(o.LastPacketAt.Add(15*time.Second)) {
-		return "", time.Time{}, s.fail(ErrLease)
+	if e != nil {
+		return "", time.Time{}, s.fail(fmt.Errorf("%w: %w (packet lag %dms)", ErrLease, e, time.Since(o.LastPacketAt).Milliseconds()))
+	}
+	if !uuid.MatchString(l.Ref) || !l.ExpiresAt.After(time.Now()) || l.ExpiresAt.After(o.LastPacketAt.Add(15*time.Second)) {
+		return "", time.Time{}, s.fail(fmt.Errorf("%w: invalid lease deadline", ErrLease))
 	}
 	if !s.claimRef(l.Ref) {
-		return "", time.Time{}, s.fail(ErrLease)
+		return "", time.Time{}, s.fail(fmt.Errorf("%w: cross-scenario reference", ErrLease))
 	}
 	return l.Ref, l.ExpiresAt, nil
 }
@@ -295,24 +313,48 @@ func (s *Session) claimRef(ref string) bool {
 			return false
 		}
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if owner, ok := s.refs[ref]; ok && owner != scenario {
+	ownerSession := s
+	if s.refOwner != nil {
+		ownerSession = s.refOwner
+	}
+	ownerSession.mu.Lock()
+	defer ownerSession.mu.Unlock()
+	if owner, ok := ownerSession.refs[ref]; ok && owner != scenario {
 		return false
 	}
-	s.refs[ref] = scenario
+	ownerSession.refs[ref] = scenario
 	return true
 }
+
+// mappingForPeer 不修改 Session，允许同一正常段保留多个独立对端身份。
+func (s *Session) mappingForPeer(peer netip.Addr) (LocalEntry, Entry, bool) {
+	for _, l := range s.locals {
+		if l.ScenarioID == s.Scenario.ScenarioID && l.OriginalPeer == peer {
+			for _, e := range s.entries {
+				if e.ScenarioID == l.ScenarioID && e.PeerKey == l.PeerKey {
+					return l, e, true
+				}
+			}
+		}
+	}
+	// 单场景测试夹具与 v1.0 调用保持兼容。
+	if len(s.locals) == 0 && peer == s.Local.OriginalPeer {
+		return s.Local, s.Entry, true
+	}
+	return LocalEntry{}, Entry{}, false
+}
 func (s *Session) mapObservation(o hostguard.Observation, end hostguard.Endpoints) (hostguard.Observation, hostguard.Endpoints, error) {
-	if o.Environment != "lab" || o.AssetID != s.identity.AssetID || o.SensorID != s.identity.SensorID || o.BootID != s.identity.BootID || o.CaptureScopeID != s.identity.CaptureScopeID || o.KeyEpoch != s.identity.KeyEpoch || o.Direction != s.Local.Direction || o.Transport != s.Local.Transport || o.AddressFamily != s.Local.AddressFamily || o.ServicePort == nil || *o.ServicePort != s.Local.ServicePort || end.Local.Addr() != s.Local.OriginalLocal || end.Peer.Addr() != s.Local.OriginalPeer || end.Protocol != 6 {
+	l, entry, ok := s.mappingForPeer(end.Peer.Addr())
+	diagnostic := s.Manifest.ContractVersion == Version11 && (o.Direction == "unknown" || o.Direction == "inbound" || o.Direction == "outbound")
+	if !ok || o.Environment != "lab" || o.AssetID != s.identity.AssetID || o.SensorID != s.identity.SensorID || o.BootID != s.identity.BootID || o.CaptureScopeID != s.identity.CaptureScopeID || o.KeyEpoch != s.identity.KeyEpoch || (!diagnostic && (o.Direction != l.Direction || o.ServicePort == nil)) || o.Transport != l.Transport || o.AddressFamily != l.AddressFamily || (o.ServicePort != nil && l.Scope == "peer_service" && *o.ServicePort != l.ServicePort) || end.Local.Addr() != l.OriginalLocal || end.Protocol != 6 {
 		return o, end, ErrMapping
 	}
-	if o.PeerKey != peerKey(s.identity.PeerSecret, s.identity, s.Local.OriginalPeer) {
+	if o.PeerKey != peerKey(s.identity.PeerSecret, s.identity, l.OriginalPeer) {
 		return o, end, ErrMapping
 	}
-	o.PeerKey = s.Entry.PeerKey
-	end.Local = netip.AddrPortFrom(s.Local.CanaryLocal, end.Local.Port())
-	end.Peer = netip.AddrPortFrom(s.Local.CanaryPeer, end.Peer.Port())
+	o.PeerKey = entry.PeerKey
+	end.Local = netip.AddrPortFrom(l.CanaryLocal, end.Local.Port())
+	end.Peer = netip.AddrPortFrom(l.CanaryPeer, end.Peer.Port())
 	return o, end, nil
 }
 
@@ -325,11 +367,17 @@ func (s *Session) MapEmission(v hostguard.Emission, now time.Time) (hostguard.Ob
 	if e != nil {
 		return o, s.fail(e)
 	}
-	if o.Quality.Defective() || o.Quality.ClockSkewMs == nil || math.IsNaN(*o.Quality.ClockSkewMs) || math.Abs(*o.Quality.ClockSkewMs) > 1000 || now.Sub(o.LastPacketAt) > 10*time.Second {
+	if o.Direction != s.Local.Direction || o.ServicePort == nil || o.Quality.Defective() || o.Quality.ClockSkewMs == nil || math.IsNaN(*o.Quality.ClockSkewMs) || math.Abs(*o.Quality.ClockSkewMs) > 1000 || now.Sub(o.LastPacketAt) > 10*time.Second {
 		o.TargetRef = nil
 		o.TargetExpiresAt = nil
 	} else if o.TargetRef == nil || o.TargetExpiresAt == nil || !o.TargetExpiresAt.After(now) {
-		return o, s.fail(ErrLease)
+		// 固定租约可能在两包之间过期；定时快照不续证，保留遥测并清空执行引用。
+		// 新包请求失败已由 Lease 记为粘性错误；新包快照缺引用仍须拒绝。
+		if !o.AsOf.After(o.LastPacketAt) {
+			return o, s.fail(fmt.Errorf("%w: new-packet snapshot without current lease", ErrLease))
+		}
+		o.TargetRef = nil
+		o.TargetExpiresAt = nil
 	}
 	if len(s.Config.Inputs) > 0 {
 		o.ObservationID = s.scenarioID(o.ObservationID)
@@ -434,5 +482,24 @@ func (s *Session) CloseEvents() error {
 	return closeErr
 }
 func (s *Session) Summary() map[string]any {
-	return map[string]any{"runId": s.Config.RunID, "sessionId": s.Manifest.SessionID, "sessionSha256": s.Config.SessionSHA256, "scenarioId": s.Scenario.ScenarioID, "mappingSha256": s.Manifest.MappingSHA256, "localMappingSha256": s.mappingSHA, "sourceStart": s.Manifest.Time.SourceStart, "warmupStart": s.Manifest.Time.WarmupStart, "scoringStart": s.Manifest.Time.ScoringStart, "scoringEnd": s.Manifest.Time.ScoringEnd, "offsetMicros": s.Manifest.Time.OffsetMicros, "evidenceKind": s.Manifest.EvidenceKind, "g3Passed": false}
+	return map[string]any{"runId": s.Config.RunID, "sessionId": s.Manifest.SessionID, "sessionSha256": s.Config.SessionSHA256, "scenarioId": s.Scenario.ScenarioID, "mappingSha256": s.Manifest.MappingSHA256, "localMappingSha256": s.mappingSHA, "sourceStart": s.Manifest.Time.SourceStart, "warmupStart": s.CaptureStart(), "scoringStart": s.Manifest.Time.ScoringStart, "scoringEnd": s.Manifest.Time.ScoringEnd, "offsetMicros": s.Offset.Microseconds(), "evidenceKind": s.Manifest.EvidenceKind, "g3Passed": false}
+}
+
+// CaptureStart 返回该场景冻结的采集起点，不使用重启时的墙钟重新计算。
+func (s *Session) CaptureStart() time.Time {
+	if s.Manifest.ContractVersion == Version11 && s.Scenario.CaptureStart != nil {
+		return *s.Scenario.CaptureStart
+	}
+	return s.Manifest.Time.WarmupStart
+}
+
+// ForkScenario 为并发文件各建独立因果上下文；父会话继续承担在线准入和共享事件输出。
+func (s *Session) ForkScenario(name string) (*Session, error) {
+	child := &Session{Config: s.Config, Manifest: s.Manifest, identity: s.identity, handoff: s.handoff,
+		reader: s.reader, lease: s.lease, mappingSHA: s.mappingSHA, locals: s.locals, entries: s.entries,
+		refOwner: s, events: s.events}
+	if err := child.SelectScenario(name); err != nil {
+		return nil, err
+	}
+	return child, nil
 }

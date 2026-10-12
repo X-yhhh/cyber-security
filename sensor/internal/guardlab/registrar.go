@@ -50,7 +50,7 @@ func NewRegistrar(c RegistrationConfig, s hostguard.TargetScope) (*Registrar, er
 		return nil, ErrAdmission
 	}
 	for _, v := range c.Allowed {
-		if !validAddr(v.Local) || !v.Local.Is4() || !validAddr(v.Peer) || !v.Peer.Is4() || v.Local == v.Peer || !hash.MatchString(v.PeerKey) || v.ServicePort == 0 || (v.Direction != "inbound" && v.Direction != "outbound") || (v.Scope != "peer_service" && v.Scope != "peer_inbound") || v.Scope == "peer_inbound" && v.Direction != "inbound" {
+		if !validAddr(v.Local) || !v.Local.Is4() || !validAddr(v.Peer) || !v.Peer.Is4() || v.Local == v.Peer || !hash.MatchString(v.PeerKey) || (v.ServicePort == 0 && v.Scope != "peer_inbound") || (v.Direction != "inbound" && v.Direction != "outbound") || (v.Scope != "peer_service" && v.Scope != "peer_inbound") || v.Scope == "peer_inbound" && v.Direction != "inbound" {
 			return nil, ErrAdmission
 		}
 	}
@@ -98,7 +98,7 @@ func (r *Registrar) allowed(b hostguard.TargetBinding, ep hostguard.Endpoints) b
 		if b.Direction == "outbound" {
 			p = ep.Peer.Port()
 		}
-		if v.Local == ep.Local.Addr() && v.Peer == ep.Peer.Addr() && v.PeerKey == b.PeerKey && v.Direction == b.Direction && v.Scope == b.Scope && v.ServicePort == p {
+		if v.Local == ep.Local.Addr() && v.Peer == ep.Peer.Addr() && v.PeerKey == b.PeerKey && v.Direction == b.Direction && v.Scope == b.Scope && (v.ServicePort == p || v.Scope == "peer_inbound") {
 			return true
 		}
 	}

@@ -1,6 +1,6 @@
-# lab 验证会话契约 v1
+# lab 验证会话契约 v1.1
 
-2026-10-11，B4/L1—L4。结构版本 `host-guard-lab/1.0`，报告口径 `host-guard-g3-report/1.0`。这是独立的会话协议，不修改 rc.2 观察、rc.4 策略或 J1 v9 评分规则。开发只使用合成事实；真实 G3 仍须 J1/J2、P5/P6、专项授权和网络层隔离。
+2026-10-12，B4/L1—L4 与阶段 0 K5—K7。当前结构版本 `host-guard-lab/1.1`，兼容 `host-guard-lab/1.0`，报告口径 `host-guard-g3-report/1.0`。这是独立的会话协议，不修改 rc.2 观察、rc.4 策略或 J1 v9 评分规则。开发只使用合成事实；真实 G3 仍须 J1/J2、P5/P6、专项授权和网络层隔离。
 
 ## 身份、摘要及准入
 
@@ -11,7 +11,7 @@ payload 的字段见 [合成示例](examples/lab-session.json)。身份绑定包
 `scenarioRef/scenarioSha256` 与 `mappingRef/mappingSha256` 绑定两个原字节文件：
 
 - 场景：`{contractVersion, scenarios:[{scenarioId,family,source,ruleId,trialAutoEligible,autoIneligibleReason,pcapRef,pcapSha256,sourceStart,sourceEnd}]}`。family 为 normal 或四攻击类；source 为 model/rule，rule 来源必须给 ruleId，model 为 null。`trialAutoEligible` 只表示本次试验拟验证的来源资格，不是 G3 已通过或平台自动资格。
-- 映射：`{contractVersion,mappingId,sessionId,entries:[{scenarioId,targetBindingId,peerKey,keyEpoch,captureScopeId,targetRef}]}`。每场景一个登记目标；原始 peer 的脱敏映射由签名 runner 与隔离证明核验，不接收任意地址或 shell 命令。既有目标绑定负责协议、方向、端口、预算目标及执行器身份；与授权 executionScopes 同时匹配才可准入。normal 和 attack 不可共享 targetRef。
+- 映射：`{contractVersion,mappingId,sessionId,entries:[{scenarioId,targetBindingId,peerKey,keyEpoch,captureScopeId,targetRef}]}`。v1.0 每场景一个登记目标；v1.1 攻击场景仍一个，normal 场景可按原始对端登记多个独立目标（全会话最多 256 条）；原始 peer 的脱敏映射由签名 runner 与隔离证明核验，不接收任意地址或 shell 命令。既有目标绑定负责协议、方向、端口、预算目标及执行器身份；与授权 executionScopes 同时匹配才可准入。normal 和 attack 不可共享 targetRef。
 
   targetBindingId/targetRef 是初始租约锚点，并不延长现有 15 秒租约。后续可换 targetRef，但必须属于同一稳定预算目标、scopeDigest、sensor/boot、executor/boot；每条观察/命令按其实际发生时刻复核租约。开始/恢复读取该稳定目标的最新有效租约。续租由传感器/执行器线负责，本线不会制造或延长租约。
 - `provenance` 固定 datasetSha256、splitSha256、labelRulesSha256、codeSha256、modelSha256、policySha256、extractorSha256、executorSha256。模型/策略/提取器/评价计划摘要与 release subject/登记事实复核；数据、切分和标签规则由签名 P6 证据绑定。
@@ -19,9 +19,36 @@ payload 的字段见 [合成示例](examples/lab-session.json)。身份绑定包
 
 创建、批准、开始和恢复都复核当前授权、资产、机器、输入和签名。`evaluation.run` 仅能申请/运行评价；批准另需 `authorization.approve` 且申请人与批准人不同。本线不会激活 bundle、调用适配器或创建/领取命令。已登记会话的 sensor 在既有 GuardEligibility 判定与领取路径附加会话门：资格/运行/授权到期、撤销、超时或换 boot 时拒绝新动作；清理和回执继续可用。未登记过会话的旧 P5 平台测试入口保留兼容。发布组合必须是 lab 环境且已独立批准（status 为 approved，或批准后已激活的 active；approved_by 非空）——candidate、evaluated、suspended、retired 及任何 research 组合一律以 `LAB_ENVIRONMENT_INVALID`/`LAB_BUNDLE_NOT_APPROVED` 拒绝。批准组合不等于已取得本次 G3 要证明的 `lab_auto` 类别等级；P5/P6 及专项授权仍是必需条件。
 
+## 方案 B：联合封存与类别等级分开
+
+方案 B 的目标状态路径为 candidate → 导入同 subject 的 final、platform、canary → evaluated（封存）→ 独立批准 approved → 仅 lab 资产绑定后 active → 独立批准 lab 会话 → G3 运行 → 追加 G3 报告 → 按来源登记 lab_auto。继续使用 V25，不增加 trial 状态或 V26。P5 platform/canary 是针对该 subject 的平台联合运行证据；G3 报告是后续类别闭环证据。
+
+组合批准、平台能力表中的 lab_auto 和 G3 类别等级分别表示不同事实。G3 导入允许 approved/active 的 lab 组合；其他环境或已撤销组合拒绝。只有正式 lab 会话已 completed、正常时长与误封恢复通过、命令/决策无未关联项、全部命令已核验清理，才为同一来源全部登记场景通过且明确 trialAutoEligible 的类别/来源追加 lab_auto。未通过类别不会抹掉其他通过来源；synthetic 永不登记等级。登记保存到不可变 report 事件并引用 guard_evaluation_run，不改写冻结策略或平台能力表。GET /lab-validation-runs/{id}/qualifications 返回来源、评价引用、subject 和组合当前是否可用。
+
+K6 subject_report.py 必须重算完整 subject 的 JCS，并核对运行前冻结的 subject 与 root 运行记录、实际执行配置一致。旧平台证据缺失该绑定时只能保留其历史含义，不得事后补签为 r4 证据。正式报告仍须 A6 真实运行后签发；隔离 schema 的专用 synthetic 信任文件不进入业务库。
+
+### E3/r4 前置闭环与 K9 引导克隆（2026-10-12 登记，规划，未实施）
+
+2026-10-12 用户采纳 K9，并确认“不得绕过批准或激活”只约束业务库。
+
+**闭环**：真实 E3 由后端经 `GuardEligibility.authorized` 签发命令，要求被测组合已 active；r4 封存需要同 subject 的 platform 报告，而该报告只能来自 r4 已 active 时的 E3。`pf_engine_canary` 使用本地签名命令，只核对执行配置的 subject 绑定，不经过组合状态，不在闭环内。K6 工具可测，但旧组合的 E3 结果不能标为 r4；在 K9 交付前，`lab_run.py --mode pf` 继续在任何副作用前返回 `LAB_PF_BLOCKED_BY_R4_E3_PRECONDITION`。
+
+**可解环的依据**：subject 是模型/清单、策略、profile、提取器、评价计划、能力 ID 与环境的 JCS，不含 bundleId、状态和审批记录。K7-R 在业务库克隆中新建的组合 subject `f02022ba…` 与 J2-3 的 r4 subject 逐位一致。因此同一 subject 可以先在隔离克隆中激活，而业务库的治理顺序保持不变。
+
+**K9 路径**（仍属方案 B，不改状态机，不新增 trial 或 V26）：
+
+1. A18 完成后，r4 在业务库为 candidate，已导入重新签发的正式 final。将业务库克隆到随机 schema，并沿用 J2-3/K7 的克隆和前后摘要核对。克隆中 r4 的 bundleId 与 subject 均与业务库相同。
+2. 克隆中由 E3 引导专用签名身份签发 platform/canary 引导报告（`evidenceKind=bootstrap`），这些报告只受克隆后端的引导 trust 文件信任。随后导入、封存，由克隆内独立审批人批准，并只绑定克隆中的回环 lab 资产后激活。
+3. 在 A6 授权轮次内，经 root 暂存副本运行真实 E3（`peer_service`/`peer_inbound` × revoke/disconnect/receipt_loss）并连接克隆后端；同轮运行 `pf_engine_canary`。`HOSTGUARD_SUBJECT_BINDING` 为业务库 r4 的 bundleId 与完整 subject，执行器在执行前核验。
+4. K6 `subject_report.py` 以正式 runner 身份生成、签名并验签 platform 与 canary 报告。报告附 `executionContext`，包括克隆 schema、引导报告摘要、克隆前后业务库摘要，审查人可见运行时组合状态来自引导。
+5. 删除克隆 schema，核对业务库前后一致。
+6. 业务库：导入正式 platform/canary → 封存 → `guard-reviewer` 独立批准 → 仅 lab 资产激活（另行授权）→ 独立批准会话 → G3 → 追加报告并按来源登记 lab_auto。
+
+**不属于禁止的绕过**：业务库的证据、封存、批准、激活顺序不变，引导报告无法进入业务库；正式报告证明的是真实 PF 对该 subject 命令的执行，克隆中的激活只是测试台状态，与现有 E3 夹具用夹具签名报告激活夹具组合同性质；不复用旧 subject 证据，不改冻结策略、阈值或片段。引导报告、克隆审批记录和克隆内 G3 结果一律不得作为正式证据。若用户不接受克隆内引导激活，则只能改走方案 A（trial 状态 + V26）。
+
 ## 时钟
 
-time 包含 sourceStart、labStart、offsetMicros、warmupStart、scoringStart、scoringEnd。后三者是原始时间域，满足 sourceStart ≤ warmupStart ≤ scoringStart < scoringEnd；`labStart = sourceStart + offsetMicros`，speed 固定 1。各场景 sourceStart/sourceEnd 在评分窗口内。观察使用同一固定偏移；接收、命令及执行回执使用真实 UTC 墙钟。开始时必须尚未越过平移后的 warmupStart；恢复不重置偏移。没有时间的事件保留 null，不以 now 补齐发生时刻。
+time 包含 sourceStart、labStart、offsetMicros、warmupStart、scoringStart、scoringEnd。后三者是原始时间域，满足 sourceStart ≤ warmupStart ≤ scoringStart < scoringEnd；`labStart = sourceStart + offsetMicros`，speed 固定 1。各场景 sourceStart/sourceEnd 在评分窗口内。v1.0 观察使用同一固定偏移；v1.1 增加 time.scenarioOffsets（完整 scenarioId → 微秒偏移）与场景 captureStart，每场景各冻结一个偏移。该场景的全部报文和因果时间同量平移，保留原间隔/特征；所有场景并发，正常评分窗口覆盖攻击评分窗口。captureStart 不晚于 sourceStart，平移后的完整采集窗口必须在授权内。恢复不得重新选择任何偏移。接收、命令及执行回执使用真实 UTC 墙钟。开始时必须尚未越过平移后的 warmupStart；恢复不重置偏移。没有时间的事件保留 null，不以 now 补齐发生时刻。
 
 ## API、权限与状态
 
@@ -40,6 +67,7 @@ time 包含 sourceStart、labStart、offsetMicros、warmupStart、scoringStart�
 | POST /lab-validation-runs/{id}/revocations | automation.stop；`{reason}`，即任务单的“作废”：撤销资格、未终态运行置 cancelled 并记停止请求，不声称规则已清理 |
 | POST /lab-validation-runs/{id}/reconciliations | evaluation.run；`{}`，过期→expired，运行超时→interrupted；不发送动作 |
 | POST /lab-validation-runs/{id}/events | evaluation.run；登记下节的事实引用，追加，不修改终态 |
+| GET /lab-validation-runs/{id}/qualifications | evaluation.read；已登记来源等级及当前组合可用性 |
 | GET /lab-validation-runs/{id}/events?after=0&limit=50 | evaluation.read；会话内递增序号游标，limit 1—200 |
 | GET /lab-validation-runs/{id}/report-input | evaluation.read；导出固定格式快照供纯离线报告工具 |
 | POST /lab-validation-runs/{id}/reports | evaluation.run；`{reportRef,sha256,runnerIdentity}`，验签且逐字段对比服务端重算结果 |
@@ -73,6 +101,6 @@ research 与 lab 互不混用：`/replay-runs` 只接受白名单字段（多余
 
 ## 存储与并行集成
 
-本线按任务单使用 V25（紧接 V24）；不修改 V1—V24 的 SQL 原字节或 Flyway 历史。V20 保存不可变资格；V25 新增 guard_lab_run 状态投影与 guard_lab_event 追加事实，复用既有观察/动作/回执与 guard_evaluation_run。JCS 原件以 LONGTEXT 保存并 JSON_VALID 检查，避免 MySQL JSON 数值改写。迁移测试覆盖空库到 V25 与 V24→V25 单步，结果待主会话统一执行后记录。
+本线按任务单使用 V25（紧接 V24）；不修改 V1—V24 的 SQL 原字节或 Flyway 历史。V20 保存不可变资格；V25 新增 guard_lab_run 状态投影与 guard_lab_event 追加事实，复用既有观察/动作/回执与 guard_evaluation_run。JCS 原件以 LONGTEXT 保存并 JSON_VALID 检查，避免 MySQL JSON 数值改写。迁移测试覆盖空库到 V25 与 V24→V25 单步，已随 PR #29—#31 集成验证；本次阶段 0 的复验结果记录在受控交接目录。
 
 独立 GuardLab* 控制器/服务/mapper 避开 GuardQueries、GuardReplay、GuardDetection、GuardIngest 和 GuardMapper/Store 的并行修改。GuardEligibility 仅追加可选注入的会话门及一次授权前置检查，GuardCatalog 仅增加 G3 报告分流拒绝。其他并行线如需迁移应另取 V26 及以上；若版本号冲突，不开 outOfOrder 绕过，由集成人重新分配尚未落库的迁移号。业务库迁移、真实 lab、报告批准和激活均需后续独立授权。

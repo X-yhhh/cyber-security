@@ -105,6 +105,7 @@ def main():
         command = "mvn" if name == "maven" else name
         p.add_argument("--" + name, type=Path, default=Path(shutil.which(command) or "/nonexistent"))
     p.add_argument("--authorization-reference")
+    p.add_argument("--subject-binding",type=Path,help="K6：必须与 root 暂存包及实际执行配置的 subject 一致")
     p.add_argument("--scope", choices=("peer_service", "peer_inbound"))
     p.add_argument("--scenario", choices=("revoke", "disconnect", "receipt_loss"))
     p.add_argument("--external-executor", action="store_true",
@@ -118,6 +119,11 @@ def main():
     require(args.mode != "pf" or args.scope is not None, "A4_SINGLE_ROUND_REQUIRED")
     os.umask(0o077)
     report, env = preflight(args)
+    binding=None
+    if args.subject_binding:
+        from executor.subject_binding import validate
+        binding=validate(json.loads(args.subject_binding.read_bytes()))
+        write_new(args.directory/'subject-binding.json',canonical(binding))
     if args.mode == "dry-run":
         return 0 if report["prepared"] else 1
     require(report["prepared"], "PREFLIGHT_FAILED")
@@ -151,6 +157,7 @@ def main():
                "configurationSha256": {str(path.relative_to(args.directory)): hashlib.sha256(path.read_bytes()).hexdigest()
                                        for path in sorted(args.directory.glob("*/executor-config.json"))},
                "businessDatabaseModified": False}
+    if binding is not None:outcome['subjectBinding']=binding
     write_new(args.directory / "summary.json", canonical(outcome))
     print(json.dumps(outcome, indent=2))
     return 0 if outcome["passed"] else 1

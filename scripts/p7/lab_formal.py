@@ -44,7 +44,9 @@ HOME = Path.home() / 'Workspace'
 KEYS = HOME / 'ai/keys'
 BUSINESS = 'cyber_security'
 R4_BUNDLE = '74f1e067-538b-44aa-977d-fe3f6ff0a581'
-RUNNER = 'mac-lab-runner/2026-10-10'
+PLATFORM_RUNNER = 'mac-lab-runner/2026-10-10'
+# lab 会话契约的 runnerIdentity 只允许 [A-Za-z0-9_.:-]，正式会话另用不含 '/' 的 lab runner 身份。
+RUNNER = 'mac-lab-runner-2026-10-12'
 ISOLATION = 'lab-isolation-verifier/2026-10-12'
 EVALUATOR = 'p6-evaluator/2026-10-10'
 PLATFORM_REF = 'reports/a6-20261012/round1/platform.json'
@@ -67,10 +69,9 @@ def sign(payload, key, key_id):
     return envelope(payload, key, key_id)
 
 
-def ensure_isolation_identity(trust_file):
-    """独立于 runner 的隔离核验身份：私钥仓库外 0600，公钥追加到正式 report-trust（只增不改）。"""
-    directory = KEYS / 'cyber-guard-isolation'
-    path = directory / 'isolation.der'
+def ensure_identity(trust_file, name, directory, filename):
+    """仓库外 0600 私钥；公钥追加到正式 report-trust（只增不改）。"""
+    path = directory / filename
     if not path.exists():
         directory.mkdir(mode=0o700, parents=True, exist_ok=True)
         key = Ed25519PrivateKey.generate()
@@ -79,9 +80,9 @@ def ensure_isolation_identity(trust_file):
     key = signer(path)
     public = base64.b64encode(key.public_key().public_bytes(serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo)).decode()
     trust = load(trust_file)
-    if trust.get(ISOLATION) != public:
-        require(ISOLATION not in trust, 'LAB_ISOLATION_TRUST_CONFLICT')
-        trust[ISOLATION] = public
+    if trust.get(name) != public:
+        require(name not in trust, 'LAB_IDENTITY_TRUST_CONFLICT')
+        trust[name] = public
         temporary = Path(str(trust_file) + '.next')
         with os.fdopen(os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'w') as stream:
             stream.write(json.dumps(trust, separators=(',', ':')))
@@ -236,7 +237,7 @@ class Formal(lab_run.Runner):
         require(self.executor_sha == lab_run.executor_digest(), 'LAB_EXECUTOR_CODE_CHANGED')
         self.provenance = dict(p6_provenance(), modelSha256=self.source['bindings']['modelSha256'], policySha256=digest(self.policy),
                                extractorSha256=plan['releaseBundle']['extractorSha256'], executorSha256=self.executor_sha)
-        self.proofs = {'platform': {'ref': PLATFORM_REF, 'sha256': sha(self.artifacts / PLATFORM_REF), 'runnerIdentity': RUNNER},
+        self.proofs = {'platform': {'ref': PLATFORM_REF, 'sha256': sha(self.artifacts / PLATFORM_REF), 'runnerIdentity': PLATFORM_RUNNER},
                        'final': ensure_p6_final(self.artifacts)}
         self.state.update(bundleId=self.bundle, bundleRevision=view['revision'], subjectSha256=self.subject_sha, bundleStatusBefore=view['status'])
 
@@ -558,8 +559,8 @@ class Formal(lab_run.Runner):
         self.artifact_dir = self.artifacts / 'g3' / self.work.name
         self.artifact_dir.mkdir(parents=True, mode=0o700, exist_ok=False)
         write(self.artifact_dir / 'source.json', self.source)
-        self.key, self.runner_name = signer(KEYS / 'cyber-guard-runner/runner.der'), RUNNER
-        self.isolation_key, self.isolation_name = ensure_isolation_identity(self.args.report_trust), ISOLATION
+        self.key, self.runner_name = ensure_identity(self.args.report_trust, RUNNER, KEYS / 'cyber-guard-lab-runner', 'runner.der'), RUNNER
+        self.isolation_key, self.isolation_name = ensure_identity(self.args.report_trust, ISOLATION, KEYS / 'cyber-guard-isolation', 'isolation.der'), ISOLATION
         self.db = j1_run.Database(self.args.mysql_service)
         before = self.snapshot()
         write(self.work / 'business-before.json', before)

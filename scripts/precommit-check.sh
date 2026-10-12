@@ -17,6 +17,17 @@ while IFS= read -r -d '' path; do
   esac
 done < <(git diff --cached --name-only -z --diff-filter=ACMR)
 
+# docs/验证与验收.md 的原字节被第二轮评价计划的 metricDefinitionSha256 绑定，见 scripts/p6/test_metric_binding.py。
+metric_doc='docs/验证与验收.md'
+metric_sha='0da3497f8f0ba0eecb16546acbfa3a9e2e6f941ed555ddb35ec678d4e220ec56'
+if git diff --cached --name-only --diff-filter=ACMR -- "$metric_doc" | grep -q .; then
+  staged_sha=$(git show ":$metric_doc" | shasum -a 256 | cut -d' ' -f1)
+  if [[ "$staged_sha" != "$metric_sha" ]]; then
+    printf '拒绝暂存：%s 与评价计划绑定的哈希不一致；状态说明请写入开发路线或执行记录。\n' "$metric_doc" >&2
+    bad=1
+  fi
+fi
+
 patch=$(git diff --cached --no-ext-diff --unified=0)
 absolute_path_prefix='/Users'
 absolute_path_pattern="${absolute_path_prefix}/"

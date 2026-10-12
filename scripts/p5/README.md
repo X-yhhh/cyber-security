@@ -120,11 +120,11 @@ T3.8b 的执行记录与证据位置见 [后续实施计划](../../docs/后续�
 1. 只读核对源库中的 r4：必须是 lab candidate，已有通过的 final，subject 等于冻结的 `f02022ba…`。
 2. 克隆到 `cyber_guard_k9_<hex>`，签发 `e3-bootstrap-*` 引导报告。
 3. 运行 `orchestrate.py --subject-step bootstrap`，在克隆内封存并由独立审批人批准。
-4. 运行 `orchestrate.py --subject-step e3`，跑六轮替身矩阵，观察来自 guardlive 回放 brute_force-1/port_scan-1。
+4. 运行 `orchestrate.py --subject-step e3`，跑六轮替身矩阵。观察来自 guardlive 从登记的 `captureStart` 回放 brute_force-1/port_scan-1；`--inbound-segment` 可改用其他已登记的 port_scan 片段。
 5. 删除克隆，核对源库逐表摘要，写出 `execution-context.json`。
 6. 调用 `subject_report.py --rehearsal`，生成、签名并验签 synthetic platform。
 
-运行目录位于制品根 `k9-e3/` 下（编排器要求在仓库外），尝试索引写入 `.cache/k9-20261012/attempts.json`。
+运行目录位于制品根 `k9-e3/` 下（编排器要求在仓库外），尝试索引写入 `.cache/k9-20261012/attempts.json`。`--rounds scope-scenario` 只用于诊断：只跑指定轮次，不生成 K6 报告。
 
 `k9_rehearsal.py` 串起 K9-6 全链路：S1 模拟 A18 → 上述 E3 引导克隆 → 在 S1 做开关关闭时的反例、封存与批准 → `lab_run.py --existing-bundle` 跑一段会话 → 删除 S1。
 

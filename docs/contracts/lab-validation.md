@@ -29,7 +29,7 @@ K6 subject_report.py 必须重算完整 subject 的 JCS，并核对运行前冻�
 
 `/release-bundles/{id}/imports` 在验签后显式拒绝 `evidenceKind=bootstrap` 或 `synthetic`，错误码 `REPORT_EVIDENCE_KIND_NOT_ALLOWED`；仅隔离克隆启动时可显式设置 `cyber.guard.bootstrap-reports-enabled=true`。该开关缺省为 false，lab profile 和业务库启动方式均不默认开启。K7-R 隔离演练显式开启它；正式 K6 `subject_report.py` 的报告固定为 `evidenceKind=real_pf`，不得带引导或合成类别。报告身份验签和既有封存、独立批准检查仍须逐项通过。
 
-### E3/r4 前置闭环与 K9 引导克隆（2026-10-12 登记，规划，未实施）
+### E3/r4 前置闭环与 K9 引导克隆（2026-10-12）
 
 2026-10-12 用户采纳 K9，并确认“不得绕过批准或激活”只约束业务库。
 
@@ -48,13 +48,13 @@ K6 subject_report.py 必须重算完整 subject 的 JCS，并核对运行前冻�
 
 **不属于禁止的绕过**：业务库的证据、封存、批准、激活顺序不变，引导报告无法进入业务库；正式报告证明的是真实 PF 对该 subject 命令的执行，克隆中的激活只是测试台状态，与现有 E3 夹具用夹具签名报告激活夹具组合同性质；不复用旧 subject 证据，不改冻结策略、阈值或片段。引导报告、克隆审批记录和克隆内 G3 结果一律不得作为正式证据。若用户不接受克隆内引导激活，则只能改走方案 A（trial 状态 + V26）。
 
-**实施状态（2026-10-12，无授权部分，未合入 main）**：
+**实施状态（2026-10-12，无授权部分已完成）**：
 
 - 入口为 `scripts/p5/e3_bootstrap.py`。所有拒绝都发生在建目录或克隆之前：rehearse 只接受 `cyber_guard_*` 隔离源，pf 只接受业务库、A6 引用和正式 final。克隆中由 `GuardE3SubjectTest#subjectBootstrap` 导入 `e3-bootstrap-*` 报告，然后封存，并由克隆内独立审批人批准；`#subjectMatrix` 每轮新建回环 lab 资产并只对它激活。
 - 执行器配置登记组合的全部能力。`peer_service` 的服务端口取冻结片段的原端口（brute_force-1 为 21），capabilityHash 与控制面重算结果一致。
-- 观察由 `guardlive` 以 research 模式 1 倍速实时回放冻结片段生成。上传侧只改 `environment`、`peerKey`、`targetRef`/`targetExpiresAt`（判定规则与 `guardlab.MapEmission` 相同）和 `quality.clockSkewMs`（由上传心跳实测）。特征和上下文原样上送；回放原件与映射后的 JSONL 都保留摘要。
-- 2026-10-12 rehearse 第 4 次：`peer_service` 的 revoke、disconnect、receipt_loss 三轮全部通过（brute_force 模型来源，约 5 秒形成动作，执行前已核验 subject）。`peer_inbound` 失败，原因见下一条。
-- **新发现阻塞（待用户决定）**：`GuardEligibility.matchingCapability` 要求能力的 `profile` 与触发观察的 `profile` 完全相同。r4 的 4 条 lab_auto 能力（T3.8b 登记）都是 `flow-prefix-v1`，但 r4 策略的 `acceptedProfiles` 同时接受 `flow-final-v1`，而端口扫描连接极短，只产生 `flow-final-v1` 快照。因此 port_scan 的模型和 `scan-ports` 规则在 T1 一律得到 `CAPABILITY_NOT_SUPPORTED`，真实部署中不可能自动封禁。K7-R 第 15 次的 port_scan 候选（模型 69、规则 67）全部由 final 快照触发，只是 hypothetical 投影不评估能力门，所以没有暴露。brute_force、dos_slow 的多数候选来自 prefix 快照，不受影响。K9-6 全链路演练因此未完成。
+- 观察由 `guardlive` 以 research 模式 1 倍速实时回放冻结片段生成，采集起点用登记的 `captureStart`（与 lab 回放相同的预热，上下文覆盖从此起算）。上传侧只改 `environment`、`peerKey`（canary 对端键，由执行器启动时提供）、`targetRef`/`targetExpiresAt` 和 `quality.clockSkewMs`（由上传心跳实测）；执行引用的判定规则与 `guardlab.MapEmission` 相同，且满足观察契约 `targetExpiresAt ∈ [lastPacketAt, lastPacketAt+15s]`。租约在首条可执行报文出现时按该报文时刻申请；之后按批次最新报文刷新同一引用的最近报文时刻，不重复登记，也不延长控制面登记的截止。特征和上下文原样上送；回放原件与映射后的 JSONL 都保留摘要。
+- **K9-6 第 10 次演练通过（2026-10-12，synthetic）**：S2 克隆内六轮 E3 全部通过。`peer_service` 用 brute_force-1，模型来源，约 4.7 秒形成动作；`peer_inbound` 用 port_scan-1，模型来源，首批 500 条观察约 2.8 秒形成动作。决策都绑定 subject `f02022ba…`，执行前已核验，规则全部清理。K6 synthetic platform 生成并验签。S1 中开关关闭时引导报告与 synthetic 报告都以 `REPORT_EVIDENCE_KIND_NOT_ALLOWED` 被拒；开关开启后用 K6 platform 封存并由独立审批人批准，`lab_run` 复用该组合只在 lab 资产激活，port_scan-1 会话完成并导入报告。业务库前后一致，S1、S2 与 lab 克隆都已删除。第 1—9 次的失败原因逐次记录在 `.cache/k9-20261012/k9-6/attempts.json`。
+- **K9-B1（2026-10-12 用户选 (a) 并已实施）**：`GuardEligibility.matchingCapability` 要求能力的 `profile` 与触发观察的 `profile` 完全相同。r4 的 4 条 lab_auto 能力（T3.8b 登记）都是 `flow-prefix-v1`，但 r4 策略的 `acceptedProfiles` 同时接受 `flow-final-v1`，而端口扫描连接极短，只产生 `flow-final-v1` 快照。因此 port_scan 的模型和 `scan-ports` 规则在 T1 一律得到 `CAPABILITY_NOT_SUPPORTED`，真实部署中不可能自动封禁。K7-R 第 15 次的 port_scan 候选（模型 69、规则 67）全部由 final 快照触发，只是 hypothetical 投影不评估能力门，所以没有暴露。brute_force、dos_slow 的多数候选来自 prefix 快照，不受影响。处理方式：能力 profile 改为按已审查策略的 `acceptedProfiles` 兼容（规则见[契约说明](README.md#可选-acceptedprofiles2026-10-11)）。模型交付包、策略、能力登记与 r4 subject 都不变，只是让策略已接受的 final 快照也能走到后续执行门。
 
 ## 时钟
 

@@ -107,7 +107,7 @@ bash executor/python.sh -m unittest discover -s scripts/p5 -p 'test_*.py'
 3. E3 单轮：用户侧 `orchestrate.py --mode pf --scope … --scenario …` 运行后端与 JUnit，JUnit 经 `joint_relay.py` 建立两条命名管道；root 侧 `e3-executor` 等待管道后运行 `joint_executor.py`，只读取用户目录中数据文件的副本，管道和输入都按打开后的 fd 核对类型与属主。`--ready-marker` 在副本核验后创建，用户侧据此再启动后端。
 4. 签名报告：`platform_report.py` 只接受真实证据——`--lab-run` 为 `e1e2-lab` 证据副本，`--e3-summary` 为 `orchestrate.py --mode pf` 汇总，`--e3-launch` 为对应各轮 `e3-executor` 证据副本。每条汇总场景都须有同一运行目录、退出码 0、root 侧 `result.json` 为 `realPF=true` 的启动记录，否则以 `REPORT_E3_ROOT_EVIDENCE_MISSING` 等错误拒绝。私钥须在仓库外且权限 0600。
 
-T3.8b 的执行记录与证据位置见 [后续实施计划](../../docs/后续实施计划.md#t3-冻结准备mac零拟合)。
+T3.8b 的执行记录与证据位置见 [系统实施记录](../../docs/系统实施记录.md#42-e1e3-真实-pf-验收t38b2026-10-0910)。
 
 ## K9 subject 报告上下文
 

@@ -1,6 +1,6 @@
 # host-guard v5 机器契约
 
-更新于 2026-10-11。P1/P2 已收口。此目录提供当前 **5 个 Schema、1 个特征 profile、5 个结构示例**：观测、profile 和回执沿用 `host-guard/5.0.0-rc.2`；manifest 与命令已随 P4 升级为 rc.3；策略于 2026-10-08 单独升为 rc.4。P3—P8 的业务规则统一见 [检测与处置契约](../检测与处置契约.md)，不再维护独立澄清附录。
+更新于 2026-10-11，状态核对于 2026-10-12。P1/P2 已收口。此目录提供当前 **5 个 Schema、1 个特征 profile、5 个结构示例**：观测、profile 和回执沿用 `host-guard/5.0.0-rc.2`；manifest 与命令已随 P4 升级为 rc.3；策略于 2026-10-08 单独升为 rc.4。P3—P8 的业务规则统一见 [检测与处置契约](../检测与处置契约.md)，不再维护独立澄清附录。
 
 | 文件 | 规范 |
 |---|---|
@@ -40,7 +40,7 @@ observation、feature-profile 与 action-receipt 不变；默认策略示例所�
 
 ## rc.4 策略变更（2026-10-08）
 
-只升级 decision-policy，其余结构版本不变。原因是采纳“按来源判定自动资格”（[后续实施计划第 9.2 节](../后续实施计划.md#92-按来源判定自动资格须登记进新评价版本)）：类别可自动时，需要能单独关闭模型来源、只保留达标规则。
+只升级 decision-policy，其余结构版本不变。原因是采纳“按来源判定自动资格”（[验证与验收第 5 节](../验证与验收.md#5-类别自动资格)）：类别可自动时，需要能单独关闭模型来源、只保留达标规则。
 
 | 文件 | 变更 |
 |---|---|
@@ -51,7 +51,7 @@ observation、feature-profile 与 action-receipt 不变；默认策略示例所�
 
 ### 可选 acceptedProfiles（2026-10-11）
 
-rc.4 内追加可选字段 `acceptedProfiles`（`flow-prefix-v1`/`flow-final-v1` 子集，非空、不重复，须包含 `profile`，P4 以 `INVALID_POLICY_PROFILES` 拒绝不合规值）。缺失时只接受 `profile`，既有策略语义与摘要不变，因此不升 contractVersion。起因是 J1 实测短连接类别只产生 final 快照、整组被 `CAPABILITY_NOT_SUPPORTED` 拒绝；按 2026-10-11 用户决策，派生策略 `host-guard-decision/2026-10-08.1+profiles-20261011`（交付包 r3）接受两种 profile，登记见[后续实施计划 J1 V3 正式收口](../后续实施计划.md#j1-v3-回放演练r7不需要-lab-授权)。
+rc.4 内追加可选字段 `acceptedProfiles`（`flow-prefix-v1`/`flow-final-v1` 子集，非空、不重复，须包含 `profile`，P4 以 `INVALID_POLICY_PROFILES` 拒绝不合规值）。缺失时只接受 `profile`，既有策略语义与摘要不变，因此不升 contractVersion。起因是 J1 实测短连接类别只产生 final 快照、整组被 `CAPABILITY_NOT_SUPPORTED` 拒绝；按 2026-10-11 用户决策，派生策略 `host-guard-decision/2026-10-08.1+profiles-20261011`（交付包 r3）接受两种 profile，登记见[系统实施记录 J1](../系统实施记录.md#61-j1-v3-回放演练的定义r7)。
 
 **能力 profile 兼容（K9-B1，2026-10-12 用户决定）**：上次只改了策略和模型，漏改了 `GuardEligibility.matchingCapability`，它仍要求能力登记的 `profile` 与观察逐字相等。r4 的 lab_auto 能力都声明 `flow-prefix-v1`，而端口扫描只产生 `flow-final-v1` 快照，结果在 T1 一律得到 `CAPABILITY_NOT_SUPPORTED`。
 

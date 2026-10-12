@@ -48,6 +48,14 @@ K6 subject_report.py 必须重算完整 subject 的 JCS，并核对运行前冻�
 
 **不属于禁止的绕过**：业务库的证据、封存、批准、激活顺序不变，引导报告无法进入业务库；正式报告证明的是真实 PF 对该 subject 命令的执行，克隆中的激活只是测试台状态，与现有 E3 夹具用夹具签名报告激活夹具组合同性质；不复用旧 subject 证据，不改冻结策略、阈值或片段。引导报告、克隆审批记录和克隆内 G3 结果一律不得作为正式证据。若用户不接受克隆内引导激活，则只能改走方案 A（trial 状态 + V26）。
 
+**实施状态（2026-10-12，无授权部分，未合入 main）**：
+
+- 入口为 `scripts/p5/e3_bootstrap.py`。所有拒绝都发生在建目录或克隆之前：rehearse 只接受 `cyber_guard_*` 隔离源，pf 只接受业务库、A6 引用和正式 final。克隆中由 `GuardE3SubjectTest#subjectBootstrap` 导入 `e3-bootstrap-*` 报告，然后封存，并由克隆内独立审批人批准；`#subjectMatrix` 每轮新建回环 lab 资产并只对它激活。
+- 执行器配置登记组合的全部能力。`peer_service` 的服务端口取冻结片段的原端口（brute_force-1 为 21），capabilityHash 与控制面重算结果一致。
+- 观察由 `guardlive` 以 research 模式 1 倍速实时回放冻结片段生成。上传侧只改 `environment`、`peerKey`、`targetRef`/`targetExpiresAt`（判定规则与 `guardlab.MapEmission` 相同）和 `quality.clockSkewMs`（由上传心跳实测）。特征和上下文原样上送；回放原件与映射后的 JSONL 都保留摘要。
+- 2026-10-12 rehearse 第 4 次：`peer_service` 的 revoke、disconnect、receipt_loss 三轮全部通过（brute_force 模型来源，约 5 秒形成动作，执行前已核验 subject）。`peer_inbound` 失败，原因见下一条。
+- **新发现阻塞（待用户决定）**：`GuardEligibility.matchingCapability` 要求能力的 `profile` 与触发观察的 `profile` 完全相同。r4 的 4 条 lab_auto 能力（T3.8b 登记）都是 `flow-prefix-v1`，但 r4 策略的 `acceptedProfiles` 同时接受 `flow-final-v1`，而端口扫描连接极短，只产生 `flow-final-v1` 快照。因此 port_scan 的模型和 `scan-ports` 规则在 T1 一律得到 `CAPABILITY_NOT_SUPPORTED`，真实部署中不可能自动封禁。K7-R 第 15 次的 port_scan 候选（模型 69、规则 67）全部由 final 快照触发，只是 hypothetical 投影不评估能力门，所以没有暴露。brute_force、dos_slow 的多数候选来自 prefix 快照，不受影响。K9-6 全链路演练因此未完成。
+
 ## 时钟
 
 time 包含 sourceStart、labStart、offsetMicros、warmupStart、scoringStart、scoringEnd。后三者是原始时间域，满足 sourceStart ≤ warmupStart ≤ scoringStart < scoringEnd；`labStart = sourceStart + offsetMicros`，speed 固定 1。各场景 sourceStart/sourceEnd 在评分窗口内。v1.0 观察使用同一固定偏移；v1.1 增加 time.scenarioOffsets（完整 scenarioId → 微秒偏移）与场景 captureStart，每场景各冻结一个偏移。该场景的全部报文和因果时间同量平移，保留原间隔/特征；所有场景并发，正常评分窗口覆盖攻击评分窗口。captureStart 不晚于 sourceStart，平移后的完整采集窗口必须在授权内。恢复不得重新选择任何偏移。接收、命令及执行回执使用真实 UTC 墙钟。开始时必须尚未越过平移后的 warmupStart；恢复不重置偏移。没有时间的事件保留 null，不以 now 补齐发生时刻。

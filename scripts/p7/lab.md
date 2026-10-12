@@ -15,7 +15,7 @@ sh executor/python.sh -B scripts/p7/g3_rehearsal.py \
 
 每轮使用新目录、随机 schema 和专用 synthetic 签名身份；正式 report-trust 不增加该身份。18 段原件逐文件核验，完整预热对端都保留。lab v1.1 每段固定一个偏移，评分起点对齐，1 倍速并发回放。替身持续心跳、领取与核对空规则；服务端执行门保持关闭，候选按 J1 同一判定器的 hypothetical 投影统计。报告及门禁均标 synthetic，不能作为正式 G3 或类别资格。 捕获完成后先停止替身并核验原记录以空规则 `stopped` 结束，再进行大量事实关联和报告查询；任一失败或缺失终态都使门禁失败，恢复不得换新进程抹去旧失败。
 
-`--resume` 只恢复 captureComplete 后的收尾：复用原 schema、身份、签名输入、TLS 与场景偏移。采集中断没有完整引擎检查点时明确拒绝；保留失败目录并另开尝试，不能把未采集部分算成完成。`dry-run` 使用虚拟时钟和全替身，校验输入、模拟会话生命周期并完成报告生成/签名/验签，结果恒为未验证，不连接数据库、后端或防火墙；`pf` 当前在任何文件、数据库或进程副作用前返回 `LAB_PF_BLOCKED_BY_R4_E3_PRECONDITION`。方案 B 的 E3/r4 前置闭环按 K9 引导克隆解除（见 [lab 契约](../../docs/contracts/lab-validation.md#e3r4-前置闭环与-k9-引导克隆2026-10-12-登记规划未实施)）；K9 交付且业务库 r4 已用正式 platform/canary 报告激活前，pf 保持拒绝。正式 G3 只在业务库运行，克隆仅用于产出 E3 证据。K6 的 root 暂存 subject 绑定工具已保留，不代表 K7 正式路径可用。
+`--resume` 只恢复 captureComplete 后的收尾：复用原 schema、身份、签名输入、TLS 与场景偏移。采集中断没有完整引擎检查点时明确拒绝；保留失败目录并另开尝试，不能把未采集部分算成完成。`dry-run` 使用虚拟时钟和全替身，校验输入、模拟会话生命周期并完成报告生成/签名/验签，结果恒为未验证，不连接数据库、后端或防火墙；`pf` 当前在任何文件、数据库或进程副作用前返回 `LAB_PF_BLOCKED_BY_R4_E3_PRECONDITION`。方案 B 的 E3/r4 前置闭环按 K9 引导克隆解除（见 [lab 契约](../../docs/contracts/lab-validation.md#e3r4-前置闭环与-k9-引导克隆2026-10-12-登记规划未实施)）；K9 交付且业务库 r4 已用正式 platform/canary 报告激活前，pf 保持拒绝。正式 G3 只在业务库运行，克隆仅用于产出 E3 证据。K9-6 演练增加了四个参数：`--source-schema`（从隔离的 `cyber_guard_*` 源克隆）、`--existing-bundle`/`--existing-reports`（复用源中已批准的 r4 及其 final/platform/canary 证明，不新建组合）、`--extra-trust`（只加入本次隔离后端）和 `--scenarios`（只缩小场景集合，逐段仍核验原件）。复用既有组合只允许 rehearse 模式与非业务源。K6 的 root 暂存 subject 绑定工具已保留，不代表 K7 正式路径可用。
 
 ## 报告流程
 

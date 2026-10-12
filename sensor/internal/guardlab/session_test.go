@@ -235,6 +235,30 @@ func TestMappedLeasePreservesFeatureAndTime(t *testing.T) {
 		})
 	}
 }
+
+func TestTimerSnapshotDoesNotRenewExpiredFixedLease(t *testing.T) {
+	for _, explicitExpiry := range []bool{false, true} {
+		f := fixtureFor(t)
+		s := f.open(t)
+		v := f.observation()
+		now := time.Now().UTC()
+		v.Observation.LastPacketAt = now.Add(-2 * time.Second)
+		v.Observation.AsOf = now
+		if explicitExpiry {
+			ref, expiry := testID("19"), now.Add(-time.Millisecond)
+			v.Observation.TargetRef, v.Observation.TargetExpiresAt = &ref, &expiry
+		}
+		o, err := s.MapEmission(v, now)
+		if err != nil || o.TargetRef != nil || o.TargetExpiresAt != nil || !o.LastPacketAt.Equal(v.Observation.LastPacketAt) || !reflect.DeepEqual(o.Features, v.Observation.Features) {
+			t.Fatalf("timer telemetry must survive without renewing authority: %v", err)
+		}
+	}
+	f := fixtureFor(t)
+	s := f.open(t)
+	if _, err := s.MapEmission(f.observation(), time.Now()); !errors.Is(err, ErrLease) {
+		t.Fatal("new-packet snapshot missing a lease must fail closed")
+	}
+}
 func TestSpoolBindsSessionBuildMappingAndOffset(t *testing.T) {
 	f := fixtureFor(t)
 	s := f.open(t)
@@ -358,5 +382,66 @@ func TestLeaseRejectsTargetSharedAcrossScenarios(t *testing.T) {
 		if _, _, e = s.Lease(v.Observation, v.Endpoints); !errors.Is(e, ErrLease) || !errors.Is(s.Error(), ErrLease) {
 			t.Fatal("normal and attack shared one execution target")
 		}
+	}
+}
+
+// v1.1 的正常段可含多个对端，但必须各自有签名映射，不能共享 canary 或引用。
+func TestV11MultipleNormalPeersKeepSeparateIdentity(t *testing.T) {
+	f := fixtureFor(t)
+	f.m.ContractVersion = Version11
+	f.mp.ContractVersion = Version11
+	f.sc.ContractVersion = Version11
+	f.local.ContractVersion = MappingVersion11
+	f.m.Time.ScenarioOffsets = map[string]int64{f.c.ScenarioID: f.m.Time.OffsetMicros}
+	capture := f.sc.Scenarios[0].SourceStart
+	f.sc.Scenarios[0].CaptureStart = &capture
+	second := f.local.Entries[0]
+	second.OriginalPeer = netip.MustParseAddr("192.0.2.3")
+	second.CanaryPeer = netip.MustParseAddr("127.0.0.3")
+	second.PeerKey = peerKey(f.id.PeerSecret, f.id, second.CanaryPeer)
+	f.local.Entries = append(f.local.Entries, second)
+	entry := f.mp.Entries[0]
+	entry.PeerKey = second.PeerKey
+	entry.TargetBindingID = testID("31")
+	entry.TargetRef = testID("32")
+	f.mp.Entries = append(f.mp.Entries, entry)
+	f.sync(t)
+	s := f.open(t)
+	v := f.observation()
+	first, _, err := s.mapObservation(v.Observation, v.Endpoints)
+	if err != nil || first.PeerKey != f.mp.Entries[0].PeerKey {
+		t.Fatalf("first identity: %v", err)
+	}
+	v.Endpoints.Peer = netip.AddrPortFrom(second.OriginalPeer, 50000)
+	v.Observation.PeerKey = peerKey(f.id.PeerSecret, f.id, second.OriginalPeer)
+	mapped, ep, err := s.mapObservation(v.Observation, v.Endpoints)
+	if err != nil || mapped.PeerKey != second.PeerKey || ep.Peer.Addr() != second.CanaryPeer {
+		t.Fatalf("second identity: %v", err)
+	}
+	v.Endpoints.Peer = netip.MustParseAddrPort("192.0.2.99:50000")
+	if _, _, err = s.mapObservation(v.Observation, v.Endpoints); err == nil {
+		t.Fatal("unknown peer accepted")
+	}
+}
+
+func TestV11PreservesUnknownDirectionWithoutTarget(t *testing.T) {
+	f := fixtureFor(t)
+	s := f.open(t)
+	s.Manifest.ContractVersion = Version11
+	v := f.observation()
+	v.Observation.Direction = "unknown"
+	v.Observation.ServicePort = nil
+	mapped, err := s.MapEmission(v, time.Now())
+	if err != nil || mapped.Direction != "unknown" || mapped.TargetRef != nil {
+		t.Fatalf("diagnostic observation lost: %v", err)
+	}
+}
+
+func TestConcurrentChildrenCannotReuseIssuedReference(t *testing.T) {
+	owner := &Session{refs: map[string]string{}}
+	a := &Session{Scenario: Scenario{ScenarioID: "a"}, refOwner: owner}
+	b := &Session{Scenario: Scenario{ScenarioID: "b"}, refOwner: owner}
+	if !a.claimRef(testID("33")) || b.claimRef(testID("33")) {
+		t.Fatal("cross-scenario reference was accepted")
 	}
 }

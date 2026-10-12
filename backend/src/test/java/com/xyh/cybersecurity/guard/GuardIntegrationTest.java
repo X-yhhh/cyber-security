@@ -36,11 +36,14 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.*;
 
 /** 固定 ONNX、隔离 MySQL、专用测试身份完成 P4 API/事务闭环，不调用真实防火墙。 */
-@SpringBootTest(properties={"cyber.ingest.consumer.enabled=false","cyber.ingest.outbox-relay.enabled=false","cyber.drift.enabled=false","cyber.guard.automation-enabled=true","cyber.security.local-admin-bootstrap.enabled=false"})
+@SpringBootTest(properties={"cyber.ingest.consumer.enabled=false","cyber.ingest.outbox-relay.enabled=false","cyber.drift.enabled=false","cyber.guard.automation-enabled=true","cyber.security.local-admin-bootstrap.enabled=false","cyber.guard.bootstrap-reports-enabled=true"})
 @AutoConfigureMockMvc(print=MockMvcPrint.NONE)
 @EnabledIfEnvironmentVariable(named="DB_TEST_BASE_URL",matches=".+")
 class GuardIntegrationTest {
-    static final String SCHEMA="cyber_guard_api_p4_"+UUID.randomUUID().toString().replace("-","");
+    /** K9：仅 E3 subject 入口复用编排器建好的业务库克隆，不新建、不删除，其余用例仍用随机 schema。 */
+    static final String SUBJECT_SCHEMA=System.getenv("P5_SUBJECT_SCHEMA");
+    static final String SCHEMA=SUBJECT_SCHEMA!=null?subjectSchema(SUBJECT_SCHEMA):"cyber_guard_api_p4_"+UUID.randomUUID().toString().replace("-","");
+    static String subjectSchema(String name){if(!name.matches("cyber_guard_k9_[0-9a-f]{32}"))throw new IllegalStateException("K9_SUBJECT_SCHEMA_INVALID");return name;}
     static final Path ROOT=Path.of(System.getenv().getOrDefault("P5_RUN_DIR","target/guard-fixtures")).toAbsolutePath();
     static final JsonNode PROTECTION=object("protectedBudgetTargetIds",List.of(),"protectedServicePorts",List.of(22,53,3389));
     static KeyPair signing;
@@ -48,12 +51,13 @@ class GuardIntegrationTest {
         Files.createDirectories(ROOT);signing=KeyPairGenerator.getInstance("Ed25519").generateKeyPair();Files.write(ROOT.resolve("signing.der"),signing.getPrivate().getEncoded());Files.setPosixFilePermissions(ROOT.resolve("signing.der"),PosixFilePermissions.fromString("rw-------"));
         Files.writeString(ROOT.resolve("trust.json"),canonical(object("fixture-runner",Base64.getEncoder().encodeToString(signing.getPublic().getEncoded()))));Files.writeString(ROOT.resolve("protection.json"),canonical(PROTECTION));
         String base=System.getenv("DB_TEST_BASE_URL").replaceAll("/+$","");String username=System.getenv("DB_TEST_USERNAME"),password=System.getenv("DB_TEST_PASSWORD");
-        try(var c=DriverManager.getConnection(base,username,password);var s=c.createStatement()){s.execute("CREATE DATABASE "+SCHEMA+" CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin");}
+        if(SUBJECT_SCHEMA==null)try(var c=DriverManager.getConnection(base,username,password);var s=c.createStatement()){s.execute("CREATE DATABASE "+SCHEMA+" CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin");}
         String url=base+"/"+SCHEMA+"?connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true";Flyway.configure().dataSource(url,username,password).load().migrate();
         r.add("spring.datasource.url",()->url);r.add("spring.datasource.username",()->username);r.add("spring.datasource.password",()->password);r.add("spring.flyway.enabled",()->false);r.add("cyber.security.login-throttle.hmac-key",()->"isolated-test-key-with-more-than-thirty-two-bytes");
-        r.add("cyber.guard.artifact-root",()->ROOT.toString());r.add("cyber.guard.signing-key-id",()->"fixture-control");r.add("cyber.guard.signing-key-file",()->ROOT.resolve("signing.der").toString());r.add("cyber.guard.report-trust-file",()->ROOT.resolve("trust.json").toString());r.add("cyber.guard.protection-file",()->ROOT.resolve("protection.json").toString());
+        r.add("cyber.guard.artifact-root",()->SUBJECT_SCHEMA==null?ROOT.toString():System.getenv("P5_SUBJECT_ARTIFACT_ROOT"));if(SUBJECT_SCHEMA!=null)r.add("cyber.model-artifact.root",()->System.getenv("P5_SUBJECT_MODEL_ARTIFACT_ROOT"));r.add("cyber.guard.signing-key-id",()->"fixture-control");r.add("cyber.guard.signing-key-file",()->ROOT.resolve("signing.der").toString());r.add("cyber.guard.report-trust-file",()->SUBJECT_SCHEMA==null?ROOT.resolve("trust.json").toString():System.getenv("P5_SUBJECT_REPORT_TRUST"));r.add("cyber.guard.protection-file",()->ROOT.resolve("protection.json").toString());
     }
     @AfterAll static void dropOwnSchema()throws Exception{
+        if(SUBJECT_SCHEMA!=null)return;
         String base=System.getenv("DB_TEST_BASE_URL").replaceAll("/+$","");
         try(var c=DriverManager.getConnection(base,System.getenv("DB_TEST_USERNAME"),System.getenv("DB_TEST_PASSWORD"));var st=c.createStatement()){st.execute("DROP DATABASE IF EXISTS "+SCHEMA);}
     }
@@ -135,6 +139,61 @@ class GuardIntegrationTest {
         var h=GuardDomainTest.health(Instant.now().truncatedTo(ChronoUnit.MICROS),1,null);h.put("assetId",asset).put("sensorId",f.sensor).put("captureScopeId",scope).put("configSha256",hash(config));machine("/sensors/"+f.sensor+"/health-windows",h,f.sensorCredential);return f;
     }
     JsonNode targetBody(String eid,String sensor,String scope,String boot,String eboot,String target,String token){return object("bindingId",id(),"executorBootId",eboot,"sensorId",sensor,"collectorBootId",boot,"captureScopeId",scope,"targetRef",target,"peerKey","d".repeat(64),"keyEpoch",1,"direction","outbound","transport","tcp","servicePort",443,"addressFamily","ipv4","stableTargetToken",token,"scopeDigest",sha(token.getBytes()),"expiresAt",Instant.now().plusSeconds(14).truncatedTo(ChronoUnit.MICROS).toString());}
+
+    /** K5 方案 B：联合评价先封存，缺任一前置时不得批准或激活；合成夹具不产生 G3 资格。 */
+    @Test void labBundleRequiresJointEvidenceBeforeIndependentApproval() throws Exception {
+        Fixture f=setup();var original=store.external("guard_release_bundle",f.bundle(),false);
+        var subject=json(original,"subject_json");
+        var created=human("/release-bundles",object("modelId",f.model(),"policyId",f.policy(),
+                "featureProfileSha256",contracts.profileHash(),"extractorSha256",subject.get("extractorSha256"),
+                "protocolVersions",versions(),"evaluationPlanId",store.get("guard_evaluation_plan",number(original,"plan_id")).get("public_id"),
+                "capabilityIds",List.of(f.capability()),"environment","lab"),operator,null);
+        String bid=created.path("id").asText(),base="/release-bundles/"+bid;
+        var approval=object("decision","approve","reason","synthetic Scheme B lifecycle");
+        var activation=object("assetIds",List.of(f.asset()),"authorizationIds",List.of(f.authorization()));
+        rejectedHuman(base+"/decisions",approval,reviewer,"1",422);
+        rejectedHuman(base+"/activations",activation,reviewer,"1",422);
+        String folder=id();Path dir=ROOT.resolve(folder);Files.createDirectories(dir);var ids=new ArrayList<String>();
+        for(String kind:List.of("final","platform","canary")) {
+            if(!ids.isEmpty())assertThat(rejectedHuman(base+"/sealings",object("evaluationIds",ids),operator,"1",422)
+                    .at("/error/code").asText()).isEqualTo("JOINT_EVALUATION_REQUIRED");
+            var payload=object("protocolVersions",versions(),"subjectSha256",created.get("subjectSha256"),
+                    "evaluationPlanSha256",subject.get("evaluationPlanSha256"),"runKind",kind,"passed",true,"evidenceKind","synthetic");
+            write(dir,kind+".json",GuardSignatures.sign(payload,"fixture-runner",signing.getPrivate()));
+            ids.add(human(base+"/imports",object("reportRef",folder+"/"+kind+".json",
+                    "sha256",sha(Files.readAllBytes(dir.resolve(kind+".json"))),"runnerIdentity","fixture-runner"),operator,null).path("id").asText());
+        }
+        assertThat(human(base+"/sealings",object("evaluationIds",ids),operator,"1").path("status").asText()).isEqualTo("evaluated");
+        rejectedHuman(base+"/decisions",approval,operator,"2",403);
+        assertThat(human(base+"/decisions",approval,reviewer,"2").path("status").asText()).isEqualTo("approved");
+        assertThat(human(base+"/activations",activation,reviewer,"3").path("status").asText()).isEqualTo("active");
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM guard_validation_session WHERE bundle_id=(SELECT id FROM guard_release_bundle WHERE public_id=?)",Integer.class,bid)).isZero();
+    }
+    /** 引导开关只影响报告类别，封存、独立批准及资产绑定仍由原链路核验。 */
+    @Test void bootstrapReportsRequireSealIndependentApprovalAndLabBinding() throws Exception {
+        Fixture f=setup();var original=store.external("guard_release_bundle",f.bundle(),false);
+        var subject=json(original,"subject_json");
+        var created=human("/release-bundles",object("modelId",f.model(),"policyId",f.policy(),
+                "featureProfileSha256",contracts.profileHash(),"extractorSha256",subject.get("extractorSha256"),
+                "protocolVersions",versions(),"evaluationPlanId",store.get("guard_evaluation_plan",number(original,"plan_id")).get("public_id"),
+                "capabilityIds",List.of(f.capability()),"environment","lab"),operator,null);
+        String bid=created.path("id").asText(),base="/release-bundles/"+bid;
+        String folder=id();Path dir=ROOT.resolve(folder);Files.createDirectories(dir);var ids=new ArrayList<String>();
+        for(String kind:List.of("final","platform","canary")) {
+            var payload=object("protocolVersions",versions(),"subjectSha256",created.get("subjectSha256"),
+                    "evaluationPlanSha256",subject.get("evaluationPlanSha256"),"runKind",kind,"passed",true,
+                    "evidenceKind",kind.equals("final")?"real_pf":"bootstrap");
+            write(dir,kind+".json",GuardSignatures.sign(payload,"fixture-runner",signing.getPrivate()));
+            ids.add(human(base+"/imports",object("reportRef",folder+"/"+kind+".json",
+                    "sha256",sha(Files.readAllBytes(dir.resolve(kind+".json"))),"runnerIdentity","fixture-runner"),operator,null).path("id").asText());
+        }
+        assertThat(human(base+"/sealings",object("evaluationIds",ids),operator,"1").path("status").asText()).isEqualTo("evaluated");
+        var approval=object("decision","approve","reason","isolated bootstrap lifecycle");
+        rejectedHuman(base+"/decisions",approval,operator,"2",403);
+        assertThat(human(base+"/decisions",approval,reviewer,"2").path("status").asText()).isEqualTo("approved");
+        assertThat(human(base+"/activations",object("assetIds",List.of(f.asset()),
+                "authorizationIds",List.of(f.authorization())),reviewer,"3").path("status").asText()).isEqualTo("active");
+    }
     /** B4：research 回放只能引用已批准 research 组合，且请求模型无法携带任何真实目标字段。 */
     @Test void researchReplayRejectsRealTargetReferencesAndRequiresResearchBundle()throws Exception{
         Fixture f=setup();
@@ -485,7 +544,8 @@ class GuardIntegrationTest {
     /** 整批与分批最终证据相同；分批仅多出各自批末判定，不能复用被 final 替换的 prefix。 */
     @Test void splitBatchesHaveEquivalentTerminalDecisionsAndKeepLatestSnapshots()throws Exception{
         var rule=object("ruleId","slow-duration","family","dos_slow","field","features.elapsedMs","operator","gte","threshold",4000,"autoEligible",false);
-        Fixture f=setup("dos_slow",List.of(rule),false,GuardContracts.MAX_BATCH_SIZE);Instant at=store.now().minusSeconds(2).truncatedTo(ChronoUnit.SECONDS);
+        // 预置快照在 at 前 1ms；保持二者位于同一 30 秒分桶，避免墙钟恰逢边界时误造两个 episode。
+        Fixture f=setup("dos_slow",List.of(rule),false,GuardContracts.MAX_BATCH_SIZE);Instant at=store.now().minusSeconds(2).truncatedTo(ChronoUnit.SECONDS).plusMillis(2);
         long aid=number(store.external("asset",f.asset(),false),"id");
         List<List<JsonNode>> outcomes=new ArrayList<>();long sequence=1;
         for(int size:List.of(512,256)){

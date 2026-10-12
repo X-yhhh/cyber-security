@@ -74,9 +74,18 @@ public class GuardEligibility {
             var c=store.get("guard_capability",number(link,"capability_id"));var d=json(c,"payload_json");String env=o.path("environment").asText();
             boolean level=env.equals("authorized")?"authorized_auto".equals(str(c,"level")):env.equals("lab")&&Set.of("lab_auto","authorized_auto").contains(str(c,"level"));
             if(!level||!GuardAdministration.contains(policy.path("supportedCapabilityIds"),str(c,"public_id")))continue;
-            boolean match=true;for(String key:List.of("addressFamily","transport","direction","profile"))match&=d.path(key).equals(o.path(key));match&=d.path("family").asText().equals(family);
+            boolean match=true;for(String key:List.of("addressFamily","transport","direction"))match&=d.path(key).equals(o.path(key));match&=profileCompatible(policy,d,o)&&d.path("family").asText().equals(family);
             if(match)return c;
         }return null;
+    }
+    /**
+     * 能力登记的快照 profile 与观察 profile：逐字相等，或二者都在已审查策略的 acceptedProfiles 内（K9-B1，2026-10-12）。
+     * 策略接受 final 快照后，同一检测路径的执行能力不因快照时点不同而改变；无 acceptedProfiles 的旧策略保持逐字相等。
+     */
+    static boolean profileCompatible(JsonNode policy,JsonNode capability,JsonNode o){
+        if(capability.path("profile").equals(o.path("profile")))return true;
+        var accepted=policy.path("acceptedProfiles");
+        return accepted.isArray()&&GuardAdministration.contains(accepted,capability.path("profile").asText())&&GuardAdministration.contains(accepted,o.path("profile").asText());
     }
     public boolean authorized(Map<String,Object> asset,Map<String,Object> bundle,Map<String,Object> binding,JsonNode policy,JsonNode o,Map<String,Object> executor,Instant now){
         return authorized(asset,bundle,binding,policy,o,executor,now,policy.path("family").asText());

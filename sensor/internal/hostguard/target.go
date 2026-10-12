@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"math"
 	"net"
@@ -143,6 +144,11 @@ func (r *TargetRegistry) clock() (time.Time, error) {
 	return n, nil
 }
 func targetKey(b TargetBinding, e Endpoints) string {
+	// 引用绑定执行范围而非 TCP 连接：临时源端口不是防火墙目标的一部分。
+	// peer_inbound 已显式授权同一来源的入站范围；peer_service 仍由绑定中的
+	// servicePort 隔离。保留本机/对端地址、方向、身份和 scope，不能跨目标复用。
+	e.Local = netip.AddrPortFrom(e.Local.Addr(), 0)
+	e.Peer = netip.AddrPortFrom(e.Peer.Addr(), 0)
 	raw, _ := json.Marshal(struct {
 		B TargetBinding
 		E Endpoints
@@ -157,7 +163,7 @@ func (r *TargetRegistry) issueForScope(o Observation, end Endpoints, targetScope
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if _, err := ModelVector(o); err != nil || !o.AsOf.Equal(o.LastPacketAt) {
-		return TargetLease{}, ErrTarget
+		return TargetLease{}, fmt.Errorf("%w: VECTOR_INVALID", ErrTarget)
 	}
 	now, err := r.clock()
 	if err != nil {
@@ -165,27 +171,27 @@ func (r *TargetRegistry) issueForScope(o Observation, end Endpoints, targetScope
 	}
 	b := bindingForScope(o, r.scope.ExecutorBootID, targetScope)
 	if !r.valid(b) || o.Quality.Defective() || o.Quality.ClockSkewMs == nil || math.Abs(*o.Quality.ClockSkewMs) > 1000 || o.LastPacketAt.After(now) || !now.Before(o.LastPacketAt.Add(15*time.Second)) {
-		return TargetLease{}, ErrTarget
+		return TargetLease{}, fmt.Errorf("%w: QUALITY_SCOPE_OR_TIME", ErrTarget)
 	}
 	local := false
 	for _, a := range r.scope.LocalAddresses {
 		local = local || a == end.Local.Addr()
 	}
 	if !local || end.Protocol != 6 || !end.Peer.Addr().Is4() || end.Peer.Addr().IsUnspecified() || end.Peer.Addr().IsMulticast() || end.Peer.Addr() == end.Local.Addr() {
-		return TargetLease{}, ErrTarget
+		return TargetLease{}, fmt.Errorf("%w: ENDPOINT_SCOPE", ErrTarget)
 	}
 	if o.ServicePort == nil || b.Direction == "inbound" && *o.ServicePort != end.Local.Port() || b.Direction == "outbound" && *o.ServicePort != end.Peer.Port() {
-		return TargetLease{}, ErrTarget
+		return TargetLease{}, fmt.Errorf("%w: SERVICE_PORT", ErrTarget)
 	}
 	key := targetKey(b, end)
 	ref := r.byTarget[key]
 	if ref == "" {
 		if len(r.entries) >= r.scope.MaxReferences {
-			return TargetLease{}, ErrTarget
+			return TargetLease{}, fmt.Errorf("%w: REFERENCE_CAPACITY", ErrTarget)
 		}
 		ref = NewID()
 	} else if o.LastPacketAt.Before(r.entries[ref].last) {
-		return TargetLease{}, ErrTarget
+		return TargetLease{}, fmt.Errorf("%w: PACKET_TIME_REGRESSION", ErrTarget)
 	}
 	expires := o.LastPacketAt.Add(15 * time.Second)
 	lease := TargetLease{ref, expires}
@@ -193,7 +199,7 @@ func (r *TargetRegistry) issueForScope(o Observation, end Endpoints, targetScope
 		lease = old.lease
 		if !old.registered {
 			if err := r.register(b, end, lease); err != nil {
-				return TargetLease{}, ErrTarget
+				return TargetLease{}, fmt.Errorf("%w: BACKEND_REGISTRATION", ErrTarget)
 			}
 		}
 		old.last = o.LastPacketAt
@@ -205,7 +211,7 @@ func (r *TargetRegistry) issueForScope(o Observation, end Endpoints, targetScope
 	r.byTarget[key] = ref
 	if r.register != nil {
 		if err := r.register(b, end, lease); err != nil {
-			return TargetLease{}, ErrTarget
+			return TargetLease{}, fmt.Errorf("%w: BACKEND_REGISTRATION", ErrTarget)
 		}
 		v := r.entries[ref]
 		v.registered = true
@@ -301,6 +307,12 @@ func (r *TargetRegistry) ServeHTTP(w http.ResponseWriter, q *http.Request) {
 		}
 		lease, err := r.issueForScope(v.Observation, v.Endpoints, v.Scope)
 		if err != nil {
+			// 只返回固定枚举原因，不返回原始端点、观察或后端响应。
+			for _, code := range []string{"VECTOR_INVALID", "QUALITY_SCOPE_OR_TIME", "ENDPOINT_SCOPE", "SERVICE_PORT", "REFERENCE_CAPACITY", "PACKET_TIME_REGRESSION", "BACKEND_REGISTRATION"} {
+				if err.Error() == ErrTarget.Error()+": "+code {
+					w.Header().Set("X-Hostguard-Rejection", code)
+				}
+			}
 			deny()
 			return
 		}

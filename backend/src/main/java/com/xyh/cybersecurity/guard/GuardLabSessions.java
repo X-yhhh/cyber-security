@@ -88,7 +88,7 @@ public class GuardLabSessions {
                 fields(b,"","");require((operation.equals("starts")?"registered":"interrupted").equals(state)&&"active".equals(str(row,"status")),"STATE_CONFLICT");
                 recheck(run,p);require(!now.isBefore(time(p,"validFrom")),"AUTHORIZATION_INACTIVE");
                 if(operation.equals("starts")) {
-                    require(!now.isAfter(shift(p,time(p.path("time"),"warmupStart"))),"LAB_START_TOO_LATE");run.put("started_at",db(now));
+                    require(!now.isAfter(firstCapture(p,json(run,"scenarios_jcs"))),"LAB_START_TOO_LATE");run.put("started_at",db(now));
                 }
                 run.put("status","running");run.put("last_activity_at",db(now));
             }
@@ -148,7 +148,7 @@ public class GuardLabSessions {
             return object("eventId",old.get("public_id"),"revision",row.get("revision"),"duplicate",true);
         }
         require(run.get("started_at")!=null,"STATE_CONFLICT");
-        var p=json(run,"manifest_jcs");var scenario=scenario(json(run,"scenarios_jcs"),scenarioId);var mapping=entry(json(run,"mapping_jcs"),scenarioId);
+        var p=json(run,"manifest_jcs");var scenario=scenario(json(run,"scenarios_jcs"),scenarioId);var mapping=json(run,"mapping_jcs");
         var payload=facts.resolve(p,scenario,mapping,b);payload.put("sessionId",str(row,"public_id"));payload.put("mappingSha256",text(p,"mappingSha256"));
         payload.put("receivedAt",store.now().toString());
         append(row,eventId,key,scenarioId,kind,payload,requestHash);
@@ -241,9 +241,9 @@ public class GuardLabSessions {
         }
         var scenarios=new ArrayList<JsonNode>();
         for(var s:json(run,"scenarios_jcs").path("scenarios")) {
-            ObjectNode result=s.deepCopy();result.set("quality",facts.quality(p,s,entry(json(run,"mapping_jcs"),text(s,"scenarioId")),number(row,"asset_id"),number(run,"sensor_id")));scenarios.add(result);
+            ObjectNode result=s.deepCopy();result.set("quality",facts.quality(p,s,json(run,"mapping_jcs"),number(row,"asset_id"),number(run,"sensor_id")));scenarios.add(result);
         }
-        return object("contractVersion",VERSION,"session",p,"sessionSha256",row.get("content_sha256"),"runStatus",run.get("status"),
+        return object("contractVersion",p.get("contractVersion"),"session",p,"sessionSha256",row.get("content_sha256"),"runStatus",run.get("status"),
                 "scenarios",scenarios,"events",events,"unlinkedCommandIds",unlinked,"unlinkedDecisionIds",unlinkedDecisions,
                 "outsideScoringDecisionIds",outsideDecisions);
     }
@@ -257,7 +257,7 @@ public class GuardLabSessions {
             if(!mapping.path("peerKey").asText().equals(str(decision,"peer_key"))||mapping.path("keyEpoch").asLong()!=number(decision,"key_epoch"))continue;
             known=true;
             var scenario=scenario(scenarios,text(mapping,"scenarioId"));
-            if(!at.isBefore(shift(p,time(scenario,"sourceStart")))&&!at.isAfter(shift(p,time(scenario,"sourceEnd"))))return false;
+            if(!at.isBefore(shift(p,text(scenario,"scenarioId"),time(scenario,"sourceStart")))&&!at.isAfter(shift(p,text(scenario,"scenarioId"),time(scenario,"sourceEnd"))))return false;
         }
         return known;
     }
@@ -265,19 +265,70 @@ public class GuardLabSessions {
     private JsonNode report(Map<String,Object> row,Map<String,Object> run,JsonNode b) {
         fields(b,"reportRef sha256 runnerIdentity","");require(TERMINAL.contains(str(run,"status")),"STATE_CONFLICT");
         var p=json(run,"manifest_jcs");require(text(p,"runnerIdentity").equals(text(b,"runnerIdentity")),"LAB_RUNNER_INVALID");
+        // 方案 B：platform/canary 联合评价先使组合进入 approved/active，G3 会话报告只追加类别证据。
+        // 组合被撤销后不能靠已结束会话继续写入评价事实；这一步不改变 bundle 状态，也不把批准误当成 lab_auto。
+        var bundle=store.get("guard_release_bundle",number(row,"bundle_id"));
+        require("lab".equals(str(bundle,"environment"))&&Set.of("approved","active").contains(str(bundle,"status"))
+                &&bundle.get("approved_by")!=null,"LAB_BUNDLE_NOT_APPROVED");
         JsonNode signed=signatures.report(artifacts.json(text(b,"reportRef"),digest(b,"sha256")),text(b,"runnerIdentity"));
         // JSON 解析可能用 IntNode 表示相同的 LongNode；完整性按跨语言 JCS 字节比较，不能依赖 Java 节点类型。
         JsonNode expected=GuardLabReport.generate(snapshot(row,run));require(hash(expected).equals(hash(signed)),"LAB_REPORT_MISMATCH");
         String key="report:"+text(b,"sha256");var old=mapper.fact(number(row,"id"),key);
         if(old!=null)return json(old,"payload_jcs");
-        var bundle=store.get("guard_release_bundle",number(row,"bundle_id"));
         var report=store.add("guard_evaluation_run",map("plan_id",bundle.get("plan_id"),"bundle_id",bundle.get("id"),"run_kind","canary",
                 "runner_identity",text(b,"runnerIdentity"),"status",signed.path("passed").asBoolean()?"passed":"failed",
                 "report_ref",text(b,"reportRef"),"report_sha256",text(b,"sha256"),"payload_json",canonical(signed)));
+        var qualified=qualifiedSources(p,signed,str(run,"status"));
         var result=object("evaluationId",report.get("public_id"),"sessionId",row.get("public_id"),"status",signed.get("status"),"passed",signed.get("passed"),
+                "qualifiedSources",qualified,"qualificationEffect",qualified.isEmpty()?"none":"registered",
+                "subjectSha256",p.path("subjectSha256"),"evaluationPlanSha256",p.path("evaluationPlanSha256"),
                 "rawSha256",text(b,"sha256"),"contentSha256",hash(signed),"signatureVerified",true,"occurredAt",store.now().toString());
         append(row,id(),key,null,"report",result,hash(b));bump(row);store.audit(access.human(),"guard.lab.report_imported",str(row,"public_id"),number(row,"asset_id"),null,result);
         return result;
+    }
+
+    /**
+     * 类别等级只由正式会话的已核验报告登记。正常时长/误封、完整链路及运行终态是共同门；
+     * 单类失败不抹掉其他已通过来源。平台能力等级、组合批准和 synthetic 报告都不能替代此登记。
+     */
+    static List<JsonNode> qualifiedSources(JsonNode manifest,JsonNode report,String runStatus) {
+        var result=new ArrayList<JsonNode>();
+        if(!"lab".equals(manifest.path("evidenceKind").asText())||!"completed".equals(runStatus)
+                ||!report.path("normal").path("passed").asBoolean()
+                ||!report.path("unlinkedCommandIds").isArray()||!report.path("unlinkedCommandIds").isEmpty()
+                ||!report.path("unlinkedDecisionIds").isArray()||!report.path("unlinkedDecisionIds").isEmpty())return result;
+        for(var scenario:report.path("scenarios"))for(var command:scenario.path("commands"))
+            if(!"verified".equals(command.path("cleanup").asText()))return result;
+        // 类别汇总的 auto 标志是各来源的并集，不能据此给只告警来源授予资格。
+        // 同一来源的所有登记场景都必须通过且明确拟自动，另一来源的失败独立保留。
+        var groups=new TreeMap<String,List<JsonNode>>();
+        for(var item:report.path("scenarios")) {
+            String family=item.path("family").asText();if(!FAMILIES.contains(family))continue;
+            String source="rule".equals(item.path("source").asText())?"rule:"+item.path("ruleId").asText():"model";
+            groups.computeIfAbsent(family+"/"+source,k->new ArrayList<>()).add(item);
+        }
+        for(var entry:groups.entrySet())if(entry.getValue().stream().allMatch(item->
+                "passed".equals(item.path("status").asText())&&item.path("trialAutoEligible").asBoolean())) {
+            var item=entry.getValue().getFirst();String source=entry.getKey().substring(entry.getKey().indexOf('/')+1);
+            result.add(object("family",item.path("family").asText(),"source",source,"level","lab_auto"));
+        }
+        return result;
+    }
+
+    /** 只读已追加的来源等级；不修改平台能力或冻结策略，组合当前不可用时明确返回 false。 */
+    @Transactional(readOnly=true)
+    public JsonNode qualifications(String id) {
+        var row=readable(id);var bundle=store.get("guard_release_bundle",number(row,"bundle_id"));
+        var reports=mapper.reports(number(row,"id"));var sources=new TreeMap<String,JsonNode>();
+        for(var event:reports) {
+            var report=json(event,"payload_jcs");require(hash(report).equals(str(event,"content_sha256")),"LAB_FACT_DIGEST_INVALID");
+            for(var source:report.path("qualifiedSources")) {
+                var record=source.deepCopy();((ObjectNode)record).set("evaluationId",report.path("evaluationId"));
+                ((ObjectNode)record).set("subjectSha256",report.path("subjectSha256"));sources.put(source.toString(),record);
+            }
+        }
+        return object("sessionId",id,"bundleId",bundle.get("public_id"),"sources",sources.values(),
+                "bundleUsable",Set.of("approved","active").contains(str(bundle,"status"))&&bundle.get("approved_by")!=null);
     }
 
     @Transactional(readOnly=true)

@@ -108,3 +108,24 @@ bash executor/python.sh -m unittest discover -s scripts/p5 -p 'test_*.py'
 4. 签名报告：`platform_report.py` 只接受真实证据——`--lab-run` 为 `e1e2-lab` 证据副本，`--e3-summary` 为 `orchestrate.py --mode pf` 汇总，`--e3-launch` 为对应各轮 `e3-executor` 证据副本。每条汇总场景都须有同一运行目录、退出码 0、root 侧 `result.json` 为 `realPF=true` 的启动记录，否则以 `REPORT_E3_ROOT_EVIDENCE_MISSING` 等错误拒绝。私钥须在仓库外且权限 0600。
 
 T3.8b 的执行记录与证据位置见 [后续实施计划](../../docs/后续实施计划.md#t3-冻结准备mac零拟合)。
+
+## K9 subject 报告上下文
+
+`subject_report.py generate/verify` 需要 `--execution-context <受控 JSON>`。其中记录隔离克隆 schema、引导 platform/canary 文件的原字节 SHA-256 与专用 `e3-bootstrap-<runId>` keyId、源库运行前后逐表 `{rows,sha256}`、源库与克隆中 r4 的 `{bundleId,subjectSha256}` 及一致性结论。工具在生成和验签时拒绝字段缺失、源库前后不一致或克隆 subject 不匹配；正式 payload 仍固定 `evidenceKind=real_pf`，不接受非 root 或 `realPF=false` 的执行证据。摘要必须由编排器实读源库生成；报告中的一致性标记本身不构成数据库证明。
+
+## K9 E3 引导克隆（无授权演练）
+
+`e3_bootstrap.py --mode rehearse --source-schema <cyber_guard_*> --bundle-id <r4>` 的执行顺序：
+
+1. 只读核对源库中的 r4：必须是 lab candidate，已有通过的 final，subject 等于冻结的 `f02022ba…`。
+2. 克隆到 `cyber_guard_k9_<hex>`，签发 `e3-bootstrap-*` 引导报告。
+3. 运行 `orchestrate.py --subject-step bootstrap`，在克隆内封存并由独立审批人批准。
+4. 运行 `orchestrate.py --subject-step e3`，跑六轮替身矩阵。观察来自 guardlive 从登记的 `captureStart` 回放 brute_force-1/port_scan-1；`--inbound-segment` 可改用其他已登记的 port_scan 片段。
+5. 删除克隆，核对源库逐表摘要，写出 `execution-context.json`。
+6. 调用 `subject_report.py --rehearsal`，生成、签名并验签 synthetic platform。
+
+运行目录位于制品根 `k9-e3/` 下（编排器要求在仓库外），尝试索引写入 `.cache/k9-20261012/attempts.json`。`--rounds scope-scenario` 只用于诊断：只跑指定轮次，不生成 K6 报告。
+
+`k9_rehearsal.py` 串起 K9-6 全链路：S1 模拟 A18 → 上述 E3 引导克隆 → 在 S1 做开关关闭时的反例、封存与批准 → `lab_run.py --existing-bundle` 跑一段会话 → 删除 S1。
+
+pf 模式需要 A6：编排器每轮调用 `orchestrate.py --mode pf`，root 侧仍由操作者按 T3.8b 流程启动 `lab_root_launch.py e3-executor`；canary 与正式 K6 报告按上一节单独生成。

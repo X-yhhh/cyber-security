@@ -47,6 +47,8 @@ public class GuardLabController {
     }
     @GetMapping("/lab-validation-runs/{id}/report-input")
     public JsonNode reportInput(@PathVariable String id,HttpServletRequest request) {return GuardController.envelope(sessions.reportInput(id),request);}
+    @GetMapping("/lab-validation-runs/{id}/qualifications")
+    public JsonNode qualifications(@PathVariable String id,HttpServletRequest request) {return GuardController.envelope(sessions.qualifications(id),request);}
     @GetMapping("/machine/sensors/{sensorId}/lab-validation-runs/{id}")
     public JsonNode machine(@PathVariable String sensorId,@PathVariable String id,HttpServletRequest request) {return GuardController.envelope(sessions.machine(sensorId,id),request);}
 

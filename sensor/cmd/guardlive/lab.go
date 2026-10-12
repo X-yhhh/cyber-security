@@ -2,12 +2,16 @@ package main
 
 import (
 	"context"
+	"fmt"
+	"net/netip"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/xyh/cyber-security/sensor/internal/guardlab"
 	"github.com/xyh/cyber-security/sensor/internal/guardup"
+	"github.com/xyh/cyber-security/sensor/internal/hostguard"
 )
 
 // prepareLab 不启动上传或捕获；先核验会话和私有签名映射，失败不会留下可发送批次。
@@ -40,7 +44,7 @@ func prepareLab(c config, pcap string) (*guardlab.Session, error) {
 	defer cancel()
 	s, e := guardlab.Open(ctx, *c.Lab, guardlab.Identity{AssetID: c.AssetID, SensorID: c.SensorID, BootID: c.BootID, CaptureScopeID: c.CaptureScopeID, BuildSHA256: build, KeyEpoch: c.KeyEpoch, LocalAddresses: c.LocalAddresses, PeerSecret: secret}, client, leaser, time.Now())
 	if e != nil {
-		return nil, e
+		return nil, fmt.Errorf("lab admission: %w", e)
 	}
 	if pcap != "" {
 		inputs := []guardlab.ReplayInput{{ScenarioID: s.Config.ScenarioID, Path: pcap}}
@@ -57,12 +61,12 @@ func prepareLab(c config, pcap string) (*guardlab.Session, error) {
 			if e = s.SelectScenario(input.ScenarioID); e != nil {
 				return nil, e
 			}
-			if !previous.IsZero() && s.Scenario.SourceStart.Before(previous) {
+			if s.Manifest.ContractVersion == guardlab.Version10 && !previous.IsZero() && s.Scenario.SourceStart.Before(previous) {
 				return nil, guardlab.ErrMapping
 			}
 			previous = s.Scenario.SourceEnd
 			if e = s.Preflight(input.Path); e != nil {
-				return nil, e
+				return nil, fmt.Errorf("lab preflight scenario %s: %w", input.ScenarioID, e)
 			}
 			if c.CaptureScope == scopeAllInbound && s.Local.Direction != "inbound" {
 				return nil, guardlab.ErrMapping
@@ -80,9 +84,94 @@ func prepareLab(c config, pcap string) (*guardlab.Session, error) {
 		if e = s.SelectScenario(s.Config.ScenarioID); e != nil {
 			return nil, e
 		}
-		if !time.Now().Before(s.Manifest.Time.WarmupStart.Add(s.Offset)) {
+		if !time.Now().Before(s.CaptureStart().Add(s.Offset)) {
 			return nil, guardlab.ErrAdmission
 		}
 	}
 	return s, nil
+}
+
+// concurrentLabReplay 为每段创建独立因果引擎，按已签名的绝对时间并发等待。
+// 上传、事件写入和健康计数集中串行化；场景之间不混合主机上下文或连接 ID。
+func concurrentLabReplay(ctx context.Context, parent *guardlab.Session, base hostguard.Config,
+	emitFor func(*guardlab.Session) func(hostguard.Emission) error, observe func(hostguard.LiveSample)) ([]map[string]any, map[string]int64, hostguard.LiveSample, error) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	inputs := parent.Config.Inputs
+	replays := make([]map[string]any, len(inputs))
+	stats := map[string]int64{}
+	samples := make([]hostguard.LiveSample, len(inputs))
+	var last hostguard.LiveSample
+	var first error
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	for index, input := range inputs {
+		child, err := parent.ForkScenario(input.ScenarioID)
+		if err != nil {
+			cancel()
+			wg.Wait()
+			return nil, nil, last, err
+		}
+		cfg := base
+		cfg.LocalAddresses = []netip.Addr{child.Local.OriginalLocal}
+		cfg.Lease = child.Lease
+		cfg.Emit = emitFor(child)
+		engine, err := hostguard.New(cfg)
+		if err != nil {
+			cancel()
+			wg.Wait()
+			return nil, nil, last, err
+		}
+		wg.Add(1)
+		go func(index int, input guardlab.ReplayInput, child *guardlab.Session, engine *hostguard.Engine) {
+			defer wg.Done()
+			result, err := hostguard.ReplayPCAP(ctx, input.Path, engine, hostguard.ReplayOptions{
+				Start: child.CaptureStart(), End: child.Scenario.SourceEnd, CaptureStart: child.CaptureStart(), FixedOffset: &child.Offset,
+				Check: func() error {
+					if !time.Now().Before(child.Manifest.ValidUntil) {
+						return guardlab.ErrAdmission
+					}
+					return parent.Error()
+				},
+				Observe: func(sample hostguard.LiveSample) {
+					mu.Lock()
+					defer mu.Unlock()
+					samples[index] = sample
+					total := hostguard.LiveSample{At: time.Now()}
+					for _, s := range samples {
+						total.PacketsSeen += s.PacketsSeen
+						total.CapacityDrops += s.CapacityDrops
+						total.LateCount += s.LateCount
+					}
+					last = total
+					observe(total)
+				},
+			})
+			if err == nil {
+				var sum string
+				sum, err = digest(input.Path)
+				if err == nil && sum != child.Scenario.PCAPSHA256 {
+					err = guardlab.ErrMapping
+				}
+			}
+			mu.Lock()
+			defer mu.Unlock()
+			if err != nil {
+				if first == nil {
+					first = fmt.Errorf("lab scenario %s: %w", input.ScenarioID, err)
+					cancel()
+				}
+				return
+			}
+			replays[index] = map[string]any{"scenarioId": input.ScenarioID, "speed": 1, "timeOffsetMicros": result.Offset.Microseconds(),
+				"sourceFirstPacketAt": result.SourceFirst, "sourceLastPacketAt": result.SourceLast, "wallStartedAt": result.WallStart,
+				"wallFinishedAt": result.WallEnd, "packets": result.Packets, "maxLagMs": result.MaxLag.Milliseconds(),
+				"pcapSha256": child.Scenario.PCAPSHA256, "captureStart": child.CaptureStart()}
+			for k, v := range engine.Stats {
+				stats[k] += v
+			}
+		}(index, input, child, engine)
+	}
+	wg.Wait()
+	return replays, stats, last, first
 }

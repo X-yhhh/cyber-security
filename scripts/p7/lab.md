@@ -1,6 +1,21 @@
 # B4 lab 会话与 G3 报告工具
 
-后端入口为 `GuardLabController`，完整请求、状态和传感器交接见 [lab v1 契约](../../docs/contracts/lab-validation.md)。V25 保存运行投影/事件（任务单分配给 L2 lab 线）。工具只读取文件并生成报告，不启动回放、不连接数据库或防火墙。本线代码待主会话统一编译、测试和合并验证。
+后端入口为 `GuardLabController`，完整请求、状态和传感器交接见 [lab v1.1 契约](../../docs/contracts/lab-validation.md)。V25 保存运行投影/事件，原 B4/L2/L3 代码已随 PR #29—#31 合入并完成集成验证。`lab_report.py` 负责文件报告；阶段 0 的 `lab_run.py` 新增真实隔离后端、传感器和执行器替身编排，本次工作区交付及验收结果见 `.cache/route-20261012/handoff.md`。
+
+2026-10-12 的第 15 次完整 18 段 rehearse 演练已通过 K7-R：三类候选达标、正常候选为 0、关联完整、替身空规则退出。原始门禁位于 `.cache/g3-rehearsal-20261012/attempt-15/gate.json`，目录索引为 `.cache/g3-rehearsal-20261012/gate.json`。这是 synthetic 诊断结果；正式 G3 和 K5/K7 的 E3/r4 前置闭环仍未完成。
+
+## 隔离演练
+
+```sh
+sh executor/python.sh -B scripts/p7/lab_run.py --mode rehearse \
+  --directory .cache/g3-rehearsal-20261012/attempt-N
+sh executor/python.sh -B scripts/p7/g3_rehearsal.py \
+  --run-dir .cache/g3-rehearsal-20261012/attempt-N
+```
+
+每轮使用新目录、随机 schema 和专用 synthetic 签名身份；正式 report-trust 不增加该身份。18 段原件逐文件核验，完整预热对端都保留。lab v1.1 每段固定一个偏移，评分起点对齐，1 倍速并发回放。替身持续心跳、领取与核对空规则；服务端执行门保持关闭，候选按 J1 同一判定器的 hypothetical 投影统计。报告及门禁均标 synthetic，不能作为正式 G3 或类别资格。 捕获完成后先停止替身并核验原记录以空规则 `stopped` 结束，再进行大量事实关联和报告查询；任一失败或缺失终态都使门禁失败，恢复不得换新进程抹去旧失败。
+
+`--resume` 只恢复 captureComplete 后的收尾：复用原 schema、身份、签名输入、TLS 与场景偏移。采集中断没有完整引擎检查点时明确拒绝；保留失败目录并另开尝试，不能把未采集部分算成完成。`dry-run` 使用虚拟时钟和全替身，校验输入、模拟会话生命周期并完成报告生成/签名/验签，结果恒为未验证，不连接数据库、后端或防火墙；`pf` 当前在任何文件、数据库或进程副作用前返回 `LAB_PF_BLOCKED_BY_R4_E3_PRECONDITION`。方案 B 的 E3/r4 前置闭环按 K9 引导克隆解除（见 [lab 契约](../../docs/contracts/lab-validation.md#e3r4-前置闭环与-k9-引导克隆2026-10-12)）；K9 交付且业务库 r4 已用正式 platform/canary 报告激活前，pf 保持拒绝。正式 G3 只在业务库运行，克隆仅用于产出 E3 证据。K9-6 演练增加了四个参数：`--source-schema`（从隔离的 `cyber_guard_*` 源克隆）、`--existing-bundle`/`--existing-reports`（复用源中已批准的 r4 及其 final/platform/canary 证明，不新建组合）、`--extra-trust`（只加入本次隔离后端）和 `--scenarios`（只缩小场景集合，逐段仍核验原件）。复用既有组合只允许 rehearse 模式与非业务源。K6 的 root 暂存 subject 绑定工具已保留，不代表 K7 正式路径可用。
 
 ## 报告流程
 
@@ -45,6 +60,6 @@ cd backend
 mvn -Dtest=GuardLabReportTest,GuardLabFactsTest,GuardLabExecutionGateTest,GuardLabIntegrationTest,GuardLabMigrationIntegrationTest,GuardMigrationIntegrationTest,MyBatisMigrationGuardTest test
 ```
 
-集成测试要求从受控凭据注入 `DB_TEST_BASE_URL/DB_TEST_USERNAME/DB_TEST_PASSWORD`。测试创建随机 `cyber_it_lab_*` schema，完成后只删除自身所建 schema；迁移测试覆盖空库到 V25 与 V24→V25 单步，核验 V1—V24 Flyway 历史整行、账号/口令哈希和 V20 列不变。K2 P95/K4 两轮运行期间暂停构建、数据库验证和回放；以上命令尚未执行。
+集成测试要求从受控凭据注入 `DB_TEST_BASE_URL/DB_TEST_USERNAME/DB_TEST_PASSWORD`。测试创建随机 `cyber_it_lab_*` schema，完成后只删除自身所建 schema；迁移测试覆盖空库到 V25 与 V24→V25 单步，核验 V1—V24 Flyway 历史整行、账号/口令哈希和 V20 列不变。既有验证已随 PR #29—#31 完成；阶段 0 新增代码的验证单独登记。真实回放计时窗口中暂停并行构建和数据库测试。
 
 本线对 GuardCatalog 增加报告分流保护、GuardEligibility 追加会话门，保留历史迁移测试的 V24 口径，并修改接口 B4/数据库第 14 节。GuardQueries、GuardMapper/Store、research 生命周期和 K4 冻结文件保持原样；GuardEligibility 的会话门只在已登记的 lab sensor 上生效，K2 research 性能路径不受影响。其他并行线如需迁移应取 V26 及以上。正式 lab 仍需 K4/J1 最终交接、J2 登记、真实 canary/短租约接入、网络层隔离与另行试验授权。

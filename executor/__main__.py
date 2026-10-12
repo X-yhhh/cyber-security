@@ -66,7 +66,8 @@ def cycle(engine, control):
         raise
 
 
-def _cycle(engine, control):
+def heartbeat(engine, control):
+    """只上报心跳与实态核对，不领取命令；返回是否仍待恢复。"""
     engine.pulse("executor")
     engine.recover()
     snapshot = engine.snapshot()
@@ -78,6 +79,12 @@ def _cycle(engine, control):
         "clockSkewMs": 0 if engine.trusted_clock() else None})
     require(abs(instant(result["serverTime"]) - time.time()) <= 1, "CLOCK_UNTRUSTED")
     flush(engine, control)
+    return pending
+
+
+def _cycle(engine, control):
+    pending = heartbeat(engine, control)
+    c = engine.config()
     rows = engine.store.commands()
     for token in {r["token"] for r in rows if r["token"]}:
         related = [r for r in rows if r["token"] == token]

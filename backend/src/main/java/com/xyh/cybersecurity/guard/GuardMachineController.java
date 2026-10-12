@@ -10,8 +10,8 @@ import static com.xyh.cybersecurity.guard.GuardJson.*;
 @RestController
 @RequestMapping(value="/api/v2/machine",produces=MediaType.APPLICATION_JSON_VALUE)
 public class GuardMachineController {
-    private final GuardAccess access;private final GuardIdempotency idem;private final GuardIngest ingest;private final GuardHealth health;private final GuardBudget budget;private final GuardActions actions;private final GuardReceipts receipts;private final GuardStore store;private final GuardReplay replay;
-    public GuardMachineController(GuardAccess access,GuardIdempotency idem,GuardIngest ingest,GuardHealth health,GuardBudget budget,GuardActions actions,GuardReceipts receipts,GuardStore store,GuardReplay replay){this.access=access;this.idem=idem;this.ingest=ingest;this.health=health;this.budget=budget;this.actions=actions;this.receipts=receipts;this.store=store;this.replay=replay;}
+    private final GuardAccess access;private final GuardIdempotency idem;private final GuardIngest ingest;private final GuardHealth health;private final GuardBudget budget;private final GuardActions actions;private final GuardReceipts receipts;private final GuardStore store;private final GuardReplay replay;private final GuardLabRehearsal labRehearsal;
+    public GuardMachineController(GuardAccess access,GuardIdempotency idem,GuardIngest ingest,GuardHealth health,GuardBudget budget,GuardActions actions,GuardReceipts receipts,GuardStore store,GuardReplay replay,GuardLabRehearsal labRehearsal){this.access=access;this.idem=idem;this.ingest=ingest;this.health=health;this.budget=budget;this.actions=actions;this.receipts=receipts;this.store=store;this.replay=replay;this.labRehearsal=labRehearsal;}
     @GetMapping("/sensors/{id}/config") public JsonNode config(@PathVariable String id,HttpServletRequest request){return GuardController.envelope(ingest.config(uuid(id)),request);}
     @PostMapping(value="/{kind}/{id}/{operation}",consumes=MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<JsonNode> write(@PathVariable String kind,@PathVariable String id,@PathVariable String operation,@RequestHeader("Idempotency-Key") String key,@RequestBody String raw,HttpServletRequest request){uuid(id);JsonNode b=parse(raw);String route=kind+"/"+operation;
@@ -25,6 +25,6 @@ public class GuardMachineController {
             case "sensors/observation-batches"->ingest.batches(id,b,digest);case "sensors/heartbeats"->ingest.heartbeat(id,b);
             case "sensors/health-windows"->{JsonNode result=health.accept(id,b);if("healthy".equals(result.path("verificationStatus").asText())){var sensor=access.sensor(id,"machine.sensor.health");long aid=number(sensor,"asset_id");for(var target:store.rows("guard_budget_target",map("asset_id",aid),false,10000))budget.recover(aid,number(target,"id"),store.now());}yield result;}
             case "executors/target-bindings"->budget.bind(id,b);case "executors/budget-proofs"->budget.proof(id,b);case "executors/heartbeats"->receipts.heartbeat(id,b);case "executors/command-claims"->actions.claims(id,b);case "executors/receipts"->receipts.receipt(id,b);case "executors/reconciliations"->receipts.reconcile(id,b);case "executors/clearance-proofs"->receipts.clearance(id,b);default->throw error(404,"RESOURCE_NOT_FOUND");});}
-        if(route.equals("sensors/observation-batches"))try(var phase=GuardBatchProfile.phase("t2_consume")){replay.consume(data.path("batchId").asText());}
+        if(route.equals("sensors/observation-batches"))try(var phase=GuardBatchProfile.phase("t2_consume")){replay.consume(data.path("batchId").asText());labRehearsal.consume(data.path("batchId").asText());}
         if(operation.equals("command-claims"))data=actions.filterClaims(id,data);return GuardController.success(data,status,request);}}
 }

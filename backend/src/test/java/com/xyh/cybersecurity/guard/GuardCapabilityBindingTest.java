@@ -53,6 +53,24 @@ class GuardCapabilityBindingTest {
     }
     String inbound(){return eligibility.protection(bundle,policy,target,observation,"port_scan");}
 
+    /** K9-B1：端口扫描只产生 final 快照；能力 profile 只在策略已审查接受两种快照时兼容，其余身份键仍逐字相等。 */
+    @Test void capabilityProfileFollowsReviewedAcceptedProfiles(){
+        observation.put("profile","flow-final-v1");
+        assertThat(eligibility.matchingCapability(bundle,policy,observation,"port_scan")).isNull();
+        policy.set("acceptedProfiles",node(List.of("flow-prefix-v1")));
+        assertThat(eligibility.matchingCapability(bundle,policy,observation,"port_scan")).isNull();
+        policy.set("acceptedProfiles",node(List.of("flow-prefix-v1","flow-final-v1")));
+        assertThat(eligibility.matchingCapability(bundle,policy,observation,"port_scan")).isSameAs(capability);
+        observation.put("direction","outbound");
+        assertThat(eligibility.matchingCapability(bundle,policy,observation,"port_scan")).isNull();
+        observation.put("direction","inbound");
+        assertThat(eligibility.matchingCapability(bundle,policy,observation,"dos_slow")).isNull();
+        capability.put("payload_json",canonical(object("addressFamily","ipv4","transport","tcp","direction","inbound","profile","flow-other-v1","family","port_scan","adapterVersion","pf-1")));
+        assertThat(eligibility.matchingCapability(bundle,policy,observation,"port_scan")).isNull();
+        observation.put("environment","research");
+        assertThat(eligibility.matchingCapability(bundle,policy,observation,"port_scan")).isNull();
+    }
+
     @Test void sharedVectorsMatchExecutorAlgorithm()throws Exception{
         var vectors=parse(Files.readString(Path.of("../docs/contracts/examples/capability-binding-vectors.json")));
         assertThat(node(GuardEligibility.IMPLICIT_PROTECTED_PORTS)).isEqualTo(vectors.get("implicitProtectedPorts"));

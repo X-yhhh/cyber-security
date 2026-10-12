@@ -105,6 +105,13 @@ def main():
         command = "mvn" if name == "maven" else name
         p.add_argument("--" + name, type=Path, default=Path(shutil.which(command) or "/nonexistent"))
     p.add_argument("--authorization-reference")
+    p.add_argument("--subject-binding",type=Path,help="K6：必须与 root 暂存包及实际执行配置的 subject 一致")
+    p.add_argument("--subject-schema",help="K9：e3_bootstrap.py 建好的业务库克隆；在其中复用既有组合")
+    p.add_argument("--subject-step",choices=("bootstrap","e3"),help="K9：bootstrap 只做引导封存/批准，e3 运行联合矩阵")
+    p.add_argument("--subject-bootstrap",type=Path,help="K9 bootstrap：引导报告清单")
+    p.add_argument("--subject-segments",type=Path,help="K9 e3：冻结片段清单")
+    p.add_argument("--subject-artifact-root",type=Path,help="K9：模型与报告所在制品根")
+    p.add_argument("--subject-report-trust",type=Path,help="K9：克隆后端的引导报告 trust 文件")
     p.add_argument("--scope", choices=("peer_service", "peer_inbound"))
     p.add_argument("--scenario", choices=("revoke", "disconnect", "receipt_loss"))
     p.add_argument("--external-executor", action="store_true",
@@ -115,9 +122,20 @@ def main():
     # 真实 PF 只由 root 暂存副本中的执行端操作（lab_root_launch.py e3-executor）；后端、Maven 与 JUnit 不以 root 运行。
     require(args.mode != "pf" or os.geteuid() != 0, "A4_BACKEND_MUST_NOT_RUN_AS_ROOT")
     require((args.scope is None) == (args.scenario is None), "LAB_SINGLE_ROUND_PAIR_REQUIRED")
-    require(args.mode != "pf" or args.scope is not None, "A4_SINGLE_ROUND_REQUIRED")
+    require(args.mode != "pf" or (args.scope is not None and args.subject_step != "bootstrap"), "A4_SINGLE_ROUND_REQUIRED")
+    subject = args.subject_schema is not None
+    require(subject == (args.subject_step is not None) and (not subject or (
+            re.fullmatch(r"cyber_guard_k9_[0-9a-f]{32}", args.subject_schema) and args.subject_binding
+            and args.subject_artifact_root and args.subject_report_trust
+            and (args.subject_bootstrap if args.subject_step == "bootstrap" else args.subject_segments))),
+            "K9_SUBJECT_ARGUMENTS_INVALID")
     os.umask(0o077)
     report, env = preflight(args)
+    binding=None
+    if args.subject_binding:
+        from executor.subject_binding import validate
+        binding=validate(json.loads(args.subject_binding.read_bytes()))
+        write_new(args.directory/'subject-binding.json',canonical(binding))
     if args.mode == "dry-run":
         return 0 if report["prepared"] else 1
     require(report["prepared"], "PREFLIGHT_FAILED")
@@ -127,6 +145,26 @@ def main():
     require(build.returncode == 0, "GUARDTARGETS_BUILD_FAILED")
     env.update(P5_JOINT_LAB="true", P5_RUN_DIR=str(args.directory), P5_PYTHON=sys.executable,
                P5_GUARDTARGETS=str(binary), P5_FIREWALL=args.mode, P5_A4_REFERENCE=args.authorization_reference or "")
+    for key in ("P5_SUBJECT_SCHEMA", "P5_SUBJECT_BOOTSTRAP", "P5_SUBJECT_SEGMENTS", "P5_SUBJECT_ARTIFACT_ROOT",
+                "P5_SUBJECT_REPORT_TRUST", "P5_GUARDLIVE", "HOSTGUARD_SUBJECT_BINDING", "P5_SUBJECT_MODEL_ARTIFACT_ROOT"):
+        env.pop(key, None)
+    test = "GuardJointLabTest#jointMatrix"
+    if subject:
+        # 冻结片段由 guardlive 实时回放；执行器（含 root 暂存副本）读取同一份 subject 绑定。
+        live = args.directory / "guardlive"
+        built = subprocess.run([str(args.go), "build", "-o", str(live), "./cmd/guardlive"], cwd=ROOT / "sensor", capture_output=True)
+        require(built.returncode == 0, "GUARDLIVE_BUILD_FAILED")
+        env.update(P5_SUBJECT_SCHEMA=args.subject_schema, P5_SUBJECT_ARTIFACT_ROOT=str(args.subject_artifact_root.resolve()),
+                   P5_SUBJECT_REPORT_TRUST=str(args.subject_report_trust.resolve()), P5_GUARDLIVE=str(live),
+                   HOSTGUARD_SUBJECT_BINDING=str(args.directory / "subject-binding.json"),
+                   # 业务库克隆保留既有模型部署记录，启动恢复需要同一交付根（只读）。
+                   P5_SUBJECT_MODEL_ARTIFACT_ROOT=str(Path.home() / "Workspace/deliveries"))
+        if args.subject_step == "bootstrap":
+            env["P5_SUBJECT_BOOTSTRAP"] = str(args.subject_bootstrap.resolve())
+            test = "GuardE3SubjectTest#subjectBootstrap"
+        else:
+            env["P5_SUBJECT_SEGMENTS"] = str(args.subject_segments.resolve())
+            test = "GuardE3SubjectTest#subjectMatrix"
     for key in ("P5_SCOPE", "P5_SCENARIO", "P5_EXTERNAL_EXECUTOR"):
         env.pop(key, None)
     if args.mode == "pf" or args.external_executor:
@@ -134,8 +172,15 @@ def main():
     if args.scope:
         env.update(P5_SCOPE=args.scope, P5_SCENARIO=args.scenario)
     with (args.directory / "backend.log").open("xb") as log:
-        result = subprocess.run([str(args.maven), "-B", "-Dtest=GuardJointLabTest#jointMatrix", "test"],
+        result = subprocess.run([str(args.maven), "-B", "-Dtest=" + test, "test"],
                                 cwd=ROOT / "backend", env=env, stdout=log, stderr=subprocess.STDOUT)
+    if args.subject_step == "bootstrap":
+        outcome = {"passed": result.returncode == 0 and (args.directory / "bootstrap-result.json").is_file(),
+                   "step": "bootstrap", "subjectSchema": args.subject_schema, "subjectBinding": binding,
+                   "businessDatabaseModified": False}
+        write_new(args.directory / "summary.json", canonical(outcome))
+        print(json.dumps(outcome, indent=2))
+        return 0 if outcome["passed"] else 1
     summaries = [args.directory / f"{scope}-{scenario}/result.json"
                  for scope in ("peer_service", "peer_inbound") for scenario in ("revoke", "disconnect", "receipt_loss")
                  if (args.directory / f"{scope}-{scenario}/result.json").is_file()]
@@ -151,6 +196,11 @@ def main():
                "configurationSha256": {str(path.relative_to(args.directory)): hashlib.sha256(path.read_bytes()).hexdigest()
                                        for path in sorted(args.directory.glob("*/executor-config.json"))},
                "businessDatabaseModified": False}
+    if binding is not None:outcome['subjectBinding']=binding
+    if subject:
+        outcome.update(subjectSchema=args.subject_schema, guardliveSha256=hashlib.sha256((args.directory / "guardlive").read_bytes()).hexdigest(),
+                       subjectFeeds={f"{r['scope']}-{r['scenario']}": json.loads((args.directory / f"{r['scope']}-{r['scenario']}/subject-feed.json").read_text())
+                                     for r in rows if (args.directory / f"{r['scope']}-{r['scenario']}/subject-feed.json").is_file()})
     write_new(args.directory / "summary.json", canonical(outcome))
     print(json.dumps(outcome, indent=2))
     return 0 if outcome["passed"] else 1

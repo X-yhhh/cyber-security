@@ -48,7 +48,7 @@ class GuardLabFactsTest {
     }
     void updateObservation() {when(store.external("guard_observation",observationId,false)).thenAnswer(i->map("public_id",observationId,"as_of",db(at),"payload_json",canonical(o),"content_sha256",hash(o)));}
     void updateDecision() {when(store.get("guard_decision",2L)).thenAnswer(i->map("public_id",id(),"evidence_json",canonical(proof),"evidence_sha256",hash(proof),"decision","block_candidate","reason_code",null,"decided_at",db(at)));}
-    JsonNode resolve(String kind,String ref) {return facts.resolve(p,scenario,mapping,object("eventId",id(),"scenarioId",text(scenario,"scenarioId"),"kind",kind,"referenceId",ref));}
+    JsonNode resolve(String kind,String ref) {return facts.resolve(p,scenario,object("entries",List.of(mapping)),object("eventId",id(),"scenarioId",text(scenario,"scenarioId"),"kind",kind,"referenceId",ref));}
     @Test void unprojectedReceiptCannotClaimApplied() {
         var event=resolve("receipt",receiptId);assertThat(event.path("verification").asText()).isEqualTo("unverified");
         assertThatThrownBy(()->resolve("verified_receipt",receiptId)).hasMessageContaining("LAB_RECEIPT_UNVERIFIED");
@@ -80,7 +80,7 @@ class GuardLabFactsTest {
     }
     JsonNode quality(Instant received) {
         when(mapper.observations(anyMap())).thenReturn(List.of(map("payload_json",canonical(o),"created_at",db(received))));
-        return facts.quality(p,scenario,mapping,10L,1L);
+        return facts.quality(p,scenario,object("entries",List.of(mapping)),10L,1L);
     }
     @Test void nullReferenceRemainsCaptureQualityButNeverExecutionEvidence() {
         o.putNull("targetRef").putNull("targetExpiresAt");var q=quality(at.plusSeconds(1));

@@ -12,7 +12,8 @@ public final class GuardLabReport {
     public static JsonNode generate(JsonNode input) {
         fields(input,"contractVersion session sessionSha256 runStatus scenarios events unlinkedCommandIds unlinkedDecisionIds outsideScoringDecisionIds","");
         var p=input.path("session");manifest(p);
-        require(VERSION.equals(text(input,"contractVersion"))&&hash(p).equals(text(input,"sessionSha256")),"LAB_REPORT_MISMATCH");
+        require(Set.of(VERSION_1_0,VERSION_1_1).contains(text(input,"contractVersion"))
+                &&text(input,"contractVersion").equals(text(p,"contractVersion"))&&hash(p).equals(text(input,"sessionSha256")),"LAB_REPORT_MISMATCH");
         require(input.path("scenarios").isArray()&&input.path("events").isArray()&&input.path("unlinkedCommandIds").isArray()&&input.path("unlinkedDecisionIds").isArray()&&input.path("outsideScoringDecisionIds").isArray(),"LAB_REPORT_MISMATCH");
         for(String f:List.of("unlinkedCommandIds","unlinkedDecisionIds","outsideScoringDecisionIds"))for(var v:input.path(f))require(v.isTextual(),"LAB_REPORT_MISMATCH");
         var rows=new ArrayList<JsonNode>();var represented=new HashSet<String>();var normalCommands=new HashSet<String>();var normalExpired=new HashSet<String>();
@@ -22,7 +23,7 @@ public final class GuardLabReport {
             String sid=text(s,"scenarioId"),family=text(s,"family");boolean normal=family.equals("normal");
             var events=new ArrayList<JsonNode>();for(var e:input.path("events"))if(sid.equals(e.path("scenarioId").asText()))events.add(e);
             boolean complete=events.stream().anyMatch(e->"scenario_result".equals(e.path("kind").asText())&&e.path("completed").asBoolean());
-            Instant start=shift(p,time(s,"sourceStart")),end=shift(p,time(s,"sourceEnd"));
+            Instant start=shift(p,sid,time(s,"sourceStart")),end=shift(p,sid,time(s,"sourceEnd"));
             Instant alert=first(events,e->"decision".equals(e.path("kind").asText())&&Set.of("alert","block_candidate").contains(e.path("decision").asText()));
             for(var e:events)if(e.path("decisionAt").isTextual()&&Set.of("alert","block_candidate").contains(e.path("decision").asText()))alert=min(alert,time(e,"decisionAt"));
             var ids=new TreeSet<String>();for(var e:events)if(e.path("commandId").isTextual())ids.add(text(e,"commandId"));

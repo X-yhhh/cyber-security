@@ -22,6 +22,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import time
 import uuid
 
 from cryptography.hazmat.primitives import serialization
@@ -95,11 +96,21 @@ def preflight(args, db):
     if args.mode == "pf":
         require(args.source_schema == BUSINESS, "K9_PF_SOURCE_MUST_BE_BUSINESS_DB")
         require(bool(args.authorization_reference), "K9_PF_AUTHORIZATION_REQUIRED")
+        # root 侧每轮先复制、核验暂存包再等管道；用户侧须等其就绪标记，否则后端的 45 秒握手会先超时（同 T3.8b）。
+        require(getattr(args, "ready_dir", None) is not None and Path(args.ready_dir).is_absolute(), "K9_PF_READY_DIR_REQUIRED")
     else:
         require(args.source_schema != BUSINESS and SOURCE_SCHEMA.fullmatch(args.source_schema), "K9_REHEARSE_SOURCE_INVALID")
     facts = bundle_facts(db, args.source_schema, args.bundle_id)
     source = check_candidate(facts, args.subject_sha256, args.mode == "pf")
     return facts, source
+
+
+def wait_ready(marker, timeout, clock=time.monotonic, pause=time.sleep):
+    """等待 lab_root_launch.py --ready-marker 创建的就绪标记；超时则不启动本轮后端。"""
+    deadline = clock() + timeout
+    while not Path(marker).is_file():
+        require(clock() < deadline, "K9_PF_ROOT_NOT_READY")
+        pause(1)
 
 
 def next_attempt(root):
@@ -239,6 +250,7 @@ def run(args):
             # 每轮须在 A6 授权下由操作者另行以 root 启动 lab_root_launch.py e3-executor（同 T3.8b 流程）。
             for scope, scenario in SCENARIOS:
                 directory = work / f"e3-{scope}-{scenario}"
+                wait_ready(args.ready_dir / f"e3-{scope}-{scenario}.ready", args.ready_timeout)
                 code = orchestrate(args, env, directory, ["--mode", "pf", "--scope", scope, "--scenario", scenario,
                                                           "--authorization-reference", args.authorization_reference,
                                                           "--subject-step", "e3", "--subject-segments", str(work / "segments.json")] + common,
@@ -314,6 +326,8 @@ def main():
     parser.add_argument("--bundle-id", required=True)
     parser.add_argument("--subject-sha256", default=R4_SUBJECT_SHA256)
     parser.add_argument("--authorization-reference", help="pf：A6 单轮授权引用")
+    parser.add_argument("--ready-dir", type=Path, help="pf：root 侧每轮 --ready-marker 所在目录，标记名 e3-<scope>-<scenario>.ready")
+    parser.add_argument("--ready-timeout", type=float, default=1800, help="pf：每轮等待 root 就绪的秒数")
     parser.add_argument("--inbound-segment", default=SEGMENTS["peer_inbound"][0], help="peer_inbound 使用的已登记 port_scan 片段")
     parser.add_argument("--rounds", help="仅诊断：逗号分隔的 scope-scenario；不完整矩阵不生成 K6 报告")
     parser.add_argument("--directory", type=Path, default=ROOT / ".cache/k9-20261012")

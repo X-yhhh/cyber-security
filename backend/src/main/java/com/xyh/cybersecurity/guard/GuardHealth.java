@@ -11,10 +11,17 @@ import static com.xyh.cybersecurity.guard.GuardJson.*;
 public class GuardHealth {
     private final GuardStore store;private final GuardAccess access;
     public GuardHealth(GuardStore store,GuardAccess access){this.store=store;this.access=access;}
+    /** 版本决定字段白名单；旧版本不接受来源，新版本必须显式声明，不能默认补值。 */
+    static void windowFields(JsonNode b){
+        boolean v11=HEALTH_REPLAY.equals(b.path("healthVersion").asText());
+        fields(b,"healthVersion healthWindowId assetId sensorId observerSessionId captureScopeId sequence intervalStart intervalEnd previousSha256 counterStart counterEnd captureGap clockSkewMs configSha256 buildSha256"+(v11?" captureSource":""),"metrics");
+        require(HEALTH_VERSIONS.contains(text(b,"healthVersion")),"CONTRACT_UNSUPPORTED");
+        if(v11)require(Set.of("live","file_replay").contains(text(b,"captureSource")),"CAPTURE_SOURCE_INVALID");
+    }
     public JsonNode accept(String id,JsonNode b){
-        fields(b,"healthVersion healthWindowId assetId sensorId observerSessionId captureScopeId sequence intervalStart intervalEnd previousSha256 counterStart counterEnd captureGap clockSkewMs configSha256 buildSha256","metrics");
+        windowFields(b);
         var sensor=access.sensor(id,"machine.sensor.health");long aid=number(sensor,"asset_id");var asset=store.lockAsset(aid);
-        require(HEALTH.equals(text(b,"healthVersion"))&&id.equals(uuid(b,"sensorId"))&&str(asset,"public_id").equals(uuid(b,"assetId")),"SCOPE_DENIED");
+        require(id.equals(uuid(b,"sensorId"))&&str(asset,"public_id").equals(uuid(b,"assetId")),"SCOPE_DENIED");
         var scope=store.external("guard_capture_scope",uuid(b,"captureScopeId"),false);require(number(scope,"sensor_id")==number(sensor,"id")&&"active".equals(str(scope,"status")),"SCOPE_DENIED");
         var config=store.get("sensor_config",number(scope,"config_id"));digest(b,"configSha256");digest(b,"buildSha256");
         require(text(b,"configSha256").equals(str(config,"content_sha256"))&&text(b,"buildSha256").equals(json(config,"guard_definition_json").path("buildSha256").asText()),"CONFIG_INACTIVE");
@@ -28,25 +35,31 @@ public class GuardHealth {
         var previous=store.one("guard_capture_health_window",map("sensor_id",sensor.get("id"),"observer_session_id",session,"sequence_no",seq-1),false);
         String status=verify(b,previous==null?null:json(previous,"payload_json"),previous==null?null:str(previous,"content_sha256"),now);
         store.insert("guard_capture_health_window",map("public_id",publicId,"sensor_id",sensor.get("id"),"asset_id",aid,"capture_scope_id",scope.get("id"),"observer_session_id",session,"sequence_no",seq,"interval_start",db(start),"interval_end",db(end),"previous_sha256",b.get("previousSha256").isNull()?null:b.get("previousSha256").asText(),"content_sha256",digest,"payload_json",canonical(b),"verification_status",status,"received_at",db(now)));
-        if(!status.equals("healthy"))store.audit(null,"guard.health.rejected",publicId,aid,null,object("reasonCode",status));
+        if(!Set.of("healthy","replay_healthy").contains(status))store.audit(null,"guard.health.rejected",publicId,aid,null,object("reasonCode",status));
         return object("healthWindowId",publicId,"verificationStatus",status,"contentSha256",digest,"serverTime",now.toString());
     }
     public static String verify(JsonNode b,JsonNode previous,String previousHash,Instant now){
+        boolean replay=HEALTH_REPLAY.equals(b.path("healthVersion").asText())&&"file_replay".equals(b.path("captureSource").asText());
+        String accepted=replay?"replay_healthy":"healthy";
         Instant end=time(b,"intervalEnd");if(end.isAfter(now)||Duration.between(end,now).toMillis()>10000)return "HEALTH_DELAY_EXCEEDED";
         if(!b.path("clockSkewMs").isNumber()||Math.abs(b.path("clockSkewMs").asDouble())>1000)return "CLOCK_UNTRUSTED";
         if(b.path("captureGap").asBoolean())return "CAPTURE_GAP";
         for(String f:List.of("packetsSeen","kernelDrops","capacityDrops")){
             var start=b.path("counterStart").path(f);var finish=b.path("counterEnd").path(f);
+            if(replay&&f.equals("kernelDrops")){if(!start.isNull()||!finish.isNull())return "REPLAY_KERNEL_DROPS_INVALID";continue;}
             if(start.isNull()||finish.isNull())return "COUNTER_UNKNOWN";
             if(finish.asLong()<start.asLong()||(!f.equals("packetsSeen")&&finish.asLong()!=start.asLong()))return "CAPTURE_DROPS";
         }
-        if(b.path("sequence").asLong()==1)return b.path("previousSha256").isNull()?"healthy":"HEALTH_CHAIN_INCOMPLETE";
+        if(b.path("sequence").asLong()==1)return b.path("previousSha256").isNull()?accepted:"HEALTH_CHAIN_INCOMPLETE";
         if(previous==null||!Objects.equals(previousHash,b.path("previousSha256").asText())||!time(previous,"intervalEnd").equals(time(b,"intervalStart")))return "HEALTH_CHAIN_INCOMPLETE";
         for(String f:List.of("observerSessionId","sensorId","assetId","captureScopeId","configSha256","buildSha256"))if(!previous.path(f).equals(b.path(f)))return "HEALTH_IDENTITY_CHANGED";
+        if(!previous.path("healthVersion").equals(b.path("healthVersion"))||!previous.path("captureSource").equals(b.path("captureSource")))return "HEALTH_IDENTITY_CHANGED";
         if(!previous.path("counterEnd").equals(b.path("counterStart")))return "HEALTH_CHAIN_INCOMPLETE";
-        return "healthy";
+        return accepted;
     }
-    public boolean current(long scope,Instant now){var r=store.one("guard_capture_health_window",map("capture_scope_id",scope),false);return r!=null&&"healthy".equals(str(r,"verification_status"))&&!instant(r.get("interval_end")).isAfter(now)&&Duration.between(instant(r.get("interval_end")),now).toMillis()<=10000;}
+    public boolean current(long scope,Instant now){return current(scope,now,false);}
+    /** 仅 T2 调用方可按已核验的正式 lab 归属启用回放状态；两参入口仍只认 healthy。 */
+    public boolean current(long scope,Instant now,boolean replayAllowed){var r=store.one("guard_capture_health_window",map("capture_scope_id",scope),false);return r!=null&&("healthy".equals(str(r,"verification_status"))||(replayAllowed&&"replay_healthy".equals(str(r,"verification_status"))))&&!instant(r.get("interval_end")).isAfter(now)&&Duration.between(instant(r.get("interval_end")),now).toMillis()<=10000;}
     /** 返回覆盖 [from,through] 的完整认证链证明；不能拼接不同观察器、配置或捕获域。 */
     public JsonNode proof(long asset,Instant from,Instant earliestEnd,Instant now){
         var rows=new ArrayList<>(store.rows("guard_capture_health_window",map("asset_id",asset),false,10000));Collections.reverse(rows);

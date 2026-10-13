@@ -50,7 +50,7 @@ record GuardReadRequest(Map<String, Object> filters, int limit, String cursor) {
             } else {
                 if (!value.matches("[A-Za-z0-9_.:/-]{1,128}")) throw error(400, "INVALID_QUERY");
                 if (key.equals("status") && !statuses(kind).contains(value)) throw error(400, "INVALID_QUERY");
-                if (key.equals("verificationStatus") && !Set.of("healthy", "HEALTH_DELAY_EXCEEDED", "CLOCK_UNTRUSTED",
+                if (key.equals("verificationStatus") && !Set.of("healthy", "replay_healthy", "REPLAY_KERNEL_DROPS_INVALID", "HEALTH_DELAY_EXCEEDED", "CLOCK_UNTRUSTED",
                         "CAPTURE_GAP", "COUNTER_UNKNOWN", "CAPTURE_DROPS", "HEALTH_CHAIN_INCOMPLETE", "HEALTH_IDENTITY_CHANGED")
                         .contains(value)) throw error(400, "INVALID_QUERY");
                 filters.put(key, value);

@@ -13,6 +13,18 @@ public class GuardLabExecutionGate {
     private final GuardLabMapper mapper;
     public GuardLabExecutionGate(GuardStore store,GuardLabMapper mapper) {this.store=store;this.mapper=mapper;}
 
+    /** T2 的回放口径只对同组合、同资产的 running 正式 lab 会话开放，不依赖目标或攻击标签。 */
+    public boolean replayAllowed(JsonNode observation,java.util.Map<String,Object> bundle){
+        if(!"lab".equals(observation.path("environment").asText())||!HEALTH_REPLAY.equals(json(bundle,"subject_json").path("protocolVersions").path("health").asText()))return false;
+        var sensor=store.external("sensor_agent",uuid(observation,"sensorId"),false);
+        long sid=number(sensor,"id");String boot=uuid(observation,"bootId");
+        Long owner=GuardStore.scoped("lab-owner:"+sid+":"+boot,()->mapper.owner(sid,boot));
+        if(owner==null)return false;
+        var session=store.get("guard_validation_session",owner);var run=GuardStore.scoped("lab-run:"+owner,()->mapper.run(owner));
+        return run!=null&&"running".equals(str(run,"status"))&&"lab".equals(json(run,"manifest_jcs").path("evidenceKind").asText())
+                &&number(session,"asset_id")==number(sensor,"asset_id")&&number(session,"bundle_id")==number(bundle,"id");
+    }
+
     /** 不读取标签或场景类别来屏蔽误报；这里只检查授权、运行状态和稳定目标身份。 */
     public boolean permits(JsonNode observation,java.util.Map<String,Object> bundle,Instant now) {
         if(!"lab".equals(observation.path("environment").asText()))return true;

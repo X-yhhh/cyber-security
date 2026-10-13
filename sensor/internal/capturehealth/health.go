@@ -1,4 +1,4 @@
-// Package capturehealth 在 Go 侧生成 host-guard-capture-health/1.0.0 连续健康窗口。
+// Package capturehealth 生成现场或显式标注的文件回放健康窗口。
 //
 // 观察器独立于特征引擎：只读捕获句柄的累计计数（读包数、内核丢包、容量丢弃），不读取模型特征或分数。
 // 每个窗口不超过 MaxWindow、首尾相接，previousSha256 引用前一窗口完整 payload 的 RFC 8785 JCS 摘要。
@@ -16,6 +16,7 @@ import (
 )
 
 const Version = "host-guard-capture-health/1.0.0"
+const ReplayVersion = "host-guard-capture-health/1.1.0"
 
 // MaxWindow 是契约规定的单窗口上限。
 const MaxWindow = 5 * time.Second
@@ -37,6 +38,7 @@ type Metrics struct {
 // Window 与 POST /machine/sensors/{id}/health-windows 请求体逐字段对应。
 type Window struct {
 	HealthVersion     string   `json:"healthVersion"`
+	CaptureSource     *string  `json:"captureSource,omitempty"`
 	HealthWindowID    string   `json:"healthWindowId"`
 	AssetID           string   `json:"assetId"`
 	SensorID          string   `json:"sensorId"`
@@ -62,6 +64,9 @@ type Identity struct {
 
 // Options 中 Skew 返回最近一次可信的时钟偏差（毫秒），不可信时 ok=false；QueueMax/Memory 可为 nil。
 type Options struct {
+	// Version/Source 必须配对；默认现场 1.0.0 不携带来源字段，保持既有 JCS 字节。
+	Version  string
+	Source   string
 	Window   time.Duration
 	Skew     func() (int64, bool)
 	QueueMax func() int64
@@ -101,6 +106,13 @@ func New(id Identity, o Options) (*Observer, error) {
 	if o.Window == 0 {
 		o.Window = time.Second
 	}
+	if o.Version == "" {
+		o.Version = Version
+	}
+	if o.Version != Version && o.Version != ReplayVersion || o.Version == Version && o.Source != "" ||
+		o.Version == ReplayVersion && o.Source != "live" && o.Source != "file_replay" {
+		return nil, fmt.Errorf("健康版本与来源不匹配")
+	}
 	if o.Window < 100*time.Millisecond || o.Window > MaxWindow || o.Emit == nil || o.NewID == nil {
 		return nil, fmt.Errorf("健康窗口参数无效")
 	}
@@ -113,6 +125,9 @@ func New(id Identity, o Options) (*Observer, error) {
 
 func (b *Observer) Session() string { return b.session }
 
+// Version 返回实际签发窗口的版本，供上传配置绑定核验。
+func (b *Observer) Version() string { return b.o.Version }
+
 func counters(s hostguard.LiveSample) Counters {
 	packets, capacity := int64(s.PacketsSeen), s.CapacityDrops
 	c := Counters{PacketsSeen: &packets, CapacityDrops: &capacity}
@@ -123,7 +138,8 @@ func counters(s hostguard.LiveSample) Counters {
 	return c
 }
 
-// Observe 消费一次轮询样本；跨过窗口长度时输出窗口。样本时间倒退视为缺口并重新起算当前窗口。
+// Observe 消费一次轮询样本；跨过窗口长度时输出窗口。时间真正倒退或计数回退视为缺口。
+// 同一墙钟微秒内的并发样本允许更新累计计数，但不能凭时间相等推断漏采。
 func (b *Observer) Observe(s hostguard.LiveSample) error {
 	if b.finished {
 		return fmt.Errorf("健康观察器已结束")
@@ -133,11 +149,16 @@ func (b *Observer) Observe(s hostguard.LiveSample) error {
 		b.started, b.start, b.startC, b.gap, b.last = true, s.At, counters(s), s.Gap, s
 		return nil
 	}
-	if !s.At.After(b.last.At) {
+	if s.At.Before(b.last.At) {
 		b.gap = true
-		if s.At.Before(b.last.At) {
-			return nil
-		}
+		return nil
+	}
+	if s.At.Equal(b.last.At) {
+		b.gap = b.gap || s.Gap || s.PacketsSeen < b.last.PacketsSeen ||
+			s.CapacityDrops < b.last.CapacityDrops || s.DropsKnown != b.last.DropsKnown ||
+			s.DropsKnown && s.Drops < b.last.Drops
+		b.last = s
+		return nil
 	}
 	b.gap = b.gap || s.Gap
 	// 两次样本间隔超过上限：中间计数无法归属，按上限切出未知计数窗口并标记缺口。
@@ -179,11 +200,14 @@ func (b *Observer) Finish(s hostguard.LiveSample) error {
 
 func (b *Observer) close(end time.Time, endC Counters, gap bool) error {
 	b.seq++
-	w := Window{HealthVersion: Version, HealthWindowID: b.o.NewID(), AssetID: b.id.AssetID, SensorID: b.id.SensorID,
+	w := Window{HealthVersion: b.o.Version, HealthWindowID: b.o.NewID(), AssetID: b.id.AssetID, SensorID: b.id.SensorID,
 		ObserverSessionID: b.session, CaptureScopeID: b.id.CaptureScopeID, Sequence: b.seq,
 		IntervalStart: b.start.Format(time.RFC3339Nano), IntervalEnd: end.Format(time.RFC3339Nano),
 		PreviousSha256: b.prev, CounterStart: b.startC, CounterEnd: endC, CaptureGap: gap,
 		ConfigSha256: b.id.ConfigSha256, BuildSha256: b.id.BuildSha256}
+	if b.o.Source != "" {
+		w.CaptureSource = &b.o.Source
+	}
 	if b.o.Skew != nil {
 		if v, ok := b.o.Skew(); ok {
 			w.ClockSkewMs = &v

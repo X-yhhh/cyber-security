@@ -123,7 +123,7 @@ def build_s1(args, attempt, s1, runner_name, key, trust, report_dir):
         body = dict(plan["releaseBundle"], modelId=plan["existingModel"]["id"], policyId=policy["policyId"],
                     evaluationPlanId=plan["existingEvaluationPlan"]["id"], capabilityIds=sorted(x["id"] for x in plan["existingCapabilities"]))
         bundle = backend.op.v2("/release-bundles", body)
-        require(bundle["subjectSha256"] == R4_SUBJECT_SHA256, "K9_S1_SUBJECT_MISMATCH")
+        require(bundle["subjectSha256"] == args.subject_sha256, "K9_S1_SUBJECT_MISMATCH")
         source = load(args.scenario)
         rows = freeze_scenarios(source, args.artifacts)
         provenance = lab_run.synthetic_provenance(source, policy, body["extractorSha256"], lab_run.executor_digest())
@@ -161,7 +161,7 @@ def run(args):
         # 第 2 步：E3 引导克隆演练（S2 为 e3_bootstrap 自建、自删）
         command = ["/bin/sh", str(ROOT / "executor/python.sh"), "-B", str(ROOT / "scripts/p5/e3_bootstrap.py"), "--mode", "rehearse",
                    "--source-schema", s1, "--bundle-id", s1_facts["bundleId"], "--directory", str(attempt / "e3"),
-                   "--attempts", str(args.directory / "attempts.json")]
+                   "--attempts", str(args.directory / "attempts.json"), "--subject-sha256", args.subject_sha256]
         with (attempt / "e3-bootstrap.log").open("xb") as stream:
             code = subprocess.run(command, cwd=ROOT, stdout=stream, stderr=subprocess.STDOUT).returncode
         require(code == 0, "K9_E3_BOOTSTRAP_REHEARSAL_FAILED")
@@ -213,7 +213,8 @@ def run(args):
         command = ["/bin/sh", str(ROOT / "executor/python.sh"), "-B", str(ROOT / "scripts/p7/lab_run.py"), "--mode", "rehearse",
                    "--directory", str(lab_dir), "--source-schema", s1, "--existing-bundle", bundle,
                    "--existing-reports", str(attempt / "existing-reports.json"), "--extra-trust", str(attempt / "extra-trust.json"),
-                   "--scenarios", args.lab_scenarios, "--port", str(args.port + 1)]
+                   "--scenarios", args.lab_scenarios, "--port", str(args.port + 1), "--subject-sha256", args.subject_sha256,
+                   "--import-plan", str(args.import_plan)]
         with (attempt / "lab-run.log").open("xb") as stream:
             code = subprocess.run(command, cwd=ROOT, stdout=stream, stderr=subprocess.STDOUT).returncode
         lab_state = load(lab_dir / "state.json") if (lab_dir / "state.json").exists() else {}
@@ -248,6 +249,7 @@ def main():
     parser.add_argument("--scenario", type=Path, default=ROOT / ".cache/j2-20261011/g3-scenario.json")
     parser.add_argument("--selection", type=Path, default=ROOT / ".cache/j1-20261011-reg-preroll30/selection.json")
     parser.add_argument("--import-plan", type=Path, default=ROOT / ".cache/j2-20261011/import-rehearsal/lab-plan.json")
+    parser.add_argument("--subject-sha256", type=lab_run.subject_sha256, default=R4_SUBJECT_SHA256, help="期望组合 subject；默认保留 r4")
     parser.add_argument("--operator-file", type=Path, default=ROOT / ".cache/j1-20261011-v9/private/operator.json")
     parser.add_argument("--reviewer-file", type=Path, default=HOME / "ai/keys/cyber-guard-reviewer/credentials.json")
     parser.add_argument("--report-trust", type=Path, default=HOME / "ai/keys/cyber-guard-trust/report-trust.json")

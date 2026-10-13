@@ -107,10 +107,24 @@ def freeze_scenarios(source, artifacts):
     return rows
 
 
-def clock_plan(rows, start):
-    """每个评分起点对齐到同一墙钟；各自保留原预热时长，正常段覆盖所有攻击段。"""
+def clock_plan(rows, start, *, staggered=False):
+    """冻结场景时钟；正式 G3 可显式错峰，既有 research/替身调用保持同时起算。
+
+    port_scan、brute_force、dos_slow 各自占用独立的时间带；同一类别的三段
+    也按 20 秒错开。normal 段每 60 秒启动一段，覆盖所有攻击带。这里只改变
+    不可变的 scenarioOffsets，不改 PCAP、阈值或策略上限。
+    """
     scoring_us = int(start.timestamp() * 1_000_000)
-    offsets = {r['scenarioId']: scoring_us - int(lab_report.timestamp(r['sourceStart']).timestamp()*1_000_000) for r in rows}
+    family_base = {'port_scan': 0, 'brute_force': 120, 'dos_slow': 300, 'dos_flood': 480, 'normal': 0}
+    family_index = {}
+    offsets = {}
+    for row in rows:
+        family = row['family']
+        index = family_index.get(family, 0)
+        family_index[family] = index + 1
+        delay = (family_base[family] + (60 if family == 'normal' else 20) * index) if staggered else 0
+        desired = scoring_us + delay * 1_000_000
+        offsets[row['scenarioId']] = desired - int(lab_report.timestamp(row['sourceStart']).timestamp() * 1_000_000)
     first = min(r['captureStart'] for r in rows)
     scoring_first = min(r['sourceStart'] for r in rows)
     last = max(r['sourceEnd'] for r in rows)
@@ -157,8 +171,15 @@ def original_mapping(row, selection, artifacts):
 R4_SUBJECT_SHA256 = 'f02022ba810357d9932e72474ca699253cecebbd3d9367e86694124f85ff9b43'
 
 
-def formal_r4_preflight(db, bundle_id):
-    """只读核对业务库 r4 的激活状态及封存报告；失败时不能启动任何组件。"""
+def subject_sha256(value):
+    """期望 subject 必须显式匹配完整摘要，避免误用其他版本的组合。"""
+    if not re.fullmatch(r'[0-9a-f]{64}', value):
+        raise argparse.ArgumentTypeError('subject SHA-256 must contain 64 lowercase hex characters')
+    return value
+
+
+def formal_r4_preflight(db, bundle_id, expected_subject=R4_SUBJECT_SHA256):
+    """只读核对业务库指定 subject 的激活状态与封存报告；默认仍为 r4。"""
     from scripts.p5.subject_report import REPORT_VERSION, check_execution_context
     try:
         require(str(uuid.UUID(bundle_id)) == bundle_id, 'LAB_PF_R4_NOT_ACTIVE')
@@ -174,7 +195,7 @@ def formal_r4_preflight(db, bundle_id):
         subject_sha = bundle['subjectSha256']
         sealed = bundle['sealed']
         require(bundle['status'] == 'active' and bundle['environment'] == 'lab'
-                and bundle['approvedBy'] is not None and subject_sha == R4_SUBJECT_SHA256
+                and bundle['approvedBy'] is not None and subject_sha == expected_subject
                 and isinstance(sealed, dict) and bundle['sealedSha256'] == digest(sealed)
                 and sealed['subjectSha256'] == subject_sha and isinstance(sealed['reports'], list)
                 and sealed['reports'], 'LAB_PF_R4_NOT_ACTIVE')
@@ -369,7 +390,7 @@ class Runner:
                               "WHERE public_id='"+str(uuid.UUID(self.bundle))+"'", self.schema).decode().splitlines()
         require(len(found) == 1, 'LAB_EXISTING_BUNDLE_MISSING')
         row = json.loads(found[0])
-        require(row['status'] in ('approved','active') and row['subject'] == R4_SUBJECT_SHA256, 'LAB_EXISTING_BUNDLE_INVALID')
+        require(row['status'] in ('approved','active') and row['subject'] == getattr(self.args, 'subject_sha256', R4_SUBJECT_SHA256), 'LAB_EXISTING_BUNDLE_INVALID')
         self.subject_sha = row['subject']
         self.versions = plan['releaseBundle']['protocolVersions']
         self.plan_sha = self.policy['evaluationPlanSha256']
@@ -449,7 +470,7 @@ class Runner:
         self.auth_revision = approved['revision']
         self.rev.v2('/release-bundles/'+self.bundle+'/activations',dict(assetIds=[self.asset],authorizationIds=[self.auth]),self.state['bundleRevision'])
         config = dict(contractVersion='host-guard/5.0.0-rc.2',profileSha256=load(self.args.import_plan)['releaseBundle']['featureProfileSha256'],
-                      captureHealthVersion='host-guard-capture-health/1.0.0',interfaceIds=['lo0'],limits={'maxBatchSize':100},
+                      captureHealthVersion=self.versions['health'],interfaceIds=['lo0'],limits={'maxBatchSize':100},
                       captureScopeId=self.scope,addressFamily='ipv4',buildSha256=sha(self.work/'bin/guardlive'))
         cid = self.op.v2('/sensors/'+self.sensor+'/configs', config)['id']
         self.rev.v2('/sensor-configs/'+cid+'/decisions',dict(decision='approve',reason='synthetic replay build'),1)
@@ -750,6 +771,7 @@ def main():
     parser.add_argument('--go',type=Path,default=home/'development/runtimes/go/go-1.26.4/bin/go')
     parser.add_argument('--port',type=int,default=19443)
     parser.add_argument('--r4-bundle-id',help='pf 前置核验所用的业务库 r4 bundleId')
+    parser.add_argument('--subject-sha256',type=subject_sha256,default=R4_SUBJECT_SHA256,help='期望组合 subject；默认保留 r4')
     parser.add_argument('--authorization-reference',help='A6 单轮授权引用；本次仅作前置门禁')
     parser.add_argument('--source-schema',default='cyber_security',help='K9-6：从已模拟 A18 的隔离 schema 克隆')
     parser.add_argument('--existing-bundle',help='K9-6：复用源 schema 中已批准的 r4，不新建组合')
@@ -765,7 +787,7 @@ def main():
             and (args.existing_bundle is None or args.source_schema!='cyber_security'),'LAB_EXISTING_BUNDLE_ARGUMENTS_INVALID')
     if args.mode == 'pf':
         require(args.r4_bundle_id and args.authorization_reference, 'LAB_PF_R4_NOT_ACTIVE')
-        formal_r4_preflight(j1_run.Database(args.mysql_service), args.r4_bundle_id)
+        formal_r4_preflight(j1_run.Database(args.mysql_service), args.r4_bundle_id, args.subject_sha256)
     runner=Runner(args)
     try:
         if args.resume:runner.resume()

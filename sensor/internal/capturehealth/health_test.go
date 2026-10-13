@@ -118,6 +118,44 @@ func TestContinuousHealthyChain(t *testing.T) {
 	}
 }
 
+func TestEqualTimestampConcurrentSamplesDoNotCreateGap(t *testing.T) {
+	var ws []Window
+	o := observer(t, &ws)
+	if err := o.Observe(hostguard.LiveSample{At: t0, PacketsSeen: 0, DropsKnown: true}); err != nil {
+		t.Fatal(err)
+	}
+	// 多场景汇总可能在同一微秒内收到多个槽位更新；时间相等不是倒退。
+	if err := o.Observe(hostguard.LiveSample{At: t0, PacketsSeen: 3, DropsKnown: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := o.Observe(hostguard.LiveSample{At: t0.Add(time.Second), PacketsSeen: 7, DropsKnown: true}); err != nil {
+		t.Fatal(err)
+	}
+	if len(ws) != 1 || ws[0].CaptureGap {
+		t.Fatalf("same timestamp marked a gap: %+v", ws)
+	}
+	if ws[0].CounterEnd.PacketsSeen == nil || *ws[0].CounterEnd.PacketsSeen != 7 {
+		t.Fatalf("equal timestamp counter update was lost: %+v", ws[0].CounterEnd)
+	}
+}
+
+func TestSameTimeDoesNotHideExplicitGapOrCounterRollback(t *testing.T) {
+	for _, sample := range []hostguard.LiveSample{
+		{At: t0, PacketsSeen: 5, DropsKnown: true, Gap: true},
+		{At: t0, PacketsSeen: 4, DropsKnown: true},
+		{At: t0.Add(-time.Microsecond), PacketsSeen: 5, DropsKnown: true},
+	} {
+		var ws []Window
+		o := observer(t, &ws)
+		_ = o.Observe(hostguard.LiveSample{At: t0, PacketsSeen: 5, DropsKnown: true})
+		_ = o.Observe(sample)
+		_ = o.Observe(hostguard.LiveSample{At: t0.Add(time.Second), PacketsSeen: 6, DropsKnown: true})
+		if len(ws) != 1 || !ws[0].CaptureGap {
+			t.Fatalf("real defect was hidden: %+v", sample)
+		}
+	}
+}
+
 func TestGapUnknownDropsAndStallAreNotHealthy(t *testing.T) {
 	var ws []Window
 	o := observer(t, &ws)
@@ -152,5 +190,40 @@ func TestGapUnknownDropsAndStallAreNotHealthy(t *testing.T) {
 	}
 	if _, err := New(ident(), Options{Window: 6 * time.Second, NewID: func() string { return "00000000-0000-4000-8000-000000000009" }, Emit: func(Window) error { return nil }}); err == nil {
 		t.Fatal("超过 5 秒的窗口未拒绝")
+	}
+}
+
+func TestDefaultJCSBytesRemainUnchanged(t *testing.T) {
+	var ws []Window
+	o := observer(t, &ws)
+	_ = o.Observe(hostguard.LiveSample{At: t0, DropsKnown: true})
+	_ = o.Observe(hostguard.LiveSample{At: t0.Add(time.Second), PacketsSeen: 7, DropsKnown: true})
+	raw, err := jcs.Canonical(ws[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	const golden = `{"assetId":"00000000-0000-4000-8000-000000000001","buildSha256":"0000000000000000000000000000000000000000000000000000000000000002","captureGap":false,"captureScopeId":"00000000-0000-4000-8000-000000000004","clockSkewMs":3,"configSha256":"0000000000000000000000000000000000000000000000000000000000000001","counterEnd":{"capacityDrops":0,"kernelDrops":0,"packetsSeen":7},"counterStart":{"capacityDrops":0,"kernelDrops":0,"packetsSeen":0},"healthVersion":"host-guard-capture-health/1.0.0","healthWindowId":"00000000-0000-4000-8000-000000000002","intervalEnd":"2026-10-08T10:00:01Z","intervalStart":"2026-10-08T10:00:00Z","metrics":{"lateCount":0,"memoryBytes":0,"queueMax":0},"observerSessionId":"00000000-0000-4000-8000-000000000001","previousSha256":null,"sensorId":"00000000-0000-4000-8000-000000000002","sequence":1}`
+	if string(raw) != golden || o.Version() != Version {
+		t.Fatalf("默认窗口字节变化: %s", raw)
+	}
+}
+
+func TestFileReplaySourceAndVersionAreExplicit(t *testing.T) {
+	var ws []Window
+	for _, pair := range [][2]string{{ReplayVersion, ""}, {Version, "file_replay"}, {ReplayVersion, "unknown"}, {"unsupported", "live"}} {
+		_, err := New(ident(), Options{Version: pair[0], Source: pair[1], NewID: func() string { return ident().AssetID }, Emit: func(Window) error { return nil }})
+		if err == nil {
+			t.Fatal("不兼容版本/来源被接受", pair)
+		}
+	}
+	o, err := New(ident(), Options{Version: ReplayVersion, Source: "file_replay", NewID: func() string { return ident().AssetID }, Emit: func(w Window) error { ws = append(ws, w); return nil }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = o.Observe(hostguard.LiveSample{At: t0})
+	_ = o.Observe(hostguard.LiveSample{At: t0.Add(time.Second), PacketsSeen: 2})
+	w := ws[0]
+	if w.HealthVersion != ReplayVersion || w.CaptureSource == nil || *w.CaptureSource != "file_replay" || w.CounterEnd.KernelDrops != nil || w.CounterEnd.PacketsSeen == nil || w.CaptureGap {
+		t.Fatal("回放来源或计数丢失", w)
 	}
 }

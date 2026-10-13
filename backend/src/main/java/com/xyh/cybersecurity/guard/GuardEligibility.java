@@ -16,6 +16,8 @@ public class GuardEligibility {
     /** Spring 运行路径追加会话有效性检查；原三参构造保留给纯领域测试。 */
     @org.springframework.beans.factory.annotation.Autowired
     void labGate(GuardLabExecutionGate gate){this.labGate=gate;}
+    /** 判定与领取共享 T2 回放准入；未接会话门的旧测试/入口保持现场口径。 */
+    public boolean replayAllowed(JsonNode observation,Map<String,Object> bundle){return labGate!=null&&labGate.replayAllowed(observation,bundle);}
     public GuardEligibility(GuardStore store,@Value("${cyber.guard.automation-enabled:false}") boolean automation,@Value("${cyber.guard.protection-file:}") String protectionFile){this.store=store;this.automation=automation;
         JsonNode p=null;if(!protectionFile.isBlank())try{p=parse(java.nio.file.Files.readString(java.nio.file.Path.of(protectionFile)));fields(p,"protectedBudgetTargetIds protectedServicePorts","");}catch(java.io.IOException e){throw new IllegalStateException("保护配置不可读");}
         // 启动即按执行器同一规则校验端口，运行中不再因保护文件格式在判定路径抛错。

@@ -1,5 +1,6 @@
 """K9 E3 引导克隆编排器的前置门禁与报告上下文；不连接数据库、不启动进程。"""
 import json
+import io
 from pathlib import Path
 import tempfile
 from types import SimpleNamespace
@@ -36,6 +37,28 @@ def args(**kw):
 
 
 class E3BootstrapTest(unittest.TestCase):
+    def test_subject_cli_parsing_and_forwarding(self):
+        base=['e3_bootstrap.py','--mode','rehearse','--source-schema','cyber_guard_test','--bundle-id',BUNDLE]
+        for expected in (k9.R4_SUBJECT_SHA256,'a'*64):
+            argv=base+([] if expected==k9.R4_SUBJECT_SHA256 else ['--subject-sha256',expected])
+            with patch('sys.argv',argv),patch.object(k9,'run',return_value={}) as run, \
+                 patch.object(k9.os,'umask'),patch('builtins.print'):
+                self.assertEqual(k9.main(),0)
+            self.assertEqual(run.call_args.args[0].subject_sha256,expected)
+        for value in ('short','A'*64,'g'*64):
+            with patch('sys.argv',base+['--subject-sha256',value]),patch('sys.stderr',new=io.StringIO()), \
+                 patch.object(k9,'run') as run:
+                with self.assertRaises(SystemExit):k9.main()
+                run.assert_not_called()
+
+    def test_candidate_accepts_explicit_subject_and_rejects_old_default(self):
+        db=Db(subject={'environment':'lab','protocolVersions':{'health':'host-guard-capture-health/1.1.0'}})
+        facts=k9.bundle_facts(db,'cyber_guard_test',BUNDLE)
+        expected=db.bundle['subjectSha256']
+        self.assertEqual(k9.check_candidate(facts,expected,False)['subjectSha256'],expected)
+        with self.assertRaisesRegex(Exception,'K9_R4_SUBJECT_MISMATCH'):
+            k9.check_candidate(facts,k9.R4_SUBJECT_SHA256,False)
+
     def test_rehearse_requires_isolated_source_and_candidate(self):
         db = Db()
         a = args(subject_sha256=db.bundle["subjectSha256"])

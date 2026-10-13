@@ -55,7 +55,7 @@ func uploaderFor(t *testing.T, c *Client, spoolRoot string) *Uploader {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = VerifyRemote(remote, scopeID, "ipv4", buildHash); err != nil {
+	if err = VerifyRemote(remote, scopeID, "ipv4", buildHash, capturehealth.Version); err != nil {
 		t.Fatal(err)
 	}
 	s, err := OpenSpool(spoolRoot, SpoolMeta{SensorID: sensorID, BootID: bootID, ConfigID: remote.ConfigID, ContractVersion: hostguard.Version, ProfileSha256: hostguard.FeatureProfileSHA256}, remote.Config.Limits.MaxBatchSize)
@@ -291,7 +291,7 @@ func TestVerifyRemoteFailsClosed(t *testing.T) {
 	ok.Config.ContractVersion, ok.Config.ProfileSha256, ok.Config.CaptureHealthVersion = hostguard.Version, hostguard.FeatureProfileSHA256, capturehealth.Version
 	ok.Config.CaptureScopeID, ok.Config.AddressFamily, ok.Config.BuildSha256 = scopeID, "ipv4", buildHash
 	ok.Config.Limits.MaxBatchSize = MaxBatchSize
-	if err := VerifyRemote(ok, scopeID, "ipv4", buildHash); err != nil {
+	if err := VerifyRemote(ok, scopeID, "ipv4", buildHash, capturehealth.Version); err != nil {
 		t.Fatal(err)
 	}
 	for want, mutate := range map[string]func(r *RemoteConfig){
@@ -303,7 +303,7 @@ func TestVerifyRemoteFailsClosed(t *testing.T) {
 	} {
 		r := ok
 		mutate(&r)
-		if err := VerifyRemote(r, scopeID, "ipv4", buildHash); err == nil || err.Error() != want {
+		if err := VerifyRemote(r, scopeID, "ipv4", buildHash, capturehealth.Version); err == nil || err.Error() != want {
 			t.Fatalf("期望 %s，得到 %v", want, err)
 		}
 	}

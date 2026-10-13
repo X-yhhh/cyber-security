@@ -94,9 +94,21 @@ func ReplayPCAP(ctx context.Context, path string, e *Engine, o ReplayOptions) (R
 		return r, err
 	}
 	e.emissionClock = clock.Now
+	var lastSample time.Time
+	sample := func(at time.Time) {
+		if o.Observe == nil {
+			return
+		}
+		capacity, late := e.CaptureCounters()
+		// 文件没有内核计数；真实采样停顿不能被其他并发场景的样本掩盖。
+		gap := !lastSample.IsZero() && at.Sub(lastSample) > 5*time.Second
+		o.Observe(LiveSample{At: at, PacketsSeen: r.Packets, CapacityDrops: capacity, LateCount: late, Gap: gap})
+		lastSample = at
+	}
 	started := false
 	if !o.CaptureStart.IsZero() {
 		r.WallStart = clock.Now().UTC()
+		sample(r.WallStart)
 		r.Offset = r.WallStart.Truncate(time.Second).Add(time.Second).Sub(o.CaptureStart.UTC().Truncate(time.Second))
 		if o.FixedOffset != nil {
 			r.Offset = *o.FixedOffset
@@ -109,6 +121,7 @@ func ReplayPCAP(ctx context.Context, path string, e *Engine, o ReplayOptions) (R
 			if err := clock.Sleep(ctx, min(tick, at.Sub(now))); err != nil {
 				return r, err
 			}
+			sample(clock.Now())
 		}
 		if err := e.Tick(at); err != nil {
 			return r, err
@@ -116,16 +129,6 @@ func ReplayPCAP(ctx context.Context, path string, e *Engine, o ReplayOptions) (R
 		started = true
 	}
 	sawPacket := false
-	var lastSample time.Time
-	sample := func(at time.Time) {
-		if o.Observe == nil {
-			return
-		}
-		capacity, late := e.CaptureCounters()
-		// 公开/冻结文件的历史丢包不可测，DropsKnown=false；不能当作连续健康证明。
-		o.Observe(LiveSample{At: at, PacketsSeen: r.Packets, CapacityDrops: capacity, LateCount: late})
-		lastSample = at
-	}
 	err := WalkPCAP(path, func(data []byte, ci gopacket.CaptureInfo, seq uint64) error {
 		if !o.Start.IsZero() && ci.Timestamp.Before(o.Start) || !o.End.IsZero() && ci.Timestamp.After(o.End) {
 			return nil

@@ -64,14 +64,14 @@ type Uploader struct {
 }
 
 // VerifyRemote 对已批准配置做 fail-closed 核对：契约、profile、健康版本、捕获域、地址族与程序摘要必须与本机一致。
-func VerifyRemote(r RemoteConfig, captureScopeID, addressFamily, buildSha256 string) error {
+func VerifyRemote(r RemoteConfig, captureScopeID, addressFamily, buildSha256, healthVersion string) error {
 	c := r.Config
 	switch {
 	case !uuidPattern.MatchString(r.ConfigID) || len(r.ConfigHash) != 64:
 		return errors.New("CONFIG_INACTIVE")
 	case c.ContractVersion != hostguard.Version || c.ProfileSha256 != hostguard.FeatureProfileSHA256:
 		return errors.New("CONTRACT_UNSUPPORTED")
-	case c.CaptureHealthVersion != capturehealth.Version:
+	case healthVersion != capturehealth.Version && healthVersion != capturehealth.ReplayVersion || c.CaptureHealthVersion != healthVersion:
 		return errors.New("HEALTH_VERSION_UNSUPPORTED")
 	case c.CaptureScopeID != captureScopeID || c.AddressFamily != addressFamily:
 		return errors.New("SCOPE_DENIED")

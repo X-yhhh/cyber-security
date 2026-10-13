@@ -379,6 +379,11 @@ func (s *Session) MapEmission(v hostguard.Emission, now time.Time) (hostguard.Ob
 		o.TargetRef = nil
 		o.TargetExpiresAt = nil
 	}
+	if o.AsOf.Before(s.Scenario.SourceStart.Add(s.Offset)) {
+		// 预热观察保留遥测和上下文，但不得携带执行资格，避免预热证据占用动作预算。
+		o.TargetRef = nil
+		o.TargetExpiresAt = nil
+	}
 	if len(s.Config.Inputs) > 0 {
 		o.ObservationID = s.scenarioID(o.ObservationID)
 		o.FlowID = s.scenarioID(o.FlowID)

@@ -106,7 +106,7 @@ public class GuardActions {
             if(source.equals("rule")){var fact=store.one("guard_rule_evaluation",map("observation_id",row.get("id"),"policy_id",bundle.get("policy_id"),"rule_id",ruleId),false);require(fact!=null&&GuardDetection.flag(fact.get("matched"))&&matched&&family.equals(str(fact,"family")),"EVIDENCE_STALE");}
             // 每条选中证据均须在领取时仍满足范围；汇总后由判定器保持 T1—T9 拒绝顺序。
             capable&=eligibility.capability(bundle,policy,current,family);
-            healthy&=health.current(number(row,"capture_scope_id"),now)&&!mapper.batchGap(number(row,"sensor_id"),str(row,"boot_id"));
+            healthy&=health.current(number(row,"capture_scope_id"),now,eligibility.replayAllowed(current,bundle))&&!mapper.batchGap(number(row,"sensor_id"),str(row,"boot_id"));
             validTarget&=eligibility.target(target,current,now,policy,family);
             authorized&=eligibility.authorized(asset,bundle,binding,policy,current,executor,now,family);
             String protection=eligibility.protection(bundle,policy,target,current,family);if(protectionReason==null)protectionReason=protection;

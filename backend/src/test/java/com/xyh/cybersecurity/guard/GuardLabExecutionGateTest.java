@@ -48,4 +48,35 @@ class GuardLabExecutionGateTest {
         when(store.one(eq("guard_target_binding"),anyMap(),eq(false))).thenReturn(map("budget_target_id",99L,"scope_digest","a"));
         assertThat(gate.permits(observation,bundle,now)).isFalse();assertThat(gate.permits(observation,map("id",99L),now)).isFalse();
     }
+    @Test void replayRequiresV11RunningFormalOwnerWithMatchingAssetAndBundle() {
+        ObjectNode versions=(ObjectNode)versions();versions.put("health",HEALTH_REPLAY);bundle.put("subject_json",canonical(object("protocolVersions",versions)));
+        assertThat(gate.replayAllowed(observation,bundle)).isTrue();
+        versions.put("health",HEALTH);bundle.put("subject_json",canonical(object("protocolVersions",versions)));
+        assertThat(gate.replayAllowed(observation,bundle)).isFalse();
+        versions.put("health",HEALTH_REPLAY);bundle.put("subject_json",canonical(object("protocolVersions",versions)));
+        observation.put("environment","research");assertThat(gate.replayAllowed(observation,bundle)).isFalse();observation.put("environment","lab");
+        when(mapper.owner(anyLong(),anyString())).thenReturn(null);assertThat(gate.replayAllowed(observation,bundle)).isFalse();
+        when(mapper.owner(anyLong(),anyString())).thenReturn(2L);
+        for(String state:java.util.List.of("queued","completed","interrupted","failed","cancelled","expired")) {
+            run.put("status",state);assertThat(gate.replayAllowed(observation,bundle)).isFalse();
+        }
+        run.put("status","running");manifest.put("evidenceKind","synthetic");run.put("manifest_jcs",canonical(manifest));
+        assertThat(gate.replayAllowed(observation,bundle)).isFalse();
+        manifest.put("evidenceKind","lab");run.put("manifest_jcs",canonical(manifest));
+        session.put("asset_id",99L);assertThat(gate.replayAllowed(observation,bundle)).isFalse();session.put("asset_id",10L);
+        session.put("bundle_id",99L);assertThat(gate.replayAllowed(observation,bundle)).isFalse();
+    }
+    @Test void sharedEligibilityControlsT2ForDecisionAndClaimEvidence()throws Exception {
+        ObjectNode versions=(ObjectNode)versions();versions.put("health",HEALTH_REPLAY);bundle.put("subject_json",canonical(object("protocolVersions",versions)));
+        var eligibility=new GuardEligibility(store,true,"");eligibility.labGate(gate);
+        var health=new GuardHealth(store,mock(GuardAccess.class));
+        when(store.one(eq("guard_capture_health_window"),anyMap(),eq(false)))
+                .thenReturn(map("verification_status","replay_healthy","interval_end",db(now)));
+        var o=GuardDomainTest.observation(now);o.put("environment","lab").put("sensorId",observation.path("sensorId").asText()).put("bootId",observation.path("bootId").asText());
+        var policy=GuardDomainTest.autoPolicy(1);policy.put("minEvidenceSpanMs",0);
+        var evidence=java.util.List.of(new GuardDecisionEngine.Evidence(o,1d,"a".repeat(64)));
+        assertThat(GuardDecisionEngine.evaluate(policy,evidence,now,new GuardDecisionEngine.Gates(true,health.current(1,now,eligibility.replayAllowed(o,bundle)),true,true,null)).decision()).isEqualTo("block_candidate");
+        run.put("status","completed");
+        assertThat(GuardDecisionEngine.evaluate(policy,evidence,now,new GuardDecisionEngine.Gates(true,health.current(1,now,eligibility.replayAllowed(o,bundle)),true,true,null)).reason()).isEqualTo("QUALITY_UNSUPPORTED");
+    }
 }

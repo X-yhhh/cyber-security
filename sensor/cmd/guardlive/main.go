@@ -191,7 +191,8 @@ func startUpload(c config, fresh bool, timeout time.Duration) (*uploadSession, e
 	if err != nil {
 		return nil, err
 	}
-	if err = guardup.VerifyRemote(remote, c.CaptureScopeID, af, build); err != nil {
+	healthVersion, _ := healthProtocol(c)
+	if err = guardup.VerifyRemote(remote, c.CaptureScopeID, af, build, healthVersion); err != nil {
 		return nil, err
 	}
 	if !filepath.IsAbs(u.SpoolDir) {
@@ -254,10 +255,19 @@ func (s *uploadSession) finish() error {
 	return nil
 }
 
+// healthProtocol 仅在 lab-plan 已通过会话核验且组合绑定 1.1.0 时选择文件回放口径。
+func healthProtocol(c config) (string, string) {
+	if c.labSession != nil && len(c.labSession.Config.Inputs) > 0 && c.labSession.Manifest.ProtocolVersions["health"] == capturehealth.ReplayVersion {
+		return capturehealth.ReplayVersion, "file_replay"
+	}
+	return capturehealth.Version, ""
+}
+
 func (s *uploadSession) healthObserver(c config) (*capturehealth.Observer, error) {
 	window := time.Duration(c.Upload.HealthWindowMs) * time.Millisecond
+	version, source := healthProtocol(c)
 	return capturehealth.New(capturehealth.Identity{AssetID: c.AssetID, SensorID: c.SensorID, CaptureScopeID: c.CaptureScopeID, ConfigSha256: s.remote.ConfigHash, BuildSha256: s.build},
-		capturehealth.Options{Window: window, Skew: s.up.Skew, QueueMax: s.up.QueueDepth, NewID: guardup.NewUUID, Emit: s.up.SubmitHealth,
+		capturehealth.Options{Version: version, Source: source, Window: window, Skew: s.up.Skew, QueueMax: s.up.QueueDepth, NewID: guardup.NewUUID, Emit: s.up.SubmitHealth,
 			Memory: func() int64 {
 				var m runtime.MemStats
 				runtime.ReadMemStats(&m)

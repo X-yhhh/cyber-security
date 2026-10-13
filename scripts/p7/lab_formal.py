@@ -3,7 +3,7 @@
 
 与 lab_run.py 的 rehearse 共用冻结场景、对端映射、会话清单和报告流程，差异只在正式部分：
 - 目标库为业务库，或用于整链路预演的业务库克隆（`--target clone`，结束删除并核对业务库不变）；
-- r4 组合（已封存、独立批准）只激活到本次新建的回环 lab 资产，授权两小时；
+- 指定组合（默认 r4，已封存、独立批准）只激活到本次新建的回环 lab 资产，授权两小时；
 - 后端开启自动化与 RabbitMQ 检测消费，命令由本次专用签名密钥签发；
 - 执行器为 root 暂存副本中的 `executor run`/`recover`（scripts/p5/g3_executor.py），真实 PF；
 - 会话 evidenceKind=lab，runner 为正式 mac-lab-runner，隔离证明由独立隔离核验身份签署，
@@ -20,6 +20,7 @@ import hmac
 import json
 import os
 from pathlib import Path
+import re
 import secrets
 import shutil
 import subprocess
@@ -52,6 +53,7 @@ EVALUATOR = 'p6-evaluator/2026-10-10'
 PLATFORM_REF = 'reports/a6-20261012/round1/platform.json'
 A18_FINAL_REF = 'reports/a18-20261012/business/lab-m2-final.json'
 P6_FINAL_REF = 'reports/g3-20261012/p6-final-provenance.json'
+OFFICIAL_TRUST = KEYS / 'cyber-guard-trust/report-trust.json'
 PROTECTION = ROOT / 'scripts/p5/lab-protection.json'
 SOURCE_ELIGIBILITY = ['brute_force:model:', 'dos_flood:model:', 'dos_slow:model:', 'port_scan:model:', 'port_scan:rule:scan-ports']
 
@@ -70,7 +72,7 @@ def sign(payload, key, key_id):
 
 
 def ensure_identity(trust_file, name, directory, filename):
-    """仓库外 0600 私钥；公钥追加到正式 report-trust（只增不改）。"""
+    """0600 私钥；公钥只追加到指定信任文件，门禁预演使用运行目录内的独立身份。"""
     path = directory / filename
     if not path.exists():
         directory.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -117,6 +119,29 @@ def ensure_p6_final(artifacts):
     return {'ref': P6_FINAL_REF, 'sha256': sha(path), 'runnerIdentity': EVALUATOR}
 
 
+def validate_arguments(args):
+    """在取密、建目录或克隆前拒绝越界参数；合成证据仅允许进入独立克隆预演。"""
+    require(not args.admission_probe or args.target == 'clone', 'LAB_PROBE_CLONE_ONLY')
+    require(args.probe_seconds > 0, 'LAB_PROBE_DURATION_INVALID')
+    if args.gate_rehearsal:
+        require(args.target == 'clone' and args.admission_probe, 'LAB_GATE_CLONE_PROBE_ONLY')
+        require(re.fullmatch(r'cyber_guard_[a-z0-9_]{1,52}', args.source_schema), 'LAB_GATE_SOURCE_INVALID')
+        trust = args.report_trust
+        require(trust.is_file() and not trust.is_symlink() and trust.resolve() != OFFICIAL_TRUST.resolve(),
+                'LAB_GATE_CLONE_TRUST_REQUIRED')
+        require(not OFFICIAL_TRUST.exists() or not trust.samefile(OFFICIAL_TRUST), 'LAB_GATE_CLONE_TRUST_REQUIRED')
+    else:
+        require(args.source_schema == BUSINESS, 'LAB_FORMAL_SOURCE_MUST_BE_BUSINESS')
+    if not args.admission_probe:
+        require(args.rendezvous is not None and args.stage_manifest and args.authorization_reference,
+                'LAB_ROOT_ARGUMENTS_REQUIRED')
+    require(args.final_ref is not None or args.subject_sha256 == lab_run.R4_SUBJECT_SHA256, 'LAB_FINAL_REF_REQUIRED')
+    try:
+        require(str(uuid.UUID(args.bundle_id)) == args.bundle_id, 'LAB_BUNDLE_ID_INVALID')
+    except (ValueError, TypeError) as error:
+        raise ValueError('LAB_BUNDLE_ID_INVALID') from error
+
+
 class Rabbit:
     """每次运行独立 vhost，结束删除，不触碰已有 vhost。"""
     def __init__(self, name):
@@ -139,6 +164,7 @@ class Rabbit:
 
 class Formal(lab_run.Runner):
     def __init__(self, args):
+        validate_arguments(args)
         super().__init__(args)
         self.target = BUSINESS if args.target == 'business' else 'cyber_guard_g3pf_' + uuid.uuid4().hex[:20]
         self.schema = self.target
@@ -146,19 +172,21 @@ class Formal(lab_run.Runner):
         self.rabbit_created = False
         self.root_dir = None
         self.state.update(schemaName=self.schema, mode='pf-' + args.target, evidenceKind='lab',
-                          formalG3Eligible=args.target == 'business', rabbitVhost=self.rabbit.name)
+                          formalG3Eligible=not args.admission_probe, realPF=not args.admission_probe,
+                          gateRehearsal=args.gate_rehearsal, sourceSchema=args.source_schema, rabbitVhost=self.rabbit.name)
 
     # ---- 准备 ----
     def operator(self):
         """独立申请身份：platform_admin + model_operator（全局），与审批人 guard-reviewer 分离。"""
-        directory = KEYS / 'cyber-guard-g3-operator'
+        directory = self.work / 'private/operator' if self.args.gate_rehearsal else KEYS / 'cyber-guard-g3-operator'
+        username = 'g3-gate-' + self.state['sessionId'][:8] if self.args.gate_rehearsal else 'g3-operator'
         path = directory / 'credentials.json'
         if not path.exists():
             directory.mkdir(mode=0o700, parents=True, exist_ok=True)
-            write(path, {'username': 'g3-operator', 'password': secrets.token_urlsafe(18), 'roles': ['platform_admin', 'model_operator'],
+            write(path, {'username': username, 'password': secrets.token_urlsafe(18), 'roles': ['platform_admin', 'model_operator'],
                          'purpose': 'A6 G3 申请/运行身份（与 guard-reviewer 分离）', 'createdAt': stamp()})
         credentials = load(path)
-        exists = int(self.db.query("SELECT COUNT(*) FROM sys_user WHERE username='g3-operator'", self.schema))
+        exists = int(self.db.query(f"SELECT COUNT(*) FROM sys_user WHERE username='{username}'", self.schema))
         if not exists:
             lib = ROOT / '.cache/b3-20261010/lib'
             hashed = subprocess.run([str(self.args.java), '-cp', f'{lib}/spring-security-crypto-6.5.11.jar:{lib}/spring-jcl-6.2.19.jar',
@@ -167,11 +195,11 @@ class Formal(lab_run.Runner):
             require(hashed.startswith('$2a$12$') and len(hashed) == 60, 'LAB_OPERATOR_HASH_INVALID')
             key = uid()
             self.db.query("INSERT INTO sys_user(user_key,username,display_name,status,password_hash) VALUES "
-                          f"('{key}','g3-operator','A6 G3 operator','active','{hashed}');"
+                          f"('{key}','{username}','A6 G3 operator','active','{hashed}');"
                           "INSERT INTO sys_user_role(user_id,role_id,scope_type,scope_id) SELECT u.id,r.id,'global','*' FROM sys_user u "
                           f"JOIN sys_role r ON r.role_key IN ('platform_admin','model_operator') WHERE u.user_key='{key}';", self.schema)
         roles = self.db.query("SELECT r.role_key FROM sys_user u JOIN sys_user_role ur ON ur.user_id=u.id JOIN sys_role r ON r.id=ur.role_id "
-                              "WHERE u.username='g3-operator' ORDER BY r.role_key", self.schema).decode().split()
+                              f"WHERE u.username='{username}' ORDER BY r.role_key", self.schema).decode().split()
         require(roles == ['model_operator', 'platform_admin'], 'LAB_OPERATOR_ROLES_INVALID')
         write(self.work / 'private/isolated-operator.json', {'username': credentials['username'], 'password': credentials['password']})
 
@@ -203,7 +231,8 @@ class Formal(lab_run.Runner):
         self.context = j1_run.ssl_context(tls)
         jfr = ['-XX:StartFlightRecording=filename=' + str(self.work / 'backend.jfr') + ',settings=profile,dumponexit=true'] if self.args.jfr else []
         self.backend = self.start_process([self.args.java, '--enable-native-access=ALL-UNNAMED', '-Xmx3g', *jfr,
-            '-Dcyber.guard.automation-enabled=true', '-Dcyber.guard.lab-rehearsal-enabled=false', '-Dcyber.guard.bootstrap-reports-enabled=false',
+            '-Dcyber.guard.automation-enabled=true', '-Dcyber.guard.lab-rehearsal-enabled=false',
+            '-Dcyber.guard.bootstrap-reports-enabled=' + ('true' if self.args.gate_rehearsal else 'false'),
             '-Dcyber.guard.signing-key-id=' + self.signing_id, '-Dcyber.guard.signing-key-file=' + str(signing_path),
             '-Dcyber.guard.protection-file=' + str(PROTECTION),
             '-Dcyber.guard.artifact-root=' + str(self.artifacts), '-Dcyber.guard.report-trust-file=' + str(self.args.report_trust),
@@ -224,23 +253,49 @@ class Formal(lab_run.Runner):
         self.rev = j1_run.Session(self.base, self.context).login({'username': reviewer.get('username', 'guard-reviewer'), 'password': reviewer['password']})
 
     def prepare_bundle(self):
+        """核对指定组合与报告的绑定；非 r4 必须提供自身 final，不能重贴旧报告标签。"""
         plan = load(self.args.import_plan)
         self.policy = plan['decisionPolicy']
-        self.bundle = R4_BUNDLE
-        view = self.op.v2('/release-bundles/' + R4_BUNDLE, method='GET')
-        require(view['status'] in ('approved', 'active') and view['subjectSha256'] == lab_run.R4_SUBJECT_SHA256
-                and view['environment'] == 'lab', 'LAB_R4_NOT_APPROVED')
+        self.bundle = self.args.bundle_id
+        view = self.op.v2('/release-bundles/' + self.bundle, method='GET')
+        require(view['status'] in ('approved', 'active') and view['subjectSha256'] == self.args.subject_sha256
+                and view['environment'] == 'lab', 'LAB_BUNDLE_NOT_APPROVED')
         self.subject_sha, self.versions = view['subjectSha256'], plan['releaseBundle']['protocolVersions']
         self.plan_sha = self.policy['evaluationPlanSha256']
-        platform = load(self.artifacts / PLATFORM_REF)['payload']
-        require(platform['subjectSha256'] == self.subject_sha and platform['evidenceKind'] == 'real_pf', 'LAB_P5_PROOF_INVALID')
+        subject = json.loads(self.db.query("SELECT subject_json FROM guard_release_bundle WHERE public_id='" + self.bundle + "'", self.schema))
+        require(digest(subject) == self.subject_sha and subject['protocolVersions'] == self.versions
+                and subject['policySha256'] == digest(self.policy)
+                and subject['extractorSha256'] == plan['releaseBundle']['extractorSha256']
+                and subject['evaluationPlanSha256'] == self.plan_sha, 'LAB_IMPORT_PLAN_MISMATCH')
+        platform_ref, platform = self.read_proof(self.args.platform_ref, 'platform')
+        if self.args.final_ref is None:
+            require(self.subject_sha == lab_run.R4_SUBJECT_SHA256, 'LAB_FINAL_REF_REQUIRED')
+            ensure_p6_final(self.artifacts)
+        final_ref, final = self.read_proof(self.args.final_ref or P6_FINAL_REF, 'final')
         self.executor_sha = platform['executorSha256']
         require(self.executor_sha == lab_run.executor_digest(), 'LAB_EXECUTOR_CODE_CHANGED')
-        self.provenance = dict(p6_provenance(), modelSha256=self.source['bindings']['modelSha256'], policySha256=digest(self.policy),
+        provenance = final['provenance']
+        self.provenance = dict({k: provenance[k] for k in ('datasetSha256', 'splitSha256', 'labelRulesSha256', 'codeSha256')},
+                               modelSha256=self.source['bindings']['modelSha256'], policySha256=digest(self.policy),
                                extractorSha256=plan['releaseBundle']['extractorSha256'], executorSha256=self.executor_sha)
-        self.proofs = {'platform': {'ref': PLATFORM_REF, 'sha256': sha(self.artifacts / PLATFORM_REF), 'runnerIdentity': PLATFORM_RUNNER},
-                       'final': ensure_p6_final(self.artifacts)}
+        self.proofs = {'platform': platform_ref, 'final': final_ref}
         self.state.update(bundleId=self.bundle, bundleRevision=view['revision'], subjectSha256=self.subject_sha, bundleStatusBefore=view['status'])
+
+    def read_proof(self, ref, kind):
+        """报告只读且保持原签名；正式路径拒绝引导/合成证据，后端再验签。"""
+        path = (self.artifacts / ref).resolve()
+        code = 'LAB_P5_PROOF_INVALID' if kind == 'platform' else 'LAB_P6_PROOF_INVALID'
+        require(not Path(ref).is_absolute() and path.is_relative_to(self.artifacts), code)
+        envelope = load(path)
+        payload = envelope['payload']
+        require(payload.get('runKind') == kind and payload.get('passed') is True
+                and payload.get('subjectSha256') == self.subject_sha
+                and payload.get('evaluationPlanSha256') == self.plan_sha
+                and payload.get('protocolVersions') == self.versions and envelope.get('keyId'), code)
+        evidence = payload.get('evidenceKind')
+        require(self.args.gate_rehearsal or evidence not in ('bootstrap', 'synthetic'), code)
+        require(kind != 'platform' or self.args.gate_rehearsal or evidence == 'real_pf', code)
+        return {'ref': ref, 'sha256': sha(path), 'runnerIdentity': envelope['keyId']}, payload
 
     def mapping_entries(self):
         """回放对端统一映射到 127.30.0.0/24；每个原始对端一个执行对象，攻击与正常不共享。"""
@@ -270,7 +325,8 @@ class Formal(lab_run.Runner):
         self.sensor = sensor['id']
         (self.work / 'private/sensor.credential').write_text(sensor['credential'])
         (self.work / 'private/sensor.credential').chmod(0o600)
-        executor = self.op.v2('/executors', dict(assetId=self.asset, platform='macos', capabilityProbeRef='root-stage:' + self.args.stage_manifest))
+        probe_ref = 'user-mode-admission-probe' if self.args.admission_probe else 'root-stage:' + self.args.stage_manifest
+        executor = self.op.v2('/executors', dict(assetId=self.asset, platform='macos', capabilityProbeRef=probe_ref))
         self.executor, self.executor_token = executor['id'], executor['credential']
         (self.work / 'private/executor.credential').write_text(executor['credential'])
         (self.work / 'private/executor.credential').chmod(0o600)
@@ -296,9 +352,9 @@ class Formal(lab_run.Runner):
         activation = self.rev.v2('/release-bundles/' + self.bundle + '/activations', dict(assetIds=[self.asset], authorizationIds=[self.auth]), view['revision'])
         self.state['activation'] = activation
         if self.target == BUSINESS:
-            lab_run.formal_r4_preflight(self.db, self.bundle)
+            lab_run.formal_r4_preflight(self.db, self.bundle, self.args.subject_sha256)
         config = dict(contractVersion='host-guard/5.0.0-rc.2', profileSha256=load(self.args.import_plan)['releaseBundle']['featureProfileSha256'],
-                      captureHealthVersion='host-guard-capture-health/1.0.0', interfaceIds=['lo0'], limits={'maxBatchSize': 100},
+                      captureHealthVersion=self.versions['health'], interfaceIds=['lo0'], limits={'maxBatchSize': 100},
                       captureScopeId=self.scope, addressFamily='ipv4', buildSha256=sha(self.work / 'bin/guardlive'))
         cid = self.op.v2('/sensors/' + self.sensor + '/configs', config)['id']
         self.rev.v2('/sensor-configs/' + cid + '/decisions', dict(decision='approve', reason='A6 G3 lab replay build'), 1)
@@ -334,7 +390,9 @@ class Formal(lab_run.Runner):
                     targetCA=base64.b64encode((ipc / 'ca.pem').read_bytes()).decode(),
                     targetCertificate=base64.b64encode((ipc / 'executor.pem').read_bytes()).decode(),
                     targetKey=base64.b64encode((ipc / 'executor.key').read_bytes()).decode())
-        self.root_dir = Path(self.args.rendezvous)
+        self.root_dir = self.args.rendezvous or self.work / 'private/probe-executor'
+        if self.args.rendezvous is None and self.args.admission_probe:
+            self.root_dir.mkdir(mode=0o700)
         require(self.root_dir.is_dir() and not (self.root_dir / 'input.json').exists(), 'LAB_RENDEZVOUS_INVALID')
         self.state['executorCapabilityHash'] = data['capabilityHash']
         if self.args.admission_probe:
@@ -380,11 +438,12 @@ class Formal(lab_run.Runner):
                   capabilityHash=data['capabilityHash'], pendingRecovery=False, activeRuleCount=0, clockSkewMs=0), headers(), (200,))
         http.call('POST', '/api/v2/machine/executors/' + self.executor + '/reconciliations', dict(executorBootId=self.executor_boot, observedAt=stamp(),
                   digestVersion='guard-state/1', stateDigest=digest(normalized), ownedRules=[], pendingRevocations=[], recoveryErrors=[]), headers(), (200,))
-        threading.Thread(target=beat, daemon=True).start()
+        self.probe_thread = threading.Thread(target=beat, daemon=True)
+        self.probe_thread.start()
         time.sleep(3)
         row = self.db.query(f"SELECT boot_id FROM guard_executor WHERE public_id='{self.executor}'", self.schema).decode().strip()
         self.state['probeExecutorBootRegistered'] = row == self.executor_boot
-        self.state.update(executorBootId=self.executor_boot, admissionProbe=True)
+        self.state.update(executorBootId=self.executor_boot, admissionProbe=True, realPF=False, formalG3Eligible=False)
 
     def prepare_targets(self):
         ipc = self.work / 'private/ipc'
@@ -432,7 +491,7 @@ class Formal(lab_run.Runner):
 
     def freeze_session(self):
         start = datetime.now(UTC) + timedelta(seconds=140)
-        clock = clock_plan(self.rows, start)
+        clock = clock_plan(self.rows, start, staggered=True)
         scenario_file, mapping_file = self.artifact_dir / 'scenarios.json', self.artifact_dir / 'mapping.json'
         write(scenario_file, dict(contractVersion=VERSION, scenarios=self.rows))
         mapping_id = uid()
@@ -444,14 +503,20 @@ class Formal(lab_run.Runner):
                         sensorId=self.sensor, bootId=self.boot, executorId=self.executor, executorBootId=self.executor_boot,
                         mappingRef=str(mapping_file.relative_to(self.artifacts)), mappingSha256=sha(mapping_file), mappingId=mapping_id,
                         scenarioRef=str(scenario_file.relative_to(self.artifacts)), scenarioSha256=sha(scenario_file), provenance=self.provenance, time=clock, speed=1)
+        mechanism = ('file replay of frozen PCAPs (no packet injection); replay peers mapped to 127.30.0.0/24 on lo0; '
+                     'backend/guardtargets listen on 127.0.0.1 only; ')
+        if self.args.admission_probe:
+            mechanism += 'user-mode executor sends heartbeats only; no command claims or PF rules'
+            verified_by = 'assistant: isolated clone admission probe (no PF execution)'
+        else:
+            mechanism += 'PF rules confined to the executor anchor on lo0'
+            verified_by = 'assistant on behalf of user: ' + self.args.authorization_reference
         isolation = self.signed('isolation', dict(sessionId=manifest['sessionId'], assetId=self.asset, mappingSha256=manifest['mappingSha256'], executorId=self.executor,
                                 validUntil=manifest['validUntil'], networkIsolationVerified=True, evidenceKind='lab',
-                                mechanism='file replay of frozen PCAPs (no packet injection); replay peers mapped to 127.30.0.0/24 on lo0; '
-                                          'backend/guardtargets listen on 127.0.0.1 only; PF rules confined to the executor anchor on lo0',
-                                verifiedBy='assistant on behalf of user (A6 full authorization 2026-10-12)'), True)
+                                mechanism=mechanism, verifiedBy=verified_by), True)
         admission = self.signed('admission', dict(sessionId=manifest['sessionId'], subjectSha256=self.subject_sha, j1Passed=True, j2Registered=True, evidenceKind='lab',
                                 j1Closeout=sha(ROOT / '.cache/j1v9-20261011/closeout.json'), j2Scenario=sha(self.args.scenario),
-                                plannedM2=self.source['plannedM2'], authorization=self.args.authorization_reference))
+                                plannedM2=self.source['plannedM2'], authorization=self.args.authorization_reference or 'clone-admission-probe'))
         manifest['proofs'] = dict(p5=self.proofs['platform'], p6=self.proofs['final'], isolation=isolation, admission=admission)
         ref = self.signed('session', manifest)
         self.manifest = manifest
@@ -477,7 +542,9 @@ class Formal(lab_run.Runner):
         create = self.op.v2('/lab-validation-runs', dict(sessionRef=ref['ref'], sha256=ref['sha256'], runnerIdentity=self.runner_name))
         approved = self.rev.v2('/lab-validation-runs/' + manifest['sessionId'] + '/decisions', dict(decision='approve', reason='A6 G3 正式会话（J3/J4）'), create['revision'])
         self.op.v2('/lab-validation-runs/' + manifest['sessionId'] + '/starts', {}, approved['revision'])
-        write(self.work / 'runtime.json', dict(realBackend=True, realSensor=True, realPF=True, automationEnabled=True, target=self.target,
+        write(self.work / 'runtime.json', dict(realBackend=True, realSensor=True, realPF=not self.args.admission_probe,
+                                               formalG3Eligible=not self.args.admission_probe, gateRehearsal=self.args.gate_rehearsal,
+                                               automationEnabled=True, target=self.target,
                                                modelSha256=self.provenance['modelSha256'], speed=1, backendSha256=sha(self.work / 'bin/backend.jar'),
                                                sensorSha256=sha(self.work / 'bin/guardlive'), guardtargetsSha256=sha(self.work / 'bin/guardtargets'),
                                                stageManifestSha256=self.args.stage_manifest, replayOnly=True, packetInjection=False, startedAt=stamp()))
@@ -488,6 +555,7 @@ class Formal(lab_run.Runner):
 
     def drain(self):
         """采集结束后等待全部动作清理（TTL 或撤销）且执行器无规则，再请求 root 侧停止。"""
+        require(not self.args.admission_probe, 'LAB_PROBE_HAS_NO_PF_EXECUTOR')
         deadline = time.monotonic() + 300
         while time.monotonic() < deadline:
             status = load(self.root_dir / 'status.json') if (self.root_dir / 'status.json').exists() else {}
@@ -507,6 +575,7 @@ class Formal(lab_run.Runner):
         self.save_state()
 
     def collect(self):
+        require(not self.args.admission_probe, 'LAB_PROBE_NOT_G3_EVIDENCE')
         view = self.op.v2('/lab-validation-runs/' + self.state['sessionId'], method='GET')
         if view['runStatus'] != 'completed':
             self.lab_op('completions', dict(outcome='completed', reason='all frozen PCAP segments finished; executor drained'))
@@ -580,6 +649,7 @@ class Formal(lab_run.Runner):
         self.state.update(reportImported=True, reportRef=ref, finishedAt=stamp())
 
     def run(self):
+        validate_arguments(self.args)
         require(not self.work.exists(), 'LAB_RUN_DIRECTORY_EXISTS')
         os.umask(0o077)
         self.work.mkdir(parents=True, mode=0o700)
@@ -591,8 +661,16 @@ class Formal(lab_run.Runner):
         self.artifact_dir = self.artifacts / 'g3' / self.work.name
         self.artifact_dir.mkdir(parents=True, mode=0o700, exist_ok=False)
         write(self.artifact_dir / 'source.json', self.source)
-        self.key, self.runner_name = ensure_identity(self.args.report_trust, RUNNER, KEYS / 'cyber-guard-lab-runner', 'runner.der'), RUNNER
-        self.isolation_key, self.isolation_name = ensure_identity(self.args.report_trust, ISOLATION, KEYS / 'cyber-guard-isolation', 'isolation.der'), ISOLATION
+        if self.args.gate_rehearsal:
+            self.runner_name = 'g3-gate-runner-' + self.state['sessionId']
+            self.isolation_name = 'g3-gate-isolation-' + self.state['sessionId']
+            runner_dir = self.work / 'private/runner'
+            isolation_dir = self.work / 'private/isolation'
+        else:
+            self.runner_name, self.isolation_name = RUNNER, ISOLATION
+            runner_dir, isolation_dir = KEYS / 'cyber-guard-lab-runner', KEYS / 'cyber-guard-isolation'
+        self.key = ensure_identity(self.args.report_trust, self.runner_name, runner_dir, 'runner.der')
+        self.isolation_key = ensure_identity(self.args.report_trust, self.isolation_name, isolation_dir, 'isolation.der')
         self.db = j1_run.Database(self.args.mysql_service)
         before = self.snapshot()
         write(self.work / 'business-before.json', before)
@@ -605,7 +683,7 @@ class Formal(lab_run.Runner):
             require(self.snapshot() == before, 'BUSINESS_DATABASE_CHANGED_DURING_BACKUP')
             self.state['backup'] = {'path': str(backup), 'sha256': sha(backup), 'restoreDrillSchema': drill, 'restoreDrillDropped': True}
         else:
-            write(self.work / 'database-clone.json', self.db.clone(BUSINESS, self.schema, self.work / 'private/business-backup.sql'))
+            write(self.work / 'database-clone.json', self.db.clone(self.args.source_schema, self.schema, self.work / 'private/source-backup.sql'))
         self.operator()
         self.save_state()
         (self.work / 'bin').mkdir()
@@ -635,19 +713,41 @@ class Formal(lab_run.Runner):
                 process.terminate()
                 process.wait(30)
                 self.state['admissionProbeResult'] = 'sensor_running_after_probe_window'
-                self.save_state()
-                raise ValueError('LAB_ADMISSION_PROBE_DONE')
+                self.complete_probe()
+                return
             time.sleep(1)
-        if self.args.admission_probe:
-            write(self.work / 'probe-latency.json', self.probe_latency)
         require(process.returncode == 0, 'LAB_SENSOR_FAILED')
         self.state['captureComplete'] = True
         self.save_state()
+        if self.args.admission_probe:
+            self.state['admissionProbeResult'] = 'capture_completed'
+            self.complete_probe()
+            return
         self.drain()
         self.collect()
         self.save_state()
 
+    def stop_probe(self):
+        """停止并等待用户态心跳线程，避免删库/停后端时仍有请求在途。"""
+        if hasattr(self, 'probe_stop'):
+            self.probe_stop.set()
+            thread = getattr(self, 'probe_thread', None)
+            if thread is not None:
+                # Session.call 的 HTTP 超时为 60 秒，须等待在途请求退出后才停后端/删库。
+                thread.join(timeout=65)
+                require(not thread.is_alive(), 'LAB_PROBE_HEARTBEAT_STOP_TIMEOUT')
+            self.state['probeHeartbeatStopped'] = True
+            # 包括 D3/异常的 finally 路径：清理后端与克隆前先封存时延，不丢弃失败运行证据。
+            ensure_write(self.work / 'probe-latency.json', getattr(self, 'probe_latency', []))
+
+    def complete_probe(self):
+        """只封存预演诊断；无执行回执时禁止生成、签名或导入正式 G3 报告。"""
+        self.stop_probe()
+        self.state.update(realPF=False, formalG3Eligible=False, reportImported=False, finishedAt=stamp())
+        self.save_state()
+
     def finish(self):
+        self.stop_probe()
         if self.root_dir is not None and not (self.root_dir / 'stop').exists():
             (self.root_dir / 'stop').write_text(stamp())
         for process in reversed(self.processes):
@@ -680,32 +780,44 @@ class Formal(lab_run.Runner):
             self.save_state()
 
 
-def main():
+def parse_args(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--target', choices=('clone', 'business'), required=True)
     parser.add_argument('--directory', type=Path, required=True)
-    parser.add_argument('--rendezvous', type=Path, required=True, help='root g3-executor 的 rendezvous 目录（已存在、空、本用户所有）')
-    parser.add_argument('--stage-manifest', required=True)
-    parser.add_argument('--authorization-reference', required=True)
+    parser.add_argument('--rendezvous', type=Path, help='正式 PF 必填：root g3-executor 的 rendezvous 目录（已存在、空、本用户所有）')
+    parser.add_argument('--stage-manifest')
+    parser.add_argument('--authorization-reference')
     parser.add_argument('--root-timeout', type=int, default=1800)
     parser.add_argument('--probe-seconds', type=int, default=90)
     parser.add_argument('--jfr', action='store_true', help='诊断：后端开启 JFR profile 录制')
     parser.add_argument('--admission-probe', action='store_true', help='仅诊断（只允许 clone）：执行器只发心跳，检查会话准入与传感器交接后停止')
-    parser.add_argument('--backend-jar', type=Path, default=ROOT / '.cache/a18-20261012/bin/backend.jar')
+    parser.add_argument('--gate-rehearsal', action='store_true', help='仅 clone + admission-probe：克隆专用信任、身份和引导报告，运行真实自动化路径')
+    parser.add_argument('--source-schema', default=BUSINESS, help='门禁预演须显式指定 cyber_guard_ 开头的隔离源库；正式路径只接受业务库')
+    parser.add_argument('--bundle-id', default=R4_BUNDLE)
+    parser.add_argument('--subject-sha256', type=lab_run.subject_sha256, default=lab_run.R4_SUBJECT_SHA256)
+    parser.add_argument('--platform-ref', default=PLATFORM_REF)
+    parser.add_argument('--final-ref', help='非 r4 必填：绑定该 subject 的 final；r4 默认复用既有正式 final')
+    parser.add_argument('--backend-jar', type=Path, default=ROOT / '.cache/a18-20261012/bin/backend.jar',
+                        help='默认保留历史 r4 二进制；r5 必须显式指定本阶段重新构建的 backend.jar')
     parser.add_argument('--scenario', type=Path, default=ROOT / '.cache/j2-20261011/g3-scenario.json')
     parser.add_argument('--artifacts', type=Path, default=HOME / 'ai/artifacts/cyber-guard')
     parser.add_argument('--selection', type=Path, default=ROOT / '.cache/j1-20261011-reg-preroll30/selection.json')
     parser.add_argument('--import-plan', type=Path, default=ROOT / '.cache/j2-20261011/import-rehearsal/lab-plan.json')
     parser.add_argument('--reviewer-file', type=Path, default=KEYS / 'cyber-guard-reviewer/credentials.json')
-    parser.add_argument('--report-trust', type=Path, default=KEYS / 'cyber-guard-trust/report-trust.json')
+    parser.add_argument('--report-trust', type=Path, default=OFFICIAL_TRUST)
     parser.add_argument('--mysql-service', type=Path, default=HOME / 'development/services/databases/mysql-server-8.0.42')
     parser.add_argument('--java', type=Path, default=HOME / 'development/runtimes/java/temurin-25.0.2/Contents/Home/bin/java')
     parser.add_argument('--go', type=Path, default=HOME / 'development/runtimes/go/go-1.26.4/bin/go')
     parser.add_argument('--port', type=int, default=19643)
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     args.artifacts = args.artifacts.resolve()
     args.mode = 'pf'
-    require(not args.admission_probe or args.target == 'clone', 'LAB_PROBE_CLONE_ONLY')
+    validate_arguments(args)
+    return args
+
+
+def main():
+    args = parse_args()
     runner = Formal(args)
     try:
         runner.run()

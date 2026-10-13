@@ -16,6 +16,8 @@ public class GuardEligibility {
     /** Spring 运行路径追加会话有效性检查；原三参构造保留给纯领域测试。 */
     @org.springframework.beans.factory.annotation.Autowired
     void labGate(GuardLabExecutionGate gate){this.labGate=gate;}
+    /** 判定与领取共享 T2 回放准入；未接会话门的旧测试/入口保持现场口径。 */
+    public boolean replayAllowed(JsonNode observation,Map<String,Object> bundle){return labGate!=null&&labGate.replayAllowed(observation,bundle);}
     public GuardEligibility(GuardStore store,@Value("${cyber.guard.automation-enabled:false}") boolean automation,@Value("${cyber.guard.protection-file:}") String protectionFile){this.store=store;this.automation=automation;
         JsonNode p=null;if(!protectionFile.isBlank())try{p=parse(java.nio.file.Files.readString(java.nio.file.Path.of(protectionFile)));fields(p,"protectedBudgetTargetIds protectedServicePorts","");}catch(java.io.IOException e){throw new IllegalStateException("保护配置不可读");}
         // 启动即按执行器同一规则校验端口，运行中不再因保护文件格式在判定路径抛错。
@@ -91,7 +93,11 @@ public class GuardEligibility {
         return authorized(asset,bundle,binding,policy,o,executor,now,policy.path("family").asText());
     }
     public boolean authorized(Map<String,Object> asset,Map<String,Object> bundle,Map<String,Object> binding,JsonNode policy,JsonNode o,Map<String,Object> executor,Instant now,String family){
-        if(labGate!=null&&!labGate.permits(o,bundle,now))return false;
+        return authorized(asset,bundle,binding,policy,o,executor,now,family,null);
+    }
+    /** 选证的授权仍逐项检查，lab 映射借已在 T4 校验的触发绑定核验，避免在 T8 重新要求历史租约。 */
+    public boolean authorized(Map<String,Object> asset,Map<String,Object> bundle,Map<String,Object> binding,JsonNode policy,JsonNode o,Map<String,Object> executor,Instant now,String family,Map<String,Object> executionTarget){
+        if(labGate!=null&&!labGate.permits(o,bundle,now,executionTarget))return false;
         if(!automation||"alert_only".equals(policy.path("mode").asText())||!"active".equals(str(asset,"status"))||!"active".equals(str(bundle,"status"))||binding==null||!"active".equals(str(binding,"status"))||executor==null||!"active".equals(str(executor,"status")))return false;
         if(!str(asset,"environment").equals(str(bundle,"environment"))||number(binding,"bundle_id")!=number(bundle,"id"))return false;
         var p=store.get("guard_decision_policy",number(bundle,"policy_id"));if(!"reviewed".equals(str(p,"status")))return false;
@@ -114,13 +120,22 @@ public class GuardEligibility {
     public boolean target(Map<String,Object> target,JsonNode o,Instant now,JsonNode policy,String family){
         if(target==null||o.path("targetRef").isNull()||!str(target,"target_ref").equals(o.path("targetRef").asText())||!instant(target.get("expires_at")).isAfter(now))return false;
         if(!time(o,"targetExpiresAt").isAfter(now)||!time(o,"lastPacketAt").plusSeconds(15).isAfter(now))return false;
+        if(!sameTarget(target,o,policy,family))return false;
+        var sensor=store.get("sensor_agent",number(target,"sensor_id"));var executor=store.get("guard_executor",number(target,"executor_id"));var stable=store.get("guard_budget_target",number(target,"budget_target_id"));
+        return o.path("bootId").asText().equals(str(sensor,"guard_boot_id"))&&o.path("bootId").asText().equals(str(target,"collector_boot_id"))&&Objects.equals(str(target,"executor_boot_id"),str(executor,"boot_id"))&&"verified".equals(str(stable,"identity_status"))&&o.path("environment").asText().equals(str(stable,"environment"));
+    }
+    /**
+     * T4 证据归属：同一绑定的传感器、捕获域、对端、密钥代际、方向、协议与地址族必须一致。
+     * 单服务范围另核对端口；历史选证不借用执行租约，只有触发观察通过 target 完整核验后才可执行。
+     */
+    public boolean sameTarget(Map<String,Object> target,JsonNode o,JsonNode policy,String family){
+        if(target==null)return false;
         var b=json(target,"payload_json");for(String key:List.of("sensorId","captureScopeId","peerKey","keyEpoch","direction","transport","addressFamily"))if(!b.path(key).equals(o.path(key)))return false;
         String scope=GuardDecisionEngine.familyPolicy(policy,family).path("scope").asText("peer_service");
         if(!b.path("scope").asText("peer_service").equals(scope))return false;
         if(scope.equals("peer_inbound")){if(!b.path("servicePort").isNull()||!o.path("direction").asText().equals("inbound"))return false;}
         else if(!b.path("servicePort").equals(o.path("servicePort")))return false;
-        var sensor=store.get("sensor_agent",number(target,"sensor_id"));var executor=store.get("guard_executor",number(target,"executor_id"));var stable=store.get("guard_budget_target",number(target,"budget_target_id"));
-        return o.path("bootId").asText().equals(str(sensor,"guard_boot_id"))&&o.path("bootId").asText().equals(str(target,"collector_boot_id"))&&Objects.equals(str(target,"executor_boot_id"),str(executor,"boot_id"))&&"verified".equals(str(stable,"identity_status"))&&o.path("environment").asText().equals(str(stable,"environment"));
+        return true;
     }
     public String protection(Map<String,Object> bundle,JsonNode policy,Map<String,Object> target,JsonNode observation){return protection(bundle,policy,target,observation,policy.path("family").asText());}
     /** 全入站动作覆盖保护端口以外的全部端口：未证明平台豁免时拒绝签发；单服务动作仍逐个核对观察端口。 */

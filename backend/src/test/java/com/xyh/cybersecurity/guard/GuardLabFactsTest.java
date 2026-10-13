@@ -123,4 +123,44 @@ class GuardLabFactsTest {
         ((ObjectNode)scenario).put("sourceStart","2020-01-01T00:01:00Z");
         assertThatThrownBy(()->resolve("observation",observationId)).hasMessageContaining("LAB_FACT_MISMATCH");
     }
+    @Test void modelRuleIdNullInScenarioMatchesEmptyRuleIdWrittenByDeployment() {
+        proof.put("ruleId","");updateDecision();
+        assertThat(resolve("receipt",receiptId).path("commandId").asText()).isEqualTo(commandId);
+    }
+    @Test void ruleSourceStillRequiresTheExactNonEmptyRuleId() {
+        ((ObjectNode)scenario).put("source","rule").put("ruleId","scan-ports");
+        proof.put("source","rule").put("ruleId","other");updateDecision();
+        assertThatThrownBy(()->resolve("receipt",receiptId)).hasMessageContaining("LAB_FACT_MISMATCH");
+        ((ObjectNode)scenario).putNull("ruleId");proof.put("ruleId","");updateDecision();
+        assertThatThrownBy(()->resolve("receipt",receiptId)).hasMessageContaining("LAB_FACT_MISMATCH");
+        ((ObjectNode)scenario).put("ruleId","scan-ports");proof.put("ruleId","scan-ports");updateDecision();
+        assertThat(resolve("receipt",receiptId).path("commandId").asText()).isEqualTo(commandId);
+    }
+    /** v1.1 会话：触发观察完整校验，其余选证可无引用或来自预热，但须同一目标与摘要。 */
+    String selectedWarmup(ObjectNode warm) {
+        p.put("contractVersion","host-guard-lab/1.1");
+        ((ObjectNode)p.path("time")).set("scenarioOffsets",object(text(scenario,"scenarioId"),p.at("/time/offsetMicros").asLong()));
+        ((ObjectNode)scenario).put("captureStart","2019-12-31T23:59:00Z");
+        String id=id();warm.put("observationId",id).put("asOf",at.minusSeconds(30).toString()).putNull("targetRef").putNull("targetExpiresAt");
+        when(store.external("guard_observation",id,false)).thenAnswer(i->map("public_id",id,"as_of",db(at.minusSeconds(30)),"payload_json",canonical(warm),"content_sha256",hash(warm)));
+        proof.set("selectedObservations",node(List.of(object("observationId",observationId,"contentSha256",hash(o)),object("observationId",id,"contentSha256",hash(warm)))));
+        proof.put("ruleId","");updateDecision();return id;
+    }
+    @Test void executionEvidenceAcceptsUnleasedAndWarmupSelectionsOfTheSameTarget() {
+        selectedWarmup(o.deepCopy());
+        assertThat(resolve("receipt",receiptId).path("commandId").asText()).isEqualTo(commandId);
+    }
+    @Test void executionEvidenceRejectsCrossTargetSelectionAndUnleasedTrigger() {
+        var warm=o.deepCopy();warm.put("peerKey","f".repeat(64));selectedWarmup(warm);
+        assertThatThrownBy(()->resolve("receipt",receiptId)).hasMessageContaining("LAB_FACT_MISMATCH");
+        selectedWarmup(o.deepCopy());o.putNull("targetRef");updateObservation();
+        assertThatThrownBy(()->resolve("receipt",receiptId)).isInstanceOf(RuntimeException.class);
+    }
+    @Test void version10ExecutionKeepsPerSelectionLeaseChecks() {
+        var warm=o.deepCopy();String id=id();warm.put("observationId",id).putNull("targetRef").putNull("targetExpiresAt");
+        when(store.external("guard_observation",id,false)).thenAnswer(i->map("public_id",id,"as_of",db(at),"payload_json",canonical(warm),"content_sha256",hash(warm)));
+        proof.set("selectedObservations",node(List.of(object("observationId",observationId,"contentSha256",hash(o)),object("observationId",id,"contentSha256",hash(warm)))));
+        proof.put("ruleId","");updateDecision();
+        assertThatThrownBy(()->resolve("receipt",receiptId)).isInstanceOf(RuntimeException.class);
+    }
 }

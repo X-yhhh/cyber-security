@@ -29,6 +29,9 @@ public final class GuardJson {
     /** 2026-10-08.1：模型来源须 familyPolicies[].modelAutoEligible=true 才进入自动路径；旧版本策略不再可激活。 */
     public static final String DECISION = "host-guard-decision/2026-10-08.1";
     public static final String HEALTH = "host-guard-capture-health/1.0.0";
+    /** 文件回放健康单独版本化；默认现场版本与预算恢复语义保持原样。 */
+    public static final String HEALTH_REPLAY = "host-guard-capture-health/1.1.0";
+    public static final Set<String> HEALTH_VERSIONS = Set.of(HEALTH,HEALTH_REPLAY);
     /** 第二轮候选按 2026-10-08.1 评价（单对端准入、按来源资格）；2026-10-07.1 只解释 candidate-v2，仅平台能力报告仍可携带。 */
     public static final String EVALUATION = "host-guard-evaluation/2026-10-08.1";
     public static final String LEGACY_PLATFORM_EVALUATION = "host-guard-evaluation/2026-10-07.1";
@@ -146,13 +149,13 @@ public final class GuardJson {
     public static void versions(JsonNode n) {
         fields(n,"observation decision evaluation health","");
         require(CONTRACT.equals(n.path("observation").asText())&&DECISION.equals(n.path("decision").asText())
-                &&EVALUATION.equals(n.path("evaluation").asText())&&HEALTH.equals(n.path("health").asText()),"CONTRACT_UNSUPPORTED");
+                &&EVALUATION.equals(n.path("evaluation").asText())&&HEALTH_VERSIONS.contains(n.path("health").asText()),"CONTRACT_UNSUPPORTED");
     }
     /** 平台能力报告只证明执行器在该平台的封禁/恢复，不承载评价口径；兼容 T3.8b 以旧评价版本签发的报告。 */
     public static void platformVersions(JsonNode n) {
         fields(n,"observation decision evaluation health","");
         require(CONTRACT.equals(n.path("observation").asText())&&DECISION.equals(n.path("decision").asText())
-                &&Set.of(EVALUATION,LEGACY_PLATFORM_EVALUATION).contains(n.path("evaluation").asText())&&HEALTH.equals(n.path("health").asText()),"CONTRACT_UNSUPPORTED");
+                &&Set.of(EVALUATION,LEGACY_PLATFORM_EVALUATION).contains(n.path("evaluation").asText())&&HEALTH_VERSIONS.contains(n.path("health").asText()),"CONTRACT_UNSUPPORTED");
     }
     public static JsonNode versions() {return object("observation",CONTRACT,"decision",DECISION,"evaluation",EVALUATION,"health",HEALTH);}
 }

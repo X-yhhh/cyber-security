@@ -95,6 +95,8 @@ research 与 lab 互不混用：`/replay-runs` 只接受白名单字段（多余
 
 采集与事件采用不同口径：传感器继续上传全部合法观察，包括预热、低质量、过期或空 targetRef；中央 observation 事件只引用该场景 sourceStart/sourceEnd 内且有可用 targetRef 的观察。预热/评分窗外观察进入 `quality.outsideScoringWindow`，不进入评分分母或执行证据。已知身份且触发观察在窗外的决策列入 `outsideScoringDecisionIds`；身份或时刻未知的决策仍需关联。所有命令始终检查，不因窗外而隐藏。
 
+预热观察的执行引用在传感器发射时清空；上下文和完整遥测仍保留。正式 G3 编排在签名前冻结错峰的 scenarioOffsets：扫描起点评分延后 0/20/40 秒，暴力破解 120/140/160 秒，慢速 300/320/340 秒，洪泛 480/500/520 秒；六段正常分别延后 0/60/120/180/240/300 秒。每段原始预热时长、评分长度、PCAP 字节及 1 倍速不变，不修改共享资产预算；既有 research/合成替身默认时钟不变，恢复仍只复用原签名偏移。
+
 `quality.qualified` 与 `qualifiedCoverage` 保留纯采集质量含义。新增 `executionQualified`/`executionQualifiedCoverage` 还要求评分窗、有效引用和接收时效；`nonExecutable`、`missingTargetRef`、`expiredTargetRef`、`staleEvidence`、`invalidTiming` 分别保留拒绝原因计数（可重叠）。10 秒时效按观察 asOf 到不可变后端入库 created_at 计算，不用报告生成时刻，也不补造未知时间或新租约。空引用或已登记但到期的引用不使诊断报告失败；非空引用的跨资产、稳定目标、scopeDigest 或 boot 冲突仍硬拒绝。executionQualified 只表示当时具备这些必要关联条件，不代表已执行动作。拟自动来源没有合资格执行观察时不能通过。
 
 场景结束另用 `{eventId,scenarioId,kind:scenario_result,reportRef,sha256}`，只接受本 session runner 签名的 `{contractVersion,sessionId,sessionSha256,scenarioId,mappingSha256,startedAt,endedAt,completed}`；起止必须覆盖预登记场景且不在未来。此证据仅说明 runner 的回放结束，质量计数和观察数量由后端事实重算，不接受 runner 自报成功或误封禁数。缺失场景结束证据不计正常完整时长。
@@ -102,6 +104,12 @@ research 与 lab 互不混用：`/replay-runs` 只接受白名单字段（多余
 重复 eventId 或同 kind/referenceId 自然键必须内容一致；冲突 409。不因乱序回执倒退运行终态。映射/身份/作用域拒绝使用稳定错误码，错误日志不含原始端点。输入快照有界且超限明确报错，不静默截断报告；unlinkedCommandIds/unlinkedDecisionIds 列出遗漏事实，任一非空不能判通过。
 
 ## 报告
+
+2026-10-13 G3 预演验收登记（D5/D7）：dos_flood 的运行行为要求评分窗内零候选、零动作且存在告警，逐条首拒须能由质量、能力或目标事实解释；冻结策略关闭自动的证明另由组合实际关联策略的内容摘要及确定性门测提供，不要求运行在 T2 已拒绝后仍到达 T5。质量门及冻结策略保持原值。当前 18 段冻结场景全部登记为 model 来源，拟授予资格仅覆盖 port_scan/model、brute_force/model、dos_slow/model；scan-ports 规则来源只列首拒及是否到达 T9 的诊断，并登记为未经本轮 G3 验证。来源取得资格仍要求该来源全部登记场景通过；预演逐段列出扫描 10 秒、暴力破解/慢速 20 秒内的候选与动作，brute_force 任一段缺失或超时即停止后续阶段。此预演口径不替代真实 applied/cleared 验收。
+
+2026-10-13 执行事件登记（第 7 步修复）：host-guard-lab/1.1 会话的 command/receipt/verified_receipt 事件，触发观察须持有效执行引用并落在评分窗口；其余选证只核对同一目标映射（peerKey、keyEpoch、captureScopeId 与会话身份）、内容摘要及 `[captureStart, sourceEnd]` 时间范围，可无执行引用或来自预热，与部署判定 T4（D6）一致；v1.0 会话保持逐条完整核验。模型来源的规则 ID 在场景中为 null、在判定证据中为空串，二者视为同值；规则来源仍须非空且逐字一致。
+
+采用健康 1.1.0 的正式文件回放，G3 报告及 closeout 必须声明：健康门为文件回放口径（1.1.0 file_replay），证明回放完整、无容量丢弃，不证明现场采集健康；现场健康观察器接入仍属 P8 B5.4。另列评分窗口内 `replay_healthy` 覆盖及观察质量覆盖；回放健康不能用于预算恢复，r3/r4 的历史证据不改标为 r5。
 
 报告为现有签名封装中的 canary payload，带 `reportVersion`、protocolVersions、subjectSha256、evaluationPlanSha256、sessionId/sessionSha256、inputSha256、provenance、每场景时间线（labStart→firstAlertAt→firstIssuedAt→firstAppliedAt→lastClearedAt 及 alert/issue/application/cleanupLatencyMs）、`classes` 逐类结果（四攻击类按名称排序；场景、来源、最差状态、首个告警/生效时延，无场景为 not_evaluated）和 `unverifiedItems` 未验证项（场景缺口、缺类、未关联命令/决策、正常时长缺失、运行未完成、合成证据，顺序固定）。生成、签名、验签、导入、封存、批准、激活是独立步骤。签名复用 P5 报告的 Ed25519/JCS 封装与私钥规则，验签只信任既有 report-trust-file。导入复用 guard_evaluation_run；合成或不完整报告可保存诊断，但不具有 passed 状态。
 

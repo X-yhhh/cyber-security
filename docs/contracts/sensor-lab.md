@@ -70,7 +70,7 @@ collector 仍只请求 `/v1/targets/lease`。注册表确认本机身份、报�
 
 `labTime=sourceTime+manifest.time.offsetMicros`。v1.0 该偏移在整个 session 内固定；v1.1 使用 manifest.time.scenarioOffsets[scenarioId]，该场景的采集从 captureStart 开始，各场景偏移在创建时冻结，不因迟到重新取 now。原始起点、预热、评分窗口、每文件原首末包时间、真实墙钟、最大积压分别记录。`emittedAt`、接收和清理沿用真实墙钟及既有新鲜度门禁。
 
-v1.0 多场景入口只接受按时间顺序、不重叠的场景。v1.1 为每段建立独立因果引擎并按签名时钟并发回放，共享上传器、boot、sequence 与全会话引用归属锁；每段使用自身登记的本机地址和固定偏移。normal 的各原始对端映射到不同 canary，不能通过共享 targetRef 合并。预热期也逐包登记映射，不能仅使用评分连接清单删掉预热对端。通过 session/scenario 对原 ID 做 HMAC 命名空间隔离，保证 parent/flow 关联与快照顺序稳定；这个 ID 差异需从特征对拍中剔除。登记输入不满足时拒绝，不重排文件或重截冻结数据。
+v1.0 多场景入口只接受按时间顺序、不重叠的场景。v1.1 为每段建立独立因果引擎并按签名时钟并发回放，共享上传器、boot、sequence 与全会话引用归属锁；每段使用自身登记的本机地址和固定偏移。normal 的各原始对端映射到不同 canary，不能通过共享 targetRef 合并。预热期也逐包登记映射，不能仅使用评分连接清单删掉预热对端；预热观察保留上下文与质量遥测，但 guardlive 必须清空 targetRef/targetExpiresAt，不得取得执行资格或占用动作预算。通过 session/scenario 对原 ID 做 HMAC 命名空间隔离，保证 parent/flow 关联与快照顺序稳定；这个 ID 差异需从特征对拍中剔除。登记输入不满足时拒绝，不重排文件或重截冻结数据。
 
 注册租约的截止时间不随新包延长。两包之间租约到期时，定时快照保留原时刻和特征，清空 targetRef/targetExpiresAt 并计入不可执行遥测；它不能请求新租约或使整段回放中断。新包取租约失败仍是粘性错误，后续发射与回放停止。
 
@@ -83,6 +83,10 @@ lab 线的质量统计区分采集质量 `qualified/qualifiedCoverage` 与可执
 ## 5. 健康接线与验证层级
 
 S4 窗口继续使用 `host-guard-capture-health/1.0.0`：最长 5 秒、10 秒接收上限、前序 JCS 摘要、计数连续性、配置/程序/捕获域身份不变。文件回放的 kernelDrops 始终未知，不能作为现场连续健康或预算恢复证明。
+
+仅 `guardlive -lab-plan` 且正式 v1.1 会话清单绑定健康 1.1.0 时，观察器输出 `host-guard-capture-health/1.1.0` 与必填 `captureSource=file_replay`。此口径 kernelDrops=null 表示不适用；packetsSeen/capacityDrops 已知、计数/摘要链连续、无容量丢弃、缺口或不可信时钟才得到 `replay_healthy`。T2 判定和领取还须核验 1.1.0 subject、lab 观察和该 sensor/boot 的 running 正式 lab 归属。评分窗口等待及空闲期间仍持续采样，真实采样停顿须留 gap；research 和现场默认输出原 1.0.0 字节，不自动恢复预算。
+
+并发回放每段只更新自己的累计样本，由统一的 100 ms 节拍汇总并调用健康观察器。相同墙钟时间戳只更新计数，不据此声明缺口；真实时间倒退、显式 gap 或未完成场景超过 5 秒没有样本仍产生缺口。两次汇总之间出现的 gap 锁存到下一次汇总，场景完成也不能丢弃末次缺口或累计计数。
 
 本线已在 PR #31 合入时完成离线和替身后端验证，2026-10-11 集成 mvn test 445 项无失败，相关 Go 竞态与执行器 51 项通过。阶段 0 新增多场景、v1.1 与预热映射，单独复验记录见交接。既有验证覆盖：
 

@@ -95,7 +95,13 @@ public class GuardActions {
         var references=json(decision,"evidence_json").path("selectedObservations");List<GuardDecisionEngine.Evidence> selected=new ArrayList<>();JsonNode current=null;
         String family=decisionFamily(decision,policy),source=json(decision,"evidence_json").path("source").asText("model"),ruleId=json(decision,"evidence_json").path("ruleId").asText("");
         var asset=store.get("asset",number(decision,"asset_id"));var executor=store.get("guard_executor",number(target,"executor_id"));
-        boolean capable=true,healthy=true,validTarget=true,authorized=true;String protectionReason=null;
+        // 触发观察未必属于最终计分选证（例如低分或类别变化），故按不可变证据中的 ID 独立读取。
+        // 缺少触发引用的旧证据拒绝领取，不以列表最后一条替代有效执行租约。
+        String triggerId=json(decision,"evidence_json").path("triggerObservationId").asText("");
+        require(!triggerId.isBlank(),"TARGET_REF_STALE");
+        var triggerRow=store.external("guard_observation",triggerId,false);JsonNode trigger=json(triggerRow,"payload_json");
+        boolean validTarget=number(triggerRow,"asset_id")==number(decision,"asset_id")&&eligibility.target(target,trigger,now,policy,family);
+        boolean capable=true,healthy=true,authorized=true;String protectionReason=null;
         for(var ref:references){
             var row=store.external("guard_observation",ref.path("observationId").asText(),false);require(str(row,"content_sha256").equals(ref.path("contentSha256").asText()),"EVIDENCE_STALE");
             var newest=mapper.latestParent(number(row,"asset_id"),number(row,"sensor_id"),str(row,"boot_id"),str(row,"parent_connection_id"));require(newest!=null&&number(newest,"id")==number(row,"id"),"EVIDENCE_STALE");
@@ -106,9 +112,9 @@ public class GuardActions {
             if(source.equals("rule")){var fact=store.one("guard_rule_evaluation",map("observation_id",row.get("id"),"policy_id",bundle.get("policy_id"),"rule_id",ruleId),false);require(fact!=null&&GuardDetection.flag(fact.get("matched"))&&matched&&family.equals(str(fact,"family")),"EVIDENCE_STALE");}
             // 每条选中证据均须在领取时仍满足范围；汇总后由判定器保持 T1—T9 拒绝顺序。
             capable&=eligibility.capability(bundle,policy,current,family);
-            healthy&=health.current(number(row,"capture_scope_id"),now)&&!mapper.batchGap(number(row,"sensor_id"),str(row,"boot_id"));
-            validTarget&=eligibility.target(target,current,now,policy,family);
-            authorized&=eligibility.authorized(asset,bundle,binding,policy,current,executor,now,family);
+            healthy&=health.current(number(row,"capture_scope_id"),now,eligibility.replayAllowed(current,bundle))&&!mapper.batchGap(number(row,"sensor_id"),str(row,"boot_id"));
+            validTarget&=eligibility.sameTarget(target,current,policy,family);
+            authorized&=eligibility.authorized(asset,bundle,binding,policy,current,executor,now,family,target);
             String protection=eligibility.protection(bundle,policy,target,current,family);if(protectionReason==null)protectionReason=protection;
             selected.add(new GuardDecisionEngine.Evidence(current,latest.get("score")==null?null:((Number)latest.get("score")).doubleValue(),str(latest,"family"),source,ruleId,matched,str(row,"content_sha256")));
         }

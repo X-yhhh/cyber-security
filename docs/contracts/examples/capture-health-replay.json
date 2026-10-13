@@ -1,0 +1,19 @@
+{
+  "healthVersion": "host-guard-capture-health/1.1.0",
+  "captureSource": "file_replay",
+  "healthWindowId": "00000000-0000-4000-8000-000000000001",
+  "assetId": "00000000-0000-4000-8000-000000000002",
+  "sensorId": "00000000-0000-4000-8000-000000000003",
+  "observerSessionId": "00000000-0000-4000-8000-000000000004",
+  "captureScopeId": "00000000-0000-4000-8000-000000000005",
+  "sequence": 1,
+  "intervalStart": "2026-10-12T00:00:00Z",
+  "intervalEnd": "2026-10-12T00:00:01Z",
+  "previousSha256": null,
+  "counterStart": {"packetsSeen": 0, "kernelDrops": null, "capacityDrops": 0},
+  "counterEnd": {"packetsSeen": 10, "kernelDrops": null, "capacityDrops": 0},
+  "captureGap": false,
+  "clockSkewMs": 0,
+  "configSha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "buildSha256": "0000000000000000000000000000000000000000000000000000000000000000"
+}

@@ -236,6 +236,27 @@ func TestMappedLeasePreservesFeatureAndTime(t *testing.T) {
 	}
 }
 
+func TestWarmupTelemetryCannotCarryExecutionReference(t *testing.T) {
+	f := fixtureFor(t)
+	s := f.open(t)
+	boundary := s.Scenario.SourceStart.Add(s.Offset)
+	ref, expiry := testID("19"), boundary.Add(15*time.Second)
+	v := f.observation()
+	v.Observation.TargetRef, v.Observation.TargetExpiresAt = &ref, &expiry
+	v.Observation.AsOf = boundary.Add(-time.Microsecond)
+	v.Observation.LastPacketAt = v.Observation.AsOf
+	warmup, err := s.MapEmission(v, boundary)
+	if err != nil || warmup.TargetRef != nil || warmup.TargetExpiresAt != nil ||
+		!warmup.AsOf.Equal(v.Observation.AsOf) || !reflect.DeepEqual(warmup.Features, v.Observation.Features) {
+		t.Fatalf("warmup telemetry gained execution authority or lost evidence: %+v, %v", warmup, err)
+	}
+	v.Observation.AsOf, v.Observation.LastPacketAt = boundary, boundary
+	scored, err := s.MapEmission(v, boundary.Add(time.Second))
+	if err != nil || scored.TargetRef == nil || *scored.TargetRef != ref {
+		t.Fatalf("scoring observation lost a valid target: %+v, %v", scored, err)
+	}
+}
+
 func TestTimerSnapshotDoesNotRenewExpiredFixedLease(t *testing.T) {
 	for _, explicitExpiry := range []bool{false, true} {
 		f := fixtureFor(t)
@@ -389,6 +410,7 @@ func TestLeaseRejectsTargetSharedAcrossScenarios(t *testing.T) {
 func TestV11MultipleNormalPeersKeepSeparateIdentity(t *testing.T) {
 	f := fixtureFor(t)
 	f.m.ContractVersion = Version11
+	f.m.ProtocolVersions["health"] = "host-guard-capture-health/1.1.0"
 	f.mp.ContractVersion = Version11
 	f.sc.ContractVersion = Version11
 	f.local.ContractVersion = MappingVersion11
@@ -421,6 +443,45 @@ func TestV11MultipleNormalPeersKeepSeparateIdentity(t *testing.T) {
 	v.Endpoints.Peer = netip.MustParseAddrPort("192.0.2.99:50000")
 	if _, _, err = s.mapObservation(v.Observation, v.Endpoints); err == nil {
 		t.Fatal("unknown peer accepted")
+	}
+}
+
+func TestManifestHealthVersionAdmission(t *testing.T) {
+	for _, tc := range []struct {
+		name, version, health, evidence string
+		accepted                        bool
+	}{
+		{"legacy-live", Version10, "host-guard-capture-health/1.0.0", "lab", true},
+		{"legacy-replay", Version10, "host-guard-capture-health/1.1.0", "lab", true},
+		{"lab-replay", Version11, "host-guard-capture-health/1.1.0", "lab", true},
+		{"lab-live-rejected", Version11, "host-guard-capture-health/1.0.0", "lab", false},
+		{"unknown-rejected", Version11, "unsupported", "lab", false},
+		{"missing-rejected", Version10, "", "lab", false},
+		{"synthetic-live", Version11, "host-guard-capture-health/1.0.0", "synthetic", true},
+		{"synthetic-replay", Version11, "host-guard-capture-health/1.1.0", "synthetic", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := fixtureFor(t)
+			f.m.ContractVersion, f.mp.ContractVersion, f.sc.ContractVersion = tc.version, tc.version, tc.version
+			f.m.ProtocolVersions["health"], f.m.EvidenceKind = tc.health, tc.evidence
+			if tc.version == Version11 {
+				f.local.ContractVersion = MappingVersion11
+				f.m.Time.ScenarioOffsets = map[string]int64{f.c.ScenarioID: f.m.Time.OffsetMicros}
+				capture := f.sc.Scenarios[0].SourceStart
+				f.sc.Scenarios[0].CaptureStart = &capture
+			}
+			f.sync(t)
+			f.r.h.State.EvidenceKind = tc.evidence
+			if tc.evidence == "synthetic" {
+				f.c.Rehearsal = true
+				f.r.h.State.Runnable = false
+				f.r.h.State.ReasonCodes = []string{"LAB_SYNTHETIC_ONLY"}
+			}
+			_, err := Open(context.Background(), f.c, f.id, f.r, f.l, f.now)
+			if tc.accepted && err != nil || !tc.accepted && !errors.Is(err, ErrAdmission) {
+				t.Fatalf("accepted=%v, error=%v", tc.accepted, err)
+			}
+		})
 	}
 }
 

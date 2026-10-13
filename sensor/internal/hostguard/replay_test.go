@@ -185,6 +185,42 @@ func TestReplayPartitionAndCancel(t *testing.T) {
 	}
 }
 
+func TestReplaySamplesHealthDuringInitialWaitAndWarmup(t *testing.T) {
+	path, frames := replayFixture(t)
+	capture := frames[0].TS.Truncate(time.Microsecond).Add(-30 * time.Second)
+	wall := time.Date(2026, 10, 13, 0, 0, 0, 0, time.UTC)
+	offset := wall.Add(10 * time.Second).Sub(capture)
+	clock := &fakeClock{now: wall}
+	engine, _ := New(config(&[]Observation{}))
+	var samples []LiveSample
+	result, err := ReplayPCAP(context.Background(), path, engine, ReplayOptions{Clock: clock, CaptureStart: capture,
+		FixedOffset: &offset, Observe: func(s LiveSample) { samples = append(samples, s) }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(samples) < 2 || !samples[0].At.Equal(wall) || samples[len(samples)-1].PacketsSeen != uint64(len(frames)) {
+		t.Fatal("health sampling did not span initial wait and complete replay")
+	}
+	firstPacketAt := result.SourceFirst.Add(offset)
+	var waited, warmed bool
+	for i, sample := range samples {
+		if sample.Gap || sample.DropsKnown {
+			t.Fatal("idle file replay must have no sample gap and no kernel counter")
+		}
+		if sample.At.Before(firstPacketAt) && sample.PacketsSeen != 0 {
+			t.Fatal("initial wait read future packets")
+		}
+		waited = waited || sample.At.After(wall) && sample.At.Before(capture.Add(offset))
+		warmed = warmed || sample.At.After(capture.Add(offset)) && sample.At.Before(firstPacketAt)
+		if i > 0 && sample.At.Sub(samples[i-1].At) > 100*time.Millisecond {
+			t.Fatal("initial wait or warmup stopped health sampling")
+		}
+	}
+	if !waited || !warmed {
+		t.Fatal("initial wait and warmup were not both sampled")
+	}
+}
+
 // 采集起点早于首包：上下文覆盖从起点算，回放与先 Tick 起点的离线提取逐字段一致，1 倍速等待包含预热。
 func TestReplayCaptureStartWarmup(t *testing.T) {
 	path, frames := replayFixture(t)

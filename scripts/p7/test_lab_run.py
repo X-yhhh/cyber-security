@@ -2,12 +2,14 @@
 import base64
 import copy
 import json
+import io
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 import tempfile
 import unittest
 import struct
+from unittest.mock import Mock, patch
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from scripts.p7 import lab_run as runner
@@ -41,6 +43,28 @@ class LabRunTest(unittest.TestCase):
             delta=timedelta(microseconds=plan['scenarioOffsets'][row['scenarioId']])
             self.assertEqual(runner.lab_report.timestamp(row['sourceStart'])+delta,start)
             self.assertEqual(runner.lab_report.timestamp(row['captureStart'])+delta,start-timedelta(seconds=30))
+    def test_staggered_g3_clocks_preserve_each_frozen_interval(self):
+        source=datetime(2017,7,3,tzinfo=timezone.utc)
+        rows=[]
+        for family,count,length in [('port_scan',3,2),('brute_force',3,90),('dos_slow',3,95),('dos_flood',3,35),('normal',6,510)]:
+            for index in range(count):
+                rows.append(dict(scenarioId=f'{family}-{index+1}',family=family,
+                                 captureStart=runner.lab_report.iso(source-timedelta(seconds=30)),
+                                 sourceStart=runner.lab_report.iso(source),
+                                 sourceEnd=runner.lab_report.iso(source+timedelta(seconds=length))))
+        start=datetime(2030,1,1,tzinfo=timezone.utc)
+        plan=runner.clock_plan(rows,start,staggered=True)
+        expected={'port_scan':[0,20,40],'brute_force':[120,140,160],
+                  'dos_slow':[300,320,340],'dos_flood':[480,500,520],
+                  'normal':[0,60,120,180,240,300]}
+        for row in rows:
+            family,index=row['scenarioId'].rsplit('-',1)
+            shift=timedelta(microseconds=plan['scenarioOffsets'][row['scenarioId']])
+            actual=runner.lab_report.timestamp(row['sourceStart'])+shift
+            self.assertEqual(actual,start+timedelta(seconds=expected[family][int(index)-1]))
+            self.assertEqual(runner.lab_report.timestamp(row['captureStart'])+shift,actual-timedelta(seconds=30))
+            self.assertEqual((runner.lab_report.timestamp(row['sourceEnd'])+shift-actual).total_seconds(),
+                             (runner.lab_report.timestamp(row['sourceEnd'])-runner.lab_report.timestamp(row['sourceStart'])).total_seconds())
     def test_signature_covers_immutable_input(self):
         value=dict(sessionId='fixture',time={'scenarioOffsets':{'a':123}});key=Ed25519PrivateKey.generate()
         obj=runner.Runner(SimpleNamespace(directory=self.root/'run',artifacts=self.root,mode='dry-run',scenario=self.root/'a.pcap'))
@@ -59,9 +83,8 @@ class LabRunTest(unittest.TestCase):
         path.write_bytes(b'changed')
         with self.assertRaisesRegex(ValueError,'FILE_MISMATCH'):runner.check_resume(state,self.root,'s')
 
-    def formal_db(self, evidence='real_pf', active=True):
+    def formal_db(self, evidence='real_pf', active=True, subject_sha=runner.R4_SUBJECT_SHA256):
         bundle_id='c313b44e-e835-441a-9e50-ada7e92fdf0a'
-        subject_sha=runner.R4_SUBJECT_SHA256
         refs=[{'evaluationId':str(__import__('uuid').uuid4()),'reportSha256':str(i)*64}
               for i in (1,2,3)]
         sealed={'subjectSha256':subject_sha,'reports':refs}
@@ -87,6 +110,28 @@ class LabRunTest(unittest.TestCase):
                     if "public_id='"+key+"'" in sql:return json.dumps(value).encode()+b'\n'
                 return b''
         return Db(),bundle_id,bundle,reports
+
+    def test_pf_preflight_binds_explicit_subject_and_preserves_r4_default(self):
+        expected='a'*64
+        db,bundle_id,_,_=self.formal_db(subject_sha=expected)
+        self.assertEqual(runner.formal_r4_preflight(db,bundle_id,expected)['subjectSha256'],expected)
+        with self.assertRaisesRegex(ValueError,'LAB_PF_R4_NOT_ACTIVE'):
+            runner.formal_r4_preflight(db,bundle_id)
+        with self.assertRaisesRegex(ValueError,'LAB_PF_R4_NOT_ACTIVE'):
+            runner.formal_r4_preflight(db,bundle_id,'b'*64)
+
+    def test_subject_cli_parsing_and_forwarding(self):
+        for expected in (runner.R4_SUBJECT_SHA256,'a'*64):
+            argv=['lab_run.py','--directory',str(self.root/'run')]
+            if expected!=runner.R4_SUBJECT_SHA256:argv+=['--subject-sha256',expected]
+            with patch('sys.argv',argv),patch.object(runner,'Runner',return_value=Mock()) as constructor:
+                runner.main()
+            self.assertEqual(constructor.call_args.args[0].subject_sha256,expected)
+        for value in ('short','A'*64,'g'*64):
+            with patch('sys.argv',['lab_run.py','--directory',str(self.root/'run'),'--subject-sha256',value]), \
+                 patch('sys.stderr',new=io.StringIO()),patch.object(runner,'Runner') as constructor:
+                with self.assertRaises(SystemExit):runner.main()
+                constructor.assert_not_called()
 
     def test_pf_preflight_accepts_only_active_r4_with_formal_sealed_reports(self):
         db,bundle_id,bundle,reports=self.formal_db()

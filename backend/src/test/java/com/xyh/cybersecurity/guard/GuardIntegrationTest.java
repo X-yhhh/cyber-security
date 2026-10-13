@@ -697,15 +697,49 @@ class GuardIntegrationTest {
         var types=jdbc.queryForList("SELECT table_name t,data_type d FROM information_schema.columns WHERE table_schema=DATABASE() AND ((table_name='guard_observation' AND column_name='payload_json') OR (table_name='guard_decision_policy' AND column_name='definition_json'))");
         assertThat(types).hasSize(2).allSatisfy(t->assertThat(String.valueOf(t.get("d"))).isEqualTo("longtext"));
     }
-    @Test void validLatestTargetCannotAuthorizeOtherSelectedParent()throws Exception{
+    @ParameterizedTest
+    @ValueSource(strings={"missing_reference","different_reference"})
+    void validTriggerLeaseAuthorizesSameTargetEvidence(String change)throws Exception{
         Fixture f=setup();Instant at=Instant.now().truncatedTo(ChronoUnit.MICROS);
         var unbound=observation(f,at,id(),0);unbound.putNull("targetRef").putNull("targetExpiresAt");
+        if(change.equals("different_reference"))unbound.put("targetRef",id()).put("targetExpiresAt",at.plusSeconds(10).toString());
         var bound=observation(f,at.plusNanos(1000),id(),0);accept(f,List.of(unbound,bound),1,true);
         var asset=store.external("asset",f.asset,false);var episode=store.one("guard_episode",map("asset_id",asset.get("id")),false);
-        // 同批两条观察在批末对该 episode 只判定一次；最新快照的有效目标仍不能替另一个 parent 放行。
+        // 同批在批末判定一次：触发观察持有效租约，其余同对端证据无需共享这份租约。
         var decisions=store.rows("guard_decision",map("episode_id",episode.get("id")),false,10);assertThat(decisions).hasSize(1);
-        assertThat(decisions).allSatisfy(d->assertThat(str(d,"reason_code")).isEqualTo("TARGET_REF_STALE"));
+        assertThat(decisions).allSatisfy(d->{assertThat(str(d,"reason_code")).isNull();assertThat(str(d,"decision")).isEqualTo("block_candidate");});
         assertThat(json(decisions.getFirst(),"evidence_json").path("selectedObservations")).hasSize(2);
+        assertThat(store.rows("guard_action",map("asset_id",asset.get("id")),false,10)).hasSize(1);
+    }
+    /** 触发观察本身不可执行时，即使其他选证仍有租约也须停在 T4。 */
+    @ParameterizedTest
+    @ValueSource(strings={"missing_reference","expired_reference","old_packet"})
+    void otherEvidenceCannotReplaceInvalidTriggerLease(String change)throws Exception{
+        Fixture f=setup();Instant at=Instant.now().truncatedTo(ChronoUnit.MICROS);
+        var earlier=observation(f,at,id(),0);var trigger=observation(f,at.plusNanos(1000),id(),0);
+        switch(change){
+            case "missing_reference"->trigger.putNull("targetRef").putNull("targetExpiresAt");
+            case "expired_reference"->trigger.put("targetExpiresAt",at.toString());
+            case "old_packet"->{trigger.put("firstSeenAt",time(trigger,"asOf").minusSeconds(20).toString()).put("lastPacketAt",at.minusSeconds(16).toString()).put("targetExpiresAt",at.minusSeconds(1).toString());((ObjectNode)trigger.path("features")).put("elapsedMs",20000);}
+        }
+        accept(f,List.of(earlier,trigger),1,true);var asset=store.external("asset",f.asset,false);
+        var decision=store.one("guard_decision",map("asset_id",asset.get("id")),false);
+        assertThat(str(decision,"reason_code")).isEqualTo("TARGET_REF_STALE");
+        assertThat(store.rows("guard_action",map("asset_id",asset.get("id")),false,10)).isEmpty();
+    }
+    /** 隔离库内注入跨目标历史选证：即使触发租约有效，也不能替另一个 parent 放行。 */
+    @ParameterizedTest
+    @ValueSource(strings={"peerKey","keyEpoch","servicePort"})
+    void validLatestTargetCannotAuthorizeOtherSelectedParent(String field)throws Exception{
+        Fixture f=setup();Instant at=Instant.now().truncatedTo(ChronoUnit.MICROS);
+        var earlier=observation(f,at,id(),0).putNull("targetRef").putNull("targetExpiresAt");accept(f,List.of(earlier),1,true);
+        // 人为保留 episode 索引、仅改变不可变观察夹具，以覆盖通常已被上游身份隔离阻止的边界。
+        if(field.equals("peerKey"))earlier.put(field,"e".repeat(64));else earlier.put(field,earlier.path(field).asInt()+1);
+        jdbc.update("UPDATE guard_observation SET payload_json=?,content_sha256=? WHERE public_id=?",canonical(earlier),hash(earlier),earlier.path("observationId").asText());
+        accept(f,List.of(observation(f,Instant.now().truncatedTo(ChronoUnit.MICROS),id(),0)),2,true);
+        var asset=store.external("asset",f.asset,false);var decision=store.one("guard_decision",map("asset_id",asset.get("id")),false);
+        assertThat(json(decision,"evidence_json").path("selectedObservations")).hasSize(2);
+        assertThat(str(decision,"reason_code")).isEqualTo("TARGET_REF_STALE");
         assertThat(store.rows("guard_action",map("asset_id",asset.get("id")),false,10)).isEmpty();
     }
     @Test void scopesUnknownFieldsMachineSeparationAndApprovalSeparation()throws Exception{

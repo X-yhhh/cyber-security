@@ -34,7 +34,7 @@ from executor.common import canonical, digest, require
 from executor.subject_binding import validate as validate_binding
 from scripts.p5 import platform_report
 from scripts.p7 import j1_run
-from scripts.p7.lab_run import R4_SUBJECT_SHA256, freeze_scenarios, original_mapping, stamp
+from scripts.p7.lab_run import R4_SUBJECT_SHA256, freeze_scenarios, original_mapping, stamp, subject_sha256
 
 BUSINESS = "cyber_security"
 SOURCE_SCHEMA = re.compile(r"cyber_guard_[a-z0-9_]{1,52}")
@@ -79,7 +79,7 @@ def bundle_facts(db, schema, bundle_id):
 
 
 def check_candidate(facts, expected, formal):
-    """克隆前的 r4 必须是同一 subject 的 lab candidate，并已有通过的 final。"""
+    """克隆前的指定组合必须是同一 subject 的 lab candidate，并已有通过的 final。"""
     require(facts["status"] == "candidate" and facts["environment"] == "lab", "K9_R4_NOT_CANDIDATE")
     require(digest(facts["subject"]) == facts["subjectSha256"] == expected, "K9_R4_SUBJECT_MISMATCH")
     passed = [f for f in facts["finals"] if f["status"] == "passed"]
@@ -324,7 +324,7 @@ def main():
     parser.add_argument("--mode", choices=("rehearse", "pf"), required=True)
     parser.add_argument("--source-schema", required=True)
     parser.add_argument("--bundle-id", required=True)
-    parser.add_argument("--subject-sha256", default=R4_SUBJECT_SHA256)
+    parser.add_argument("--subject-sha256", type=subject_sha256, default=R4_SUBJECT_SHA256, help="期望组合 subject；默认保留 r4")
     parser.add_argument("--authorization-reference", help="pf：A6 单轮授权引用")
     parser.add_argument("--ready-dir", type=Path, help="pf：root 侧每轮 --ready-marker 所在目录，标记名 e3-<scope>-<scenario>.ready")
     parser.add_argument("--ready-timeout", type=float, default=1800, help="pf：每轮等待 root 就绪的秒数")

@@ -42,7 +42,7 @@ public class GuardAdministration {
         return object("id",publicId,"clientId",client.get("public_id"),"credential","mch_"+client.get("id")+"."+token,"status",executor?"pending":"active");}
     public JsonNode config(String sensorId,JsonNode b){var s=store.external("sensor_agent",sensorId,false);long aid=number(s,"asset_id");access.permission("sensor.manage",aid);store.lockAsset(aid);
         fields(b,"contractVersion profileSha256 captureHealthVersion interfaceIds limits captureScopeId addressFamily buildSha256","");
-        require(CONTRACT.equals(text(b,"contractVersion"))&&HEALTH.equals(text(b,"captureHealthVersion"))&&contracts.profileHash().equals(digest(b,"profileSha256")),"CONTRACT_UNSUPPORTED");digest(b,"buildSha256");uuid(b,"captureScopeId");
+        require(CONTRACT.equals(text(b,"contractVersion"))&&HEALTH_VERSIONS.contains(text(b,"captureHealthVersion"))&&contracts.profileHash().equals(digest(b,"profileSha256")),"CONTRACT_UNSUPPORTED");digest(b,"buildSha256");uuid(b,"captureScopeId");
         require(b.get("interfaceIds").isArray()&&b.get("interfaceIds").size()==1&&Set.of("ipv4","ipv6").contains(text(b,"addressFamily")),"INVALID_CAPTURE_SCOPE");
         fields(b.get("limits"),"maxBatchSize","");integer(b.get("limits"),"maxBatchSize",1,GuardContracts.MAX_BATCH_SIZE);
         String scopeKey=b.get("interfaceIds").get(0).asText();require(scopeKey.matches("[A-Za-z0-9_.:-]{1,96}"),"INVALID_INTERFACE_REFERENCE");

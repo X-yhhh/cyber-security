@@ -76,6 +76,7 @@ Z1 集成复验（2026-10-10）已重编译 `guardtargets`：cgo 与纯 Go 的 `
 - **S3 v2 观察上传**：配置可选 `upload` 对象（`baseUrl` https 根地址、`caFile`、`certificateFile`、`keyFile`、`credentialFile`、绝对 `spoolDir`、可选 `healthWindowMs`）。传输为 TLS 1.3 并强制出示传感器客户端证书，同时带 v2 `Bearer mch_…` 凭据；不继承代理、不跟随重定向，私钥与凭据文件须为属主专用的绝对普通文件。启动时读取已批准配置，契约版本、profile 摘要、健康版本、捕获域、地址族和本程序 SHA-256 任一不符即拒绝。观察先按 `maxBatchSize` 或 500ms 封口并 fsync 到 `spoolDir/<bootId>/`，再按 sequence 顺序单批在途发送；先发心跳登记 bootId。网络错误、408/429/5xx 以同一 batchId、Idempotency-Key 与原字节退避重试，其余 4xx（身份、范围、幂等冲突等）立即停止采集。环境取配置 `environment`（research/lab/authorized），未配置 lab 接入时，本节不接入 `guardtargets` 租约；显式 lab 接入通过独立可信登记器取得目标引用。
 - **续传与 boot**：同一 bootId 重新采集会生成相同观察 ID 而 `emittedAt` 不同，因此已有 spool 时拒绝启动，须换新 bootId；结束时未确认的批次保留在 spool，用 `guardlive -config <同一配置> -drain` 续传。已封口批次不丢不重；进程崩溃时内存中未满 500ms 的未封口观察会丢失，表现为新 boot 的缺口。
 - **S4 健康窗口**：配置 `upload` 时同时运行 `host-guard-capture-health/1.0.0` 观察器（默认 1 秒、上限 5 秒窗口），只读捕获句柄的累计读包数、内核丢包（不可测为 null）与引擎容量丢弃，独立于特征引擎；`previousSha256` 为前一窗口完整 payload 的 RFC 8785 JCS SHA-256，服务端返回摘要不一致即停止。轮询停顿超过 5 秒时按上限切分并标记 `captureGap` 与未知计数。`clockSkewMs` 取 60 秒内往返 ≤1 秒的心跳估计，否则为 null。文件回放的历史丢包未知，窗口不能证明连续健康。
+- **正式 lab 回放健康 1.1.0**：仅 `-lab-plan` 会话清单选择该版本时输出 `captureSource=file_replay`，kernelDrops=null 表示不适用；回放计数已知且连续、无容量丢弃或 gap 时由后端判为 `replay_healthy`。仅绑定同版本 subject 的 running 正式 lab 会话可用于 T2 判定/领取，不能作为现场健康或预算恢复证明。research/现场默认 1.0.0 字节保持不变，远端配置须与实际观察器版本一致。
 
 ```sh
 go build -o bin/guardlive ./cmd/guardlive

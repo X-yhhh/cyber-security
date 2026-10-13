@@ -396,7 +396,11 @@ func validateHandoff(c Config, id Identity, h Handoff, now time.Time) (Manifest,
 	if now.Before(m.ValidFrom) || !now.Before(m.ValidUntil) || m.TimeoutSeconds < 10 || m.TimeoutSeconds > 86400 || !m.ValidUntil.After(m.ValidFrom) {
 		return bad()
 	}
-	if m.ProtocolVersions["observation"] != hostguard.Version || m.ProtocolVersions["health"] != "host-guard-capture-health/1.0.0" {
+	health := m.ProtocolVersions["health"]
+	// 正式 v1.1 文件回放必须绑定独立健康协议；旧清单与 synthetic 演练继续接受现场版本。
+	if m.ProtocolVersions["observation"] != hostguard.Version ||
+		(health != "host-guard-capture-health/1.0.0" && health != "host-guard-capture-health/1.1.0") ||
+		(m.ContractVersion == Version11 && m.EvidenceKind == "lab" && health != "host-guard-capture-health/1.1.0") {
 		return bad()
 	}
 	o, e := offset(m.Time)

@@ -69,12 +69,12 @@ final class GuardReadViews {
                 columns(result, row, "observer_session_id interval_start interval_end received_at verification_status");
                 Object status = row.get("verification_status");
                 result.set("serverVerifiedHealthy", status == null ? node(null) : node("healthy".equals(status)));
-                result.set("failureReason", "healthy".equals(status) ? node(null) : node(status));
+                result.set("failureReason", "healthy".equals(status) || "replay_healthy".equals(status) ? node(null) : node(status));
                 result.put("freshness", freshness(row.get("interval_end"), asOf));
                 result.put("healthState", windowState(status, row.get("interval_end"), row.get("received_at"), asOf));
-                result.put("healthBasis", "server_verified_window");
+                result.put("healthBasis", "replay_healthy".equals(status) ? "server_verified_file_replay_window" : "server_verified_window");
                 JsonNode source = payload(row, "payload_json");
-                jsonFields(result, source, "healthVersion configSha256 buildSha256", 's');
+                jsonFields(result, source, "healthVersion captureSource configSha256 buildSha256", 's');
                 jsonFields(result, source, "captureGap", 'b');
                 jsonFields(result, source, "clockSkewMs", 'n');
                 for (String counters : new String[]{"counterStart", "counterEnd"}) {
@@ -183,7 +183,7 @@ final class GuardReadViews {
     private static final Set<String> UNHEALTHY_MACHINE_STATUSES = Set.of("offline", "revoked", "suspended");
 
     /**
-     * 健康窗口的四态展示：unknown、stale、unhealthy、healthy。
+     * 健康窗口展示 unknown、stale、unhealthy、healthy 与独立的 replay_healthy。
      * 只映射写入时已持久化的服务端判定（verification_status），并按与 GuardHealth.current 相同的
      * intervalEnd 10 秒新鲜度区分 healthy/stale；不重新运行健康验证，也不参与预算恢复。
      * 状态缺失、计数未知、时钟不可信或 intervalEnd 晚于 asOf 均为 unknown；HEALTH_DELAY_EXCEEDED
@@ -198,9 +198,9 @@ final class GuardReadViews {
             if (intervalEnd == null || receivedAt == null) return "unknown";
             return instant(intervalEnd).isAfter(instant(receivedAt)) ? "unknown" : "stale";
         }
-        if (!status.equals("healthy")) return "unhealthy";
+        if (!status.equals("healthy") && !status.equals("replay_healthy")) return "unhealthy";
         return switch (freshness(intervalEnd, asOf)) {
-            case "fresh" -> "healthy";
+            case "fresh" -> status;
             case "stale" -> "stale";
             default -> "unknown";
         };

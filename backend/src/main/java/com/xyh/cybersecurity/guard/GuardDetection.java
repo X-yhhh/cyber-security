@@ -200,23 +200,25 @@ public class GuardDetection {
         if(target!=null){long tid=number(target,"budget_target_id");targetBudget=budget.lock(aid,tid);budget.recover(aid,tid,now);targetBudget=budget.lock(aid,tid);now=budget.monotonic(aid);}
         List<GuardDecisionEngine.Evidence> evidence=new ArrayList<>();boolean modelAvailable=true;for(var e:selectedEvidence){
             modelAvailable&="succeeded".equals(str(e,"inference_status"));evidence.add(new GuardDecisionEngine.Evidence((JsonNode)e.get("observation_node"),e.get("score")==null?null:((Number)e.get("score")).doubleValue(),str(e,"family"),str(e,"source"),str(e,"rule_id"),flag(e.get("rule_matched")),str(e,"observation_content_sha256")));}
-        var executor=target==null?null:store.get("guard_executor",number(target,"executor_id"));Instant decidedAt=now;boolean healthy=memo(cache,List.of("health",number(observation,"capture_scope_id"),number(observation,"sensor_id"),str(observation,"boot_id")),
-                ()->health.current(number(observation,"capture_scope_id"),decidedAt)&&!mapper.batchGap(number(observation,"sensor_id"),str(observation,"boot_id")));
+        var executor=target==null?null:store.get("guard_executor",number(target,"executor_id"));Instant decidedAt=now;boolean replayAllowed=eligibility.replayAllowed(o,bundle);
+        boolean healthy=memo(cache,List.of("health",number(observation,"capture_scope_id"),number(observation,"sensor_id"),str(observation,"boot_id"),replayAllowed),
+                ()->health.current(number(observation,"capture_scope_id"),decidedAt,replayAllowed)&&!mapper.batchGap(number(observation,"sensor_id"),str(observation,"boot_id")));
         budgetPhase.close();var gatePhase=GuardBatchProfile.phase("decide_gates");
         boolean capable=eligibility.capability(bundle,policy,o,family)&&modelAvailable;
         boolean validTarget=eligibility.target(target,o,now,policy,family);
         boolean authorized=eligibility.authorized(asset,bundle,binding,policy,o,executor,now,family);
-        // 汇总的每条快照都须满足同一目标和运行资格，不能由最后一条观察替其余证据放行。
+        // 触发观察持有效执行租约；其余快照仍逐条核对目标归属和运行资格，不要求复用同一短租约。
         // research 无目标、无执行授权，正式门禁始终拒绝；旁路不能借现场资格提升为可执行。
-        // 同一次判定的 now 固定：健康与批次连续性只取决于捕获域/传感器/boot，按此三元组复用，结果与逐条查询相同。
+        // 同一次判定的 now 固定；缓存同时绑定捕获域/传感器/boot 与正式 lab 回放准入。
         var healthByScope=new HashMap<List<String>,Boolean>();final Instant at=now;
         if(hypotheticalPolicy==null)for(var e:evidence){JsonNode selected=e.observation();
             capable&=eligibility.capability(bundle,policy,selected,family);
-            validTarget&=eligibility.target(target,selected,now,policy,family);
-            healthy&=healthByScope.computeIfAbsent(List.of(selected.path("captureScopeId").asText(),selected.path("sensorId").asText(),selected.path("bootId").asText()),
-                    k->health.current(number(store.external("guard_capture_scope",k.get(0),false),"id"),at)
+            validTarget&=eligibility.sameTarget(target,selected,policy,family);
+            boolean selectedReplay=eligibility.replayAllowed(selected,bundle);
+            healthy&=healthByScope.computeIfAbsent(List.of(selected.path("captureScopeId").asText(),selected.path("sensorId").asText(),selected.path("bootId").asText(),Boolean.toString(selectedReplay)),
+                    k->health.current(number(store.external("guard_capture_scope",k.get(0),false),"id"),at,selectedReplay)
                     &&!mapper.batchGap(number(store.external("sensor_agent",k.get(1),false),"id"),k.get(2)));
-            authorized&=eligibility.authorized(asset,bundle,binding,policy,selected,executor,now,family);
+            authorized&=eligibility.authorized(asset,bundle,binding,policy,selected,executor,now,family,target);
         }
         gatePhase.close();
         if(hypotheticalPolicy!=null){capable=false;healthy=false;validTarget=false;authorized=false;}
@@ -241,7 +243,7 @@ public class GuardDetection {
         var auth=binding==null?null:store.get("asset_authorization",number(binding,"authorization_id"));Map<String,Object> model=memo(cache,List.of("model",number(bundle,"model_id")),()->store.get("guard_model",number(bundle,"model_id")));
         Map<String,Object> capability=memo(cache,List.of("capability",family,o.path("addressFamily").asText(),o.path("transport").asText(),o.path("direction").asText(),o.path("profile").asText(),o.path("environment").asText()),
                 ()->eligibility.matchingCapability(bundle,policy,o,family));
-        JsonNode proof=object("digestVersion","guard-evidence/1","decisionContractVersion",DECISION,"protocolVersions",versions(),"decisionId",decisionId,"decisionAt",now.toString(),"family",family,"source",detectionSource,"ruleId",ruleId,"scope",scope,"environment",o.get("environment"),"modelId",model.get("public_id"),"manifestSha256",model.get("manifest_sha256"),"policySha256",p.get("definition_sha256"),"bundleId",bundle.get("public_id"),"bundleSubjectSha256",bundle.get("subject_sha256"),"capabilityId",capability==null?null:capability.get("public_id"),"capabilitySha256",capability==null?null:hash(json(capability,"payload_json")),"authorizationId",auth==null?null:auth.get("public_id"),"authorizationRevision",auth==null?null:auth.get("revision"),"targetBinding",target==null?null:json(target,"payload_json"),"budgetTargetId",target==null?null:store.get("guard_budget_target",number(target,"budget_target_id")).get("public_id"),"budgetRevision",targetBudget==null?null:targetBudget.get("revision"),"healthProofSha256",targetBudget==null?null:targetBudget.get("health_proof_sha256"),"labSession",null,"reasonCode",outcome.reason(),"detailCode",outcome.detail());
+        JsonNode proof=object("digestVersion","guard-evidence/1","decisionContractVersion",DECISION,"protocolVersions",json(bundle,"subject_json").path("protocolVersions"),"decisionId",decisionId,"decisionAt",now.toString(),"family",family,"source",detectionSource,"ruleId",ruleId,"scope",scope,"environment",o.get("environment"),"modelId",model.get("public_id"),"manifestSha256",model.get("manifest_sha256"),"policySha256",p.get("definition_sha256"),"bundleId",bundle.get("public_id"),"bundleSubjectSha256",bundle.get("subject_sha256"),"capabilityId",capability==null?null:capability.get("public_id"),"capabilitySha256",capability==null?null:hash(json(capability,"payload_json")),"authorizationId",auth==null?null:auth.get("public_id"),"authorizationRevision",auth==null?null:auth.get("revision"),"targetBinding",target==null?null:json(target,"payload_json"),"budgetTargetId",target==null?null:store.get("guard_budget_target",number(target,"budget_target_id")).get("public_id"),"budgetRevision",targetBudget==null?null:targetBudget.get("revision"),"healthProofSha256",targetBudget==null?null:targetBudget.get("health_proof_sha256"),"labSession",null,"reasonCode",outcome.reason(),"detailCode",outcome.detail());
         ((com.fasterxml.jackson.databind.node.ObjectNode)proof).set("selectedObservations",refs);
         ((com.fasterxml.jackson.databind.node.ObjectNode)proof).put("triggerObservationId",str(observation,"public_id"));
         if(hypotheticalPolicy!=null){JsonNode manifest=memo(cache,List.of("model-manifest",number(model,"id")),()->json(model,"manifest_json"));

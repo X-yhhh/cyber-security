@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/xyh/cyber-security/sensor/internal/capturehealth"
 	"github.com/xyh/cyber-security/sensor/internal/guardlab"
 	"github.com/xyh/cyber-security/sensor/internal/guardup"
 	"github.com/xyh/cyber-security/sensor/internal/hostguard"
@@ -92,7 +93,8 @@ func prepareLab(c config, pcap string) (*guardlab.Session, error) {
 }
 
 // concurrentLabReplay 为每段创建独立因果引擎，按已签名的绝对时间并发等待。
-// 上传、事件写入和健康计数集中串行化；场景之间不混合主机上下文或连接 ID。
+// 上传、事件写入集中串行化；健康样本由独立节拍汇总，回放协程不在聚合锁内调用观察器。
+// 场景之间不混合主机上下文或连接 ID。
 func concurrentLabReplay(ctx context.Context, parent *guardlab.Session, base hostguard.Config,
 	emitFor func(*guardlab.Session) func(hostguard.Emission) error, observe func(hostguard.LiveSample)) ([]map[string]any, map[string]int64, hostguard.LiveSample, error) {
 	ctx, cancel := context.WithCancel(ctx)
@@ -101,7 +103,10 @@ func concurrentLabReplay(ctx context.Context, parent *guardlab.Session, base hos
 	replays := make([]map[string]any, len(inputs))
 	stats := map[string]int64{}
 	samples := make([]hostguard.LiveSample, len(inputs))
-	var last hostguard.LiveSample
+	completed := make([]bool, len(inputs))
+	for i := range samples {
+		samples[i].At = time.Now()
+	}
 	var first error
 	var mu sync.Mutex
 	var wg sync.WaitGroup
@@ -110,7 +115,7 @@ func concurrentLabReplay(ctx context.Context, parent *guardlab.Session, base hos
 		if err != nil {
 			cancel()
 			wg.Wait()
-			return nil, nil, last, err
+			return nil, nil, hostguard.LiveSample{}, err
 		}
 		cfg := base
 		cfg.LocalAddresses = []netip.Addr{child.Local.OriginalLocal}
@@ -120,7 +125,7 @@ func concurrentLabReplay(ctx context.Context, parent *guardlab.Session, base hos
 		if err != nil {
 			cancel()
 			wg.Wait()
-			return nil, nil, last, err
+			return nil, nil, hostguard.LiveSample{}, err
 		}
 		wg.Add(1)
 		go func(index int, input guardlab.ReplayInput, child *guardlab.Session, engine *hostguard.Engine) {
@@ -135,18 +140,15 @@ func concurrentLabReplay(ctx context.Context, parent *guardlab.Session, base hos
 				},
 				Observe: func(sample hostguard.LiveSample) {
 					mu.Lock()
-					defer mu.Unlock()
+					// 汇总节拍之前到达的缺口必须锁存，不能被紧随其后的正常样本覆盖。
+					sample.Gap = sample.Gap || samples[index].Gap
 					samples[index] = sample
-					total := hostguard.LiveSample{At: time.Now()}
-					for _, s := range samples {
-						total.PacketsSeen += s.PacketsSeen
-						total.CapacityDrops += s.CapacityDrops
-						total.LateCount += s.LateCount
-					}
-					last = total
-					observe(total)
+					mu.Unlock()
 				},
 			})
+			mu.Lock()
+			completed[index] = true
+			mu.Unlock()
 			if err == nil {
 				var sum string
 				sum, err = digest(input.Path)
@@ -172,6 +174,53 @@ func concurrentLabReplay(ctx context.Context, parent *guardlab.Session, base hos
 			}
 		}(index, input, child, engine)
 	}
+	stopHealth := make(chan struct{})
+	healthDone := make(chan hostguard.LiveSample, 1)
+	go func() {
+		healthDone <- sampleLabHealth(stopHealth, 100*time.Millisecond, &mu, samples, completed, observe)
+	}()
 	wg.Wait()
+	close(stopHealth)
+	last := <-healthDone
 	return replays, stats, last, first
+}
+
+// sampleLabHealth 是唯一调用观察器的协程；每次取一致的累计快照后立即释放槽位锁。
+// 停止时补采最终计数，单段样本超过上限仍由 aggregateLabHealth 显式标记缺口。
+func sampleLabHealth(stop <-chan struct{}, interval time.Duration, mu *sync.Mutex,
+	samples []hostguard.LiveSample, completed []bool, observe func(hostguard.LiveSample)) hostguard.LiveSample {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	snapshot := func() hostguard.LiveSample {
+		mu.Lock()
+		defer mu.Unlock()
+		total := aggregateLabHealth(samples, completed, time.Now())
+		for i := range samples {
+			samples[i].Gap = false
+		}
+		return total
+	}
+	for {
+		select {
+		case <-ticker.C:
+			observe(snapshot())
+		case <-stop:
+			last := snapshot()
+			observe(last)
+			return last
+		}
+	}
+}
+
+// aggregateLabHealth 保留已完成场景的累计计数；仍在回放的场景独立检查样本停顿。
+// 调用方持有聚合锁，其他场景持续送样本也不能掩盖单个场景超过 5 秒的缺口。
+func aggregateLabHealth(samples []hostguard.LiveSample, completed []bool, now time.Time) hostguard.LiveSample {
+	total := hostguard.LiveSample{At: now}
+	for i, sample := range samples {
+		total.PacketsSeen += sample.PacketsSeen
+		total.CapacityDrops += sample.CapacityDrops
+		total.LateCount += sample.LateCount
+		total.Gap = total.Gap || sample.Gap || !completed[i] && now.Sub(sample.At) > capturehealth.MaxWindow
+	}
+	return total
 }

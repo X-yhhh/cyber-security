@@ -18,10 +18,12 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/xyh/cyber-security/sensor/internal/capturehealth"
 	"github.com/xyh/cyber-security/sensor/internal/guardlab"
 	"github.com/xyh/cyber-security/sensor/internal/guardup/guarduptest"
 	"github.com/xyh/cyber-security/sensor/internal/hostguard"
@@ -33,15 +35,15 @@ import (
 // 实际 guardlive 入口经 mTLS 读取会话、申请租约并上传短小的合成 PCAP，随后原字节 drain。
 func TestLabCLIUsesRegisteredClockMappingAndSpool(t *testing.T) {
 	for _, v := range []struct {
-		name         string
-		plan, shared bool
-	}{{"single", false, false}, {"plan", true, false}, {"plan-shared-target", true, true}} {
-		t.Run(v.name, func(t *testing.T) { testLabCLI(t, v.plan, v.shared) })
+		name                 string
+		plan, shared, replay bool
+	}{{"single", false, false, false}, {"plan", true, false, false}, {"plan-shared-target", true, true, false}, {"replay-health", true, false, true}} {
+		t.Run(v.name, func(t *testing.T) { testLabCLI(t, v.plan, v.shared, v.replay) })
 	}
 }
 
 // shared=true 时可信解析器替身把 normal 与 attack 映射到同一 targetRef，入口必须拒绝并以稳定错误码失败。
-func testLabCLI(t *testing.T, plan, shared bool) {
+func testLabCLI(t *testing.T, plan, shared, replay bool) {
 	dir := t.TempDir()
 	pki := guarduptest.NewPKI(t)
 	originalLocal := netip.MustParseAddr("192.0.2.2")
@@ -101,7 +103,11 @@ func testLabCLI(t *testing.T, plan, shared bool) {
 	f2.Close()
 	pcapHash2, _ := guardlab.FileSHA256(pcap2)
 
-	backend := guarduptest.NewBackend(guarduptest.Approved{SensorID: sensor, ConfigID: "00000000-0000-4000-8000-000000000014", ConfigHash: strings.Repeat("f", 64), CaptureScopeID: scope, AddressFamily: "ipv4", BuildSha256: build, ContractVersion: hostguard.Version, ProfileSha256: hostguard.FeatureProfileSHA256, HealthVersion: "host-guard-capture-health/1.0.0", MaxBatchSize: 100})
+	healthVersion := capturehealth.Version
+	if replay {
+		healthVersion = capturehealth.ReplayVersion
+	}
+	backend := guarduptest.NewBackend(guarduptest.Approved{SensorID: sensor, ConfigID: "00000000-0000-4000-8000-000000000014", ConfigHash: strings.Repeat("f", 64), CaptureScopeID: scope, AddressFamily: "ipv4", BuildSha256: build, ContractVersion: hostguard.Version, ProfileSha256: hostguard.FeatureProfileSHA256, HealthVersion: healthVersion, MaxBatchSize: 100})
 	var runnable atomic.Bool
 	runnable.Store(true)
 	var handoff guardlab.Handoff
@@ -147,6 +153,11 @@ func testLabCLI(t *testing.T, plan, shared bool) {
 	if plan {
 		manifest.Time.ScoringEnd = source.Add(7 * time.Second)
 	}
+	if replay {
+		manifest.ContractVersion = guardlab.Version11
+		manifest.ProtocolVersions["health"] = healthVersion
+		manifest.Time.ScenarioOffsets = map[string]int64{"normal-1": offset.Microseconds(), "attack-2": offset.Microseconds()}
+	}
 	manifestRaw, _ := json.Marshal(manifest)
 	sessionSHA, _ := jcs.SHA256(json.RawMessage(manifestRaw))
 	mapping := guardlab.Mapping{ContractVersion: guardlab.Version, MappingID: mapID, SessionID: runID, Entries: []guardlab.Entry{{ScenarioID: "normal-1", TargetBindingID: targetID, PeerKey: peerKey, KeyEpoch: 1, CaptureScopeID: scope, TargetRef: targetID}}}
@@ -156,10 +167,19 @@ func testLabCLI(t *testing.T, plan, shared bool) {
 		mapping.Entries = append(mapping.Entries, guardlab.Entry{ScenarioID: "attack-2", TargetBindingID: attackTargetID, PeerKey: peerKey2, KeyEpoch: 1, CaptureScopeID: scope, TargetRef: attackTargetID})
 		scenarios.Scenarios = append(scenarios.Scenarios, guardlab.Scenario{ScenarioID: "attack-2", Family: "brute_force", Source: "model", PCAPRef: "synthetic-2.pcap", PCAPSHA256: pcapHash2, SourceStart: source.Add(4 * time.Second), SourceEnd: source.Add(6 * time.Second)})
 	}
+	if replay {
+		mapping.ContractVersion, scenarios.ContractVersion = guardlab.Version11, guardlab.Version11
+		for i := range scenarios.Scenarios {
+			scenarios.Scenarios[i].CaptureStart = &source
+		}
+	}
 	mapRaw, _ := json.Marshal(mapping)
 	scRaw, _ := json.Marshal(scenarios)
 	handoff = guardlab.Handoff{State: guardlab.State{ID: runID, EligibilityStatus: "active", EffectiveEligibility: "active", RunStatus: "running", Runnable: true, Revision: 1, AssetID: assetID, BundleID: mapID, SessionSHA256: sessionSHA, EvidenceKind: "lab", ValidUntil: manifest.ValidUntil, StartedAt: &start}, Manifest: manifestRaw, Mapping: mapRaw, Scenarios: scRaw}
 	local := guardlab.PrivateMapping{ContractVersion: guardlab.MappingVersion, SessionID: runID, SessionSHA256: sessionSHA, MappingID: mapID, MappingSHA256: manifest.MappingSHA256, ScenarioSHA256: manifest.ScenarioSHA256, BuildSHA256: build, ExtractorSHA256: manifest.Provenance["extractorSha256"], Entries: []guardlab.LocalEntry{{ScenarioID: "normal-1", OriginalLocal: originalLocal, OriginalPeer: originalPeer, CanaryLocal: netip.MustParseAddr("127.0.0.1"), CanaryPeer: canary, PeerKey: peerKey, Direction: "inbound", Transport: "tcp", AddressFamily: "ipv4", Scope: "peer_service", ServicePort: 443}}}
+	if replay {
+		local.ContractVersion = guardlab.MappingVersion11
+	}
 	if plan {
 		l := local.Entries[0]
 		l.ScenarioID = "attack-2"
@@ -203,6 +223,26 @@ func testLabCLI(t *testing.T, plan, shared bool) {
 	}
 	if e := runCLI(t, args...); e != nil {
 		t.Fatal(e)
+	}
+	windows := backend.HealthWindows()
+	if len(windows) == 0 {
+		t.Fatal("health windows not uploaded")
+	}
+	for _, window := range windows {
+		if window["healthVersion"] != healthVersion {
+			t.Fatal("health version differs from admitted configuration")
+		}
+		if replay {
+			start := window["counterStart"].(map[string]any)
+			end := window["counterEnd"].(map[string]any)
+			if window["captureSource"] != "file_replay" || window["captureGap"] != false || start["kernelDrops"] != nil || end["kernelDrops"] != nil ||
+				start["packetsSeen"] == nil || end["packetsSeen"] == nil || end["packetsSeen"].(float64) < start["packetsSeen"].(float64) ||
+				start["capacityDrops"] != float64(0) || end["capacityDrops"] != float64(0) {
+				t.Fatalf("invalid replay health window: %+v", window)
+			}
+		} else if _, present := window["captureSource"]; present {
+			t.Fatal("legacy health window acquired a replay source")
+		}
 	}
 	observations := backend.Observations()
 	if len(observations) < 2 {
@@ -292,5 +332,102 @@ func testLabCLI(t *testing.T, plan, shared bool) {
 	runnable.Store(false)
 	if e := runCLI(t, "-config", cp, "-drain"); e == nil {
 		t.Fatal("revoked session drained")
+	}
+}
+
+func TestHealthProtocolRequiresAdmittedPlanAndSubjectVersion(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		admitted bool
+		inputs   int
+		version  string
+		want     string
+		source   string
+	}{
+		{"unadmitted", false, 1, capturehealth.ReplayVersion, capturehealth.Version, ""},
+		{"single-replay", true, 0, capturehealth.ReplayVersion, capturehealth.Version, ""},
+		{"legacy-plan", true, 1, capturehealth.Version, capturehealth.Version, ""},
+		{"unknown-version", true, 1, "unsupported", capturehealth.Version, ""},
+		{"replay-plan", true, 1, capturehealth.ReplayVersion, capturehealth.ReplayVersion, "file_replay"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			lab := guardlab.Config{Inputs: make([]guardlab.ReplayInput, tc.inputs)}
+			c := config{Environment: "lab", Lab: &lab}
+			if tc.admitted {
+				c.labSession = &guardlab.Session{Config: lab, Manifest: guardlab.Manifest{ProtocolVersions: map[string]string{"health": tc.version}}}
+			}
+			if version, source := healthProtocol(c); version != tc.want || source != tc.source {
+				t.Fatalf("protocol = %q/%q, want %q/%q", version, source, tc.want, tc.source)
+			}
+		})
+	}
+}
+
+func TestAggregateLabHealthDetectsIndividualStallAndRetainsCompletedCounters(t *testing.T) {
+	now := time.Date(2026, 10, 13, 0, 0, 0, 0, time.UTC)
+	for _, tc := range []struct {
+		name      string
+		age       time.Duration
+		completed bool
+		gap       bool
+		wantGap   bool
+	}{
+		{"boundary", capturehealth.MaxWindow, false, false, false},
+		{"stalled", capturehealth.MaxWindow + time.Nanosecond, false, false, true},
+		{"explicit-gap", time.Second, false, true, true},
+		{"completed", time.Hour, true, false, false},
+		{"completed-with-pending-gap", time.Hour, true, true, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			samples := []hostguard.LiveSample{{At: now, PacketsSeen: 13, CapacityDrops: 2, LateCount: 1},
+				{At: now.Add(-tc.age), PacketsSeen: 17, CapacityDrops: 3, LateCount: 4, Gap: tc.gap}}
+			total := aggregateLabHealth(samples, []bool{false, tc.completed}, now)
+			if total.Gap != tc.wantGap || total.PacketsSeen != 30 || total.CapacityDrops != 5 || total.LateCount != 5 || total.DropsKnown || !total.At.Equal(now) {
+				t.Fatalf("aggregated counters/gap: %+v", total)
+			}
+		})
+	}
+}
+
+func TestLabHealthSamplerAggregatesConcurrentChildrenOnOneClock(t *testing.T) {
+	const children = 18
+	var mu sync.Mutex
+	samples := make([]hostguard.LiveSample, children)
+	completed := make([]bool, children)
+	at := time.Now()
+	for i := range samples {
+		samples[i].At = at
+	}
+	stop := make(chan struct{})
+	first := make(chan hostguard.LiveSample, 1)
+	done := make(chan hostguard.LiveSample, 1)
+	go func() {
+		done <- sampleLabHealth(stop, time.Millisecond, &mu, samples, completed, func(s hostguard.LiveSample) {
+			select {
+			case first <- s:
+			default:
+			}
+		})
+	}()
+	var wg sync.WaitGroup
+	for i := range samples {
+		wg.Add(1)
+		go func(index int) {
+			defer wg.Done()
+			mu.Lock()
+			samples[index] = hostguard.LiveSample{At: at, PacketsSeen: 1}
+			mu.Unlock()
+		}(i)
+	}
+	wg.Wait()
+	select {
+	case <-first:
+	case <-time.After(time.Second):
+		t.Fatal("independent sampler did not emit")
+	}
+	close(stop)
+	last := <-done
+	if last.Gap || last.PacketsSeen != children {
+		t.Fatalf("concurrent counter snapshot: %+v", last)
 	}
 }

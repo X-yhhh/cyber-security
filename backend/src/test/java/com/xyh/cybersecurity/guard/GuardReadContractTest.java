@@ -109,6 +109,8 @@ class GuardReadContractTest {
         assertThat(GuardReadViews.windowState("healthy", old, old, now)).isEqualTo("stale");
         assertThat(GuardReadViews.windowState("healthy", future, recent, now)).isEqualTo("unknown");
         assertThat(GuardReadViews.windowState("healthy", null, recent, now)).isEqualTo("unknown");
+        assertThat(GuardReadViews.windowState("replay_healthy", recent, recent, now)).isEqualTo("replay_healthy");
+        assertThat(GuardReadViews.windowState("replay_healthy", old, recent, now)).isEqualTo("stale");
         assertThat(GuardReadViews.windowState(null, recent, recent, now)).isEqualTo("unknown");
         for (String unknown : new String[]{"COUNTER_UNKNOWN", "CLOCK_UNTRUSTED"}) {
             assertThat(GuardReadViews.windowState(unknown, recent, recent, now)).isEqualTo("unknown");

@@ -105,6 +105,8 @@ research 与 lab 互不混用：`/replay-runs` 只接受白名单字段（多余
 
 ## 报告
 
+2026-10-13 G3 预演验收登记（D5/D7）：dos_flood 的运行行为要求评分窗内零候选、零动作且存在告警，逐条首拒须能由质量、能力或目标事实解释；冻结策略关闭自动的证明另由组合实际关联策略的内容摘要及确定性门测提供，不要求运行在 T2 已拒绝后仍到达 T5。质量门及冻结策略保持原值。当前 18 段冻结场景全部登记为 model 来源，拟授予资格仅覆盖 port_scan/model、brute_force/model、dos_slow/model；scan-ports 规则来源只列首拒及是否到达 T9 的诊断，并登记为未经本轮 G3 验证。来源取得资格仍要求该来源全部登记场景通过；预演逐段列出扫描 10 秒、暴力破解/慢速 20 秒内的候选与动作，brute_force 任一段缺失或超时即停止后续阶段。此预演口径不替代真实 applied/cleared 验收。
+
 采用健康 1.1.0 的正式文件回放，G3 报告及 closeout 必须声明：健康门为文件回放口径（1.1.0 file_replay），证明回放完整、无容量丢弃，不证明现场采集健康；现场健康观察器接入仍属 P8 B5.4。另列评分窗口内 `replay_healthy` 覆盖及观察质量覆盖；回放健康不能用于预算恢复，r3/r4 的历史证据不改标为 r5。
 
 报告为现有签名封装中的 canary payload，带 `reportVersion`、protocolVersions、subjectSha256、evaluationPlanSha256、sessionId/sessionSha256、inputSha256、provenance、每场景时间线（labStart→firstAlertAt→firstIssuedAt→firstAppliedAt→lastClearedAt 及 alert/issue/application/cleanupLatencyMs）、`classes` 逐类结果（四攻击类按名称排序；场景、来源、最差状态、首个告警/生效时延，无场景为 not_evaluated）和 `unverifiedItems` 未验证项（场景缺口、缺类、未关联命令/决策、正常时长缺失、运行未完成、合成证据，顺序固定）。生成、签名、验签、导入、封存、批准、激活是独立步骤。签名复用 P5 报告的 Ed25519/JCS 封装与私钥规则，验签只信任既有 report-trust-file。导入复用 guard_evaluation_run；合成或不完整报告可保存诊断，但不具有 passed 状态。

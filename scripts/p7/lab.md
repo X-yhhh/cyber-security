@@ -1,6 +1,6 @@
 # B4 lab 会话与 G3 报告工具
 
-后端入口为 `GuardLabController`，完整请求、状态和传感器交接见 [lab v1.1 契约](../../docs/contracts/lab-validation.md)。V25 保存运行投影/事件，原 B4/L2/L3 代码已随 PR #29—#31 合入并完成集成验证。`lab_report.py` 负责文件报告，`lab_run.py` 负责 dry-run/rehearse，`lab_formal.py` 负责正式 PF 编排及克隆门禁预演。阶段 0 交接见 `.cache/route-20261012/handoff.md`；2026-10-13 回放健康方案 B 第 3 步完整克隆预演因 `dos_flood` 策略关闭门未被验证而按 D3 停下，交接见 `.cache/g3-20261012/handoff.md`。
+后端入口为 `GuardLabController`，完整请求、状态和传感器交接见 [lab v1.1 契约](../../docs/contracts/lab-validation.md)。V25 保存运行投影/事件，原 B4/L2/L3 代码已随 PR #29—#31 合入并完成集成验证。`lab_report.py` 负责文件报告，`lab_run.py` 负责 dry-run/rehearse，`lab_formal.py` 负责正式 PF 编排及克隆门禁预演。阶段 0 交接见 `.cache/route-20261012/handoff.md`；2026-10-13 回放健康方案 B 完成，业务库正式 G3 通过，交接见 `.cache/g3-20261012/handoff.md`，收口 `.cache/g3-20261012/closeout.json`。
 
 2026-10-12 的第 15 次完整 18 段 rehearse 演练已通过 K7-R：三类候选达标、正常候选为 0、关联完整、替身空规则退出。原始门禁位于 `.cache/g3-rehearsal-20261012/attempt-15/gate.json`，目录索引为 `.cache/g3-rehearsal-20261012/gate.json`。这是 synthetic 诊断结果；后续 K9、A18、A6 已解除 E3/r4 前置闭环，r4 在业务库为 approved、未激活。G3 克隆预演暴露了文件回放健康门的阻塞；新健康口径的实际全门禁回放和真实 PF G3 尚未验证。
 
@@ -19,7 +19,7 @@ sh executor/python.sh -B scripts/p7/g3_rehearsal.py \
 
 ## 正式编排与回放健康方案 B
 
-`lab_formal.py --target clone|business` 提供真实部署路径的编排；clone 用于完整预演，business 用于正式运行。正式 PF 依赖受控 root 暂存包、rendezvous 和逐轮授权引用，并只接受绑定当前 subject 的正式 final 与 `real_pf` platform 报告。每轮建独立 vhost；业务路径须先备份并恢复演练，克隆路径结束后核对源库不变并删除本轮克隆。原执行器保持冻结。
+`lab_formal.py --target clone|business` 提供真实部署路径的编排；clone 用于完整预演，business 用于正式运行。正式 PF 依赖受控 root 暂存包、rendezvous 和逐轮授权引用，并只接受绑定当前 subject 的正式 final 与 `real_pf` platform 报告。每轮建独立 vhost；业务路径须先备份并恢复演练，克隆路径结束后核对源库不变并删除本轮克隆。
 
 r5 使用以下显式参数，r4 默认值保留以兼容既有证据：
 
@@ -30,13 +30,13 @@ r5 使用以下显式参数，r4 默认值保留以兼容既有证据：
 | `--import-plan` | r5 计划为 `.cache/g3-20261012/r5/lab-plan.json`；健康版本、策略、提取器和评价计划须与组合一致 |
 | `--platform-ref` | 制品根内绑定该 subject 的 platform 报告，不改写原签名字节 |
 | `--final-ref` | 非 r4 必填，绑定该 subject 的 final 报告 |
-| `--backend-jar` | r5 必须显式指定本阶段新构建的 `backend/target/cyber-security-backend-0.1.0-SNAPSHOT.jar`；默认 `.cache/a18-20261012/bin/backend.jar` 是历史 r4 二进制 |
+| `--backend-jar` | r5 必须显式指定；正式 G3 使用 `29dfea6` 构建的 `.cache/g3-20261012/bin-29dfea6/backend.jar`（`9cf61156…`）。默认 `.cache/a18-20261012/bin/backend.jar` 是历史 r4 二进制 |
 
 第 3 步门禁预演使用 `--target clone --gate-rehearsal --admission-probe`，显式指定 `--source-schema cyber_guard_*` 隔离源和独立 `--report-trust`。信任文件须是已存在的克隆专用普通文件，不能是正式 trust、其软链接或硬链接；身份与私钥仅写本轮克隆的运行目录。克隆引导/合成报告只在此模式允许，正式路径拒绝。此模式开启后端真实自动化门，执行器替身仅发心跳，不领取命令、不安装 PF 规则；不收集或导入正式 G3 报告。停止心跳时等待在途请求结束，最长 65 秒；超时拒绝继续清理，避免请求仍在使用待删除的后端或 vhost。
 
 传感器的 `captureHealthVersion` 取组合 subject 绑定版本。仅正式 v1.1 lab 清单选择健康 1.1.0 时，`guardlive -lab-plan` 输出 `captureSource=file_replay`；回放等待和空闲时持续采样，并发聚合仍保留真实停顿的 gap。`replay_healthy` 仅用于同版本 subject、running 正式 lab 归属下的 T2 判定及领取复核，不能用于预算恢复；现场/research 默认健康 1.0.0 保持原语义。报告和 closeout 须声明它证明回放完整与无容量丢弃，不证明现场采集健康，见 [检测与处置契约](../../docs/检测与处置契约.md#92-连续健康与预算恢复)。
 
-2026-10-13 第 2 步工作区验证已通过：JDK 25 的 `mvn -o -B verify` 518 项、0 失败/错误、63 跳过；Go 全量与关键包 race；P5/P7 Python 166 项；契约校验。r5 计划相对 r4 仅改 `requester` 与健康版本。第 3 步两次证据分别在 `.cache/g3-20261012/gate-20261013-01/` 与 `gate-20261013-02/`；第二次完整回放仅未验证到 `dos_flood` 策略关闭门，已按 D3 停止。r5 业务库导入、A6′、真实 PF G3 均未开始，代码未提交/推送。替身预演不构成正式 G3 运行验收。
+2026-10-13 运行记录：门禁预演 `gate-20261013-03` 通过；克隆 G3 `clone-r5-01` 因后端 lab 执行事件校验缺陷失败，`29dfea6` 修复后 `clone-r5-02` 通过；业务库正式 G3 `business-r5-01` 通过（evaluation `60ec12fd…`）。root 侧用 `.cache/g3-20261012/root_g3.py` 生成 osascript 管理员密码框，先启动 `lab_formal.py` 并等待 rendezvous 出现 `input.json` 后再发 root。结果与证据见[系统实施记录 6.7 节](../../docs/系统实施记录.md#67-g3-回放健康方案-b-与正式-g32026-10-13)。替身预演不构成正式 G3 运行验收。
 
 ## 报告流程
 

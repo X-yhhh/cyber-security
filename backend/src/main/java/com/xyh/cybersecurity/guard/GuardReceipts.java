@@ -78,8 +78,15 @@ public class GuardReceipts {
     public static String scopeHash(JsonNode payload){return hash(object("assetId",payload.get("assetId"),"sensorId",payload.get("sensorId"),"bootId",payload.get("bootId"),"captureScopeId",payload.get("captureScopeId"),"targetRef",payload.get("targetRef"),"peerKey",payload.get("peerKey"),"keyEpoch",payload.get("keyEpoch"),"environment",payload.get("environment"),"scope",payload.get("scope"),"addressFamily",payload.get("addressFamily"),"direction",payload.get("direction"),"transport",payload.get("transport"),"servicePort",payload.get("servicePort")));}
     private boolean project(Map<String,Object> receipt,Map<String,Object> rec,Map<String,Object> executor){
         if(number(rec,"error_count")!=0||instant(rec.get("observed_at")).isBefore(instant(receipt.get("observed_at")))||!str(rec,"boot_id").equals(str(executor,"boot_id")))return false;
-        var command=store.get("guard_command",number(receipt,"command_id"));var a=store.get("guard_action",number(command,"action_id"));if(GuardBudget.TERMINAL.contains(str(a,"observed_state")))return false;
+        var command=store.get("guard_command",number(receipt,"command_id"));var a=store.get("guard_action",number(command,"action_id"));
         String status=str(receipt,"status");JsonNode payload=json(receipt,"payload_json"),rule=null;for(var r:json(rec,"payload_json").path("ownedRules"))if(str(a,"public_id").equals(r.path("actionId").asText())&&str(command,"public_id").equals(r.path("commandId").asText()))rule=r;
+        if(GuardBudget.TERMINAL.contains(str(a,"observed_state"))){
+            // 执行器取出待发回执后、核对前，独立恢复器可能按 TTL 清除规则：核对先按完整枚举把动作判为终态，
+            // 同一清除的回执晚一轮到达。与动作终态相同、核对中规则已不存在的回执只补记已核验，不重复终止或计费。
+            if(!status.equals(str(a,"observed_state"))||rule!=null||status.equals("expired")&&instant(receipt.get("observed_at")).isBefore(instant(a.get("block_until"))))return false;
+            if(status.equals("revoked")&&receipt.get("revocation_id")==null)return false;
+            store.update("guard_action_receipt",number(receipt,"id"),map("projected",true));return true;
+        }
         if(status.equals("applied")){
             if(rule==null||"revoked".equals(str(a,"desired_state"))||!str(command,"executor_boot_id").equals(str(executor,"boot_id"))||!payload.path("ruleHandle").equals(rule.path("ruleHandle"))||!payload.path("effectiveBlockUntil").equals(rule.path("effectiveBlockUntil")))return false;
             if(!Set.of("dispatched","uncertain","applied").contains(str(a,"observed_state")))return false;

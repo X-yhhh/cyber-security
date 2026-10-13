@@ -4,6 +4,7 @@ import hashlib
 import os
 from pathlib import Path
 import re
+import socket
 import subprocess
 import sys
 import time
@@ -13,6 +14,12 @@ from .common import Rejected, canonical, digest, ident, parse, require, stamp, w
 from .contract import capability_set_sha256, protected_ports_sha256
 from .pf_engine_canary import E2_LIMITS, SCENARIOS, run
 from .platform import PF
+
+# 场景首选端口 PORT_BASE+10·i（+0..+2）。canary_scope 要求服务端口位于动态端口段 49152—65533，
+# 该段与 macOS 临时端口重合，可能被其他进程的出站源端口占用（A6′ canary 首跑 EADDRINUSE），
+# 因此每个场景开跑前探测空闲端口，必要时向上顺延。
+PORT_BASE = 55100
+PORT_LIMIT = 65533
 
 
 DEFAULT_ROOT = b'scrub-anchor "com.apple/*" all fragment reassemble\nanchor "com.apple/*" all\n'
@@ -95,6 +102,22 @@ def unknown_rule_probe(engine, report=None):
     return report
 
 
+def free_port(preferred, after=0):
+    """返回不小于 preferred、大于 after 且 port..port+2 当前都可绑定的端口；场景间不复用端口。"""
+    for port in range(max(preferred, after + 1), PORT_LIMIT - 1, 10):
+        free = True
+        for number in (port, port + 1, port + 2):
+            with socket.socket() as probe:
+                try:
+                    probe.bind(("127.0.0.1", number))
+                except OSError:
+                    free = False
+                    break
+        if free:
+            return port
+    raise Rejected("LAB_PORT_IN_USE")
+
+
 def main(directory, guardtargets):
     from .subject_binding import configured
     subject_binding=configured()
@@ -129,6 +152,7 @@ def main(directory, guardtargets):
     alias = False
     attached = False
     fixture_created = False
+    previous = 0
     try:
         if original == DEFAULT_ROOT:
             fixture_created = True
@@ -142,7 +166,7 @@ def main(directory, guardtargets):
             keys(root / "keys", "canary")
             now = time.time()
             c = {k: ident() for k in ("assetId", "executorId", "sensorId", "captureScopeId")}
-            port = 55100 + index * 10
+            port = previous = free_port(PORT_BASE + index * 10, previous + 2)
             c.update(platform="pf", environment="lab", interface="lo0", localAddresses=["127.0.0.1"],
                      peerAddresses=["127.0.0.2"], servicePorts=[port], protectedServicePorts=[22, 53, 3389, port + 1],
                      protectedPeers=[], stateDir=str(root / "state"), pfHelper=str(helper),

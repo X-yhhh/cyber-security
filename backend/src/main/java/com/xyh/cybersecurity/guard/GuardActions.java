@@ -57,6 +57,8 @@ public class GuardActions {
             Instant now=store.now();var old=store.one("guard_command",map("action_id",a.get("id")),true);
             if(old!=null){
                 if(!instant(old.get("apply_by")).isAfter(now)||!Objects.equals(str(old,"executor_boot_id"),str(e,"boot_id"))){if("dispatched".equals(str(a,"observed_state")))store.update("guard_action",number(a,"id"),map("observed_state","uncertain","revision",number(a,"revision")+1));continue;}
+                // BE-13：执行器已回执 applied 的命令不再重发，也不因选证被同 parent 新快照取代而撤销；规则保持到 TTL，撤销只经显式路径。
+                if(executorApplied(a,old))continue;
                 try{checkedAction(a,now);commands.add(envelope(old));}
                 catch(com.xyh.cybersecurity.common.api.ApiRequestException ex){revoke(a,ex.code(),null);}
                 continue;
@@ -75,17 +77,21 @@ public class GuardActions {
             }catch(com.xyh.cybersecurity.common.api.ApiRequestException ex){terminateUnsigned(a,"rejected");store.audit(null,"guard.command.rejected",str(a,"public_id"),aid,null,object("reasonCode",ex.code()));}
         }
         return object("commands",commands,"revocations",revocations,"serverTime",store.now().toString());}
-    /** 重放领取响应前再次裁剪已经过期、撤销、换 boot 或失去范围的命令；签名原件不变。 */
+    /** 重放领取响应前再次裁剪已经过期、撤销、换 boot、失去范围或执行器已回执 applied 的命令；签名原件不变。 */
     @org.springframework.transaction.annotation.Transactional
     public JsonNode filterClaims(String executorId,JsonNode response){
         var executor=access.executor(executorId,"machine.command.claim");store.lockAsset(number(executor,"asset_id"));var valid=JSON.createArrayNode();
         for(var envelope:response.path("commands")){
             var c=store.external("guard_command",envelope.path("payload").path("commandId").asText(),false);var a=store.get("guard_action",number(c,"action_id"));
             if(number(a,"executor_id")!=number(executor,"id")||!"active".equals(str(a,"desired_state"))||!Set.of("dispatched","applied").contains(str(a,"observed_state"))||!instant(c.get("apply_by")).isAfter(store.now())||!Objects.equals(c.get("executor_boot_id"),executor.get("boot_id")))continue;
+            if(executorApplied(a,c))continue;
             try{checkedAction(a,store.now());valid.add(envelope);}catch(com.xyh.cybersecurity.common.api.ApiRequestException ignored){}
         }
         return object("commands",valid,"revocations",response.path("revocations"),"serverTime",store.now().toString());
     }
+    /** 动作已核对为 applied，或执行器已对该命令上报 applied 回执（核对可能尚未完成）。 */
+    private boolean executorApplied(Map<String,Object> a,Map<String,Object> command){
+        return "applied".equals(str(a,"observed_state"))||!store.rows("guard_action_receipt",map("command_id",command.get("id"),"status","applied"),false,1).isEmpty();}
     private JsonNode envelope(Map<String,Object> c){return object("payload",json(c,"payload_json"),"keyId",c.get("key_id"),"algorithm","Ed25519","signature",c.get("signature"));}
     private Checked checkedAction(Map<String,Object> action,Instant now){var asset=store.get("asset",number(action,"asset_id"));var bundle=store.get("guard_release_bundle",number(action,"bundle_id"));var decision=store.get("guard_decision",number(action,"decision_id"));var p=store.get("guard_decision_policy",number(bundle,"policy_id"));
         var binding=store.one("guard_asset_binding",map("asset_id",asset.get("id"),"bundle_id",bundle.get("id"),"status","active"),false);require(binding!=null&&number(binding,"authorization_id")==number(action,"authorization_id")&&number(binding,"authorization_revision")==number(action,"authorization_revision"),"AUTHORIZATION_INACTIVE");

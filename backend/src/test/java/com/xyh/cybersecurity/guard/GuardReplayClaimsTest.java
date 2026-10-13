@@ -219,6 +219,37 @@ class GuardReplayClaimsTest {
         verify(store).audit(isNull(),eq("guard.action.revocation_requested"),eq(str(action,"public_id")),eq(10L),isNull(),argThat(p->"TARGET_REF_STALE".equals(p.path("reasonCode").asText())));
     }
 
+    /** BE-13：执行器已回执 applied 后，选证被同 parent 新快照取代时既不重发也不撤销；规则保持到 TTL。 */
+    @ParameterizedTest
+    @ValueSource(strings={"receipt_applied","observed_applied"})
+    void appliedCommandsAreNeitherResentNorRevokedWhenEvidenceIsSuperseded(String state) {
+        if(state.equals("receipt_applied"))when(store.rows(eq("guard_action_receipt"),anyMap(),eq(false),eq(1))).thenReturn(List.of(map("status","applied")));
+        else action.put("observed_state","applied");
+        when(mapper.latestParent(anyLong(),anyLong(),anyString(),anyString())).thenReturn(map("id",99L));
+        var claimed=actions.claims(executorId,object("bootId",executor.get("boot_id"),"capabilityHash",executor.get("capability_hash"),"maxItems",10,"waitSeconds",0));
+        assertThat(claimed.path("commands")).isEmpty();assertThat(claimed.path("revocations")).isEmpty();
+        assertThat(actions.filterClaims(executorId,response).path("commands")).isEmpty();
+        verify(store,never()).insert(eq("guard_revocation"),anyMap());verify(budget,never()).revoke(anyMap(),anyString());
+        verifyNoInteractions(signatures);
+    }
+
+    /** 尚无 applied 回执时保持签发前复核：选证被取代即撤销。 */
+    @Test void unappliedCommandIsStillRevokedWhenEvidenceIsSuperseded() {
+        when(mapper.latestParent(anyLong(),anyLong(),anyString(),anyString())).thenReturn(map("id",99L));
+        assertThat(actions.claims(executorId,object("bootId",executor.get("boot_id"),"capabilityHash",executor.get("capability_hash"),"maxItems",10,"waitSeconds",0)).path("commands")).isEmpty();
+        verify(store).audit(isNull(),eq("guard.action.revocation_requested"),eq(str(action,"public_id")),eq(10L),isNull(),argThat(p->"EVIDENCE_STALE".equals(p.path("reasonCode").asText())));
+    }
+
+    /** 已生效动作仍可经自动化停止等显式路径撤销。 */
+    @Test void explicitStopStillRevokesAppliedCommand() {
+        action.put("observed_state","applied");
+        when(store.rows(eq("guard_action_receipt"),anyMap(),eq(false),eq(1))).thenReturn(List.of(map("status","applied")));
+        when(store.rows(eq("guard_action"),eq(map("asset_id",10L)),eq(true),eq(10000))).thenReturn(List.of(action));
+        actions.stop(10L,"fixture stop",true,null,null);
+        verify(store).insert(eq("guard_revocation"),anyMap());
+        verify(store).audit(isNull(),eq("guard.action.revocation_requested"),eq(str(action,"public_id")),eq(10L),isNull(),argThat(p->"AUTOMATION_STOPPED".equals(p.path("reasonCode").asText())));
+    }
+
     private ObjectNode independentTrigger(){
         var trigger=observation.deepCopy().put("observationId",id()).put("parentConnectionId",id());
         var row=map("id",16L,"asset_id",10L,"payload_json",canonical(trigger));

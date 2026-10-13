@@ -434,6 +434,27 @@ class GuardIntegrationTest {
         assertThat(clearance.path("persisted").asBoolean()).isTrue();assertThat(clearance.path("budgetReset").asBoolean()).isFalse();
         ObjectNode late=(ObjectNode)receipt.deepCopy();late.put("receiptId",id()).put("status","applied").put("ruleHandle","fixture-rule").set("effectiveBlockUntil",command.at("/payload/blockUntil"));late.putNull("revocationId");machine("/executors/"+f.executor+"/receipts",late,f.executorCredential);assertThat(str(store.external("guard_action",aid,false),"observed_state")).isEqualTo("revoked");
     }
+    /** 恢复器在回执取出后、核对前按 TTL 清除规则：核对先把动作判为 expired，晚到的同一清除回执仍补记已核验；状态不一致的回执不补记。 */
+    @Test void lateExpiredReceiptAfterEnumerationTerminalIsStillVerified()throws Exception{
+        Fixture f=setup();Instant at=Instant.now().truncatedTo(ChronoUnit.MICROS);accept(f,List.of(observation(f,at,id(),0)),1,true);
+        var asset=store.external("asset",f.asset,false);var action=store.one("guard_action",map("asset_id",asset.get("id")),false);assertThat(action).isNotNull();
+        JsonNode claimBody=object("bootId",f.executorBoot,"capabilityHash",f.capabilityHash(),"maxItems",10,"waitSeconds",0);
+        JsonNode command=machine("/executors/"+f.executor+"/command-claims",claimBody,f.executorCredential).path("commands").get(0);String aid=str(action,"public_id");
+        jdbc.update("UPDATE guard_command SET apply_by=issued_at WHERE action_id=?",action.get("id"));
+        jdbc.update("UPDATE guard_action a JOIN guard_command c ON c.action_id=a.id SET a.block_until=c.issued_at+INTERVAL 1000 MICROSECOND WHERE a.id=?",action.get("id"));
+        Thread.sleep(20);
+        JsonNode empty=object("digestVersion","guard-state/1","assetId",f.asset,"executorId",f.executor,"executorBootId",f.executorBoot,"rules",List.of(),"pendingRevocations",List.of());String digest=hash(empty);
+        Instant time=Instant.now().truncatedTo(ChronoUnit.MICROS);
+        machine("/executors/"+f.executor+"/reconciliations",object("executorBootId",f.executorBoot,"observedAt",time.toString(),"digestVersion","guard-state/1","stateDigest",digest,"ownedRules",List.of(),"pendingRevocations",List.of(),"recoveryErrors",List.of()),f.executorCredential);
+        assertThat(str(store.external("guard_action",aid,false),"observed_state")).isEqualTo("expired");
+        long charged=number(store.one("guard_target_budget",map("budget_target_id",store.external("guard_budget_target",f.targetId,false).get("id")),false),"charged_ms");
+        JsonNode receipt=object("contractVersion",CONTRACT,"receiptId",id(),"commandId",command.at("/payload/commandId"),"revocationId",null,"executorId",f.executor,"status","expired","observedAt",time.toString(),"ruleHandle",null,"effectiveBlockUntil",null,"errorCode",null,"stateDigest",digest);
+        assertThat(machine("/executors/"+f.executor+"/receipts",receipt,f.executorCredential).path("projected").asBoolean()).isTrue();
+        ObjectNode mismatch=(ObjectNode)receipt.deepCopy();mismatch.put("receiptId",id()).put("status","rejected").put("errorCode","SCOPE_DENIED");
+        assertThat(machine("/executors/"+f.executor+"/receipts",mismatch,f.executorCredential).path("projected").asBoolean()).isFalse();
+        assertThat(str(store.external("guard_action",aid,false),"observed_state")).isEqualTo("expired");
+        assertThat(number(store.one("guard_target_budget",map("budget_target_id",store.external("guard_budget_target",f.targetId,false).get("id")),false),"charged_ms")).isEqualTo(charged);
+    }
     void accept(Fixture f,List<? extends JsonNode> observations,long sequence,boolean consume)throws Exception{
         var b=batch(f,observations,sequence);var receipt=machine("/sensors/"+f.sensor+"/observation-batches",b,f.sensorCredential);assertThat(receipt.path("acceptedCount").asInt()).withFailMessage("receipt=%s",receipt).isEqualTo(observations.size());
         if(consume)detection.consume(id(),"guard.observation.accepted",object("batchId",b.get("batchId")));

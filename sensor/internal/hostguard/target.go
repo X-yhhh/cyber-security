@@ -67,6 +67,9 @@ type TargetRegistry struct {
 	register  func(TargetBinding, Endpoints, TargetLease) error
 }
 
+// LeaseRenewMargin 等于 lab 会话租约请求的超时；登记模式下剩余寿命低于它的固定租约不再复用。
+const LeaseRenewMargin = time.Second
+
 // NewTargetRegistry 是易失的 P2 原型；进程重启不恢复引用，也不具有防火墙权限。
 func NewTargetRegistry(s TargetScope, now func() time.Time) (*TargetRegistry, error) {
 	for _, id := range []string{s.AssetID, s.SensorID, s.BootID, s.CaptureScopeID, s.ExecutorBootID} {
@@ -138,7 +141,9 @@ func (r *TargetRegistry) clock() (time.Time, error) {
 	for ref, v := range r.entries {
 		if !n.Before(v.deadline) || !n.Before(v.lease.ExpiresAt) {
 			delete(r.entries, ref)
-			delete(r.byTarget, targetKey(v.binding, v.endpoints))
+			if key := targetKey(v.binding, v.endpoints); r.byTarget[key] == ref {
+				delete(r.byTarget, key)
+			}
 		}
 	}
 	return n, nil
@@ -185,13 +190,21 @@ func (r *TargetRegistry) issueForScope(o Observation, end Endpoints, targetScope
 	}
 	key := targetKey(b, end)
 	ref := r.byTarget[key]
+	if ref != "" && o.LastPacketAt.Before(r.entries[ref].last) {
+		return TargetLease{}, fmt.Errorf("%w: PACKET_TIME_REGRESSION", ErrTarget)
+	}
+	// 登记模式的租约截止固定；剩余不足调用方超时的旧租约不再复用而换发新引用，
+	// 否则响应途中即过期，lab 会话会把新包快照判为缺租约（P0 克隆复验 dos_slow-2）。
+	// 旧引用保留到自身到期，已签发的命令仍可解析。
+	if ref != "" && r.register != nil && r.entries[ref].lease.ExpiresAt.Sub(now) < LeaseRenewMargin {
+		delete(r.byTarget, key)
+		ref = ""
+	}
 	if ref == "" {
 		if len(r.entries) >= r.scope.MaxReferences {
 			return TargetLease{}, fmt.Errorf("%w: REFERENCE_CAPACITY", ErrTarget)
 		}
 		ref = NewID()
-	} else if o.LastPacketAt.Before(r.entries[ref].last) {
-		return TargetLease{}, fmt.Errorf("%w: PACKET_TIME_REGRESSION", ErrTarget)
 	}
 	expires := o.LastPacketAt.Add(15 * time.Second)
 	lease := TargetLease{ref, expires}

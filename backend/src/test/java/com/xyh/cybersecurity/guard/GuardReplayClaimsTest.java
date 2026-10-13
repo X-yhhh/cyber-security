@@ -54,10 +54,10 @@ class GuardReplayClaimsTest {
                 "collector_boot_id",boot,"executor_boot_id",executorBoot,"expires_at",db(now.plusSeconds(60)),
                 "scope_digest","fixed-scope","payload_json",canonical(targetPayload));
         var selected=object("observationId",observation.get("observationId"),"contentSha256",hash(observation),"family","dos_slow");
-        var decision=map("id",8L,"asset_id",10L,"episode_id",14L,"evidence_json",canonical(object("source","model","selectedObservations",List.of(selected))));
+        var decision=map("id",8L,"asset_id",10L,"episode_id",14L,"evidence_json",canonical(object("source","model","triggerObservationId",observation.get("observationId"),"selectedObservations",List.of(selected))));
         action=map("id",6L,"public_id",id(),"asset_id",10L,"executor_id",4L,"bundle_id",20L,"decision_id",8L,
                 "authorization_id",30L,"authorization_revision",1L,"mode","automatic","desired_state","active",
-                "observed_state","dispatched","revision",1L,"block_until",db(now.plusSeconds(30)),"target_snapshot",canonical(targetPayload));
+                "observed_state","dispatched","revision",1L,"desired_revision",1L,"block_until",db(now.plusSeconds(30)),"target_snapshot",canonical(targetPayload));
         envelope=object("payload",object("commandId",commandId),"keyId","fixture-control","algorithm","Ed25519","signature","fixture-signature");
         response=object("commands",List.of(envelope),"revocations",List.of(),"serverTime",now.toString());
         command=map("id",7L,"public_id",commandId,"action_id",6L,"executor_boot_id",executorBoot,"apply_by",db(now.plusSeconds(5)),
@@ -161,5 +161,73 @@ class GuardReplayClaimsTest {
         var rejected=controller.write("executors",executorId,"command-claims",id(),"{}",request);
         assertThat(rejected.getBody().at("/data/commands")).isEmpty();
         verifyNoInteractions(signatures);
+    }
+
+    /** D6：选证与触发观察可用不同租约；公共领取及幂等重放都须使用同一目标规则。 */
+    @ParameterizedTest
+    @ValueSource(strings={"missing_reference","different_reference","expired_reference"})
+    void claimsAcceptSameTargetEvidenceWithoutSharingTriggerLease(String change) {
+        var trigger=independentTrigger();
+        switch(change){
+            case "missing_reference"->observation.putNull("targetRef").putNull("targetExpiresAt");
+            case "different_reference"->observation.put("targetRef",id());
+            case "expired_reference"->observation.put("targetRef",id()).put("targetExpiresAt",now.minusSeconds(1).toString()).put("lastPacketAt",now.minusSeconds(20).toString());
+        }
+        updateSelectedObservation();
+        assertThat(trigger.path("targetRef").asText()).isEqualTo(str(target,"target_ref"));
+        assertThat(actions.claims(executorId,object("bootId",executor.get("boot_id"),"capabilityHash",executor.get("capability_hash"),"maxItems",10,"waitSeconds",0)).path("commands")).containsExactly(envelope);
+        assertThat(actions.filterClaims(executorId,response).path("commands")).containsExactly(envelope);
+        verifyNoInteractions(signatures);
+    }
+
+    /** 缺少租约、租约到期和最后包过期仍拒绝；其他选证不能替触发观察续租。 */
+    @ParameterizedTest
+    @ValueSource(strings={"missing_reference","expired_reference","old_packet","missing_trigger"})
+    void claimsRejectInvalidTriggerEvenWhenSelectedEvidenceHasValidLease(String change) {
+        var trigger=independentTrigger();
+        switch(change){
+            case "missing_reference"->trigger.putNull("targetRef").putNull("targetExpiresAt");
+            case "expired_reference"->trigger.put("targetExpiresAt",now.toString());
+            case "old_packet"->trigger.put("lastPacketAt",now.minusSeconds(15).toString());
+            case "missing_trigger"->{var d=store.get("guard_decision",8L);var proof=(ObjectNode)json(d,"evidence_json");proof.remove("triggerObservationId");d.put("evidence_json",canonical(proof));}
+        }
+        store.external("guard_observation",trigger.path("observationId").asText(),false).put("payload_json",canonical(trigger));
+        assertThat(actions.filterClaims(executorId,response).path("commands")).isEmpty();
+        var claimed=actions.claims(executorId,object("bootId",executor.get("boot_id"),"capabilityHash",executor.get("capability_hash"),"maxItems",10,"waitSeconds",0));
+        assertThat(claimed.path("commands")).isEmpty();
+        verify(store).audit(isNull(),eq("guard.action.revocation_requested"),eq(str(action,"public_id")),eq(10L),isNull(),argThat(p->"TARGET_REF_STALE".equals(p.path("reasonCode").asText())));
+    }
+
+    /** 有效触发租约不能替跨目标选证放行；哈希、parent 与推理事实均保持匹配以单独验证 T4。 */
+    @ParameterizedTest
+    @ValueSource(strings={"peerKey","keyEpoch","sensorId","captureScopeId","servicePort"})
+    void claimsRejectEvidenceForAnotherTarget(String field) {
+        independentTrigger();
+        if(field.equals("keyEpoch")||field.equals("servicePort"))observation.put(field,observation.path(field).asInt()+1);
+        else observation.put(field,field.equals("peerKey")?"e".repeat(64):id());
+        updateSelectedObservation();
+        // 关闭会话门替身，避免其先按变化后的身份拒绝；T1/T2/T8 固定为真，T4 使用真实实现。
+        var eligibility=spy(new GuardEligibility(store,true,directory.resolve("protection.json").toString()));
+        doReturn(true).when(eligibility).capability(anyMap(),any(),any(),anyString());
+        doReturn(true).when(eligibility).authorized(anyMap(),anyMap(),anyMap(),any(),any(),anyMap(),any(),anyString(),anyMap());
+        doReturn(true).when(eligibility).replayAllowed(any(),anyMap());
+        doReturn(null).when(eligibility).protection(anyMap(),any(),anyMap(),any(),anyString());
+        doReturn(str(executor,"capability_hash")).when(eligibility).executorCapabilityHash(anyMap());
+        actions=new GuardActions(mapper,store,access,budget,eligibility,new GuardHealth(store,access),signatures,mock(GuardContracts.class));
+        assertThat(actions.filterClaims(executorId,response).path("commands")).isEmpty();
+        assertThat(actions.claims(executorId,object("bootId",executor.get("boot_id"),"capabilityHash",executor.get("capability_hash"),"maxItems",10,"waitSeconds",0)).path("commands")).isEmpty();
+        verify(store).audit(isNull(),eq("guard.action.revocation_requested"),eq(str(action,"public_id")),eq(10L),isNull(),argThat(p->"TARGET_REF_STALE".equals(p.path("reasonCode").asText())));
+    }
+
+    private ObjectNode independentTrigger(){
+        var trigger=observation.deepCopy().put("observationId",id()).put("parentConnectionId",id());
+        var row=map("id",16L,"asset_id",10L,"payload_json",canonical(trigger));
+        when(store.external("guard_observation",trigger.path("observationId").asText(),false)).thenReturn(row);
+        var d=store.get("guard_decision",8L);var proof=(ObjectNode)json(d,"evidence_json");proof.put("triggerObservationId",trigger.path("observationId").asText());d.put("evidence_json",canonical(proof));
+        return trigger;
+    }
+    private void updateSelectedObservation(){
+        observationRow.put("payload_json",canonical(observation));observationRow.put("content_sha256",hash(observation));
+        var d=store.get("guard_decision",8L);var proof=(ObjectNode)json(d,"evidence_json");((ObjectNode)proof.path("selectedObservations").get(0)).put("contentSha256",hash(observation));d.put("evidence_json",canonical(proof));
     }
 }

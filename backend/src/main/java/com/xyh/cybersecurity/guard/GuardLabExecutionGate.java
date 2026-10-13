@@ -27,6 +27,10 @@ public class GuardLabExecutionGate {
 
     /** 不读取标签或场景类别来屏蔽误报；这里只检查授权、运行状态和稳定目标身份。 */
     public boolean permits(JsonNode observation,java.util.Map<String,Object> bundle,Instant now) {
+        return permits(observation,bundle,now,null);
+    }
+    /** D6 选证复核使用已校验的触发目标；会话、授权与登记映射仍逐条核对，不要求历史选证重复持租约。 */
+    public boolean permits(JsonNode observation,java.util.Map<String,Object> bundle,Instant now,java.util.Map<String,Object> executionTarget) {
         if(!"lab".equals(observation.path("environment").asText()))return true;
         var sensor=store.external("sensor_agent",uuid(observation,"sensorId"),false);
         long sid=number(sensor,"id");String boot=uuid(observation,"bootId");
@@ -44,8 +48,8 @@ public class GuardLabExecutionGate {
         var auth=store.get("asset_authorization",number(session,"authorization_id"));
         if(!"active".equals(str(auth,"status"))||number(auth,"revision")!=p.path("authorizationRevision").asLong()
                 ||now.isBefore(instant(auth.get("valid_from")))||!now.isBefore(instant(auth.get("valid_until"))))return false;
-        if(!observation.path("targetRef").isTextual())return false;
-        var target=store.one("guard_target_binding",map("target_ref",observation.path("targetRef").asText()),false);
+        if(executionTarget==null&&!observation.path("targetRef").isTextual())return false;
+        var target=executionTarget!=null?executionTarget:store.one("guard_target_binding",map("target_ref",observation.path("targetRef").asText()),false);
         if(target==null)return false;
         for(var mapping:json(run,"mapping_jcs").path("entries")) {
             if(!mapping.path("peerKey").equals(observation.path("peerKey"))||!mapping.path("keyEpoch").equals(observation.path("keyEpoch"))

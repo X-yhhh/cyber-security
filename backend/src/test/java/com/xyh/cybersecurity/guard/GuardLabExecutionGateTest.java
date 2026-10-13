@@ -48,6 +48,16 @@ class GuardLabExecutionGateTest {
         when(store.one(eq("guard_target_binding"),anyMap(),eq(false))).thenReturn(map("budget_target_id",99L,"scope_digest","a"));
         assertThat(gate.permits(observation,bundle,now)).isFalse();assertThat(gate.permits(observation,map("id",99L),now)).isFalse();
     }
+    /** 历史选证没有引用时仍须归属已登记目标，触发绑定不能跨稳定身份、scope 或会话授权。 */
+    @Test void selectedEvidenceUsesTriggerBindingWithoutBypassingSessionMapping() {
+        observation.putNull("targetRef");var target=map("budget_target_id",40L,"scope_digest","a");
+        assertThat(gate.permits(observation,bundle,now)).isFalse();
+        assertThat(gate.permits(observation,bundle,now,target)).isTrue();
+        assertThat(gate.permits(observation,bundle,now,map("budget_target_id",99L,"scope_digest","a"))).isFalse();
+        assertThat(gate.permits(observation,bundle,now,map("budget_target_id",40L,"scope_digest","other"))).isFalse();
+        observation.put("peerKey","b".repeat(64));assertThat(gate.permits(observation,bundle,now,target)).isFalse();
+        observation.put("peerKey","a".repeat(64));run.put("status","completed");assertThat(gate.permits(observation,bundle,now,target)).isFalse();
+    }
     @Test void replayRequiresV11RunningFormalOwnerWithMatchingAssetAndBundle() {
         ObjectNode versions=(ObjectNode)versions();versions.put("health",HEALTH_REPLAY);bundle.put("subject_json",canonical(object("protocolVersions",versions)));
         assertThat(gate.replayAllowed(observation,bundle)).isTrue();

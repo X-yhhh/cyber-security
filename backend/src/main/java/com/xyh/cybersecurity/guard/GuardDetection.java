@@ -207,18 +207,18 @@ public class GuardDetection {
         boolean capable=eligibility.capability(bundle,policy,o,family)&&modelAvailable;
         boolean validTarget=eligibility.target(target,o,now,policy,family);
         boolean authorized=eligibility.authorized(asset,bundle,binding,policy,o,executor,now,family);
-        // 汇总的每条快照都须满足同一目标和运行资格，不能由最后一条观察替其余证据放行。
+        // 触发观察持有效执行租约；其余快照仍逐条核对目标归属和运行资格，不要求复用同一短租约。
         // research 无目标、无执行授权，正式门禁始终拒绝；旁路不能借现场资格提升为可执行。
         // 同一次判定的 now 固定；缓存同时绑定捕获域/传感器/boot 与正式 lab 回放准入。
         var healthByScope=new HashMap<List<String>,Boolean>();final Instant at=now;
         if(hypotheticalPolicy==null)for(var e:evidence){JsonNode selected=e.observation();
             capable&=eligibility.capability(bundle,policy,selected,family);
-            validTarget&=eligibility.target(target,selected,now,policy,family);
+            validTarget&=eligibility.sameTarget(target,selected,policy,family);
             boolean selectedReplay=eligibility.replayAllowed(selected,bundle);
             healthy&=healthByScope.computeIfAbsent(List.of(selected.path("captureScopeId").asText(),selected.path("sensorId").asText(),selected.path("bootId").asText(),Boolean.toString(selectedReplay)),
                     k->health.current(number(store.external("guard_capture_scope",k.get(0),false),"id"),at,selectedReplay)
                     &&!mapper.batchGap(number(store.external("sensor_agent",k.get(1),false),"id"),k.get(2)));
-            authorized&=eligibility.authorized(asset,bundle,binding,policy,selected,executor,now,family);
+            authorized&=eligibility.authorized(asset,bundle,binding,policy,selected,executor,now,family,target);
         }
         gatePhase.close();
         if(hypotheticalPolicy!=null){capable=false;healthy=false;validTarget=false;authorized=false;}

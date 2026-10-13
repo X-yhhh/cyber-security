@@ -103,14 +103,19 @@ public class GuardLabFacts {
         require(text(p,"bundleId").equals(text(proof,"bundleId"))&&text(p,"subjectSha256").equals(text(proof,"bundleSubjectSha256"))
                 &&"lab".equals(proof.path("environment").asText())&&hash(proof).equals(str(row,"evidence_sha256")),"LAB_FACT_MISMATCH");
         // 正常场景允许记录误报的任一攻击来源；攻击场景必须匹配登记的来源及类别。
-        if((execution||!VERSION_1_1.equals(p.path("contractVersion").asText()))&&!"normal".equals(scenario.path("family").asText()))for(String f:List.of("family","source","ruleId"))
-            require(scenario.path(f).equals(proof.path(f)),"LAB_FACT_MISMATCH");
+        if((execution||!VERSION_1_1.equals(p.path("contractVersion").asText()))&&!"normal".equals(scenario.path("family").asText())) {
+            for(String f:List.of("family","source"))require(scenario.path(f).equals(proof.path(f)),"LAB_FACT_MISMATCH");
+            require(ruleKey(scenario).equals(ruleKey(proof))&&(!"rule".equals(proof.path("source").asText())||!ruleKey(proof).isEmpty()),"LAB_FACT_MISMATCH");
+        }
         var trigger=store.external("guard_observation",uuid(proof,"triggerObservationId"),false);
         boolean diagnostic=!execution&&VERSION_1_1.equals(p.path("contractVersion").asText());
         if(diagnostic) diagnosticObservation(p,scenario,mapping,trigger,false);else observation(p,scenario,mapping,trigger);
+        // D6：执行证据只有触发观察须持有效租约并落在评分窗口；其余选证核对同一目标与内容摘要，
+        // 可无执行引用或来自预热（与部署判定 sameTarget 及传感器预热口径一致）。v1.0 会话保持逐条完整核验。
+        boolean relaxed=diagnostic||execution&&VERSION_1_1.equals(p.path("contractVersion").asText());
         for(var selected:proof.path("selectedObservations")) {
             var value=store.external("guard_observation",uuid(selected,"observationId"),false);
-            if(diagnostic) diagnosticObservation(p,scenario,mapping,value,true);else observation(p,scenario,mapping,value);
+            if(relaxed) diagnosticObservation(p,scenario,mapping,value,true);else observation(p,scenario,mapping,value);
         }
         out.put("decisionId",str(row,"public_id"));out.put("observationId",str(trigger,"public_id"));
         out.put("decision",str(row,"decision"));out.put("reasonCode",str(row,"reason_code"));
@@ -118,6 +123,9 @@ public class GuardLabFacts {
         out.put("decisionAt",instant(row.get("decided_at")).toString());
         out.set("source",proof.path("source"));out.set("ruleId",proof.path("ruleId"));out.set("detectedFamily",proof.path("family"));
     }
+
+    /** 模型来源的规则 ID 在冻结场景中为 null、在判定证据中为空串，二者同义；规则来源仍须逐字一致。 */
+    static String ruleKey(JsonNode n){var r=n.path("ruleId");return r.isNull()||r.isMissingNode()?"":r.asText();}
 
     /** v1.1 诊断必须容纳预热选择、错类告警及空租约拒绝；此路径不产生可执行证据。 */
     private void diagnosticObservation(JsonNode p,JsonNode scenario,JsonNode mapping,Map<String,Object> row,boolean selected) {

@@ -45,6 +45,21 @@ class LoopbackResolver:
                 "lastPacketAt": stamp(now), "expiresAt": stamp(now + 15)}
 
 
+def settled_inventory(engine, attempts=10):
+    """夹具读取规则清单：恢复器原子替换 anchor 的瞬间 `pfctl -sr` 可能只读到部分规则
+    （A6 首轮 revoked_authorization 轮询中的 SCOPE_DENIED）。只在夹具里重试，结果须连续两次一致；
+    持续失败照常抛出。执行器正式路径不变。"""
+    for _ in range(attempts - 1):
+        try:
+            first = engine.adapter.inventory()
+            if engine.adapter.inventory() == first:
+                return first
+        except Rejected:
+            pass
+        time.sleep(.05)
+    return engine.adapter.inventory()
+
+
 def run(config_path, signing_key, key_id, output, mode="peer_service", guardtargets=None, scenario="ttl",
         checkpoint=None):
     """检查点供 lab 比对既有规则；失败进入相同清理路径，不改变正式执行门禁。"""
@@ -67,7 +82,7 @@ def run(config_path, signing_key, key_id, output, mode="peer_service", guardtarg
         except OSError as exc:
             raise Rejected("CANARY_LOOPBACK_ALIAS_REQUIRED") from exc
     engine.adapter.preflight()
-    require(not engine.adapter.inventory() and engine.store.get("boot") is None and
+    require(not settled_inventory(engine) and engine.store.get("boot") is None and
             not engine.store.commands(), "CANARY_DEDICATED_STATE_REQUIRED")
     private = serialization.load_der_private_key(private_file(signing_key).read_bytes(), password=None)
     engine.resolver = LoopbackResolver(port)
@@ -185,7 +200,7 @@ def run(config_path, signing_key, key_id, output, mode="peer_service", guardtarg
         while time.monotonic() < end:
             require(recovery.poll() is None, "RECOVERY_PENDING")
             rows = [engine.store.command(i) for i in command_ids]
-            if not engine.adapter.inventory() and all(r["status"] in statuses for r in rows):
+            if not settled_inventory(engine) and all(r["status"] in statuses for r in rows):
                 return True
             time.sleep(.1)
         return False
@@ -214,7 +229,7 @@ def run(config_path, signing_key, key_id, output, mode="peer_service", guardtarg
                 stable = stable and instant(p["blockUntil"]) <= instant(p["leaseExpiresAt"])
                 stable = stable and fixed.setdefault(p["commandId"], value) == value
             live = len([r for r in rows if r["status"] not in ("revoked", "expired", "rejected")])
-            entry = {"stage": stage, "rules": len(engine.adapter.inventory()), "actions": len(rows),
+            entry = {"stage": stage, "rules": len(settled_inventory(engine)), "actions": len(rows),
                      "seconds": seconds, "live": live, "expectedRules": rules, "expectedActions": actions,
                      "deadlinesStable": stable, **facts}
             entry["monotonic"] = len(rows) >= state["actions"] and seconds >= state["seconds"]
@@ -289,7 +304,11 @@ def run(config_path, signing_key, key_id, output, mode="peer_service", guardtarg
         try:
             for number in (port, port + 1, port + 2):
                 server = socket.socket()
-                server.bind(("127.0.0.1", number))
+                try:
+                    server.bind(("127.0.0.1", number))
+                except OSError as exc:
+                    server.close()
+                    raise Rejected("CANARY_PORT_IN_USE") from exc
                 server.listen(8)
                 server.settimeout(.2)
                 servers.append(server)
@@ -343,10 +362,10 @@ def run(config_path, signing_key, key_id, output, mode="peer_service", guardtarg
                     deadline = time.monotonic() + 2
                     while time.monotonic() < deadline:
                         row = engine.store.command(signed["payload"]["commandId"])
-                        if not engine.adapter.inventory() and (row is None or row["clearedAt"] is not None):
+                        if not settled_inventory(engine) and (row is None or row["clearedAt"] is not None):
                             break
                         time.sleep(.05)
-                    report["after"] = {"rulesEmpty": not engine.adapter.inventory(), "target": probe(port),
+                    report["after"] = {"rulesEmpty": not settled_inventory(engine), "target": probe(port),
                                        "control": probe(port + 1), "ledgerConsistent": row is None if scenario == "before_ledger"
                                        else row is not None and row["status"] == "uncertain" and row["clearedAt"] is not None}
                     report["passed"] = all(report["after"].values())
@@ -377,14 +396,14 @@ def run(config_path, signing_key, key_id, output, mode="peer_service", guardtarg
                                 "wrongScope": "SCOPE_DENIED", "protectedPort": "SCOPE_DENIED",
                                 "tamperedSignature": "SIGNATURE_INVALID"}
                     report["passed"] = (outcomes == expected and
-                                        not engine.adapter.inventory() and probe(port) and probe(port + 1))
+                                        not settled_inventory(engine) and probe(port) and probe(port + 1))
                     report["finalState"] = engine.snapshot()
                     require(report["passed"], "CANARY_REJECTION_FAILED")
                     return
                 if scenario in E2_SCENARIOS:
                     require(targets is not None, "CANARY_REAL_TARGET_REQUIRED")
                     report["e2"] = e2(scenario, signed)
-                    report["after"] = {"rulesEmpty": not engine.adapter.inventory(), "target": probe(port),
+                    report["after"] = {"rulesEmpty": not settled_inventory(engine), "target": probe(port),
                                        "control": probe(port + 1)}
                     report["passed"] = report["e2"]["passed"] and all(report["after"].values())
                     report["finalState"] = engine.snapshot()
@@ -406,7 +425,7 @@ def run(config_path, signing_key, key_id, output, mode="peer_service", guardtarg
                     with ThreadPoolExecutor(max_workers=3) as pool:
                         outcomes = list(pool.map(submit, candidates))
                     report["concurrentResults"] = outcomes
-                    require(outcomes == ["TARGET_BUDGET_BUSY"] * 3 and len(engine.adapter.inventory()) == 1,
+                    require(outcomes == ["TARGET_BUDGET_BUSY"] * 3 and len(settled_inventory(engine)) == 1,
                             "CANARY_BUDGET_FAILED")
                 during = {"newTarget": probe(port), "control": probe(port + 1), "otherTarget": probe(port + 2),
                           "normalPeer": probe(port, "127.0.0.1")}
@@ -440,11 +459,11 @@ def run(config_path, signing_key, key_id, output, mode="peer_service", guardtarg
                 # 独立恢复器先删规则再写账本；须同时等到两者收敛，不能只看规则已空就读状态。
                 deadline = time.monotonic() + 2
                 while time.monotonic() < deadline and (
-                        engine.adapter.inventory() or
+                        settled_inventory(engine) or
                         engine.store.command(signed["payload"]["commandId"])["status"] != "uncertain"):
                     time.sleep(.05)
                 row = engine.store.command(signed["payload"]["commandId"])
-                report["authorizationCleanup"] = not engine.adapter.inventory() and row["status"] == "uncertain"
+                report["authorizationCleanup"] = not settled_inventory(engine) and row["status"] == "uncertain"
                 require(report["authorizationCleanup"], "CANARY_AUTHORIZATION_RECOVERY_FAILED")
             if scenario == "revoke":
                 p = signed["payload"]
@@ -465,7 +484,7 @@ def run(config_path, signing_key, key_id, output, mode="peer_service", guardtarg
                     row = engine.store.command(signed["payload"]["commandId"])
                     report["disconnected"] = {"paused": engine.store.get("paused"),
                                               "uncertain": row["status"] == "uncertain",
-                                              "rulesEmpty": not engine.adapter.inventory(),
+                                              "rulesEmpty": not settled_inventory(engine),
                                               "sameDeadline": row["deadline"] == first_deadline,
                                               "sameCommand": len([r for r in engine.store.commands() if r["installed"]]) == 1}
                     require(all(report["disconnected"].values()), "CANARY_DISCONNECT_FAILED")
@@ -480,7 +499,7 @@ def run(config_path, signing_key, key_id, output, mode="peer_service", guardtarg
             while time.monotonic() < deadline:
                 require(recovery.poll() is None, "RECOVERY_PENDING")
                 row = engine.store.command(signed["payload"]["commandId"])
-                if not engine.adapter.inventory() and row["status"] in ("revoked", "expired"):
+                if not settled_inventory(engine) and row["status"] in ("revoked", "expired"):
                     break
                 time.sleep(.1)
             row = engine.store.command(signed["payload"]["commandId"])
@@ -492,7 +511,7 @@ def run(config_path, signing_key, key_id, output, mode="peer_service", guardtarg
                 require(report["nextActionResult"] == expected, "CANARY_BUDGET_FAILED")
             expected_status = "revoked" if scenario == "revoke" else "expired"
             after = {"target": probe(port), "control": probe(port + 1), "otherTarget": probe(port + 2),
-                     "rulesEmpty": not engine.adapter.inventory(), "terminalStatus": row["status"] == expected_status,
+                     "rulesEmpty": not settled_inventory(engine), "terminalStatus": row["status"] == expected_status,
                      "clearedAtRecorded": row["clearedAt"] is not None,
                      "withinDeadline": row["clearedAt"] is not None and row["clearedAt"] <= instant(row["payload"]["blockUntil"]) + 1,
                      "duplicateRemainsTerminal": engine.accept(signed) == expected_status}
@@ -515,7 +534,7 @@ def run(config_path, signing_key, key_id, output, mode="peer_service", guardtarg
                     recovery.wait(timeout=3)
             try:
                 engine.stop()
-                report["cleanupVerified"] = not engine.adapter.inventory()
+                report["cleanupVerified"] = not settled_inventory(engine)
             except Exception:
                 report.update(cleanupVerified=False, passed=False)
                 raise

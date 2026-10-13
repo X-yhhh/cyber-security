@@ -300,5 +300,51 @@ class LabRulesTest(unittest.TestCase):
         self.assertEqual(self.anchors[self.pf.root], pf_lab.UNKNOWN_RULE + b"\n")
 
 
+
+class CanaryFixtureTest(unittest.TestCase):
+    """BE-6：夹具轮询容忍 anchor 原子替换中的瞬时部分读取；端口留在 canary 动态端口段内并跳过被占用的端口。"""
+
+    class Adapter:
+        def __init__(self, reads):
+            self.reads = list(reads)
+
+        def inventory(self):
+            value = self.reads.pop(0) if len(self.reads) > 1 else self.reads[0]
+            if isinstance(value, Exception):
+                raise value
+            return value
+
+    def engine(self, reads):
+        return type("Engine", (), {"adapter": self.Adapter(reads)})()
+
+    def test_settled_inventory_retries_transient_partial_reads(self):
+        from .pf_engine_canary import settled_inventory
+        rules = {"a": {"scope": {"port": 1}}}
+        with patch("executor.pf_engine_canary.time.sleep"):
+            self.assertEqual(settled_inventory(self.engine([Rejected("SCOPE_DENIED"), {}, rules, rules])), rules)
+            self.assertEqual(settled_inventory(self.engine([{}, {}])), {})
+
+    def test_settled_inventory_raises_when_failure_persists(self):
+        from .pf_engine_canary import settled_inventory
+        with patch("executor.pf_engine_canary.time.sleep"), self.assertRaisesRegex(Rejected, "SCOPE_DENIED"):
+            settled_inventory(self.engine([Rejected("SCOPE_DENIED")]))
+
+    def test_ports_stay_in_canary_range_and_skip_busy_ones(self):
+        import socket
+        from .pf_canary import canary_scope
+        with socket.socket() as held:
+            held.bind(("127.0.0.1", 0))
+            busy = held.getsockname()[1]
+            preferred = busy - 1 if 49152 <= busy - 1 <= 65520 else 55100
+            port = pf_lab.free_port(preferred)
+            self.assertTrue(49152 <= port <= 65533)
+            self.assertNotIn(busy, (port, port + 1, port + 2))
+            config = {"platform": "pf", "environment": "lab", "interface": "lo0", "localAddresses": ["127.0.0.1"],
+                      "peerAddresses": ["127.0.0.2"], "servicePorts": [port], "protectedServicePorts": [22, port + 1]}
+            self.assertEqual(canary_scope(config, "peer_service")[0], port)
+        self.assertGreater(pf_lab.free_port(pf_lab.PORT_BASE, after=pf_lab.PORT_BASE + 2), pf_lab.PORT_BASE + 2)
+        with self.assertRaisesRegex(Rejected, "LAB_PORT_IN_USE"):
+            pf_lab.free_port(pf_lab.PORT_LIMIT)
+
 if __name__ == "__main__":
     unittest.main()

@@ -2,7 +2,7 @@
 
 现有 `cmd/sensor` 运行路径仍实现 `unsw-nb15-flow-v4`；P2 已新增独立 host-guard v5 研究引擎和 CLI，入口见本文末节。目标输入、prefix与时间窗、目标引用及质量规则见 [检测与处置契约](../docs/检测与处置契约.md)，实施顺序见 [开发路线](../docs/开发路线.md)。
 
-**P1/P2 已完成并收口**，范围见 [P1 交接](../docs/p1/README.md)及 [P2 交接](../docs/p2/README.md)。独立探针提供 `cmd/p1audit` 的公开标签/PCAP 关联审查、`cmd/p1canary` 的有界 TCP 回显和 `cmd/p1httpcanary` 的固定内存 HTTP 下载；Go canary 不操作防火墙，不走 v4 上报。P3 多分类路线用 `guardextract` 从公开 PCAP 提取 prefix 与 final 快照，见 [P3](../docs/p3/README.md)；生产执行与恢复属于 P5。
+**P1/P2 已完成并收口**，范围见 [P1 交接](../docs/系统实施记录.md#1-p1-数据与平台探针交接)及 [P2 交接](../docs/系统实施记录.md#2-p2-因果提取与观测契约交接)。独立探针提供 `cmd/p1audit` 的公开标签/PCAP 关联审查、`cmd/p1canary` 的有界 TCP 回显和 `cmd/p1httpcanary` 的固定内存 HTTP 下载；Go canary 不操作防火墙，不走 v4 上报。P3 多分类路线用 `guardextract` 从公开 PCAP 提取 prefix 与 final 快照，见 [P3](../docs/模型训练与评估记录.md)；生产执行与恢复属于 P5。
 
 ## v4 当前能力与限制
 
@@ -36,10 +36,10 @@ extract按文件魔数识别PCAP/PCAPNG，当前仅支持Ethernet。容器截断
 
 非回环后端须HTTPS；下发配置不能扩大本机接口白名单。开始实时运行前必须有对应主机、接口和时段授权；权限不足明确失败，不改变系统权限掩盖问题。v5执行器将是独立进程与机器身份，不能把旧sensor的采集凭据用于处置。
 
-迁移差距及兼容文件退役条件见 [现状与迁移](../docs/现状与迁移.md)。
+迁移差距及兼容文件退役条件见 [开发路线第 4 节](../docs/开发路线.md#4-当前实现与迁移边界)。
 ## v5 P2 独立研究提取器
 
-`cmd/guardextract`、`internal/hostguard` 为 `host-guard/5.0.0-rc.2` 独立路径；原有 v4 命令、资源和上传流程保留。研究提取CLI离线读取，不上传或执行防火墙动作；详细语义与范围见[P2交接](../docs/p2/README.md)。
+`cmd/guardextract`、`internal/hostguard` 为 `host-guard/5.0.0-rc.2` 独立路径；原有 v4 命令、资源和上传流程保留。研究提取CLI离线读取，不上传或执行防火墙动作；详细语义与范围见[P2交接](../docs/系统实施记录.md#2-p2-因果提取与观测契约交接)。
 
 ```sh
 CGO_ENABLED=0 go test ./...

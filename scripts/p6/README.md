@@ -25,7 +25,7 @@ python3 -B scripts/p6/evaluate.py run \
   --registration .cache/p6-round-2/l1/registration.json
 ```
 
-示例是 T4 调用形态，不是运行授权；`NEW_REGISTERED_ID` 须取新计划登记值，真实读取须先获授权。本次 T1 没有运行该流程。准备新包见 [T1 使用说明](../../docs/p3/t1-tooling.md)。若依赖安装在本次受控目录，调用时通过 `PYTHONPATH` 引用，不能修改全局 Python 或已有环境。Windows L3 使用其已冻结的 `sealed-test/dataset.jsonl`，只报告受控慢速攻击与困难良性；不宣称全新独立 holdout。L2 的 P3 A7 仍未完成时显式记为未准备，不生成占位成绩。
+示例是 T4 调用形态，不是运行授权；`NEW_REGISTERED_ID` 须取新计划登记值，真实读取须先获授权。本次 T1 没有运行该流程。准备新包见 [T1 使用说明](../../docs/模型训练与评估记录.md#93-t1-工具使用说明)。若依赖安装在本次受控目录，调用时通过 `PYTHONPATH` 引用，不能修改全局 Python 或已有环境。Windows L3 使用其已冻结的 `sealed-test/dataset.jsonl`，只报告受控慢速攻击与困难良性；不宣称全新独立 holdout。L2 的 P3 A7 仍未完成时显式记为未准备，不生成占位成绩。
 
 ## 冻结与读取边界
 
@@ -41,4 +41,4 @@ python3 -B scripts/p6/evaluate.py run \
 
 本轮 L1 使用读取前登记的 v1 代码，原字节保存在受控 run 的 `code-v1/` 与 Windows 传输包中。Windows 合成回归随后发现零耗时导致吞吐率除零；v2 只改用高分辨率计时并将零耗时吞吐率记为 null，分类/统计/阈值与访问规则不变。修复回归后再登记 L3 的 v2 代码哈希；没有重读 L1，收口证据分别绑定两次登记。
 
-参见 [开发路线](../../docs/开发路线.md#p6-冻结离线评估) 与 [验证与验收](../../docs/验证与验收.md)。
+参见 [开发路线](../../docs/模型训练与评估记录.md#10-p6-第-2-次-l1-评价-p6-l1-022026-10-10a12) 与 [验证与验收](../../docs/验证与验收.md)。

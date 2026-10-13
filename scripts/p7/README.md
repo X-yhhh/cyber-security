@@ -57,7 +57,7 @@ sh executor/python.sh -B scripts/p7/compose_policy.py inspect \
 
 ## 原候选与当前部署边界
 
-candidate-v2 原研究策略对 rc.4 有 21 个 Schema 错误，计数与完整清单见 [B2 实施记录](../../docs/后续实施计划.md#b2-rc4-策略生成)。inspect 只读输出差异与输入/Schema 摘要；退出 0 表示完成检查，应以 count 判断是否合规。
+candidate-v2 原研究策略对 rc.4 有 21 个 Schema 错误，计数见[系统实施记录](../../docs/系统实施记录.md#32-后端线-b1b6)，逐项清单见 Git 提交 `c951957` 中原《后续实施计划》B2 节。inspect 只读输出差异与输入/Schema 摘要；退出 0 表示完成检查，应以 count 判断是否合规。
 
 旧 rules-comparison 的规则没有 ruleId/operator，且部分带 servicePorts、minElapsedMs。rc.4 无法表达这些额外条件，不能默认比较符或删条件后宣称原审计有效；必须先明确新规则语义并重新完成 validation 审计。历史类别汇总资格也不能顶替分来源资格。
 
@@ -138,7 +138,7 @@ sh executor/python.sh -B scripts/p7/j1_audit.py "$J1_RUN_DIR" --finalize
 
 2026-10-10—11 的 v8 J1 两轮均 completed，完整报告在 `.cache/j1-20261011-v8/REPORT.md`，最终综合事实为 `summary-audit-final-v2.json`。J1 未通过：J1-1/2/3/4/6/7 通过，J1-5 失败，`dos_flood` 的 J1-9/J1-10 失败；计划 M2 为 `port_scan`、`brute_force`、`dos_slow`，但 J2/P8 保持关闭。零动作/命令已核验，研究组合已批准但未激活，OS 全局 PF 快照因权限边界未验证；临时服务已停。本机业务库已为 V24，迁移失败为 0。
 
-`j1_register.py --preroll-seconds N [--preroll-families …]` 在每段评分窗口前追加同一来源紧邻 N 秒的上下文报文（只取 validation 与台账未分配连接，train/test 按台账排除），窗口内报文不变；片段登记 `captureStartUs`（预热起点）与 `scoringFirstUs`/`scoringLastUs`（评分窗口），`observedDurationSeconds` 按窗口计。审计以 `scoringFirstUs` 为攻击起点，预热期触发的判定不计入 J1-8—J1-10。v9 登记见后续实施计划 K3 段。
+`j1_register.py --preroll-seconds N [--preroll-families …]` 在每段评分窗口前追加同一来源紧邻 N 秒的上下文报文（只取 validation 与台账未分配连接，train/test 按台账排除），窗口内报文不变；片段登记 `captureStartUs`（预热起点）与 `scoringFirstUs`/`scoringLastUs`（评分窗口），`observedDurationSeconds` 按窗口计。审计以 `scoringFirstUs` 为攻击起点，预热期触发的判定不计入 J1-8—J1-10。v9 登记见[系统实施记录 6.2 节](../../docs/系统实施记录.md#62-j1-执行过程v5v92026-10-1011)。
 
 `derive_policy.py` 从已登记策略派生新版本：只允许改 `policyId`/`policyVersion` 并按 manifest.profiles 增设 `acceptedProfiles`，其余字段与来源不同即拒绝，输出附差异记录；不读 test、不登记、不审批。v8 的 r3 包策略由它派生（`policyVersion` `host-guard-decision/2026-10-08.1+profiles-20261011`）。
 

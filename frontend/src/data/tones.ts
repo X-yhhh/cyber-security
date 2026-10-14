@@ -12,9 +12,9 @@ export const approvalTone = map({ pending: 'signal', approved: 'ok', rejected: '
 export const execTone = map({
   queued: 'mute', running: 'signal', succeeded: 'ok', failed: 'threat', timed_out: 'threat', rollback_pending: 'warn', rolled_back: 'mute', rollback_failed: 'threat',
 })
-/** 人工标注：误报 / 真报；复核状态：待复核 / 可用于训练 / 已驳回。 */
-export const feedbackTone = map({ false_positive: 'warn', true_positive: 'threat' })
-export const feedbackReviewTone = map({ pending: 'signal', training_approved: 'ok', rejected: 'mute' })
+/** 人工标注：v1 误报/真报 与 v2 正常/攻击/存疑；复核状态：待复核 / 已复核 / 已驳回。 */
+export const feedbackTone = map({ false_positive: 'warn', true_positive: 'threat', benign: 'ok', attack: 'threat', ambiguous: 'warn' })
+export const feedbackReviewTone = map({ pending: 'signal', training_approved: 'ok', reviewed: 'ok', rejected: 'mute' })
 /** 影子验证 G3 逐项判定与总结论。 */
 export const criterionTone = map({ pass: 'ok', fail: 'threat', pending: 'signal', not_evaluable: 'warn' })
 export const verdictTone = map({ pass: 'ok', fail: 'threat', incomplete: 'warn' })

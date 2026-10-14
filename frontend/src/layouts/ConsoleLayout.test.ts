@@ -61,7 +61,7 @@ describe('两级侧栏', () => {
     const groupTitles = nav.findAll('button[aria-expanded]').map((b) => b.text())
     expect(groupTitles).toEqual(['威胁检测', '受控响应'])
     const links = nav.findAll('a').map((a) => a.text())
-    expect(links).toEqual(['工作台', '观测与推理', '判定与来源', '处置动作', '目标预算'])
+    expect(links).toEqual(['工作台', '观测与推理', '判定与来源', '事件研判', '反馈与复核', '处置动作', '目标预算'])
   })
 
   it('当前二级项高亮，面包屑为“一级 / 二级”', async () => {

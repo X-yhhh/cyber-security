@@ -50,8 +50,10 @@ export const groups: readonly NavGroupDef[] = [
   { key: 'system', title: '系统管理', en: 'System' },
 ]
 
-const Observation = () => import('@/views/console/ObservationView.vue')
-const Decisions = () => import('@/views/console/DecisionsView.vue')
+const Observations = () => import('@/views/detect/ObservationsView.vue')
+const Decisions = () => import('@/views/detect/DecisionsView.vue')
+const Events = () => import('@/views/detect/EventsView.vue')
+const Feedback = () => import('@/views/detect/FeedbackView.vue')
 const Release = () => import('@/views/console/ReleaseView.vue')
 const Execution = () => import('@/views/console/ExecutionView.vue')
 const Lab = () => import('@/views/console/LabView.vue')
@@ -60,10 +62,10 @@ const Health = () => import('@/views/console/HealthView.vue')
 /* 每项一行；F1—F5 只改自己负责的行。 */
 export const nav: readonly NavItem[] = [
   { group: 'workbench', key: 'workbench', title: '工作台', en: 'Workbench', path: '/console/workbench', anyOf: [], component: () => import('@/views/workbench/WorkbenchView.vue'), ready: true },
-  { group: 'detect', key: 'observations', title: '观测与推理', en: 'Observations', path: '/console/detect/observations', anyOf: ['detection.read'], component: Observation, ready: true },
+  { group: 'detect', key: 'observations', title: '观测与推理', en: 'Observations', path: '/console/detect/observations', anyOf: ['detection.read'], component: Observations, ready: true },
   { group: 'detect', key: 'decisions', title: '判定与来源', en: 'Decisions', path: '/console/detect/decisions', anyOf: ['detection.read'], component: Decisions, ready: true },
-  { group: 'detect', key: 'events', title: '事件研判', en: 'Events', path: '/console/detect/events', anyOf: ['detection.read'], component: null, ready: false },
-  { group: 'detect', key: 'feedback', title: '反馈与复核', en: 'Feedback', path: '/console/detect/feedback', anyOf: ['feedback.label', 'feedback.review'], component: null, ready: false },
+  { group: 'detect', key: 'events', title: '事件研判', en: 'Events', path: '/console/detect/events', anyOf: ['detection.read'], component: Events, ready: true },
+  { group: 'detect', key: 'feedback', title: '反馈与复核', en: 'Feedback', path: '/console/detect/feedback', anyOf: ['feedback.label', 'feedback.review'], component: Feedback, ready: true },
   { group: 'response', key: 'actions', title: '处置动作', en: 'Actions', path: '/console/response/actions', anyOf: ['action.read'], component: Execution, ready: true, segment: 'actions' },
   { group: 'response', key: 'budgets', title: '目标预算', en: 'Budgets', path: '/console/response/budgets', anyOf: ['action.read'], component: Execution, ready: true, segment: 'budgets' },
   { group: 'release', key: 'models', title: '数据集与模型', en: 'Models', path: '/console/release/models', anyOf: ['model.manage', 'model.validate', 'dataset.manage', 'bundle.approve', 'evaluation.read'], component: null, ready: false },
@@ -81,7 +83,7 @@ export const nav: readonly NavItem[] = [
 ]
 
 export const details: readonly NavDetail[] = [
-  { group: 'detect', item: 'events', name: 'detect-events-detail', path: '/console/detect/events/:id', title: '事件详情', component: () => import('@/views/console/EventDetailView.vue') },
+  { group: 'detect', item: 'events', name: 'detect-events-detail', path: '/console/detect/events/:id', title: '事件详情', component: () => import('@/views/detect/EventDetailView.vue') },
   { group: 'release', item: 'lab', name: 'release-lab-detail', path: '/console/release/lab/:id', title: 'lab 会话详情', component: () => import('@/views/console/LabRunDetailView.vue') },
 ]
 

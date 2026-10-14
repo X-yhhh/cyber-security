@@ -24,7 +24,7 @@ export function idempotencyKey(): string {
  * 由 client.ts 暴露的 requestV2 注入实际 fetch，避免两处各写一遍会话逻辑。
  */
 export interface GuardRequest {
-  <T>(method: 'GET' | 'POST', path: string, body?: unknown, headers?: Record<string, string>): Promise<T>
+  <T>(method: 'GET' | 'POST' | 'PUT', path: string, body?: unknown, headers?: Record<string, string>): Promise<T>
 }
 let send: GuardRequest | null = null
 
@@ -33,7 +33,7 @@ export function useRequest(fn: GuardRequest) {
   send = fn
 }
 
-function call<T>(method: 'GET' | 'POST', path: string, body?: unknown, headers?: Record<string, string>): Promise<T> {
+function call<T>(method: 'GET' | 'POST' | 'PUT', path: string, body?: unknown, headers?: Record<string, string>): Promise<T> {
   if (!send) throw new ApiError(0, 'CLIENT_NOT_READY', '客户端尚未初始化')
   return send<T>(method, `/api/v2${path}`, body, headers)
 }
@@ -44,11 +44,12 @@ function call<T>(method: 'GET' | 'POST', path: string, body?: unknown, headers?:
  */
 export interface Cursor<T> { items: T[]; nextCursor: string | null }
 
-export interface ListQuery { assetId?: string; cursor?: string; limit?: number }
+export interface ListQuery { assetId?: string; status?: string; cursor?: string; limit?: number }
 
 function query(q: ListQuery = {}): string {
   const p = new URLSearchParams()
   if (q.assetId) p.set('assetId', q.assetId)
+  if (q.status) p.set('status', q.status)
   if (q.cursor) p.set('cursor', q.cursor)
   if (q.limit) p.set('limit', String(q.limit))
   const s = p.toString()
@@ -77,6 +78,11 @@ export const guard = {
     const headers: Record<string, string> = { 'Idempotency-Key': key }
     if (revision !== undefined && revision !== null) headers['If-Match'] = String(revision)
     return call<T>('POST', `/${collection}/${encodeURIComponent(id)}/${operation}`, body, headers)
+  },
+  put: <T>(collection: string, id: string, operation: string, body: unknown = {}, revision?: number | string, key = idempotencyKey()) => {
+    const headers: Record<string, string> = { 'Idempotency-Key': key }
+    if (revision !== undefined && revision !== null) headers['If-Match'] = String(revision)
+    return call<T>('PUT', `/${collection}/${encodeURIComponent(id)}/${operation}`, body, headers)
   },
 }
 

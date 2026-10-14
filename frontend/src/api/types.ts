@@ -302,21 +302,30 @@ export interface GuardObservation {
   direction: string | null; transport: string | null; servicePort: number | null; environment: string | null
   payload: unknown; contentSha256: string; createdAt: string
 }
-/** 推理结论；不成功的推理不带攻击概率（score 为 null）。 */
+/**
+ * 推理结论；不成功的推理不带攻击概率（score 为 null）。
+ * familyScores 为模型双输出中的四类分数（类别 → 0—1），推理失败时为空对象或 null。
+ */
 export interface GuardDetection {
   id: string; observationId: string; assetId: string; modelId: string | null; status: string; score: number | null
-  family: string | null; applicability: string | null; manifestSha256: string | null; completedAt: string | null
-  errorCode: string | null; createdAt: string
+  family: string | null; familyScores?: Record<string, number> | null; applicability: string | null
+  manifestSha256: string | null; completedAt: string | null; errorCode: string | null; createdAt: string
 }
-/** 证据迹（episode）：按 parent 去重，30 秒桶归并；同主机其他 peer 不升级本 episode。 */
+/**
+ * 证据迹（episode）：按 parent 去重，30 秒桶归并；同主机其他 peer 不升级本 episode。
+ * 来源 × 类别 × 规则编号彼此隔离：source 为 model 或 rule，模型来源的 ruleId 为空串。
+ */
 export interface GuardEpisode {
   id: string; assetId: string; sensorId: string; bootId: string; peerKey: string; keyEpoch: string | null
   direction: string; transport: string; servicePort: number; family: string | null; bundleId: string | null
+  scope?: string | null; source?: string | null; ruleId?: string | null
   bucketStart: string; revision: number; createdAt: string
 }
 export interface GuardEpisodeEvidence {
   id: string; episodeId: string; parentConnectionId: string | null; observationId: string
   inferenceId: string | null; score: number | null; asOf: string | null; createdAt: string
+  family?: string | null; source?: string | null; ruleId?: string | null; ruleMatched?: boolean | null
+  familyScores?: Record<string, number> | null
 }
 /** 决策事实：observe / alert / block_candidate；reasonCode 与展示风险分开。 */
 export interface GuardDecision {
@@ -378,6 +387,7 @@ export const guardReasonLabel: Record<string, string> = {
   TARGET_REF_STALE: '目标引用过期', EVIDENCE_STALE: '证据过期', SCORE_BELOW_AUTO: '分数低于自动阈值',
   EVIDENCE_INSUFFICIENT: '证据不足', CONTEXT_CONDITION_UNMET: '上下文条件未满足',
   AUTHORIZATION_INACTIVE: '授权失效', PROTECTION_OR_BUDGET_BLOCKED: '保护范围或预算受限',
+  FAMILY_AUTO_DISABLED: '类别未开自动', MODEL_AUTO_DISABLED: '模型来源未开自动',
 }
 export const guardBudgetDetailLabel: Record<string, string> = {
   PROTECTED_TARGET: '受保护目标', PROTECTED_SERVICE: '受保护服务', PROTECTION_SET_UNVERIFIED: '保护集未核验',
@@ -396,3 +406,131 @@ export const guardIdentityStatusLabel: Record<string, string> = {
 export const guardMachineClientTypeLabel: Record<string, string> = { sensor: '采集身份', executor: '执行身份' }
 /** feedback：未复核的标注不自动成为训练真值。 */
 export const guardFeedbackLabel: Record<string, string> = { benign: '正常', attack: '攻击', ambiguous: '存疑' }
+
+/* ------------------------------------------------------------------ *
+ * 演示最小集（FE-1—FE-3）：来源 × 类别、lab 验证与 G3 报告、健康与审计。
+ *
+ * 判定证据、lab 事实与 G3 报告都是后端已签名或已摘要的事实，前端只读取并按字段展示；
+ * 资格与健康结论一律以后端字段为准，不在前端推断「可自动」「已健康」。
+ * ------------------------------------------------------------------ */
+
+/** 四个攻击类（契约类别映射 host-guard-class-map/1 的展示顺序）；normal 只出现在分数与场景中。 */
+export const GUARD_FAMILIES = ['port_scan', 'brute_force', 'dos_flood', 'dos_slow'] as const
+export const guardFamilyLabel: Record<string, string> = {
+  port_scan: '端口扫描', brute_force: '暴力破解', dos_flood: '洪泛 DoS', dos_slow: '慢速 DoS', normal: '正常',
+}
+/** 检测来源：模型或某条规则；模型来源的 ruleId 为空串或 null。 */
+export function guardSourceKey(source: string | null | undefined, ruleId: string | null | undefined) {
+  return source === 'rule' ? `rule:${ruleId ?? ''}` : (source ?? 'model')
+}
+export function guardSourceLabel(source: string | null | undefined, ruleId?: string | null) {
+  if (source === 'rule') return ruleId ? `规则 ${ruleId}` : '规则'
+  if (source?.startsWith('rule:')) return `规则 ${source.slice(5)}`
+  return source === 'model' || !source ? '模型' : source
+}
+
+/** 判定证据（evidence_json，guard-evidence/1）中前端展示的字段；其余字段按原样列出。 */
+export interface GuardDecisionEvidence {
+  family?: string; source?: string; ruleId?: string; scope?: string | null; environment?: string | null
+  reasonCode?: string | null; detailCode?: string | null; bundleId?: string | null; bundleSubjectSha256?: string | null
+  capabilityId?: string | null; authorizationId?: string | null; authorizationRevision?: number | null
+  budgetTargetId?: string | null; policySha256?: string | null; modelId?: string | null; triggerObservationId?: string | null
+  protocolVersions?: Record<string, string> | null; labSession?: unknown
+  selectedObservations?: { observationId: string; family?: string; source?: string; ruleId?: string; asOf?: string; parentConnectionId?: string | null }[]
+}
+
+/** lab 验证会话（GET /lab-validation-runs）：资格状态与运行状态分开，effectiveEligibility 已计入到期与授权失效。 */
+export interface GuardLabRun {
+  id: string; eligibilityStatus: string; effectiveEligibility: string; blockedReason: string | null
+  runStatus: string; timedOut: boolean; revision: number; assetId: string | null; bundleId: string | null
+  sessionSha256: string; manifestSha256: string; evidenceKind: string; validUntil: string
+  startedAt: string | null; endedAt: string | null; stopRequestedAt: string | null
+  cleanupStatus: string; executionAuthority: boolean
+}
+/** 会话事实：按追加序号 after 翻页；fact 为已摘要的原始事实（JCS）。 */
+export interface GuardLabEvent { eventId: string; sequence: number; sha256: string; fact: Record<string, unknown> & { kind?: string } }
+export interface GuardLabEventPage { items: GuardLabEvent[]; nextAfter: number | null }
+/** 已登记的来源等级：只来自已验签导入的 G3 报告，组合不可用时 bundleUsable 为 false。 */
+export interface GuardLabQualifications {
+  sessionId: string; bundleId: string; bundleUsable: boolean
+  sources: { family: string; source: string; level: string; evaluationId: string; subjectSha256: string }[]
+}
+/** G3 报告（guard_evaluation_run.payload，签名报告原文）中前端展示的部分。 */
+export interface GuardG3Class {
+  family: string; status: string; sources: string[]; scenarioIds: string[]; trialAutoEligible: boolean
+  firstAlertLatencyMs: number | null; firstApplicationLatencyMs: number | null
+}
+export interface GuardG3Command {
+  commandId: string; issuedAt: string | null; appliedAt: string | null; clearedAt: string | null; installation: string; cleanup: string
+}
+export interface GuardG3Scenario {
+  scenarioId: string; family: string; source: string; ruleId: string | null; status: string; completed: boolean
+  trialAutoEligible?: boolean; autoIneligibleReason?: string | null
+  alertLatencyMs: number | null; issueLatencyMs: number | null; applicationLatencyMs: number | null; cleanupLatencyMs: number | null
+  qualifiedCoverage?: number | null; executionQualifiedCoverage?: number | null
+  commands: GuardG3Command[]; missing: string[]; rejectionReasons?: string[]
+}
+export interface GuardG3Report {
+  reportVersion?: string; sessionId: string; status: string; passed: boolean; runStatus: string; evidenceKind: string
+  classes: GuardG3Class[]; scenarios: GuardG3Scenario[]
+  normal: { passed: boolean; perHour: number; cumulativeMs: number; singleAssetUnionMs?: number; verifiedFalseBlocks: number; falseBlocksTtlRestored: boolean }
+  limitations: string[]; missingClasses: string[]; unlinkedCommandIds: string[]; unlinkedDecisionIds: string[]
+  unverifiedItems: unknown[]; outsideScoringDecisionIds?: string[]; latencyIsReportOnly: boolean
+  subjectSha256: string; evaluationPlanSha256: string; inputSha256: string; sessionSha256: string
+  protocolVersions?: Record<string, string>; provenance?: Record<string, string>
+}
+
+/** B5 只读查询的统一外形：asOf 固定本次查询时刻，nextCursor 绑定筛选与身份。 */
+export interface GuardReadPage<T> { asOf: string; items: T[]; nextCursor: string | null }
+/**
+ * 健康窗口：verificationStatus 是写入时的服务端判定，healthState 再叠加 10 秒新鲜度。
+ * replay_healthy 只证明文件回放窗口完整，不证明现场采集健康，也不用于预算恢复。
+ */
+export interface GuardHealthWindow {
+  id: string; assetId: string | null; sensorId: string | null; captureScopeId: string | null; sequence: number
+  observerSessionId: string | null; intervalStart: string | null; intervalEnd: string | null; receivedAt: string | null
+  verificationStatus: string | null; serverVerifiedHealthy: boolean | null; failureReason: string | null
+  freshness: string; healthState: string; healthBasis: string; healthVersion: string | null; captureSource: string | null
+  captureGap: boolean | null; clockSkewMs: number | null
+  counterStart: { packetsSeen: number | null; kernelDrops: number | null; capacityDrops: number | null }
+  counterEnd: { packetsSeen: number | null; kernelDrops: number | null; capacityDrops: number | null }
+}
+/** 心跳只表示机器存活与状态投影，不代表采集健康。 */
+export interface GuardHeartbeat {
+  id: string; assetId: string | null; status: string; revision: number; receivedAt: string | null; bootId: string | null
+  freshness: string; healthState: string; agentVersion?: string | null; adapterVersion?: string | null; capabilityHash?: string | null
+  currentConfig?: { id: string; configVersion: string; contentSha256: string; buildSha256: string | null } | null
+  reported?: { pendingRecovery: boolean | null; activeRuleCount: number | null; clockSkewMs: number | null } | null
+}
+export interface GuardOpsAsset {
+  id: string; status: string; sensorCount: number; executorCount: number; lastSensorHeartbeatAt: string | null
+  lastExecutorHeartbeatAt: string | null; healthWindowCount: number; lastHealthReceivedAt: string | null
+  budgetTargetCount: number; budgetResetCount: number; lastBudgetResetAt: string | null
+}
+export interface GuardAuditEntry {
+  id: string; occurredAt: string; actorType: string; action: string; resourceType: string | null
+  requestId: string | null; outcome: string; resourceId: string | null
+}
+
+export const guardLabRunStatusLabel: Record<string, string> = {
+  registered: '已登记', running: '运行中', interrupted: '已中断', completed: '已完成', failed: '失败', cancelled: '已取消', expired: '已过期',
+}
+export const guardLabEligibilityLabel: Record<string, string> = {
+  pending: '待批准', active: '有效', blocked: '受阻', expired: '已到期', revoked: '已撤销',
+}
+export const guardLabEventKindLabel: Record<string, string> = {
+  lifecycle: '生命周期', observation: '观察', decision: '判定', command: '命令', receipt: '回执',
+  verified_receipt: '核验回执', scenario_result: '场景结果', report: '报告导入',
+}
+/** 健康窗口服务端判定；未列出的判定码原样显示。 */
+export const guardVerificationLabel: Record<string, string> = {
+  healthy: '现场健康', replay_healthy: '文件回放健康', REPLAY_KERNEL_DROPS_INVALID: '回放内核丢包字段无效',
+  HEALTH_DELAY_EXCEEDED: '上报延迟超限', CLOCK_UNTRUSTED: '时钟不可信', CAPTURE_GAP: '采集缺口', COUNTER_UNKNOWN: '计数未知',
+  CAPTURE_DROPS: '采集丢包', HEALTH_CHAIN_INCOMPLETE: '哈希链不完整', HEALTH_IDENTITY_CHANGED: '采集身份变化',
+}
+export const guardHealthStateLabel: Record<string, string> = {
+  healthy: '健康', replay_healthy: '文件回放健康', stale: '已过期', unhealthy: '不健康', unknown: '未知',
+}
+export const guardMachineStatusLabel: Record<string, string> = {
+  pending: '待审批', active: '有效', offline: '离线', suspended: '已暂停', revoked: '已吊销',
+}

@@ -1,7 +1,10 @@
 export type Tone = 'threat' | 'warn' | 'ok' | 'signal' | 'mute'
 
-/** 语义色映射集中在此，避免各页面各自决定颜色。键为后端返回的状态值，未知值回退为 mute。 */
-const map = (m: Record<string, Tone>) => new Proxy(m, { get: (t, k: string) => t[k] ?? 'mute' })
+/**
+ * 语义色映射集中在此，避免各页面各自决定颜色。键为后端返回的状态值，未知值回退为 mute；
+ * 失败码类集合可指定回退色（例如未来新增的健康判定码按不健康着色，不显示为中性）。
+ */
+const map = (m: Record<string, Tone>, fallback: Tone = 'mute') => new Proxy(m, { get: (t, k: string) => t[k] ?? fallback })
 
 export const severityTone = map({ critical: 'threat', high: 'threat', medium: 'warn', low: 'mute' })
 export const eventTone = map({ open: 'threat', investigating: 'signal', contained: 'warn', resolved: 'ok', false_positive: 'mute', closed: 'mute' })
@@ -59,3 +62,17 @@ export const machineClientTone = map({ active: 'ok', revoked: 'mute', expired: '
 
 /** 推理适用性。 */
 export const applicabilityTone = map({ applicable: 'ok', not_applicable: 'mute', unsupported: 'warn' })
+
+/* ------------------------------------------------------------------ *
+ * 演示最小集（FE-1—FE-3）。
+ * replay_healthy 用 signal 而非 ok：它只证明回放完整，不能与现场健康混为一色。
+ * ------------------------------------------------------------------ */
+export const healthStateTone = map({ healthy: 'ok', replay_healthy: 'signal', stale: 'warn', unhealthy: 'threat', unknown: 'mute' })
+export const verificationTone = map({ healthy: 'ok', replay_healthy: 'signal', COUNTER_UNKNOWN: 'mute', CLOCK_UNTRUSTED: 'mute', HEALTH_DELAY_EXCEEDED: 'warn' }, 'threat')
+export const labRunTone = map({ registered: 'mute', running: 'signal', completed: 'ok', interrupted: 'warn', failed: 'threat', cancelled: 'mute', expired: 'mute' })
+export const labEligibilityTone = map({ pending: 'signal', active: 'ok', blocked: 'warn', expired: 'mute', revoked: 'threat' })
+export const scenarioTone = map({ passed: 'ok', failed: 'threat', incomplete: 'warn' })
+/** 来源等级：lab_auto 用 warn 提示「仅 lab 有效」，不与授权环境的自动等级同色。 */
+export const qualificationTone = map({ lab_auto: 'warn', authorized_auto: 'ok', alert_only: 'mute' })
+export const machineStatusTone = map({ pending: 'signal', active: 'ok', offline: 'warn', suspended: 'warn', revoked: 'threat' })
+export const auditOutcomeTone = map({ success: 'ok', denied: 'threat', failure: 'threat', rejected: 'threat' })

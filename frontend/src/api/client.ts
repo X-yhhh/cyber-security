@@ -101,6 +101,16 @@ export const guard = {
   get: <T>(collection: string, id: string) => request<T>('GET', `/api/v2/${collection}/${encodeURIComponent(id)}`),
   /** 子资源；`models/{id}/validations` 返回校验报告本体而不是 `{items}`。 */
   child: <T>(collection: string, id: string, name: string) => request<T>('GET', `/api/v2/${collection}/${encodeURIComponent(id)}/${name}`),
+  /**
+   * 只读查询的原样路径与参数（lab 会话事件的 `after`、B5 查询的筛选与游标等）。
+   * 空值参数不发送：后端对空白参数返回 INVALID_QUERY，未知参数同样拒绝，前端不做兜底。
+   */
+  read: <T>(path: string, params: Record<string, string | number | null | undefined> = {}) => {
+    const p = new URLSearchParams()
+    for (const [k, v] of Object.entries(params)) if (v !== null && v !== undefined && v !== '') p.set(k, String(v))
+    const s = p.toString()
+    return request<T>('GET', `/api/v2/${path}${s ? `?${s}` : ''}`)
+  },
   /** 创建；自动带幂等键，同一次提交的重试不会重复落库。 */
   create: <T>(collection: string, body: unknown, key = idempotencyKey()) =>
     request<T>('POST', `/api/v2/${collection}`, body, { 'Idempotency-Key': key }),

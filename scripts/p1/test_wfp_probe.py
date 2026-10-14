@@ -89,6 +89,7 @@ class LeaseTests(unittest.TestCase):
             with self.assertRaises(FileExistsError):
                 write_new(path, {'changed': True})
             self.assertEqual(first, path.read_bytes())
+            self.assertEqual([path], list(Path(directory).iterdir()))
 
     def test_sdk_x64_abi(self):
         if ctypes.sizeof(ctypes.c_void_p) != 8:

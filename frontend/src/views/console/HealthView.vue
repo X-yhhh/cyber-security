@@ -27,7 +27,9 @@ import {
 import { auditOutcomeTone, healthStateTone, machineStatusTone, verificationTone } from '@/data/tones'
 
 type View = 'ops' | 'health' | 'sensors' | 'executors' | 'audit'
-const view = ref<View>('ops')
+/** 两级菜单（FE-9）按二级项指定初始分段；F1—F4 拆分本页后删除。 */
+const props = defineProps<{ segment?: View }>()
+const view = ref<View>(props.segment ?? 'ops')
 const opsAllowed = can('ops.read')
 const auditAllowed = can('audit.read')
 const allowed = (v: View) => (v === 'audit' ? auditAllowed : opsAllowed)

@@ -93,6 +93,42 @@ public interface GuardReadMapper {
     @SelectProvider(type = Sql.class, method = "summaryRecentAuditCount24h")
     long summaryRecentAuditCount24h(@Param("actor") long actor, @Param("since") LocalDateTime since);
 
+    /* ---------- B5.2 实时态势：只做按桶聚合，桶号 b = TIMESTAMPDIFF(SECOND, from, t) DIV step ---------- */
+
+    @SelectProvider(type = Sql.class, method = "liveCoverage")
+    List<Map<String, Object>> liveCoverage(@Param("actor") long actor, @Param("permission") String permission,
+                                           @Param("from") LocalDateTime from, @Param("until") LocalDateTime until, @Param("step") int step);
+
+    @SelectProvider(type = Sql.class, method = "liveInbound")
+    List<Map<String, Object>> liveInbound(@Param("actor") long actor, @Param("from") LocalDateTime from,
+                                          @Param("until") LocalDateTime until, @Param("step") int step);
+
+    @SelectProvider(type = Sql.class, method = "liveAlerts")
+    List<Map<String, Object>> liveAlerts(@Param("actor") long actor, @Param("from") LocalDateTime from,
+                                         @Param("until") LocalDateTime until, @Param("step") int step);
+
+    @SelectProvider(type = Sql.class, method = "liveBlocked")
+    List<Map<String, Object>> liveBlocked(@Param("actor") long actor, @Param("from") LocalDateTime from,
+                                          @Param("until") LocalDateTime until, @Param("step") int step);
+
+    @SelectProvider(type = Sql.class, method = "liveTodayInbound")
+    long liveTodayInbound(@Param("actor") long actor, @Param("since") LocalDateTime since);
+
+    @SelectProvider(type = Sql.class, method = "liveTodayAlerts")
+    long liveTodayAlerts(@Param("actor") long actor, @Param("since") LocalDateTime since);
+
+    @SelectProvider(type = Sql.class, method = "liveTodayBlocked")
+    long liveTodayBlocked(@Param("actor") long actor, @Param("since") LocalDateTime since);
+
+    @SelectProvider(type = Sql.class, method = "liveAsOf")
+    Object liveAsOf(@Param("actor") long actor);
+
+    @SelectProvider(type = Sql.class, method = "liveSensors")
+    Map<String, Object> liveSensors(@Param("actor") long actor, @Param("fresh") LocalDateTime fresh);
+
+    @SelectProvider(type = Sql.class, method = "liveExecutors")
+    Map<String, Object> liveExecutors(@Param("actor") long actor, @Param("fresh") LocalDateTime fresh);
+
     final class Sql {
         private Sql() { }
 
@@ -350,6 +386,71 @@ public interface GuardReadMapper {
         public static String summaryLastHealthAt() {
             return "SELECT MAX(r.received_at) FROM guard_capture_health_window r JOIN asset a ON a.id=r.asset_id"
                     + " WHERE " + actorAssetScope("a.id", "p.permission_key='ops.read'");
+        }
+
+        private static String bucketOf(String column) {
+            return "TIMESTAMPDIFF(SECOND,#{from}," + column + ") DIV #{step}";
+        }
+
+        /** 每条已接收健康窗口起止所在的桶；权限名由服务层传入（detection.read 或 action.read）。 */
+        public static String liveCoverage() {
+            return "SELECT DISTINCT " + bucketOf("GREATEST(r.interval_start,#{from})") + " AS s, "
+                    + bucketOf("LEAST(DATE_SUB(r.interval_end,INTERVAL 1 MICROSECOND),DATE_SUB(#{until},INTERVAL 1 MICROSECOND))") + " AS e"
+                    + " FROM guard_capture_health_window r WHERE r.interval_end>#{from} AND r.interval_start<#{until} AND "
+                    + actorAssetScope("r.asset_id", "p.permission_key=#{permission}");
+        }
+
+        public static String liveInbound() {
+            return "SELECT " + bucketOf("r.as_of") + " AS b, COUNT(*) AS n FROM guard_observation r"
+                    + " WHERE r.as_of>=#{from} AND r.as_of<#{until} AND " + actorAssetScope("r.asset_id", "p.permission_key='detection.read'")
+                    + " GROUP BY b";
+        }
+
+        public static String liveAlerts() {
+            return "SELECT JSON_UNQUOTE(JSON_EXTRACT(r.evidence_json,'$.family')) AS family, " + bucketOf("r.decided_at") + " AS b, COUNT(*) AS n"
+                    + " FROM guard_decision r WHERE r.decision IN ('alert','block_candidate') AND r.decided_at>=#{from} AND r.decided_at<#{until} AND "
+                    + actorAssetScope("r.asset_id", "p.permission_key='detection.read'") + " GROUP BY family, b";
+        }
+
+        /** 每条命令首次通过实态核对的 applied 回执时间，即“拦截生效”时刻；撤销回执不计。 */
+        private static String firstApplied() {
+            return "(SELECT r.command_id, MIN(r.observed_at) AS t FROM guard_action_receipt r"
+                    + " WHERE r.status='applied' AND r.projected=TRUE AND r.revocation_id IS NULL AND "
+                    + actorAssetScope("r.asset_id", "p.permission_key='action.read'") + " GROUP BY r.command_id) x";
+        }
+
+        public static String liveBlocked() {
+            return "SELECT " + bucketOf("x.t") + " AS b, COUNT(*) AS n FROM " + firstApplied()
+                    + " WHERE x.t>=#{from} AND x.t<#{until} GROUP BY b";
+        }
+
+        public static String liveTodayInbound() {
+            return "SELECT COUNT(*) FROM guard_observation r WHERE r.as_of>=#{since} AND "
+                    + actorAssetScope("r.asset_id", "p.permission_key='detection.read'");
+        }
+
+        public static String liveTodayAlerts() {
+            return "SELECT COUNT(*) FROM guard_decision r WHERE r.decision IN ('alert','block_candidate') AND r.decided_at>=#{since} AND "
+                    + actorAssetScope("r.asset_id", "p.permission_key='detection.read'");
+        }
+
+        public static String liveTodayBlocked() {
+            return "SELECT COUNT(*) FROM " + firstApplied() + " WHERE x.t>=#{since}";
+        }
+
+        public static String liveAsOf() {
+            return "SELECT MAX(r.received_at) FROM guard_capture_health_window r WHERE "
+                    + actorAssetScope("r.asset_id", "p.permission_key IN ('detection.read','action.read','ops.read')");
+        }
+
+        public static String liveSensors() {
+            return "SELECT COUNT(*) AS total, COALESCE(SUM(r.status='active' AND r.last_heartbeat_at>=#{fresh}),0) AS online"
+                    + " FROM sensor_agent r WHERE r.status<>'revoked' AND " + actorAssetScope("r.asset_id", "p.permission_key='ops.read'");
+        }
+
+        public static String liveExecutors() {
+            return "SELECT COUNT(*) AS total, COALESCE(SUM(r.status='active' AND r.last_heartbeat>=#{fresh}),0) AS online"
+                    + " FROM guard_executor r WHERE r.status<>'revoked' AND " + actorAssetScope("r.asset_id", "p.permission_key='ops.read'");
         }
 
         public static String summaryRecentAuditCount24h() {

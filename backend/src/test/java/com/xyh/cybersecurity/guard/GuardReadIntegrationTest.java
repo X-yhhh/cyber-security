@@ -12,6 +12,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.autoconfigure.web.servlet.MockMvcPrint;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.jdbc.core.ConnectionCallback;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -19,7 +20,9 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -500,6 +503,114 @@ class GuardReadIntegrationTest {
                 .containsExactlyInAnyOrder("openEvents", "pendingFeedbackReviews", "releasePipeline");
         assertThat(data(pAuditor, "summary").fieldNames()).toIterable()
                 .containsExactlyInAnyOrder("openEvents", "releasePipeline", "ops", "recentAuditCount24h");
+    }
+
+    /**
+     * B5.2 stats/live：按数据库时钟落桶；有健康窗口覆盖且无事件为 0，无覆盖为 null；拦截只计已核对的首个 applied 回执；
+     * 字段按权限裁剪、计数按资产范围统计。
+     */
+    @Test
+    void liveStatsBucketsCoverageAndPermissionTrimming() throws Exception {
+        assertThat(mvc.perform(get("/api/v2/stats/live")).andReturn().getResponse().getStatus()).isEqualTo(401);
+        var full = identity(List.of("detection.read", "action.read", "ops.read"), "asset", Long.toString(a.pk));
+        var opsOnly = identity(List.of("ops.read"), "asset", Long.toString(a.pk));
+        error(roleUser("model_operator"), "stats/live", 403, "SCOPE_DENIED");
+        error(full, "stats/live", 400, "INVALID_QUERY", "range", "2h");
+        error(full, "stats/live", 400, "INVALID_QUERY", "range", "7d", "step", "10");
+        error(full, "stats/live", 400, "INVALID_QUERY", "window", "15m");
+
+        LocalDateTime now = jdbc.queryForObject("SELECT UTC_TIMESTAMP(6)", LocalDateTime.class);
+        LocalDateTime covered = now.minusMinutes(20), uncoveredWithEvent = now.minusMinutes(40);
+        healthAt(a, sa, scopeA, covered);
+        healthAt(b, sb, scopeB, now.minusMinutes(30));  // 资产 b 不在范围内，不得提供覆盖
+        observationAt(a, sa, scopeA, covered);
+        observationAt(a, sa, scopeA, covered.plusSeconds(1));
+        observationAt(a, sa, scopeA, uncoveredWithEvent);
+        observationAt(b, sb, scopeB, covered);  // 范围外，不计
+        decisionAt(a, "alert", "brute_force", covered);
+        decisionAt(a, "block_candidate", "exotic_family", covered);
+        decisionAt(a, "observe", "port_scan", covered);  // 仅观察，不计为告警
+        long command = 900_000L + a.pk;
+        receiptAt(a, ea, command, "applied", true, null, covered.plusSeconds(2));
+        receiptAt(a, ea, command, "applied", true, null, covered.plusSeconds(4));  // 同一命令只计首次
+        receiptAt(a, ea, command + 1, "applied", false, null, covered.plusSeconds(3));  // 未通过实态核对
+        receiptAt(a, ea, command + 2, "applied", true, 1L, covered.plusSeconds(3));  // 撤销回执
+        jdbc.update("UPDATE sensor_agent SET last_heartbeat_at=UTC_TIMESTAMP(6) WHERE id=?", sa.pk);
+
+        JsonNode live = data(full, "stats/live", "range", "1h");
+        assertThat(live.path("range").asText()).isEqualTo("1h");
+        assertThat(live.path("step").asInt()).isEqualTo(60);
+        assertThat(live.path("points").asInt()).isEqualTo(60);
+        Instant from = Instant.parse(live.path("from").asText());
+        assertThat(Instant.parse(live.path("to").asText())).isEqualTo(from.plusSeconds(3600)).isAfter(now.toInstant(ZoneOffset.UTC));
+        int bCovered = (int) ((covered.toInstant(ZoneOffset.UTC).getEpochSecond() - from.getEpochSecond()) / 60);
+        int bEvent = (int) ((uncoveredWithEvent.toInstant(ZoneOffset.UTC).getEpochSecond() - from.getEpochSecond()) / 60);
+        int bEmpty = (int) ((now.minusMinutes(50).toInstant(ZoneOffset.UTC).getEpochSecond() - from.getEpochSecond()) / 60);
+
+        JsonNode inbound = live.path("inbound");
+        assertThat(inbound).hasSize(60);
+        assertThat(inbound.get(bCovered).asLong()).isEqualTo(2L);
+        assertThat(inbound.get(bEvent).asLong()).isEqualTo(1L);   // 无覆盖但确有事件，如实计数
+        assertThat(inbound.get(bEmpty).isNull()).isTrue();         // 无覆盖无事件：null，不补 0
+        int bOtherAsset = (int) ((now.minusMinutes(30).toInstant(ZoneOffset.UTC).getEpochSecond() - from.getEpochSecond()) / 60);
+        assertThat(inbound.get(bOtherAsset).isNull()).isTrue();    // 范围外资产的健康窗口不提供覆盖
+        assertThat(live.at("/alerts").fieldNames()).toIterable()
+                .containsExactly("port_scan", "brute_force", "dos_flood", "dos_slow", "exotic_family");
+        assertThat(live.at("/alerts/brute_force").get(bCovered).asLong()).isEqualTo(1L);
+        assertThat(live.at("/alerts/exotic_family").get(bCovered).asLong()).isEqualTo(1L);
+        assertThat(live.at("/alerts/port_scan").get(bCovered).asLong()).isZero();  // 有覆盖、仅观察判定 → 0
+        assertThat(live.at("/alerts/port_scan").get(bEmpty).isNull()).isTrue();
+        assertThat(live.path("blocked").get(bCovered).asLong()).isEqualTo(1L);
+        assertThat(Instant.parse(live.path("asOf").asText())).isEqualTo(covered.toInstant(ZoneOffset.UTC));
+        assertThat(live.at("/devices/sensorsOnline").asLong()).isEqualTo(1L);
+        assertThat(live.at("/devices/sensorsTotal").asLong()).isEqualTo(1L);
+        assertThat(live.at("/devices/executorsOnline").asLong()).isZero();
+        assertThat(live.at("/devices/executorsTotal").asLong()).isEqualTo(1L);
+        assertThat(live.path("today").fieldNames()).toIterable().containsExactlyInAnyOrder("inbound", "alerts", "blocked", "openEvents");
+
+        JsonNode ops = data(opsOnly, "stats/live");
+        assertThat(ops.path("range").asText()).isEqualTo("15m");
+        assertThat(ops.path("points").asInt()).isEqualTo(90);
+        assertThat(ops.fieldNames()).toIterable()
+                .containsExactlyInAnyOrder("range", "step", "from", "to", "points", "asOf", "devices");
+    }
+
+    private void healthAt(Resource asset, Resource sensor, Resource scope, LocalDateTime end) {
+        JsonNode payload = object("healthVersion", HEALTH, "captureGap", false, "counterEnd", object("packetsSeen", 1));
+        jdbc.update("INSERT INTO guard_capture_health_window(public_id,sensor_id,asset_id,capture_scope_id,observer_session_id,sequence_no,interval_start,interval_end,content_sha256,payload_json,verification_status,received_at)"
+                + " VALUES (?,?,?,?,?,1,?,?,?,?,'healthy',?)", id(), sensor.pk, asset.pk, scope.pk, id(), end.minusSeconds(2), end, "d".repeat(64), canonical(payload), end);
+    }
+
+    /** 观察、判定与回执的外键链很长；聚合测试在同一连接上临时关闭外键检查，只填写聚合与非空列。 */
+    private void unchecked(String sql, Object... args) {
+        jdbc.execute((ConnectionCallback<Void>) c -> {
+            try (var st = c.createStatement()) { st.execute("SET FOREIGN_KEY_CHECKS=0"); }
+            try (var ps = c.prepareStatement(sql)) {
+                for (int i = 0; i < args.length; i++) ps.setObject(i + 1, args[i]);
+                ps.executeUpdate();
+            } finally {
+                try (var st = c.createStatement()) { st.execute("SET FOREIGN_KEY_CHECKS=1"); }
+            }
+            return null;
+        });
+    }
+
+    private void observationAt(Resource asset, Resource sensor, Resource scope, LocalDateTime asOf) {
+        unchecked("INSERT INTO guard_observation(public_id,batch_id,sensor_id,asset_id,boot_id,capture_scope_id,flow_id,parent_connection_id,snapshot_index,profile,as_of,last_packet_at,peer_key,key_epoch,direction,transport,environment,payload_json,content_sha256)"
+                + " VALUES (?,999999,?,?,?,?,?,?,0,'final',?,?,?,1,'inbound','tcp','lab','{}',?)",
+                id(), sensor.pk, asset.pk, id(), scope.pk, id(), id(), asOf, asOf, "p".repeat(64), "c".repeat(64));
+    }
+
+    private void decisionAt(Resource asset, String decision, String family, LocalDateTime at) {
+        unchecked("INSERT INTO guard_decision(public_id,episode_id,asset_id,bundle_id,decision_revision,decision_contract_version,decision,evidence_sha256,evidence_json,decided_at)"
+                + " VALUES (?,?,?,999999,1,'fixture',?,?,?,?)",
+                id(), 1_000_000L + (long) (Math.random() * 1_000_000_000L), asset.pk, decision, "e".repeat(64), canonical(object("family", family)), at);
+    }
+
+    private void receiptAt(Resource asset, Resource executor, long command, String status, boolean projected, Long revocation, LocalDateTime at) {
+        unchecked("INSERT INTO guard_action_receipt(public_id,command_id,executor_id,asset_id,revocation_id,status,observed_at,state_digest,content_sha256,payload_json,projected)"
+                + " VALUES (?,?,?,?,?,?,?,?,?,'{}',?)",
+                id(), command, executor.pk, asset.pk, revocation, status, at, "s".repeat(64), "c".repeat(64), projected);
     }
 
     private IdentityPrincipal roleUser(String roleKey) {

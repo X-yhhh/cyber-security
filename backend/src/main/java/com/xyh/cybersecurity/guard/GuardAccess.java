@@ -13,6 +13,10 @@ public class GuardAccess {
     public GuardAccess(GuardMapper mapper,GuardStore store){this.mapper=mapper;this.store=store;}
     public long human(){var a=SecurityContextHolder.getContext().getAuthentication();if(a==null||!(a.getPrincipal() instanceof IdentityPrincipal p))throw error(403,"HUMAN_IDENTITY_REQUIRED");return p.id();}
     public void permission(String permission,Long asset){long actor=human();if(!mapper.permitted(actor,permission,asset==null?"global":"asset",asset==null?"*":asset.toString()))throw error(403,"SCOPE_DENIED");}
+    public void feature(String permission){if(!mapper.hasFeature(human(),permission))throw error(403,"SCOPE_DENIED");}
+    public void anyFeature(String... permissions){long actor=human();if(Arrays.stream(permissions).noneMatch(p->mapper.hasFeature(actor,p)))throw error(403,"SCOPE_DENIED");}
+    /** B4 两级写鉴权：功能不足为 403，有功能但对象范围不覆盖为 404。 */
+    public void consolePermission(String permission,Long asset){feature(permission);visible(permission,asset);}
     public void visible(String permission,Long asset){try{permission(permission,asset);}catch(com.xyh.cybersecurity.common.api.ApiRequestException e){throw error(404,"RESOURCE_NOT_FOUND");}}
     public MachinePrincipal machine(String kind,String permission){
         var a=SecurityContextHolder.getContext().getAuthentication();if(a==null||!(a.getPrincipal() instanceof MachinePrincipal p)||!kind.equals(p.clientType())||!mapper.machinePermission(p.id(),permission))throw error(403,"MACHINE_IDENTITY_REQUIRED");return p;

@@ -10,6 +10,15 @@ public interface GuardMapper {
     List<Map<String,Object>> select(@Param("table") String table,@Param("where") Map<String,Object> where,
             @Param("lock") boolean lock,@Param("limit") int limit,@Param("actor") Long actor,
             @Param("permission") String permission,@Param("before") Long before);
+    /** 控制台筛选与资源范围在 LIMIT 前执行；分页按排序时间和主键共同推进。 */
+    @SelectProvider(type=Sql.class,method="consoleList")
+    List<Map<String,Object>> consoleList(@Param("table") String table,@Param("where") Map<String,Object> where,
+            @Param("actor") long actor,@Param("permission") String permission,@Param("filter") Map<String,Object> filter,
+            @Param("ceiling") long ceiling,@Param("asOf") java.time.LocalDateTime asOf,
+            @Param("beforeTime") java.time.LocalDateTime beforeTime,@Param("beforeId") Long beforeId,
+            @Param("active") boolean active,@Param("limit") int limit);
+    @SelectProvider(type=Sql.class,method="ceiling")
+    long consoleCeiling(@Param("table") String table);
     @InsertProvider(type=Sql.class,method="insert")
     @Options(useGeneratedKeys=true,keyProperty="values.id")
     int insert(@Param("table") String table,@Param("values") Map<String,Object> values);
@@ -51,6 +60,32 @@ public interface GuardMapper {
         """)
     boolean permitted(@Param("actor") long actor,@Param("permission") String permission,
                       @Param("scopeType") String scopeType,@Param("scopeId") String scopeId);
+    /** 功能校验与范围校验分开；非法遗留范围不产生任何 v2 权限。 */
+    @Select("""
+        SELECT EXISTS(SELECT 1 FROM sys_user_role ur JOIN sys_role r ON r.id=ur.role_id AND r.status='active'
+        JOIN sys_role_permission rp ON rp.role_id=r.id JOIN sys_permission p ON p.id=rp.permission_id AND p.status='active'
+        JOIN sys_user u ON u.id=ur.user_id AND u.status='active'
+        WHERE ur.user_id=#{actor} AND p.permission_key=#{permission}
+        AND ((ur.scope_type='global' AND ur.scope_id='*') OR
+             (ur.scope_type='asset' AND EXISTS(SELECT 1 FROM asset a WHERE CAST(a.id AS CHAR)=ur.scope_id))))
+        """)
+    boolean hasFeature(@Param("actor") long actor,@Param("permission") String permission);
+
+    /** 使用锁定读检查活动组合或资产绑定，与激活持有的模型锁共同阻止退役/激活竞态。 */
+    @Select("""
+        SELECT b.id FROM guard_release_bundle b LEFT JOIN guard_asset_binding ab ON ab.bundle_id=b.id
+        WHERE b.model_id=#{model} AND (b.status='active' OR ab.status='active') ORDER BY b.id LIMIT 1 FOR UPDATE
+        """)
+    Long activeModelReference(long model);
+
+    @Select("SELECT EXISTS(SELECT 1 FROM guard_capture_scope WHERE config_id=#{id}) OR EXISTS(SELECT 1 FROM guard_observation_batch WHERE config_id=#{id})")
+    boolean configInUse(long id);
+    @Select("SELECT EXISTS(SELECT 1 FROM guard_release_bundle WHERE policy_id=#{id}) OR EXISTS(SELECT 1 FROM guard_replay_run WHERE policy_id=#{id}) OR EXISTS(SELECT 1 FROM guard_rule_evaluation WHERE policy_id=#{id})")
+    boolean policyInUse(long id);
+    @Delete("DELETE FROM sensor_config WHERE id=#{id}")
+    int deleteConfig(long id);
+    @Delete("DELETE FROM guard_decision_policy WHERE id=#{id}")
+    int deletePolicy(long id);
     @Insert("INSERT INTO api_client_permission(client_id,permission_id) SELECT #{client},id FROM sys_permission WHERE permission_key=#{permission} AND status='active'")
     int grant(@Param("client") long client,@Param("permission") String permission);
     @Select("""
@@ -144,12 +179,12 @@ public interface GuardMapper {
 
             COLUMNS.put("guard_idempotency",Set.of("id","public_id","created_at","request_scope","idempotency_key","request_sha256","response_json","http_status"));
             COLUMNS.put("guard_contract",Set.of("id","public_id","created_at","contract_version","profile_sha256","schema_set_sha256","extractor_sha256","status"));
-            COLUMNS.put("guard_dataset",Set.of("id","public_id","created_at","dataset_key","version","manifest_ref","manifest_sha256","payload_json"));
-            COLUMNS.put("guard_model",Set.of("id","public_id","created_at","model_key","version","manifest_ref","manifest_sha256","artifact_sha256","contract_id","manifest_json","validation_status","validation_json","created_by"));
+            COLUMNS.put("guard_dataset",Set.of("id","public_id","created_at","dataset_key","version","manifest_ref","manifest_sha256","payload_json","display_name","notes","status","revision","updated_at"));
+            COLUMNS.put("guard_model",Set.of("id","public_id","created_at","model_key","version","manifest_ref","manifest_sha256","artifact_sha256","contract_id","manifest_json","validation_status","validation_json","created_by","display_name","notes","revision","updated_at"));
             COLUMNS.put("guard_evaluation_plan",Set.of("id","public_id","created_at","plan_key","version","plan_sha256","payload_json","created_by"));
             COLUMNS.put("guard_capability",Set.of("id","public_id","created_at","capability_key","version","platform","level","payload_json","created_by","scope","protection_set_sha256","exemption_evidence_sha256"));
-            COLUMNS.put("guard_decision_policy",Set.of("id","public_id","created_at","policy_key","version","model_id","plan_id","decision_contract_version","definition_json","definition_sha256","status","created_by","reviewed_by","revision"));
-            COLUMNS.put("guard_release_bundle",Set.of("id","public_id","created_at","bundle_key","version","model_id","policy_id","contract_id","plan_id","environment","subject_sha256","subject_json","sealed_manifest_sha256","sealed_manifest_json","status","requested_by","approved_by","revision"));
+            COLUMNS.put("guard_decision_policy",Set.of("id","public_id","created_at","policy_key","version","model_id","plan_id","decision_contract_version","definition_json","definition_sha256","status","created_by","reviewed_by","revision","display_name","notes","updated_at"));
+            COLUMNS.put("guard_release_bundle",Set.of("id","public_id","created_at","bundle_key","version","model_id","policy_id","contract_id","plan_id","environment","subject_sha256","subject_json","sealed_manifest_sha256","sealed_manifest_json","status","requested_by","approved_by","revision","updated_at"));
             COLUMNS.put("guard_bundle_capability",Set.of("id","public_id","created_at","bundle_id","capability_id"));
             COLUMNS.put("guard_evaluation_run",Set.of("id","public_id","created_at","plan_id","bundle_id","run_kind","runner_identity","status","report_ref","report_sha256","payload_json"));
             COLUMNS.put("guard_replay_run",Set.of("id","public_id","created_at","scenario_id","scenario_sha256","model_id","policy_id","bundle_id","speed","status","requested_by","payload_json","content_sha256"));
@@ -160,7 +195,7 @@ public interface GuardMapper {
             COLUMNS.put("guard_ingest_rejection",Set.of("id","public_id","created_at","batch_id","observation_external_id","reason_code","content_sha256"));
             COLUMNS.put("guard_inference",Set.of("id","public_id","created_at","observation_id","asset_id","model_id","status","score","family","family_scores_json","applicability","manifest_sha256","completed_at","error_code"));
             COLUMNS.put("guard_capture_health_window",Set.of("id","public_id","created_at","sensor_id","asset_id","capture_scope_id","observer_session_id","sequence_no","interval_start","interval_end","previous_sha256","content_sha256","payload_json","verification_status","received_at"));
-            COLUMNS.put("guard_executor",Set.of("id","public_id","created_at","asset_id","api_client_id","platform","adapter_version","capability_hash","boot_id","status","last_heartbeat","health_json","revision"));
+            COLUMNS.put("guard_executor",Set.of("id","public_id","created_at","asset_id","api_client_id","platform","adapter_version","capability_hash","boot_id","status","last_heartbeat","health_json","revision","display_name","notes","updated_at"));
             COLUMNS.put("guard_budget_target",Set.of("id","public_id","created_at","asset_id","environment","stable_target_token","resolver_executor_id","scope_digest","identity_status"));
             COLUMNS.put("guard_target_binding",Set.of("id","public_id","created_at","target_ref","budget_target_id","executor_id","executor_boot_id","sensor_id","collector_boot_id","capture_scope_id","peer_key","key_epoch","scope_digest","expires_at","payload_json","content_sha256"));
             COLUMNS.put("guard_target_budget",Set.of("id","public_id","created_at","budget_target_id","charged_ms","last_block_end_at","last_evidence_at","health_proof_sha256","cycle_started_at","revision"));
@@ -179,9 +214,9 @@ public interface GuardMapper {
             COLUMNS.put("guard_action_receipt",Set.of("id","public_id","created_at","command_id","executor_id","asset_id","revocation_id","status","observed_at","state_digest","content_sha256","payload_json","projected"));
             COLUMNS.put("guard_reconciliation",Set.of("id","public_id","created_at","executor_id","asset_id","boot_id","observed_at","owned_state_sha256","payload_json","error_count"));
             COLUMNS.put("guard_automation_stop",Set.of("id","public_id","created_at","asset_id","bundle_id","reason","requested_by","revoke_existing"));
-            COLUMNS.put("asset",Set.of("id","public_id","asset_key","asset_type","environment","criticality","owner","status","labels_json","platform","guard_environment","revision","created_at","updated_at"));
+            COLUMNS.put("asset",Set.of("id","public_id","asset_key","asset_type","environment","criticality","owner","status","labels_json","platform","guard_environment","revision","created_at","updated_at","display_name","notes"));
             COLUMNS.put("asset_authorization",Set.of("id","public_id","asset_id","authorization_ref","scope_json","valid_from","valid_until","status","approved_by","requested_by","revision","created_at","revoked_by","revoked_at","revoke_reason"));
-            COLUMNS.put("sensor_agent",Set.of("id","public_id","agent_key","asset_id","platform","agent_version","capabilities_json","credential_ref","status","registered_at","last_heartbeat_at","revision","guard_boot_id","created_at"));
+            COLUMNS.put("sensor_agent",Set.of("id","public_id","agent_key","asset_id","platform","agent_version","capabilities_json","credential_ref","status","registered_at","last_heartbeat_at","revision","guard_boot_id","created_at","updated_at","display_name","notes"));
             COLUMNS.put("sensor_config",Set.of("id","public_id","sensor_id","config_version","interface_scope_json","filter_policy_json","flow_window_seconds","feature_contract_version","sampling_policy_json","status","approved_by","activated_at","requested_by","revision","guard_definition_json","content_sha256","created_at"));
             COLUMNS.put("api_client",Set.of("id","public_id","client_key","client_type","sensor_id","secret_ref","credential_sha256","scope_json","status","expires_at","rotated_at","revoked_by","revoked_at","revoke_reason","created_at","updated_at"));
             COLUMNS.put("outbox_event",Set.of("id","event_key","aggregate_type","aggregate_id","topic","payload_json","status","attempts","next_attempt_at","created_at","published_at"));
@@ -301,19 +336,55 @@ public interface GuardMapper {
             return "SELECT "+selection+" FROM ("+derived+") k STRAIGHT_JOIN "+t+" "+alias+" FORCE INDEX ("+index+") ON "+String.join(" AND ",joins)+suffix+(lock?" FOR UPDATE":"");
         }
         @SuppressWarnings("unchecked")
-        public static String select(Map<String,Object> p) {
+        private static StringBuilder selection(Map<String,Object> p,String projection) {
             String t=table(p);Map<String,Object> w=(Map<String,Object>)p.get("where");
-            StringBuilder sql=new StringBuilder("SELECT t.* FROM "+t+" t WHERE 1=1");
+            StringBuilder sql=new StringBuilder("SELECT "+projection+" FROM "+t+" t WHERE 1=1");
             for(String k:w.keySet())sql.append(" AND t.").append(col(t,k)).append(w.get(k)==null?" IS NULL":"=#{where."+k+"}");
-            if(p.get("before")!=null)sql.append(" AND t.id<#{before}");
+            if(p.containsKey("before")&&p.get("before")!=null)sql.append(" AND t.id<#{before}");
             if(p.get("actor")!=null) {
                 String resource=t.equals("asset")?"t.id":COLUMNS.get(t).contains("asset_id")?"t.asset_id":t.equals("security_event")?"t.guard_asset_id":null;
                 sql.append(" AND EXISTS(SELECT 1 FROM sys_user_role ur JOIN sys_role r ON r.id=ur.role_id AND r.status='active' JOIN sys_role_permission rp ON rp.role_id=r.id JOIN sys_permission p ON p.id=rp.permission_id AND p.status='active' JOIN sys_user u ON u.id=ur.user_id AND u.status='active' WHERE ur.user_id=#{actor} AND p.permission_key=#{permission} AND ((ur.scope_type='global' AND ur.scope_id='*')");
                 if(resource!=null)sql.append(" OR (ur.scope_type='asset' AND ur.scope_id=CAST(").append(resource).append(" AS CHAR))");
                 sql.append("))");
             }
-            sql.append(" ORDER BY t.id DESC LIMIT #{limit}");
+            return sql;
+        }
+        public static String select(Map<String,Object> p) {
+            var sql=selection(p,"t.*");sql.append(" ORDER BY t.id DESC LIMIT #{limit}");
             if(Boolean.TRUE.equals(p.get("lock")))sql.append(" FOR UPDATE");
+            return sql.toString();
+        }
+        private static final Map<String,List<String>> SEARCH=Map.ofEntries(
+                Map.entry("asset",List.of("display_name","asset_key")),Map.entry("sensor_agent",List.of("display_name","agent_key")),
+                Map.entry("guard_executor",List.of("display_name")),Map.entry("guard_dataset",List.of("display_name","dataset_key")),
+                Map.entry("guard_model",List.of("display_name","model_key")),Map.entry("guard_decision_policy",List.of("display_name","policy_key")),
+                Map.entry("guard_release_bundle",List.of("bundle_key")),Map.entry("security_event",List.of("title")),
+                Map.entry("guard_evaluation_plan",List.of("plan_key")),Map.entry("guard_capability",List.of("capability_key")));
+        public static boolean searchable(String table) { return SEARCH.containsKey(table); }
+        public static String ceiling(Map<String,Object> p) { return "SELECT COALESCE(MAX(id),0) FROM "+table(p); }
+        @SuppressWarnings("unchecked")
+        public static String consoleList(Map<String,Object> p) {
+            String t=table(p);var filter=(Map<String,Object>)p.get("filter");
+            String sort=Objects.toString(filter.get("sort"));
+            if(!Set.of("createdAt","updatedAt").contains(sort)) throw new IllegalArgumentException("Unknown sort");
+            String time=sort.equals("updatedAt")&&COLUMNS.get(t).contains("updated_at")
+                    ?"COALESCE(t.updated_at,t.created_at)":"t.created_at";
+            var sql=selection(p,"t.*,"+time+" query_sort_time");
+            sql.append(" AND t.id<=#{ceiling} AND t.created_at<=#{asOf}");
+            if(filter.get("from")!=null)sql.append(" AND t.created_at>=#{filter.from}");
+            if(filter.get("until")!=null)sql.append(" AND t.created_at<#{filter.until}");
+            if(filter.get("prefix")!=null){
+                var columns=SEARCH.get(t);if(columns==null)throw new IllegalArgumentException("Unsupported search");
+                sql.append(" AND (").append(String.join(" OR ",columns.stream()
+                        .map(c->"t."+col(t,c)+" LIKE #{filter.prefix} ESCAPE '!'").toList())).append(')');
+            }
+            if(Boolean.TRUE.equals(p.get("active"))){
+                if(!t.equals("guard_action"))throw new IllegalArgumentException("Unsupported active filter");
+                sql.append(" AND t.desired_state='active' AND t.block_until>UTC_TIMESTAMP(6)");
+            }
+            if(p.get("beforeId")!=null)sql.append(" AND (").append(time).append("<#{beforeTime} OR (")
+                    .append(time).append("=#{beforeTime} AND t.id<#{beforeId}))");
+            sql.append(" ORDER BY ").append(time).append(" DESC,t.id DESC LIMIT #{limit}");
             return sql.toString();
         }
         @SuppressWarnings("unchecked")

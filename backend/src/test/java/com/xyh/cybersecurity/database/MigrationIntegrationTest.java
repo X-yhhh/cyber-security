@@ -232,7 +232,7 @@ class MigrationIntegrationTest {
                 var machine = jdbc.queryForList("SELECT * FROM sys_permission WHERE permission_key LIKE 'machine.%' ORDER BY id");
                 int roleCount=jdbc.queryForObject("SELECT COUNT(*) FROM sys_role",Integer.class);
                 int permissionCount=jdbc.queryForObject("SELECT COUNT(*) FROM sys_permission",Integer.class);
-                assertThat(Flyway.configure().dataSource(dataSource).load().migrate().migrationsExecuted).isEqualTo(1);
+                assertThat(Flyway.configure().dataSource(dataSource).target("26").load().migrate().migrationsExecuted).isEqualTo(1);
                 var afterUsers=jdbc.queryForList("SELECT * FROM sys_user ORDER BY id");
                 afterUsers.forEach(row -> row.remove("revision"));
                 var afterBindings=jdbc.queryForList("SELECT * FROM sys_user_role ORDER BY user_id,role_id,scope_type,scope_id");
@@ -246,7 +246,7 @@ class MigrationIntegrationTest {
                 assertThat(new org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder().matches("isolated-admin-password",
                         jdbc.queryForObject("SELECT password_hash FROM sys_user WHERE username='admin'",String.class))).isTrue();
             } else {
-                assertThat(Flyway.configure().dataSource(dataSource).load().migrate().migrationsExecuted).isEqualTo(26);
+                assertThat(Flyway.configure().dataSource(dataSource).target("26").load().migrate().migrationsExecuted).isEqualTo(26);
             }
             assertThat(jdbc.queryForList("SELECT role_key FROM sys_role WHERE status='active'",String.class))
                     .containsExactlyInAnyOrderElementsOf(com.xyh.cybersecurity.iam.IamFixtures.MATRIX.keySet());

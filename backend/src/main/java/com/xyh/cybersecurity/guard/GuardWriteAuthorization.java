@@ -28,4 +28,34 @@ public class GuardWriteAuthorization {
         String assetId=json(client,"scope_json").path("assetId").asText("");
         return assetId.isEmpty()?null:number(store.external("asset",uuid(assetId),false),"id");
     }
+
+    /** B4 新接口与幂等重放共用两级校验；删除后的资产归属只取服务器保存的响应，不取客户端。 */
+    public void consoleOperation(String collection,String id,String operation,JsonNode cached) {
+        String route=collection+"/"+operation;
+        String permission=switch(route){
+            case "assets/updates"->"asset.manage";
+            case "sensors/updates","executors/updates","sensors/status-changes","executors/status-changes","sensor-configs/deletes"->"sensor.manage";
+            case "datasets/updates","datasets/retirements"->"dataset.manage";
+            case "models/updates","models/retirements"->"model.manage";
+            case "decision-policies/deletes"->"policy.draft";
+            case "authorizations/withdrawals"->"authorization.request";
+            case "release-bundles/retirements"->{
+                access.anyFeature("bundle.request","bundle.approve");
+                String previous=cached==null?str(store.external("guard_release_bundle",id,false),"status"):cached.path("previousStatus").asText();
+                yield GuardCatalog.bundleRetirementPermission(previous);
+            }
+            default->throw error(404,"RESOURCE_NOT_FOUND");
+        };
+        access.feature(permission);
+        Long asset=null;
+        if(collection.equals("assets"))asset=number(store.external("asset",id,false),"id");
+        else if(collection.equals("sensors")||collection.equals("executors"))
+            asset=number(store.external(collection.equals("sensors")?"sensor_agent":"guard_executor",id,false),"asset_id");
+        else if(collection.equals("authorizations"))asset=number(store.external("asset_authorization",id,false),"asset_id");
+        else if(collection.equals("sensor-configs")){
+            if(cached!=null)asset=number(store.external("asset",uuid(cached,"assetId"),false),"id");
+            else {var config=store.external("sensor_config",id,false);asset=number(store.get("sensor_agent",number(config,"sensor_id")),"asset_id");}
+        }
+        access.visible(permission,asset);
+    }
 }

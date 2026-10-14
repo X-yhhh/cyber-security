@@ -162,6 +162,10 @@ public interface GuardReadMapper {
             };
         }
 
+        private static String sort(Query q) {
+            return "updatedAt".equals(q.filters.get("sort")) ? "r.updated_at" : sort(q.kind);
+        }
+
         private static String filterTime(Kind kind) {
             return switch (kind) {
                 case SENSORS -> "r.last_heartbeat_at";
@@ -170,8 +174,9 @@ public interface GuardReadMapper {
             };
         }
 
-        private static String columns(Kind kind) {
-            String common = "r.id internal_id," + sort(kind) + " sort_time,";
+        private static String columns(Query q) {
+            Kind kind=q.kind;
+            String common = "r.id internal_id," + sort(q) + " sort_time,";
             return common + switch (kind) {
                 case AUTHORIZATIONS -> "r.public_id,a.public_id asset_public_id,r.status,r.revision,r.created_at,"
                         + "r.valid_from,r.valid_until,r.scope_json";
@@ -213,6 +218,19 @@ public interface GuardReadMapper {
             });
             for (String key : q.filters.keySet()) {
                 if (q.kind == Kind.ASSIGNABLE_USERS && key.equals("assetId")) continue;
+                if (key.equals("sort")) continue;
+                if (key.equals("q")) {
+                    // 每种集合明确登记可搜索列；请求值只绑定参数，LIKE 的通配符已由解析层转义。
+                    var columns=switch(q.kind){
+                        case AUTHORIZATIONS -> java.util.List.of("a.asset_key","a.display_name","r.authorization_ref");
+                        case CONFIGS -> java.util.List.of("a.asset_key","a.display_name","s.display_name","r.config_version");
+                        case MACHINE_CLIENTS -> java.util.List.of("a.asset_key","a.display_name","s.display_name","ex.display_name","r.client_key");
+                        default -> throw new IllegalArgumentException("Unsupported search");
+                    };
+                    sql.append(" AND (").append(String.join(" OR ",columns.stream()
+                            .map(c->c+" LIKE #{q.filters.q} ESCAPE '!'").toList())).append(')');
+                    continue;
+                }
                 String column = switch (key) {
                     case "assetId" -> q.kind == Kind.OPS ? "r.public_id" : "a.public_id";
                     case "sensorId" -> q.kind == Kind.SENSORS ? "r.public_id" : "s.public_id";
@@ -237,15 +255,15 @@ public interface GuardReadMapper {
             if (q.publicId != null) sql.append(" AND r.public_id=#{q.publicId}");
             if (q.ceiling != null) sql.append(" AND r.id<=#{q.ceiling}");
             if (q.anchorId != null) sql.append(" AND r.id=#{q.anchorId}");
-            if (q.beforeId != null) sql.append(" AND (").append(sort(q.kind)).append("<#{q.beforeTime} OR (")
-                    .append(sort(q.kind)).append("=#{q.beforeTime} AND r.id<#{q.beforeId}))");
+            if (q.beforeId != null) sql.append(" AND (").append(sort(q)).append("<#{q.beforeTime} OR (")
+                    .append(sort(q)).append("=#{q.beforeTime} AND r.id<#{q.beforeId}))");
             return sql.toString();
         }
 
         public static String list(Map<String, Object> parameters) {
             Query q = (Query) parameters.get("q");
-            return "SELECT " + columns(q.kind) + " FROM " + source(q.kind) + " WHERE " + where(q)
-                    + " ORDER BY " + sort(q.kind) + " DESC,r.id DESC LIMIT #{q.limit}";
+            return "SELECT " + columns(q) + " FROM " + source(q.kind) + " WHERE " + where(q)
+                    + " ORDER BY " + sort(q) + " DESC,r.id DESC LIMIT #{q.limit}";
         }
 
         public static String ceiling(Map<String, Object> parameters) {

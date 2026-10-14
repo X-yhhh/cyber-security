@@ -4,9 +4,11 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.xyh.cybersecurity.guard.GuardAccess;
 import com.xyh.cybersecurity.guard.GuardMapper;
 import com.xyh.cybersecurity.guard.GuardReadCursor;
+import com.xyh.cybersecurity.guard.GuardCollectionFilter;
 import com.xyh.cybersecurity.identity.IdentityMapper;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.dao.DuplicateKeyException;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import java.nio.charset.StandardCharsets;
@@ -58,29 +60,37 @@ public class IamService {
         return actor;
     }
 
-    public JsonNode roles() {
+    public JsonNode roles() { return roles(null,GuardCollectionFilter.parse(null,null,null,null)); }
+
+    /** 保留原目录的数组形式；纳入停用的自定义角色，旧 v1 内置角色不重新出现在 v2 目录。 */
+    public JsonNode roles(String status,GuardCollectionFilter filter) {
         var permissions=mapper.permissions(activeHuman());
         if(!permissions.contains("iam.manage") && !permissions.contains("audit.read")) throw error(403,"SCOPE_DENIED");
-        return node(mapper.directory().stream().map(r -> object("roleKey",str(r,"role_key"),"name",str(r,"name"),
-                "description",str(r,"description"),"permissions",mapper.rolePermissions(number(r,"id")))).toList());
+        if(!guard.permitted(access.human(),"iam.manage","global","*") &&
+                !guard.permitted(access.human(),"audit.read","global","*")) throw error(403,"SCOPE_DENIED");
+        if(status!=null && !Set.of("active","disabled").contains(status)) throw error(400,"INVALID_QUERY");
+        return node(mapper.directory(status,filter.values()).stream().map(this::roleView).toList());
     }
 
     /** 前缀转义 LIKE 通配符；主体和全部筛选绑定加密游标，过滤发生在 LIMIT 之前。 */
     public JsonNode users(String status,String q,String cursor,int limit) {
+        return users(status,GuardCollectionFilter.parse(q,null,null,null),cursor,limit);
+    }
+
+    public JsonNode users(String status,GuardCollectionFilter filter,String cursor,int limit) {
         requireAdmin(false);
         if(limit<1 || limit>200) throw error(400,"INVALID_PAGE_SIZE");
         if(status!=null && !Set.of("active","disabled","locked").contains(status)) throw error(400,"INVALID_QUERY");
-        if(q!=null && (q.isBlank() || q.length()>128)) throw error(400,"INVALID_QUERY");
-        String binding=canonical(object("actor",access.human(),"collection","iam.users","status",status,"q",q));
+        String binding=filter.binding(access.human(),"iam.users",null,status,null);
         GuardReadCursor.Position position=cursor==null?null:cursors.decode(cursor,binding);
         long ceiling=position==null?mapper.ceiling():position.ceiling();
-        String prefix=q==null?null:q.replace("!","!!").replace("%","!%").replace("_","!_")+"%";
-        if(position!=null && mapper.user(position.id())==null) throw error(404,"RESOURCE_NOT_FOUND");
-        var rows=mapper.users(status,prefix,ceiling,position==null?null:position.id(),limit+1);
+        LocalDateTime asOf=position==null?LocalDateTime.now(ZoneOffset.UTC):position.asOf();
+        var rows=mapper.users(status,filter.values(),ceiling,position==null?null:position.id(),
+                position==null?null:position.time(),asOf,limit+1);
         boolean more=rows.size()>limit;
         var page=rows.subList(0,Math.min(limit,rows.size()));
-        LocalDateTime asOf=position==null?LocalDateTime.now(ZoneOffset.UTC):position.asOf();
-        String next=more?cursors.encode(new GuardReadCursor.Position(ceiling,number(page.getLast(),"id"),asOf,asOf),binding):null;
+        String next=more?cursors.encode(new GuardReadCursor.Position(ceiling,number(page.getLast(),"id"),
+                (LocalDateTime)page.getLast().get("sort_time"),asOf),binding):null;
         return object("items",page.stream().map(IamService::userView).toList(),"nextCursor",next);
     }
 
@@ -105,13 +115,184 @@ public class IamService {
     }
 
     public JsonNode rename(long id,JsonNode body,String revision,String key,HttpServletRequest request) {
-        fields(body,"displayName","");
+        fields(body,"","username displayName");
+        if(body.isEmpty()) throw error(400,"INVALID_REQUEST");
         return write(key,body,revision,200,true,request,() -> {
             var row=mutableUser(id);checkRevision(row,revision);
-            mapper.rename(id,bounded(body,"displayName",128));
-            audit.success(access.human(),"iam.user.profile.update",Long.toString(id),"global","*","display_name_updated",request);
+            String username=body.has("username")?bounded(body,"username",64):null;
+            if(username!=null && !username.matches("[A-Za-z0-9._-]{3,64}")) throw error(400,"INVALID_REQUEST");
+            String name=body.has("displayName")?bounded(body,"displayName",128):null;
+            try { mapper.rename(id,username,name); }
+            catch(DuplicateKeyException conflict) { throw error(409,"CONFLICT"); }
+            if(username!=null && !username.equals(str(row,"username"))) identity.deleteSession(str(row,"username"));
+            audit.success(access.human(),"iam.user.profile.update",Long.toString(id),"global","*","profile_updated",request);
             return userView(existingUser(id,false));
         });
+    }
+
+    /** 真正无绑定、无审计及业务引用的账号才能删除；所有拒绝路径回滚，不清理历史事实。 */
+    public JsonNode deleteUser(long id,String revision,String key,HttpServletRequest request) {
+        return write(key,object(),revision,200,true,request,() -> {
+            var row=mutableUser(id);checkRevision(row,revision);
+            if(mapper.userInUse(id)) throw error(409,"USER_IN_USE");
+            try { mapper.deleteUser(id); }
+            catch(DataIntegrityViolationException referenced) { throw error(409,"USER_IN_USE"); }
+            identity.deleteSession(str(row,"username"));
+            audit.success(access.human(),"iam.user.delete",Long.toString(id),"global","*",
+                    canonical(object("username",str(row,"username"))),request);
+            return object("id",id,"status","deleted");
+        });
+    }
+
+    public JsonNode permissions() {
+        requireAdmin(false);
+        return node(mapper.permissionDirectory().stream()
+                .filter(p -> IamPermissionRules.HUMAN.contains(str(p,"permission_key")))
+                .map(p -> object("permissionKey",str(p,"permission_key"),"description",str(p,"description"))).toList());
+    }
+
+    /** 在管理员角色锁下计数，两个机器模板固定占用两个名额，避免并发创建突破十角色上限。 */
+    public JsonNode createRole(JsonNode body,String key,HttpServletRequest request) {
+        fields(body,"roleKey name description permissions","");
+        return write(key,body,null,201,false,request,() -> {
+            String role=bounded(body,"roleKey",64);
+            if(!role.matches("custom_[a-z0-9_]+")) throw error(400,"INVALID_REQUEST");
+            Set<String> permissions=rolePermissions(body);
+            requireRoleSlot();
+            try { mapper.createRole(role,bounded(body,"name",128),bounded(body,"description",500)); }
+            catch(DuplicateKeyException duplicate) { throw error(409,"CONFLICT"); }
+            var row=mapper.role(role);setPermissions(number(row,"id"),permissions);
+            JsonNode result=roleView(mapper.role(role));
+            audit.success(access.human(),"iam.role.create",role,"global","*",canonical(result),request);
+            return result;
+        });
+    }
+
+    public JsonNode editRole(String role,JsonNode body,String revision,String key,HttpServletRequest request) {
+        fields(body,"","name description permissions");
+        if(body.isEmpty()) throw error(400,"INVALID_REQUEST");
+        return write(key,body,revision,200,true,request,() -> {
+            var row=mutableRole(role);checkRevision(row,revision);
+            long rid=number(row,"id");
+            Set<String> permissions=body.has("permissions")?rolePermissions(body):new TreeSet<>(mapper.rolePermissions(rid));
+            var users=mapper.roleUsers(rid);
+            if(body.has("permissions")) for(long user:users) validateUnion(user,role,permissions);
+            mapper.editRole(rid,body.has("name")?bounded(body,"name",128):str(row,"name"),
+                    body.has("description")?bounded(body,"description",500):str(row,"description"));
+            if(body.has("permissions")) { setPermissions(rid,permissions);revokeRoleSessions(users); }
+            JsonNode result=roleView(mapper.role(role));
+            audit.success(access.human(),"iam.role.update",role,"global","*",canonical(result),request);
+            return result;
+        });
+    }
+
+    public JsonNode roleStatus(String role,JsonNode body,String revision,String key,HttpServletRequest request) {
+        fields(body,"status reason","");
+        return write(key,body,revision,200,true,request,() -> {
+            var row=mutableRole(role);checkRevision(row,revision);
+            String status=bounded(body,"status",24),reason=bounded(body,"reason",1000);
+            if(!Set.of("active","disabled").contains(status)) throw error(400,"INVALID_REQUEST");
+            if(status.equals(str(row,"status"))) throw error(409,"ROLE_STATUS_CONFLICT");
+            var users=mapper.roleUsers(number(row,"id"));
+            if(status.equals("active")) {
+                requireRoleSlot();
+                Set<String> permissions=new TreeSet<>(mapper.rolePermissions(number(row,"id")));
+                for(long user:users) validateUnion(user,role,permissions);
+            }
+            mapper.roleStatus(number(row,"id"),status);revokeRoleSessions(users);
+            JsonNode result=roleView(mapper.role(role));
+            audit.success(access.human(),"iam.role."+(status.equals("active")?"enabled":"disabled"),role,
+                    "global","*",canonical(object("role",result,"reason",reason)),request);
+            return result;
+        });
+    }
+
+    public JsonNode deleteRole(String role,String revision,String key,HttpServletRequest request) {
+        return write(key,object(),revision,200,true,request,() -> {
+            var row=mutableRole(role);checkRevision(row,revision);
+            if(!mapper.roleUsers(number(row,"id")).isEmpty()) throw error(409,"ROLE_IN_USE");
+            JsonNode snapshot=roleView(row);
+            mapper.clearRolePermissions(number(row,"id"));mapper.deleteRole(number(row,"id"));
+            audit.success(access.human(),"iam.role.delete",role,"global","*",canonical(snapshot),request);
+            return object("roleKey",role,"status","deleted");
+        });
+    }
+
+    public JsonNode members(String role,String cursor,int limit) {
+        requireAdmin(true);
+        var row=mapper.role(role);
+        if(row==null) throw error(404,"RESOURCE_NOT_FOUND");
+        if(limit<1 || limit>200) throw error(400,"INVALID_PAGE_SIZE");
+        String binding=canonical(object("actor",access.human(),"collection","iam.members","roleKey",role));
+        var position=cursor==null?null:cursors.decode(cursor,binding);
+        long rid=number(row,"id"),ceiling=position==null?mapper.memberCeiling(rid):position.ceiling();
+        var rows=mapper.members(rid,ceiling,position==null?null:position.id(),limit+1);
+        var page=rows.subList(0,Math.min(limit,rows.size()));
+        LocalDateTime asOf=position==null?LocalDateTime.now(ZoneOffset.UTC):position.asOf();
+        String next=rows.size()>limit?cursors.encode(new GuardReadCursor.Position(ceiling,
+                number(page.getLast(),"binding_id"),asOf,asOf),binding):null;
+        return object("items",page.stream().map(r -> object("id",number(r,"id"),"username",str(r,"username"),
+                "displayName",str(r,"display_name"),"status",str(r,"status"),"scopeType",str(r,"scope_type"),
+                "scopeId",str(r,"scope_id"),"bindingId",number(r,"binding_id"))).toList(),"nextCursor",next);
+    }
+
+    private Map<String,Object> mutableRole(String key) {
+        var row=mapper.lockRole(key);
+        if(row==null) throw error(404,"RESOURCE_NOT_FOUND");
+        if(Boolean.TRUE.equals(row.get("builtin")) || "1".equals(str(row,"builtin")))
+            throw error(403,"BUILTIN_ROLE_READONLY");
+        return row;
+    }
+
+    private void requireRoleSlot() {
+        if(mapper.activeRoles()+2>=10) throw error(409,"ROLE_LIMIT_REACHED");
+    }
+
+    private Set<String> rolePermissions(JsonNode body) {
+        var values=body.get("permissions");
+        if(!values.isArray() || values.size()>IamPermissionRules.HUMAN.size()) throw error(400,"INVALID_REQUEST");
+        Set<String> enabled=new HashSet<>();
+        mapper.permissionDirectory().forEach(p -> enabled.add(str(p,"permission_key")));
+        Set<String> result=new TreeSet<>();
+        for(JsonNode value:values) {
+            if(!value.isTextual() || !IamPermissionRules.HUMAN.contains(value.asText()) ||
+                    !enabled.contains(value.asText()) || !result.add(value.asText())) throw error(400,"INVALID_REQUEST");
+        }
+        if(IamPermissionRules.conflicts(result)) throw error(422,"PERMISSION_CONFLICT");
+        return result;
+    }
+
+    private void setPermissions(long role,Set<String> permissions) {
+        mapper.clearRolePermissions(role);
+        for(String permission:permissions) if(mapper.grantRole(role,permission)!=1) throw error(400,"INVALID_REQUEST");
+    }
+
+    /** 检查当前绑定并以 proposed 替换该角色；auditor 仍不得叠加任何其他人工角色。 */
+    private void validateUnion(long user,String role,Set<String> proposed) {
+        Set<String> roles=new HashSet<>(),permissions=new HashSet<>(proposed);
+        roles.add(role);
+        for(var binding:mapper.bindings(user)) {
+            String existing=str(binding,"role_key");
+            if(existing.equals(role) || !"active".equals(str(binding,"role_status"))) continue;
+            roles.add(existing);
+            var other=mapper.role(existing);
+            permissions.addAll(mapper.rolePermissions(number(other,"id")));
+        }
+        if((roles.contains("auditor") && roles.size()>1) || IamPermissionRules.conflicts(permissions))
+            throw error(409,"ROLE_CONFLICT");
+    }
+
+    private void revokeRoleSessions(List<Long> users) {
+        for(long user:users) {
+            var row=existingUser(user,true);
+            mapper.touch(user);identity.deleteSession(str(row,"username"));
+        }
+    }
+
+    private JsonNode roleView(Map<String,Object> row) {
+        return object("roleKey",str(row,"role_key"),"name",str(row,"name"),"description",str(row,"description"),
+                "status",str(row,"status"),"builtin",Boolean.TRUE.equals(row.get("builtin")) || "1".equals(str(row,"builtin")),
+                "revision",number(row,"revision"),"permissions",mapper.rolePermissions(number(row,"id")));
     }
 
     public JsonNode status(long id,JsonNode body,String revision,String key,HttpServletRequest request) {
@@ -149,14 +330,11 @@ public class IamService {
             var row=mapper.role(role);
             if(row==null) throw error(422,"ROLE_UNKNOWN");
             if(!"active".equals(str(row,"status"))) throw error(422,"ROLE_DISABLED");
-            if(!ROLES.contains(role)) throw error(422,"ROLE_UNKNOWN");
+            if(!ROLES.contains(role) && !role.startsWith("custom_")) throw error(422,"ROLE_UNKNOWN");
             if(!((scope.equals("global") && scopeId.equals("*")) ||
                     (scope.equals("asset") && scopeId.matches("[1-9][0-9]{0,18}")))) throw error(400,"INVALID_SCOPE");
             if(scope.equals("asset") && !mapper.assetExists(scopeId)) throw error(404,"RESOURCE_NOT_FOUND");
-            for(var existing:mapper.bindings(user)) {
-                if("active".equals(str(existing,"role_status")) && conflicts(role,str(existing,"role_key")))
-                    throw error(409,"ROLE_CONFLICT");
-            }
+            validateUnion(user,role,new HashSet<>(mapper.rolePermissions(number(row,"id"))));
             var inserted=map("user_id",user,"role_id",number(row,"id"),"scope_type",scope,"scope_id",scopeId);
             try { mapper.bind(inserted); }
             catch(DuplicateKeyException e) { throw error(409,"BINDING_EXISTS"); }

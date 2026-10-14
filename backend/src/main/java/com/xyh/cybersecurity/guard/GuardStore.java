@@ -13,7 +13,7 @@ public class GuardStore {
     private final GuardMapper mapper;
     private final AuditMapper audit;
     private static final Set<String> MUTABLE=Set.of("asset","asset_authorization","sensor_agent","sensor_config","api_client",
-            "guard_idempotency","guard_model","guard_decision_policy","guard_release_bundle","guard_asset_binding",
+            "guard_idempotency","guard_model","guard_dataset","guard_decision_policy","guard_release_bundle","guard_asset_binding",
             "guard_capture_scope","guard_observation_batch","guard_executor","guard_target_budget","guard_asset_budget",
             "guard_episode","guard_episode_evidence","guard_action","guard_budget_interval","guard_revocation","guard_action_receipt",
             "guard_authorization_lease","consumed_message","security_event","guard_feedback","guard_validation_session","guard_replay_run");
@@ -61,10 +61,26 @@ public class GuardStore {
         for(int i=0;i<rows.size();i+=500)insertPart(t,rows.subList(i,Math.min(rows.size(),i+500)),true);
         require(rows.stream().allMatch(r->r.get("id") instanceof Number)&&rows.stream().map(r->r.get("id")).distinct().count()==rows.size(),"BATCH_KEYS_UNAVAILABLE");
     }
-    public void update(String t,long id,Map<String,Object> v){written(t);if(!MUTABLE.contains(t))throw new IllegalArgumentException("Immutable fact");mapper.update(t,id,v);}
+    public void update(String t,long id,Map<String,Object> v){written(t);if(!MUTABLE.contains(t))throw new IllegalArgumentException("Immutable fact");
+        if(t.equals("guard_dataset")&&!Set.of("display_name","notes","status","revision","updated_at").containsAll(v.keySet()))throw new IllegalArgumentException("Immutable dataset manifest");
+        mapper.update(t,id,v);}
+    public Long activeModelReference(long model){return mapper.activeModelReference(model);}
+    /** 仅两种草稿配置允许物理删除；任一外键引用都拒绝，不能级联删除业务事实。 */
+    public void deleteDraft(String table,long id){
+        try{
+            switch(table){
+                case "sensor_config"->{if(mapper.configInUse(id))throw error(409,"RESOURCE_IN_USE");mapper.deleteConfig(id);}
+                case "guard_decision_policy"->{if(mapper.policyInUse(id))throw error(409,"RESOURCE_IN_USE");mapper.deletePolicy(id);}
+                default->throw new IllegalArgumentException("Immutable fact");
+            }
+        }catch(org.springframework.dao.DataIntegrityViolationException referenced){throw error(409,"RESOURCE_IN_USE");}
+        written(table);
+    }
     /** 批内投影按主键批量更新，沿用同一可变表白名单和事务；调用方须持有原资产锁。 */
     public void updateAll(String t,List<Map<String,Object>> rows){
         written(t);if(!MUTABLE.contains(t))throw new IllegalArgumentException("Immutable fact");
+        if(t.equals("guard_dataset")&&rows.stream().anyMatch(r->!Set.of("id","display_name","notes","status","revision","updated_at").containsAll(r.keySet())))
+            throw new IllegalArgumentException("Immutable dataset manifest");
         var ids=new HashSet<Long>();
         if(rows.stream().anyMatch(r->!(r.get("id") instanceof Number n)||!ids.add(n.longValue())))
             throw new IllegalArgumentException("Invalid update rows");

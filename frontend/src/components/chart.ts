@@ -4,7 +4,7 @@
  * - `null` 表示该时间点无数据：折线在此断开，不补 0、不画平线；
  * - CSV 供答辩与论文引用，空值写空单元格。
  */
-export type ChartTone = 'signal' | 'threat' | 'warn' | 'ok' | 'mute'
+export type ChartTone = 'signal' | 'threat' | 'warn' | 'ok' | 'mute' | 'ink'
 
 export const chartPalette: Readonly<Record<ChartTone, string>> = {
   signal: '#2438E8',
@@ -12,6 +12,8 @@ export const chartPalette: Readonly<Record<ChartTone, string>> = {
   warn: '#B7791F',
   ok: '#2F7D5B',
   mute: '#9A9CA1',
+  /** 墨色：用于需要与类别色区分的汇总线（如拦截），通常配合虚线。 */
+  ink: '#14161A',
 }
 
 /** 同一张图最多 5 条线（第 3.6 节）。 */

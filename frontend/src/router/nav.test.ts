@@ -82,10 +82,10 @@ describe('菜单配置（权限设计第 7.2 节）', () => {
     for (const i of nav) if (i.ready) expect(i.component, i.title).toBeTypeOf('function')
   })
 
-  it('已有页面承载的 6 行直接 ready，其余 7 行未上线', () => {
+  it('U0 的 6 行加 F6 实时态势已上线，其余 6 行未上线', () => {
     const ready = target.filter((i) => i.ready).map((i) => i.title)
-    expect(ready).toEqual(['待办中心', '事件研判', '误报反馈', '处置记录', '发布管理', '审计日志'])
-    expect(target.filter((i) => !i.ready).map((i) => i.title)).toEqual(['实时态势', '检测记录', '模型与数据集', '资产', '传感器与执行器', '用户管理', '角色管理'])
+    expect(ready).toEqual(['实时态势', '待办中心', '事件研判', '误报反馈', '处置记录', '发布管理', '审计日志'])
+    expect(target.filter((i) => !i.ready).map((i) => i.title)).toEqual(['检测记录', '模型与数据集', '资产', '传感器与执行器', '用户管理', '角色管理'])
   })
 
   it('7 个过渡行挂在新组下、路径不变、继续可进入', () => {
@@ -137,12 +137,12 @@ describe('角色可见性矩阵（权限设计第 7.3 节，全部 ready、去�
 
 describe('当前 ready 配置下的实际菜单', () => {
   const current: Record<HumanRole, string[]> = {
-    platform_admin: ['待办中心', '运行健康', '审计日志'],
-    security_analyst: ['待办中心', '事件研判', '误报反馈', '观测与推理', '判定与来源', '处置记录', '目标预算'],
-    security_reviewer: ['待办中心', '事件研判', '观测与推理', '判定与来源', '处置记录', '目标预算', '发布管理', '评价与回放', '决策策略', 'lab 验证与 G3', '运行健康'],
+    platform_admin: ['实时态势', '待办中心', '运行健康', '审计日志'],
+    security_analyst: ['实时态势', '待办中心', '事件研判', '误报反馈', '观测与推理', '判定与来源', '处置记录', '目标预算'],
+    security_reviewer: ['实时态势', '待办中心', '事件研判', '观测与推理', '判定与来源', '处置记录', '目标预算', '发布管理', '评价与回放', '决策策略', 'lab 验证与 G3', '运行健康'],
     model_operator: ['待办中心', '发布管理', '评价与回放', '决策策略', 'lab 验证与 G3'],
-    evidence_reviewer: ['待办中心', '事件研判', '误报反馈', '观测与推理', '判定与来源', '发布管理', '评价与回放', '决策策略', 'lab 验证与 G3'],
-    auditor: ['待办中心', '事件研判', '观测与推理', '判定与来源', '处置记录', '目标预算', '发布管理', '评价与回放', '决策策略', 'lab 验证与 G3', '运行健康', '审计日志'],
+    evidence_reviewer: ['实时态势', '待办中心', '事件研判', '误报反馈', '观测与推理', '判定与来源', '发布管理', '评价与回放', '决策策略', 'lab 验证与 G3'],
+    auditor: ['实时态势', '待办中心', '事件研判', '观测与推理', '判定与来源', '处置记录', '目标预算', '发布管理', '评价与回放', '决策策略', 'lab 验证与 G3', '运行健康', '审计日志'],
   }
 
   it.each(humanRoles)('%s', (role) => {
@@ -176,7 +176,7 @@ describe('当前 ready 配置下的实际菜单', () => {
 
   it('未上线的项不出现在菜单中', () => {
     const hidden = nav.filter((i) => !i.ready).map((i) => i.title)
-    expect(hidden).toHaveLength(7)
+    expect(hidden).toHaveLength(6)
     for (const role of humanRoles) {
       for (const t of hidden) expect(titles(visibleMenu(singleRoleUsers[role].permissions))).not.toContain(t)
     }

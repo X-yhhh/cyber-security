@@ -56,8 +56,20 @@ describe('登录与默认入口', () => {
     expect(router.currentRoute.value.query.redirect).toBe('/console/system/audit')
   })
 
-  it('/console 进入工作台', async () => {
+  it('/console 按权限进入默认落地页：有 detection.read 或 ops.read 进实时态势，否则进待办中心', async () => {
     signIn(singleRoleUsers.auditor)
+    const first = await open('/console')
+    expect(first.router.currentRoute.value.path).toBe('/console/overview/live')
+    first.w.unmount()
+    session.user = null
+    session.checked = false
+    signIn(singleRoleUsers.platform_admin)
+    const admin = await open('/console')
+    expect(admin.router.currentRoute.value.path).toBe('/console/overview/live')
+    admin.w.unmount()
+    session.user = null
+    session.checked = false
+    signIn(singleRoleUsers.model_operator)
     const { router, w } = await open('/console')
     expect(router.currentRoute.value.path).toBe('/console/workbench')
     expect(w.text()).toContain('待办中心')

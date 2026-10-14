@@ -1,0 +1,162 @@
+/**
+ * 路由守卫与外壳集成测试（任务单 F0.2、F0.3、F0.7 验收）：msw 模拟 auth/me 与 summary，
+ * 用内存历史挂载完整路由，断言 403/404、登录跳转、旧地址重定向，以及无权限地址不发任何数据请求。
+ */
+import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { defineComponent, h } from 'vue'
+import { createMemoryHistory, RouterView, type Router } from 'vue-router'
+import { createAppRouter } from './index'
+import { session } from '@/api/session'
+import { resetCsrf } from '@/api/client'
+import { dataRequests, requests, server } from '@/test/handlers'
+import { signIn } from '@/test/handlers/auth'
+import { comboUser, singleRoleUsers } from '@/test/roles'
+
+const Host = defineComponent({ render: () => h(RouterView) })
+
+let wrapper: VueWrapper | null = null
+async function open(path: string): Promise<{ router: Router; w: VueWrapper }> {
+  const router = createAppRouter(createMemoryHistory())
+  router.push(path)
+  await router.isReady()
+  wrapper = mount(Host, { global: { plugins: [router] }, attachTo: document.body })
+  await settle()
+  return { router, w: wrapper }
+}
+/** 懒加载组件与 msw 响应需要多轮微任务。 */
+async function settle() {
+  for (let i = 0; i < 10; i++) { await flushPromises(); await new Promise((r) => setTimeout(r, 0)) }
+}
+
+beforeAll(() => {
+  server.listen({ onUnhandledRequest: 'error' })
+  // jsdom 未实现滚动；路由 scrollBehavior 会调用它。
+  window.scrollTo = () => undefined
+})
+afterAll(() => server.close())
+beforeEach(() => {
+  session.user = null
+  session.checked = false
+  resetCsrf()
+  requests.length = 0
+  localStorage.clear()
+})
+afterEach(() => {
+  wrapper?.unmount()
+  wrapper = null
+  server.resetHandlers()
+})
+
+describe('登录与默认入口', () => {
+  it('未登录访问控制台跳转登录页并带回跳地址', async () => {
+    signIn(null)
+    const { router } = await open('/console/ops/audit')
+    expect(router.currentRoute.value.name).toBe('login')
+    expect(router.currentRoute.value.query.redirect).toBe('/console/ops/audit')
+  })
+
+  it('/console 进入工作台', async () => {
+    signIn(singleRoleUsers.auditor)
+    const { router, w } = await open('/console')
+    expect(router.currentRoute.value.path).toBe('/console/workbench')
+    expect(w.text()).toContain('工作台')
+  })
+})
+
+describe('403：无权限地址', () => {
+  it.each([
+    ['security_analyst', '/console/ops/audit'],
+    ['platform_admin', '/console/detect/observations'],
+    ['model_operator', '/console/response/actions'],
+    ['evidence_reviewer', '/console/ops/health'],
+    ['security_reviewer', '/console/ops/audit'],
+  ] as const)('%s 直达 %s 显示 403 页且不发数据请求', async (role, path) => {
+    signIn(singleRoleUsers[role])
+    const { router, w } = await open(path)
+    expect(router.currentRoute.value.name).toBe('console-forbidden')
+    expect(router.currentRoute.value.path).toBe(path)
+    expect(w.text()).toContain('无权访问此页面')
+    expect(w.find('[role="tablist"]').exists()).toBe(false)
+    expect(dataRequests()).toEqual([])
+  })
+
+  it('详情页沿用所属二级项的 anyOf', async () => {
+    signIn(singleRoleUsers.platform_admin)
+    const { router, w } = await open('/console/release/lab/run-1')
+    expect(router.currentRoute.value.name).toBe('console-forbidden')
+    expect(w.text()).toContain('无权访问此页面')
+    expect(dataRequests()).toEqual([])
+  })
+
+  it('站内导航到无权限地址同样被拦截', async () => {
+    signIn(singleRoleUsers.model_operator)
+    const { router, w } = await open('/console/workbench')
+    requests.length = 0
+    await router.push('/console/ops/health')
+    await settle()
+    expect(w.text()).toContain('无权访问此页面')
+    expect(dataRequests()).toEqual([])
+  })
+})
+
+describe('404 与重定向', () => {
+  it('控制台内未知地址显示 404', async () => {
+    signIn(singleRoleUsers.auditor)
+    const { router, w } = await open('/console/no/such/page')
+    expect(router.currentRoute.value.name).toBe('console-not-found')
+    expect(w.text()).toContain('页面不存在')
+    expect(dataRequests()).toEqual([])
+  })
+
+  it('未上线（ready=false）的二级项不注册路由，显示 404', async () => {
+    signIn(singleRoleUsers.platform_admin)
+    const { router } = await open('/console/system/users')
+    expect(router.currentRoute.value.name).toBe('console-not-found')
+  })
+
+  it('控制台外未知地址显示 404', async () => {
+    const { router, w } = await open('/nowhere')
+    expect(router.currentRoute.value.name).toBe('not-found')
+    expect(w.text()).toContain('页面不存在')
+  })
+
+  it.each([
+    ['/console/observation', '/console/detect/observations'],
+    ['/console/decisions', '/console/detect/decisions'],
+    ['/console/release', '/console/release/bundles'],
+    ['/console/execution', '/console/response/actions'],
+    ['/console/lab', '/console/release/lab'],
+    ['/console/lab/run-9', '/console/release/lab/run-9'],
+    ['/console/health', '/console/ops/health'],
+  ])('旧地址 %s 重定向到 %s', async (from, to) => {
+    signIn(singleRoleUsers.security_reviewer)
+    const router = createAppRouter(createMemoryHistory())
+    await router.push(from)
+    expect(router.currentRoute.value.path).toBe(to)
+    expect(router.currentRoute.value.redirectedFrom?.path).toBe(from)
+  })
+
+  it('v1 地址暂时保留（C1 删除）', async () => {
+    const router = createAppRouter(createMemoryHistory())
+    for (const p of ['/console/overview', '/console/events', '/console/events/1', '/console/iam']) {
+      expect(router.resolve(p).name).not.toBe('console-not-found')
+    }
+  })
+})
+
+describe('有权限地址', () => {
+  it('组合角色可以进入两个角色各自的页面', async () => {
+    signIn(comboUser)
+    const { router } = await open('/console/release/lab')
+    expect(router.currentRoute.value.name).toBe('release-lab')
+    await router.push('/console/ops/audit')
+    expect(router.currentRoute.value.name).toBe('ops-audit')
+  })
+
+  it('工作台按 B2.5 契约读取汇总', async () => {
+    signIn(singleRoleUsers.security_reviewer)
+    await open('/console/workbench')
+    expect(dataRequests()).toEqual(['GET /api/v2/summary'])
+  })
+})

@@ -48,3 +48,69 @@ sh executor/python.sh -B scripts/p8/backup_restore.py
 ```
 
 该入口调用同一整库备份/恢复实现，要求业务库无人连接；恢复到随机库、逐表核对后删除随机库，保留受控备份。它不能覆盖或回滚业务库。需要实际恢复时执行手册中的停写、额外备份、审批及恢复后验收流程。
+
+## B3 初版部署工具链（2026-10-14）
+
+B3 交付代码与临时目录/克隆验收；P1/A23 才执行实际安装、业务库迁移、真实采集及 lab PF 演示。命令从仓库根运行。外部路径用绝对路径；秘密只放 Keychain 或 0700 目录内的 0600 文件，不写 plist、命令行、Git 或终端。下面的环境变量只表示路径，不承载口令。
+
+### 构建、生成与安装
+
+```sh
+sh executor/python.sh -B scripts/p8/launchd.py build --release "$SERVICE_ROOT" --java "$JDK25/bin/java"
+sh executor/python.sh -B scripts/p8/launchd.py render --root "$SERVICE_ROOT" --release "$RELEASE" --java "$JDK25/bin/java" --mode alert-only --dry-run
+sh executor/python.sh -B scripts/p8/launchd.py render --root "$SERVICE_ROOT" --release "$RELEASE" --java "$JDK25/bin/java" --mode alert-only
+sh executor/python.sh -B scripts/p8/launchd.py install --root "$SERVICE_ROOT" --release "$RELEASE" --java "$JDK25/bin/java" --mode alert-only --dry-run
+```
+
+- `SERVICE_ROOT` 是独立服务根；`build` 要求干净的已提交源码和 JDK 25，执行 Maven 打包、`npm ci`/生产构建及 Go 构建，输出 `program/releases/<完整提交>/`。`RELEASE` 指向该目录。`release.json` 记录提交、UTC 构建时间及工具链版本；`SHA256SUMS` 绑定全部发布文件。安装验证文件集合与摘要，额外文件或缺失/变化均拒绝。相同目录不覆盖。
+- 解释器默认采用调用脚本的 Python，须安装 `executor/requirements.txt`；生产可用 `--python` 指定受控解释器。plist 保存明确的动态库路径、绝对程序/配置/日志路径和 `Umask=0077`。管理员审核解释器与依赖后才安装 PF 服务。
+- 默认 `alert-only`：五个普通用户 LaunchAgent；executor/recovery 使用零能力 `observer_executor.py`，只发心跳，不领取命令、不调用 PF、不签发清理证明。不能拿此入口证明 PF 已清空。发现旧执行器 SQLite 账本即拒绝使用。
+- `--mode pf`：复用 `executor.services.launchd` 的参数契约，executor/recovery 只生成 LaunchDaemon 文件与说明，工具不 sudo。用户域只安装 backend、targets 和未启动的 sensor。管理员按生成说明先装 recovery 再装 executor；两者须使用独立 lab 配置与批准范围，不能套用真实主机只告警配置。
+- 顺序：backend（等待真实 TLS 就绪）→ targets → recovery → executor → sensor。sensor 的 `RunAtLoad=false`、`KeepAlive=false`；在批准窗口内显式 `launchctl kickstart gui/<uid>/com.xyh.cyber-security.sensor`。`sensor_service.py` 每次生成新 bootId/spool，采集最长 30 分钟且不超过授权截止；崩溃或重启不会自动续采。BPF 权限准备仍属 P1。
+- `render --dry-run` 输出 JSON，其中 `plists` 的值为完整 XML；不建目录、不读秘密、不调用 launchctl。正式 render 同时生成分服务 stdout/stderr 日志路径、newsyslog 轮转配置（每日或 10 MiB、保留 7 份；仅生成，不安装）。
+- 实际 install/uninstall 要求 `--authorization-reference`，该参数是执行记录，不替代用户对 P1 的明确授权。安装不覆盖同名服务；卸载前核对全部 plist 是否仍为本工具生成的内容，遇到不同文件拒绝。只删除匹配的 LaunchAgent 文件，保留发布、配置、日志、账本。
+- 卸载使用相同参数，把命令改为 `uninstall`；先用 `--dry-run` 审核逆序。PF 模式必须先由管理员停 executor、执行原 `executor cleanup/status` 核验零规则，再停 recovery；用户工具不会自动提权，无法读取/清理 root 账本时显式失败，按生成的管理员说明完成。失败时保留恢复器与账本，不把文件删除等同规则清理。
+
+### 真实主机登记与克隆验收
+
+`enroll.py` 只用 v2 API。所需 plan 为私有 JSON（0600），包含：
+
+| 字段 | 说明 |
+|---|---|
+| `bundleId`、`subjectSha256`、`profileSha256` | 固定 r6 ID `aa35ae6e-3b41-461d-8b54-cb4bb4726349`，从当前 approved/active 组合核对完整摘要，策略必须 `alert_only` |
+| `assetKey`、`owner`、`root` | 本次独占的新资产名称、负责人、绝对服务目录 |
+| `interface`、`localAddresses` | 一个明确接口及同一地址族的本机地址；不推定默认网卡或全网覆盖 |
+| `validFrom`、`validUntil`、`evidenceRef`、`approvalReason` | 明确授权起止、依据与独立批准理由；时间归一为 UTC RFC3339；过期拒绝 |
+| `applicant`、`reviewer` | 各含 `username`、`keychainService`，可选 `keychainAccount`；默认以 username 查 Keychain account，必须为两个不同人工身份 |
+| `guardliveBinary` | 已构建二进制绝对路径，配置审批绑定实际 SHA |
+| `targetPort` | 可选的回环 targets 端口，默认 18083 |
+| `baseUrl`、`backendCA`、`backendTls` | 仅 authorized 模式使用；明确回环 HTTPS 入口；backendTls 含 `caFile`、`certificateFile`、`keyFile`，用于既有管理连接 |
+
+```sh
+sh executor/python.sh -B scripts/p8/enroll.py --target clone --plan "$PLAN" --work "$WORK" \
+  --mysql-service "$MYSQL_SERVICE" --java "$JDK25/bin/java" --jar "$BACKEND_JAR" \
+  --report-trust "$REPORT_TRUST" --artifacts "$ARTIFACTS"
+```
+
+默认来源为业务库，只读制作精确保真备份（含 JSON DOUBLE 补偿）并恢复到随机 `cyber_b3_clone_*`，新 JAR **只启动该隔离库**，Flyway V26 仅在克隆执行。`--source-schema` 可指定已准备的源库。复用同一 work/plan 重入；配置计划、请求内容、人工身份、幂等键与已取得结果持久化到 0600 `journal/state.json`。连接丢失时复用原键；机器凭据已签发但回包丢失时，查找本次独占资产的唯一机器并调用 B2 的 `credential-rotations`，不重复登记身份。该恢复分支依赖 B2 接口合入，接口缺失时停止并保留现场。多次轮换仍丢包会保存新轮换键，下一次重入再撤销未保存凭据。
+
+按顺序：资产 → 观察授权（执行范围为空）→ 独立批准 → 传感器/执行器身份 → 配置及独立批准 → r6 激活 → 配置文件。输出 `config/sensor.json`、`targets.json`、`executor-observer.json`、0600 凭据、独立 collector/executor IPC 证书。`machine-tls.properties` 提供 `DEPLOY_TLS_CLIENT_CA` 引用，须纳入部署配置；传感器与观察执行器使用分离客户端证书，服务端 CA 仍由计划提供。deploy 机器接口要求 TLS 客户端证书及原 Bearer 凭据，浏览器可不持客户端证书。
+
+克隆后端退出时停止本次 PID 并验证端口关闭；克隆与备份默认保留供重入和审查。验收收尾只删除 `clone.json` 记录、且确认由本次创建的随机 schema，不能按前缀批量删除。真实接入时换 `--target authorized --authorization-reference <与 evidenceRef 一致>`；仅在 P1 明确授权后执行。脚本始终停在配置生成，不启动抓包。
+
+### lab 演示、巡检与备份
+
+```sh
+sh executor/python.sh -B scripts/p8/lab_demo.py --dry-run
+sh executor/python.sh -B scripts/p8/status.py --plan "$STATUS_PLAN" --format json
+sh executor/python.sh -B scripts/p8/status.py --plan "$STATUS_PLAN" --format text
+sh executor/python.sh -B scripts/p8/backup_restore.py --schedule
+```
+
+`lab_demo.py` 复用 `lab_formal.py` 的正式组件，但只选第一个冻结 brute_force 场景，授权窗口严格 ≤30 分钟；核验同一命令的已投影 `applied` 与 `expired`、执行器零规则与 root 清理结果。无论成功/失败都尝试撤销本次授权、暂停组合并保存收尾结果；不生成/导入 G3 报告、不调用资格登记。r5 有其他仍有效的活动资产绑定时拒绝演示，避免暂停影响其他任务。
+
+实际运行沿用 `scripts/p7/lab.md` 的显式 JAR、冻结场景、selection、r5 import plan、r5 subject、platform/final、report trust、克隆/业务库和 rendezvous 参数，另加 `--root-plan <0600 JSON>`。root plan 包含 `launcher`、`launcherSha256`、`stage`、`manifestSha256`、`runId`、`authorizationReference`、`evidenceCopy`；`--stage-manifest` 与 `--authorization-reference` 必须逐字匹配。先核验摘要，再由 macOS 密码框让用户批准 root 暂存启动器；口令不进入脚本。root 的 `g3-executor` 最长 1800 秒，原执行器代码与 r5 冻结证据不变。**B3 只验证 dry-run 和流程替身，真实 root/PF 留待 P1/U5。**
+
+巡检计划含 `root`、`assetId`、`executorId`、`mode`（`alert-only`/`pf`）、`baseUrl`、`backendCA`、`reader`（同 Keychain 身份字段，可用 auditor）；可设 `minFreeBytes`、`maxLogBytes`。巡检五服务、现有 `/api/v1/health/ready`、v2 `ops/status`、最新心跳/健康、本执行器专属 PF anchor（`pfctl -s rules` 只读）及磁盘/日志。机器状态完整读取游标分页（最多 100 页，重复游标拒绝）；按每个传感器查询最新接收的一个健康窗口，历史窗口超过 200 条不影响当前状态，缺失的传感器窗口不能被其他传感器掩盖。无权限读取 PF、缺数据、心跳陈旧、机器分页未覆盖或异常均非零退出；不会把 unknown 或 `replay_healthy` 当现场 healthy。PF 查询需要相应系统权限，B3 未执行该查询。
+
+`backup_restore.py --schedule` 仅显示维护窗口、备份保留和核验建议，不取密、不连库、不安装定时任务。

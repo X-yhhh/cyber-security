@@ -34,7 +34,9 @@ import { bundleTone, capabilityTone, policyReviewTone, statusTone } from '@/data
 import { toast } from '@/composables/toast'
 
 type View = 'policies' | 'bundles' | 'capabilities' | 'evaluations'
-const view = ref<View>('policies')
+/** 两级菜单（FE-9）按二级项指定初始分段；F1—F4 拆分本页后删除。 */
+const props = defineProps<{ segment?: View }>()
+const view = ref<View>(props.segment ?? 'policies')
 
 /** v2 列表为游标分页且不返回总数；游标栈支持回退一页。 */
 function useCursor<T>(load: (cursor?: string) => Promise<{ items: T[]; nextCursor: string | null }>) {

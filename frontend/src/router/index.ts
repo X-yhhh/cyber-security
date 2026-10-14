@@ -19,6 +19,10 @@ export const modules = [
   { path: 'observation', name: 'observation', title: '观测与目标', en: 'Observation', component: () => import('@/views/console/ObservationView.vue') },
   { path: 'release', name: 'release', title: '策略与发布', en: 'Release', component: () => import('@/views/console/ReleaseView.vue') },
   { path: 'execution', name: 'execution', title: '执行与预算', en: 'Execution', component: () => import('@/views/console/ExecutionView.vue') },
+  // 演示最小集（FE-1—FE-3）：来源 × 类别判定、lab 验证与 G3 报告、健康与审计，全部只读。
+  { path: 'decisions', name: 'decisions', title: '判定与来源', en: 'Decisions', component: () => import('@/views/console/DecisionsView.vue') },
+  { path: 'lab', name: 'lab', title: 'lab 验证与 G3', en: 'Lab', component: () => import('@/views/console/LabView.vue') },
+  { path: 'health', name: 'health', title: '健康与审计', en: 'Health', component: () => import('@/views/console/HealthView.vue') },
 ] as const
 
 const routes: RouteRecordRaw[] = [
@@ -32,6 +36,7 @@ const routes: RouteRecordRaw[] = [
     children: [
       ...modules.map((m) => ({ path: m.path, name: m.name, component: m.component, meta: { title: m.title, shell: 'console' } })),
       { path: 'events/:id', name: 'event-detail', component: () => import('@/views/console/EventDetailView.vue'), meta: { title: '事件详情', shell: 'console', parent: 'events' } },
+      { path: 'lab/:id', name: 'lab-detail', component: () => import('@/views/console/LabRunDetailView.vue'), meta: { title: 'lab 会话详情', shell: 'console', parent: 'lab' } },
     ],
   },
   { path: '/:pathMatch(.*)*', redirect: '/' },

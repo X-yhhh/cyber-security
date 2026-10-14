@@ -21,76 +21,19 @@ import Tag from '@/components/Tag.vue'
 import Drawer from '@/components/Drawer.vue'
 import LoadState from '@/components/LoadState.vue'
 import CursorPager from '@/components/CursorPager.vue'
+import FamilyScores from '@/components/FamilyScores.vue'
 import { errText } from '@/composables/load'
+import { useCursor } from '@/composables/cursor'
 import { guard } from '@/api/client'
 import { can } from '@/api/session'
 import {
-  fmtTime, guardInferenceStatusLabel, type GuardAsset, type GuardDetection, type GuardEpisode,
+  fmtTime, guardFamilyLabel, guardInferenceStatusLabel, guardSourceLabel, type GuardAsset, type GuardDetection, type GuardEpisode,
   type GuardEpisodeEvidence, type GuardObservation, type GuardObservationBatch,
 } from '@/api/types'
 import { inferenceTone } from '@/data/tones'
 
 type View = 'batches' | 'observations' | 'detections' | 'episodes'
 const view = ref<View>('batches')
-
-/**
- * 统一的游标分页读取：v2 不返回总数，用游标栈支持「上一页」。
- * 每次请求用序号作废在途响应，避免切换分段或翻页后旧结果覆盖新结果。
- */
-function useCursor<T>(load: (cursor?: string) => Promise<{ items: T[]; nextCursor: string | null }>) {
-  const items = ref([]) as { value: T[] }
-  const next = ref<string | null>(null)
-  const loading = ref(true)
-  const error = ref('')
-  const stack = ref<string[]>([])
-  const turning = ref(false)
-  let seq = 0
-
-  async function go(cursor?: string) {
-    const mine = ++seq
-    loading.value = true
-    error.value = ''
-    try {
-      const page = await load(cursor)
-      if (mine !== seq) return
-      items.value = page.items
-      next.value = page.nextCursor
-    } catch (e) {
-      if (mine !== seq) return
-      error.value = errText(e)
-      items.value = []
-      next.value = null
-    } finally {
-      if (mine === seq) loading.value = false
-    }
-  }
-  async function forward() {
-    if (!next.value) return
-    turning.value = true
-    try {
-      const cursor = next.value
-      await go(cursor)
-      stack.value.push(cursor)
-    } finally { turning.value = false }
-  }
-  async function back() {
-    if (!stack.value.length) return
-    turning.value = true
-    try {
-      const cursor = stack.value.pop()
-      await go(stack.value[stack.value.length - 1] ?? cursor)
-    } finally { turning.value = false }
-  }
-  function reset() {
-    seq++
-    stack.value = []
-    items.value = []
-    next.value = null
-    void go()
-  }
-  void go()
-  return { items, next, loading, error, stack, turning, forward, back, reset }
-}
 
 /** 资产用于把 UUID 翻译成可读标识；无权限时保持为空，不显示占位假值。 */
 const assets = ref<GuardAsset[]>([])
@@ -201,13 +144,13 @@ const payloadEntries = (v: unknown): [string, string][] => {
 
         <!-- 推理结论：失败与不适用不带攻击概率 -->
         <table v-else-if="view === 'detections'" key="d" class="table">
-          <thead><tr><th>分数</th><th>结论</th><th>家族</th><th>适用性</th><th>资产</th><th class="text-right">完成</th></tr></thead>
+          <thead><tr><th>分数</th><th>结论</th><th>家族</th><th>四类分数</th><th>资产</th><th class="text-right">完成</th></tr></thead>
           <tbody>
             <tr v-for="d in detections.items.value" :key="d.id" class="row-link" tabindex="0" @click="pickedDetection = d" @keydown.enter="pickedDetection = d">
               <td class="num w-20 text-[1.25rem] font-light" :class="(d.score ?? 0) >= 0.9 ? 'text-threat' : ''">{{ d.score == null ? '—' : Number(d.score).toFixed(3) }}</td>
               <td><Tag :tone="inferenceTone[d.status]" :label="guardInferenceStatusLabel[d.status] ?? d.status" /><span v-if="d.errorCode" class="num ml-2 text-[12px] text-threat">{{ d.errorCode }}</span></td>
-              <td class="num text-ink-2">{{ d.family ?? '—' }}</td>
-              <td class="text-ink-3">{{ d.applicability ?? '—' }}</td>
+              <td class="text-ink-2">{{ d.family ? (guardFamilyLabel[d.family] ?? d.family) : '—' }}</td>
+              <td><FamilyScores :scores="d.familyScores" compact /></td>
               <td class="num text-ink-2">{{ assetLabel(d.assetId) }}</td>
               <td class="num text-right text-ink-3">{{ fmtTime(d.completedAt) }}</td>
             </tr>
@@ -216,13 +159,14 @@ const payloadEntries = (v: unknown): [string, string][] => {
 
         <!-- 证据迹：按 30 秒桶归并，revision 随证据追加递增 -->
         <table v-else key="e" class="table">
-          <thead><tr><th>桶起点</th><th>对象</th><th>方向 / 服务</th><th>家族</th><th>修订</th><th class="text-right">资产</th></tr></thead>
+          <thead><tr><th>桶起点</th><th>对象</th><th>方向 / 服务</th><th>家族</th><th>来源</th><th>修订</th><th class="text-right">资产</th></tr></thead>
           <tbody>
             <tr v-for="e in episodes.items.value" :key="e.id" class="row-link" tabindex="0" @click="pickedEpisode = e" @keydown.enter="pickedEpisode = e">
               <td class="num text-ink-2">{{ fmtTime(e.bucketStart) }}</td>
               <td><span class="num block">{{ e.peerKey }}</span><span class="num text-[12px] text-ink-3">{{ e.id.slice(0, 8) }}</span></td>
               <td class="num text-ink-2">{{ e.direction }} / {{ e.servicePort }}</td>
-              <td class="num text-ink-3">{{ e.family ?? '—' }}</td>
+              <td class="text-ink-3">{{ e.family ? (guardFamilyLabel[e.family] ?? e.family) : '—' }}</td>
+              <td><span class="block text-ink-2">{{ guardSourceLabel(e.source, e.ruleId) }}</span><span class="num text-[12px] text-ink-4">{{ e.scope ?? '—' }}</span></td>
               <td class="num text-ink-3">r{{ e.revision }}</td>
               <td class="num text-right text-ink-2">{{ assetLabel(e.assetId) }}</td>
             </tr>
@@ -324,6 +268,8 @@ const payloadEntries = (v: unknown): [string, string][] => {
             <dt class="text-ink-3">{{ k }}</dt><dd class="num break-all">{{ v }}</dd>
           </div>
         </dl>
+        <h3 class="label mb-4 mt-10">四类分数</h3>
+        <FamilyScores :scores="pickedDetection.familyScores" />
       </template>
     </Drawer>
 
@@ -339,7 +285,9 @@ const payloadEntries = (v: unknown): [string, string][] => {
             ['keyEpoch', pickedEpisode.keyEpoch ?? '—'],
             ['方向 / 传输', `${pickedEpisode.direction} / ${pickedEpisode.transport}`],
             ['服务端口', String(pickedEpisode.servicePort)],
-            ['家族', pickedEpisode.family ?? '—'],
+            ['家族', pickedEpisode.family ? (guardFamilyLabel[pickedEpisode.family] ?? pickedEpisode.family) : '—'],
+            ['来源', guardSourceLabel(pickedEpisode.source, pickedEpisode.ruleId)],
+            ['作用域', pickedEpisode.scope ?? '—'],
             ['发布组合', pickedEpisode.bundleId ?? '—'],
             ['桶起点', fmtTime(pickedEpisode.bucketStart)],
             ['修订', String(pickedEpisode.revision)],
@@ -352,7 +300,7 @@ const payloadEntries = (v: unknown): [string, string][] => {
           <ul class="border-t border-ink">
             <li v-for="x in evidence.items" :key="x.id" class="grid grid-cols-[6rem_1fr] gap-3 border-b border-ink-hair py-2.5 text-[12.5px]">
               <span class="num text-ink-3">#{{ x.score == null ? '—' : Number(x.score).toFixed(3) }}</span>
-              <span><span class="block">观察 {{ x.observationId.slice(0, 8) }}<template v-if="x.parentConnectionId"> · 父流 {{ x.parentConnectionId.slice(0, 8) }}</template></span><span class="num text-[11.5px] text-ink-4">asOf {{ fmtTime(x.asOf) }}</span></span>
+              <span><span class="block">观察 {{ x.observationId.slice(0, 8) }}<template v-if="x.parentConnectionId"> · 父流 {{ x.parentConnectionId.slice(0, 8) }}</template></span><span class="num text-[11.5px] text-ink-4">{{ guardSourceLabel(x.source, x.ruleId) }}<template v-if="x.source === 'rule'"> · {{ x.ruleMatched ? '命中' : '未命中' }}</template> · asOf {{ fmtTime(x.asOf) }}</span></span>
             </li>
           </ul>
         </LoadState>

@@ -34,16 +34,15 @@ def timestamp(value):
 
 
 def write_new(path, value):
+    """完整发布一份不可覆盖的记录；重复路径拒绝，失败只清理本次临时文件。"""
     path = Path(path); pending = path.with_name(path.name + '.' + uuid.uuid4().hex + '.pending')
     try:
         with pending.open('x', encoding='utf-8') as f:
             json.dump(value, f, ensure_ascii=True, indent=2); f.write('\n'); f.flush(); os.fsync(f.fileno())
-        # os.replace 在 Windows 和 POSIX 上均为原子 rename；观察者不会读到正在写入的半个 JSON。
-        # 原 os.link 在 Windows 上目标已存在时报 WinError 183，改为 replace 保留语义并修复重试。
-        os.replace(pending, path)
-    except BaseException:
+        # 同目录硬链接原子发布完整 JSON；已有目标（包括并发发布）必须失败，不能重写旧租约。
+        os.link(pending, path)
+    finally:
         pending.unlink(missing_ok=True)
-        raise
 
 
 def audit(base, role, event, **fields):

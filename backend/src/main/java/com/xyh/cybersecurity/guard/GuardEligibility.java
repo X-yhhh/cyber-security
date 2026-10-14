@@ -44,6 +44,8 @@ public class GuardEligibility {
         String env=str(store.get("asset",number(executor,"asset_id")),"environment");var levels=env.equals("authorized")?Set.of("authorized_auto"):Set.of("lab_auto","authorized_auto");var items=new TreeMap<String,JsonNode>();
         for(var binding:store.rows("guard_asset_binding",map("asset_id",executor.get("asset_id"),"status","active"),false,100)){
             var bundle=store.get("guard_release_bundle",number(binding,"bundle_id"));if(!"active".equals(str(bundle,"status")))continue;
+            // BE-14：只告警组合不提供可执行能力，lab/authorized 均只投影空集；能力事实与判定能力门仍保留。
+            if("alert_only".equals(json(store.get("guard_decision_policy",number(bundle,"policy_id")),"definition_json").path("mode").asText()))continue;
             for(var link:store.rows("guard_bundle_capability",map("bundle_id",bundle.get("id")),false,100)){var c=store.get("guard_capability",number(link,"capability_id"));
                 if(!str(c,"platform").equals(str(executor,"platform"))||!levels.contains(str(c,"level")))continue;
                 boolean inbound="peer_inbound".equals(str(c,"scope"));String ports=inbound&&protection!=null&&hash(protection).equals(str(c,"protection_set_sha256"))?protectedPortsSha256(protection.path("protectedServicePorts")):null;

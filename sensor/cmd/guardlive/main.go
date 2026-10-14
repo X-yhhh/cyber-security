@@ -616,7 +616,15 @@ func run() (runErr error) {
 		te := json.NewEncoder(t)
 		cctx, cancel := context.WithTimeout(ctx, *duration)
 		defer cancel()
-		if err = capture(cctx, c, e, te.Encode, func(s hostguard.LiveSample) { lastSample = s; observe(s) }); err != nil {
+		var check func() error
+		if upload != nil {
+			check = upload.up.Err
+		}
+		if err = capture(cctx, c, e, te.Encode, observer, check); err != nil {
+			// 读取异常的尾窗已标记缺口，先尝试送达；上传失败仍保留两端错误，不返回成功。
+			if upload != nil {
+				err = errors.Join(err, upload.finish())
+			}
 			return err
 		}
 		if err = t.Sync(); err != nil {

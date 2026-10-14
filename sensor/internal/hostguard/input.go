@@ -183,8 +183,9 @@ func (e *Engine) CaptureCounters() (capacityDrops, late int64) {
 }
 
 // RunLiveObserved 在 RunLiveTrace 基础上，于每轮轮询后同步回调 observe（可为 nil）。
-// 回调与引擎同一 goroutine，不能阻塞；它只读计数，不改变观察输出，健康观察器因此独立于特征引擎重置。
-func RunLiveObserved(ctx context.Context, s LiveSource, e *Engine, now func() time.Time, trace func(LiveEvent) error, observe func(LiveSample)) error {
+// 回调与引擎同一 goroutine，只读计数；返回错误立即停止，不允许健康上报失败后继续采集。
+// 有观察器时在首包前建立基线，退出时重新读取计数并包含 Close 的容量变化；空闲超时也持续采样。
+func RunLiveObserved(ctx context.Context, s LiveSource, e *Engine, now func() time.Time, trace func(LiveEvent) error, observe func(LiveSample) error) (runErr error) {
 	if now == nil {
 		return fmt.Errorf("实时输入缺少采集时钟")
 	}
@@ -198,14 +199,47 @@ func RunLiveObserved(ctx context.Context, s LiveSource, e *Engine, now func() ti
 		}
 		return e.ApplyLiveEvent(v)
 	}
-	sample := func(at time.Time, gap bool) {
+	observeFailed := false
+	sample := func(at time.Time, gap bool) error {
 		if observe != nil {
 			capacity, late := e.CaptureCounters()
-			observe(LiveSample{At: at, PacketsSeen: seq, Drops: drops, DropsKnown: known, Gap: gap, CapacityDrops: capacity, LateCount: late})
+			if err := observe(LiveSample{At: at, PacketsSeen: seq, Drops: drops, DropsKnown: known, Gap: gap, CapacityDrops: capacity, LateCount: late}); err != nil {
+				observeFailed = true
+				return err
+			}
+		}
+		return nil
+	}
+	readDrops := func() bool {
+		n, err := s.Drops()
+		if err != nil {
+			known = false
+			return true
+		}
+		gap := !known && n > 0 || known && n != drops
+		drops, known = n, true
+		return gap
+	}
+	if observe != nil {
+		// 句柄仍由调用方持有；结束采样必须在 Close 句柄之前完成。
+		defer func() {
+			if !observeFailed {
+				gap := readDrops()
+				runErr = errors.Join(runErr, sample(now(), gap || runErr != nil))
+			}
+		}()
+		gap := readDrops()
+		at := now()
+		if gap {
+			if err := apply(LiveEvent{Kind: "gap", At: at, DropsKnown: known, Drops: drops}); err != nil {
+				return err
+			}
+		}
+		if err := sample(at, gap); err != nil {
+			return err
 		}
 	}
 	for ctx.Err() == nil {
-		gap := false
 		b, ci, err := s.Next()
 		at := now()
 		if err == nil {
@@ -215,39 +249,27 @@ func RunLiveObserved(ctx context.Context, s LiveSource, e *Engine, now func() ti
 				return err
 			}
 		} else if errors.Is(err, io.EOF) {
-			sample(at, false)
 			return apply(LiveEvent{Kind: "close", At: at})
 		} else if !errors.Is(err, ErrCaptureTimeout) {
-			sample(at, true)
 			if gapErr := apply(LiveEvent{Kind: "gap", At: at}); gapErr != nil {
-				return gapErr
+				return errors.Join(err, gapErr)
 			}
 			return err
 		}
-		n, err := s.Drops()
-		if err != nil {
-			known = false
-			gap = true
-			if err = apply(LiveEvent{Kind: "gap", At: at, DropsKnown: false}); err != nil {
+		gap := readDrops()
+		if gap {
+			if err = apply(LiveEvent{Kind: "gap", At: at, DropsKnown: known, Drops: drops}); err != nil {
 				return err
 			}
-		} else {
-			if !known && n > 0 || known && n != drops {
-				gap = true
-				if err = apply(LiveEvent{Kind: "gap", At: at, DropsKnown: true, Drops: n}); err != nil {
-					return err
-				}
-			}
-			drops = n
-			known = true
 		}
 		if err = apply(LiveEvent{Kind: "tick", At: at, DropsKnown: known, Drops: drops}); err != nil {
 			return err
 		}
-		sample(at, gap)
+		if err = sample(at, gap); err != nil {
+			return err
+		}
 	}
 	at := now()
-	sample(at, false)
 	return apply(LiveEvent{Kind: "close", At: at})
 }
 

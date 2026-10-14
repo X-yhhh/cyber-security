@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """B2：以冻结审计与显式 P4 绑定生成 rc.4 策略；不登记、不审批、不激活动作。"""
 import argparse
+import copy
 import hashlib
 import json
 import math
 import sys
+import uuid
 from pathlib import Path
 
 import rfc8785
@@ -232,6 +234,65 @@ def frozen_semantics(policy):
                                key=lambda row: row["ruleId"])}
 
 
+def policy_diff(source, derived, path=""):
+    """按 JSON Pointer 列出实际差异；数组保留原顺序，避免重排隐藏部署字段变动。"""
+    if isinstance(source, dict) and isinstance(derived, dict) and source.keys() == derived.keys():
+        return [item for key in sorted(source) for item in policy_diff(
+            source[key], derived[key], path + "/" + key.replace("~", "~0").replace("/", "~1"))]
+    if isinstance(source, list) and isinstance(derived, list) and len(source) == len(derived):
+        return [item for i, (before, after) in enumerate(zip(source, derived))
+                for item in policy_diff(before, after, path + "/" + str(i))]
+    return [] if canonical(source) == canonical(derived) else [dict(path=path, before=source, after=derived)]
+
+
+def validate_alert_only_derivation(source, derived):
+    """双重核对检测语义及完整字段差异；模式收紧不允许改阈值、规则、profile 或部署绑定。"""
+    validate_policy(source)
+    validate_policy(derived)
+    require(derived["policyId"] != source["policyId"] and derived["policyVersion"].strip()
+            and derived["policyVersion"] != source["policyVersion"], "派生策略须使用新的 ID 与版本")
+    require(derived["mode"] == "alert_only"
+            and all(row[key] is False for row in derived["familyPolicies"]
+                    for key in ("autoEligible", "modelAutoEligible"))
+            and all(row["autoEligible"] is False for row in derived.get("rulePolicies", [])),
+            "只告警派生必须关闭全部自动资格")
+    require(frozen_semantics(source) == frozen_semantics(derived), "派生冻结策略语义不一致")
+    allowed = {"/policyId", "/policyVersion", "/mode"}
+    allowed.update(f"/familyPolicies/{i}/{key}" for i in range(len(source["familyPolicies"]))
+                   for key in ("autoEligible", "modelAutoEligible"))
+    allowed.update(f"/rulePolicies/{i}/autoEligible" for i in range(len(source.get("rulePolicies", []))))
+    changes = policy_diff(source, derived)
+    require(all(change["path"] in allowed for change in changes), "只告警派生改动越界")
+    return changes
+
+
+def derive_alert_only(source, review, version):
+    """从已审查登记快照派生候选文件；快照须由调用方只读导出，不能代替新策略的独立审查。"""
+    validate_policy(source)
+    fields(review, ("policyId", "status", "definitionSha256", "createdBy", "reviewedBy"), "source-review")
+    require(review["status"] == "reviewed" and review["policyId"] == source["policyId"]
+            and review["createdBy"] is not None and review["reviewedBy"] is not None
+            and review["createdBy"] != review["reviewedBy"], "来源不是独立审查通过的策略")
+    source_sha = digest(canonical(source))
+    require(review["definitionSha256"] == source_sha, "已审查策略哈希不符")
+    require(isinstance(version, str) and version.strip() and version != source["policyVersion"],
+            "派生版本必须是新的非空 policyVersion")
+    derived = copy.deepcopy(source)
+    derived.update(policyId=str(uuid.uuid5(uuid.UUID(source["policyId"]), "alert-only:" + version)),
+                   policyVersion=version, mode="alert_only")
+    for row in derived["familyPolicies"]:
+        row.update(autoEligible=False, modelAutoEligible=False)
+    for row in derived.get("rulePolicies", []):
+        row["autoEligible"] = False
+    changes = validate_alert_only_derivation(source, derived)
+    record = dict(sourcePolicyId=source["policyId"], sourceJcsSha256=source_sha,
+                  derivedPolicyId=derived["policyId"], derivedJcsSha256=digest(canonical(derived)),
+                  sourceReview=copy.deepcopy(review), changes=changes, frozenSemanticsEqual=True,
+                  frozenSemanticsSha256=digest(canonical(frozen_semantics(source))),
+                  testRead=False, newFits=0, thresholdsChanged=False, requiresIndependentReview=True)
+    return derived, record
+
+
 def checked_protection(protection):
     """保护集须是 P4 可加载的结构：两个字段、整数端口 1—65535，并入 22/53/3389 后不超过 128 个。"""
     fields(protection, ("protectedBudgetTargetIds", "protectedServicePorts"), "protection-set")
@@ -323,11 +384,26 @@ def main():
     inspect_parser = commands.add_parser("inspect")
     inspect_parser.add_argument("--policy", type=Path, required=True)
     inspect_parser.add_argument("--schema", type=Path)
+    alert_parser = commands.add_parser("derive-alert-only", help="从已审查策略派生只告警候选，不登记或批准")
+    for name in ("source", "source-review", "output", "record"):
+        alert_parser.add_argument("--" + name, type=Path, required=True)
+    alert_parser.add_argument("--version", required=True)
     args = parser.parse_args()
     try:
         if args.command == "inspect":
             print(json.dumps(inspect(args.policy, args.schema), ensure_ascii=False, indent=2))
             return
+        if args.command == "derive-alert-only":
+            source_raw, review_raw = args.source.read_bytes(), args.source_review.read_bytes()
+            policy, record = derive_alert_only(decode(source_raw), decode(review_raw), args.version)
+            record.update(sourceFileSha256=digest(source_raw), sourceReviewFileSha256=digest(review_raw))
+            require(args.output.resolve() != args.record.resolve(), "策略与派生记录必须使用不同文件")
+            require(not any(path.exists() or path.is_symlink() for path in (args.output, args.record)),
+                    "输出已存在，拒绝覆盖")
+            for path, value in ((args.output, policy), (args.record, record)):
+                with path.open("x", encoding="utf-8") as stream:
+                    stream.write(json.dumps(value, ensure_ascii=False, allow_nan=False, indent=2) + "\n")
+            return 0
         inputs = vars(args).copy()
         inputs.pop("command")
         output = inputs.pop("output")

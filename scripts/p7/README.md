@@ -162,3 +162,22 @@ sh executor/python.sh -B scripts/p7/k2_compare.py --work "$K2_WORK" --baseline .
 `k2_compare.py` 核验冻结输入、提取器、速度和并发，再按私有账本的物理连接及快照逐条比较 v8 两轮的告警集合、类别和分数，要求四段 P95 均不超过 2 秒，队列排空且无丢失、拒收、推理失败、超时和动作/命令增量。报告始终为 `diagnosticOnly=true`、`j1Passed=null`、`J2Allowed=false`，不能覆盖正式 J1 结论。`GuardIntegrationTest` 的批次切分用例在相同前置状态与最终证据上核验终态等价；传输拆批可能增加中间判定，SQL 存储分段不能成为新的判定边界。
 
 retry-5 的四段提交上界 P95 为 `port_scan-1=1.8281502723693848`、`port_scan-2=1.5288910865783691`、`port_scan-3=1.5111351013183594`、`normal-1=0.6281046867370605` 秒，均通过。相对 v8 两轮的连接告警和逐快照分类零差异；缺失、拒收、推理失败/超时、容量丢弃、待处理批次、动作及命令增量均为 0。输入哈希未变，源库前后摘要在忽略 `at` 后一致，临时后端已停。详见 `.cache/j1-diag-20261011-k2r-retry-5/REPORT.md`；该局部诊断不授予 J1、J2、G3、P8 或真实资产动作资格。
+
+## ML-8：从已审查策略派生只告警候选
+
+`derive-alert-only` 只生成文件，不连接业务库、不登记或批准策略、不读取数据集。先由调用方只读导出来源策略与 `guard_decision_policy` 审查快照，快照包含 `policyId`、`status`、`definitionSha256`（登记定义的 JCS SHA-256）、`createdBy`、`reviewedBy`。要求状态为 reviewed、审查人与创建人不同、来源 ID 与摘要完全匹配。文件快照是派生依据，不能代替后端权限或新策略的独立审查。
+
+```bash
+sh executor/python.sh scripts/p7/compose_policy.py derive-alert-only \
+  --source .cache/p1-20261015/r6/source-policy.json \
+  --source-review .cache/p1-20261015/r6/source-review.json \
+  --version host-guard-decision/2026-10-08.1+alert-only-r6-20261014 \
+  --output .cache/p1-20261015/r6/policy-alert-only.json \
+  --record .cache/p1-20261015/r6/policy-derivation.json
+```
+
+输出目录需预先存在，已有策略/记录拒绝覆盖。新 ID 按来源 ID 与新版本确定性生成；只将 mode 改为 alert_only，关闭各类别/模型/规则自动资格并更新 ID、版本。Schema 校验、`frozen_semantics` 相等与完整 JSON Pointer 差异白名单同时检查；能力、保护集、acceptedProfiles、预算、阈值和规则均不得改变。记录同时绑定来源原字节摘要、审查快照原字节摘要、原/新 JCS 摘要和逐字段 before/after。产物仍待 DB-9 登记与 guard-reviewer 独立审查。
+
+```bash
+sh executor/python.sh -m unittest discover -s scripts/p7 -p 'test_*policy.py'
+```

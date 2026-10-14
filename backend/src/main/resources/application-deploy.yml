@@ -1,0 +1,63 @@
+# 部署准备专用；受控配置文件及所有外部引用必须由 DEPLOY_* 显式提供。
+# DeployStartupCheck 在建立数据源、迁移和监听之前拒绝缺项、权限错误或开启自动化。
+spring:
+  config:
+    import: file:${DEPLOY_CONFIG_FILE}
+  datasource:
+    url: ${DEPLOY_DB_URL}
+    username: ${DEPLOY_DB_USERNAME}
+    password: ${DEPLOY_DB_PASSWORD}
+server:
+  address: 127.0.0.1
+  port: ${DEPLOY_SERVER_PORT:18080}
+  ssl:
+    enabled: true
+    certificate: ${DEPLOY_TLS_CERTIFICATE}
+    certificate-private-key: ${DEPLOY_TLS_KEY}
+    enabled-protocols: TLSv1.3
+  servlet:
+    session:
+      cookie:
+        secure: true
+management:
+  health:
+    rabbit:
+      enabled: ${DEPLOY_OUTBOX_RELAY_ENABLED:false}
+cyber:
+  drift:
+    enabled: false
+  security:
+    login-throttle:
+      hmac-key: ${DEPLOY_LOGIN_THROTTLE_HMAC_KEY}
+    local-admin-bootstrap:
+      enabled: false
+  guard:
+    # Q3：部署中固定关闭；命令行或外部配置将其改成 true 时启动自检拒绝。
+    automation-enabled: false
+    bootstrap-reports-enabled: false
+    signing-key-id: ${DEPLOY_SIGNING_KEY_ID}
+    signing-key-file: ${DEPLOY_SIGNING_KEY_FILE}
+    report-trust-file: ${DEPLOY_REPORT_TRUST_FILE}
+    protection-file: ${DEPLOY_PROTECTION_FILE}
+    artifact-root: ${DEPLOY_ARTIFACT_ROOT}
+    queue-prefix: ${DEPLOY_QUEUE_PREFIX}
+    deploy:
+      config-file: ${DEPLOY_CONFIG_FILE}
+      ledger-root: ${DEPLOY_LEDGER_ROOT}
+  ingest:
+    outbox-relay:
+      enabled: ${DEPLOY_OUTBOX_RELAY_ENABLED:false}
+    consumer:
+      enabled: ${DEPLOY_CONSUMER_ENABLED:${DEPLOY_OUTBOX_RELAY_ENABLED:false}}
+      queue: ${DEPLOY_INGEST_QUEUE}
+      dead-letter-queue: ${DEPLOY_INGEST_DEAD_LETTER_QUEUE}
+      retry-queue-prefix: ${DEPLOY_INGEST_RETRY_QUEUE_PREFIX}
+    rabbitmq:
+      host: ${DEPLOY_RABBITMQ_HOST:127.0.0.1}
+      port: ${DEPLOY_RABBITMQ_PORT:5672}
+      virtual-host: ${DEPLOY_RABBITMQ_VHOST}
+      username: ${DEPLOY_RABBITMQ_USERNAME}
+      password: ${DEPLOY_RABBITMQ_PASSWORD}
+      exchange: ${DEPLOY_RABBITMQ_EXCHANGE}
+      dead-letter-exchange: ${DEPLOY_RABBITMQ_DEAD_LETTER_EXCHANGE}
+      confirm-timeout-ms: ${DEPLOY_RABBITMQ_CONFIRM_TIMEOUT_MS:5000}

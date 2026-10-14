@@ -76,6 +76,36 @@ func TestLiveTraceReplaysIdenticalClockAndWatermark(t *testing.T) {
 	}
 }
 
+// 独立健康采样不得改变同一捕获序列的模型观察、特征或累计引擎统计。
+func TestLiveObserverPreservesObservations(t *testing.T) {
+	var plain, observed []Observation
+	var frames []synth.Frame
+	for i, ms := range []int{0, 500, 1000, 6000, 37000} {
+		frames = append(frames, synth.Build(synth.Spec{TS: epoch.Add(time.Duration(ms) * time.Millisecond), Src: peer, Dst: host,
+			SPort: 40000, DPort: 53, Proto: 17, Payload: 10 + i}, 256))
+	}
+	a, _ := New(config(&plain))
+	s := &liveFixture{frames: frames, now: epoch}
+	if err := RunLive(context.Background(), s, a, func() time.Time { return s.now }); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := New(config(&observed))
+	s = &liveFixture{frames: frames, now: epoch}
+	var samples []LiveSample
+	if err := RunLiveObserved(context.Background(), s, b, func() time.Time { return s.now }, nil, func(v LiveSample) error {
+		samples = append(samples, v)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(plain, observed) || !reflect.DeepEqual(a.Stats, b.Stats) {
+		t.Fatal("健康采样改变了观察或引擎统计")
+	}
+	if len(samples) != len(frames)+2 || samples[0].PacketsSeen != 0 || samples[len(samples)-1].PacketsSeen != uint64(len(frames)) {
+		t.Fatal("首包前基线或退出样本缺失")
+	}
+}
+
 func TestRawIPParityAndUnknownLinkRejected(t *testing.T) {
 	f := synth.Build(synth.Spec{TS: epoch, Src: peer, Dst: host, SPort: 40000, DPort: 80, Proto: 6, Flags: synth.SYN, Payload: 30}, 256)
 	var expected []Observation

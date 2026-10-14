@@ -51,26 +51,26 @@ afterEach(() => {
 describe('登录与默认入口', () => {
   it('未登录访问控制台跳转登录页并带回跳地址', async () => {
     signIn(null)
-    const { router } = await open('/console/ops/audit')
+    const { router } = await open('/console/system/audit')
     expect(router.currentRoute.value.name).toBe('login')
-    expect(router.currentRoute.value.query.redirect).toBe('/console/ops/audit')
+    expect(router.currentRoute.value.query.redirect).toBe('/console/system/audit')
   })
 
   it('/console 进入工作台', async () => {
     signIn(singleRoleUsers.auditor)
     const { router, w } = await open('/console')
     expect(router.currentRoute.value.path).toBe('/console/workbench')
-    expect(w.text()).toContain('工作台')
+    expect(w.text()).toContain('待办中心')
   })
 })
 
 describe('403：无权限地址', () => {
   it.each([
-    ['security_analyst', '/console/ops/audit'],
+    ['security_analyst', '/console/system/audit'],
     ['platform_admin', '/console/detect/observations'],
     ['model_operator', '/console/response/actions'],
     ['evidence_reviewer', '/console/ops/health'],
-    ['security_reviewer', '/console/ops/audit'],
+    ['security_reviewer', '/console/system/audit'],
   ] as const)('%s 直达 %s 显示 403 页且不发数据请求', async (role, path) => {
     signIn(singleRoleUsers[role])
     const { router, w } = await open(path)
@@ -129,6 +129,7 @@ describe('404 与重定向', () => {
     ['/console/lab', '/console/release/lab'],
     ['/console/lab/run-9', '/console/release/lab/run-9'],
     ['/console/health', '/console/ops/health'],
+    ['/console/ops/audit', '/console/system/audit'],
   ])('旧地址 %s 重定向到 %s', async (from, to) => {
     signIn(singleRoleUsers.security_reviewer)
     const router = createAppRouter(createMemoryHistory())
@@ -151,7 +152,7 @@ describe('有权限地址', () => {
     const { router } = await open('/console/release/lab')
     expect(router.currentRoute.value.name).toBe('release-lab')
     await router.push('/console/ops/audit')
-    expect(router.currentRoute.value.name).toBe('ops-audit')
+    expect(router.currentRoute.value.name).toBe('system-audit')
   })
 
   it('工作台按 B2.5 契约读取汇总', async () => {

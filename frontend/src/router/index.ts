@@ -37,7 +37,7 @@ const detailRoutes: RouteRecordRaw[] = details.flatMap((d) => {
   return [{ path: d.path, name: d.name, component: d.component, meta: { title: d.title, shell, anyOf: parent.anyOf, group: d.group, item: d.item, detail: 'id' } }]
 })
 
-/** 迁入新位置的 09—14 旧地址保留重定向一个版本；保留旧路由名，页面内既有链接无需改动。 */
+/** 迁入新位置的 09—14 旧地址与 Q10 被合并的地址保留重定向一个版本；保留旧路由名，页面内既有链接无需改动。 */
 const movedRoutes: RouteRecordRaw[] = [
   { path: 'observation', name: 'observation', redirect: '/console/detect/observations' },
   { path: 'decisions', name: 'decisions', redirect: '/console/detect/decisions' },
@@ -46,6 +46,8 @@ const movedRoutes: RouteRecordRaw[] = [
   { path: 'lab', name: 'lab', redirect: '/console/release/lab' },
   { path: 'lab/:id', name: 'lab-detail', redirect: (to) => `/console/release/lab/${encodeURIComponent(String(to.params.id))}` },
   { path: 'health', name: 'health', redirect: '/console/ops/health' },
+  // Q10 菜单骨架（任务单 U0.9）：审计日志移到系统管理组，旧地址重定向一个版本。
+  { path: 'ops/audit', redirect: '/console/system/audit' },
 ]
 
 /** v1 页面不进菜单，地址暂时保留，到 C1 删除（权限设计第 9.3 节）。 */

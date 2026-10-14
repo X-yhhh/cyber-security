@@ -59,15 +59,15 @@ describe('两级侧栏', () => {
     const { w } = await open(singleRoleUsers.security_analyst, '/console/workbench')
     const nav = sidebar(w)
     const groupTitles = nav.findAll('button[aria-expanded]').map((b) => b.text())
-    expect(groupTitles).toEqual(['威胁检测', '受控响应'])
+    expect(groupTitles).toEqual(['态势', '威胁检测', '响应处置'])
     const links = nav.findAll('a').map((a) => a.text())
-    expect(links).toEqual(['工作台', '观测与推理', '判定与来源', '事件研判', '反馈与复核', '处置动作', '目标预算'])
+    expect(links).toEqual(['待办中心', '事件研判', '误报反馈', '观测与推理', '判定与来源', '处置记录', '目标预算'])
   })
 
   it('当前二级项高亮，面包屑为“一级 / 二级”', async () => {
     const { w } = await open(singleRoleUsers.auditor, '/console/response/budgets')
     expect(sidebar(w).get('a[aria-current="page"]').text()).toBe('目标预算')
-    expect(crumbs(w)).toEqual(['受控响应', '目标预算'])
+    expect(crumbs(w)).toEqual(['响应处置', '目标预算'])
   })
 
   it('详情页面包屑为“一级 / 二级 / 详情 ID”，二级可点回列表', async () => {
@@ -77,21 +77,22 @@ describe('两级侧栏', () => {
     expect(sidebar(w).get('a[aria-current="page"]').text()).toBe('lab 验证与 G3')
   })
 
-  it('工作台面包屑只有一段', async () => {
+  it('待办中心挂在态势组下，面包屑为“态势 / 待办中心”', async () => {
     const { w } = await open(singleRoleUsers.auditor, '/console/workbench')
-    expect(crumbs(w)).toEqual(['工作台'])
+    expect(crumbs(w)).toEqual(['态势', '待办中心'])
+    expect(sidebar(w).get('a[aria-current="page"]').text()).toBe('待办中心')
   })
 })
 
 describe('一级组折叠', () => {
   it('折叠状态写入 localStorage，重新挂载后保持', async () => {
     const first = await open(singleRoleUsers.auditor, '/console/workbench')
-    const toggle = () => sidebar(wrapper!).findAll('button[aria-expanded]').find((b) => b.text() === '运行与审计')!
+    const toggle = () => sidebar(wrapper!).findAll('button[aria-expanded]').find((b) => b.text() === '系统管理')!
     expect(toggle().attributes('aria-expanded')).toBe('true')
     await toggle().trigger('click')
     expect(toggle().attributes('aria-expanded')).toBe('false')
-    expect(JSON.parse(localStorage.getItem('sentinel.nav.collapsed')!)).toEqual(['ops'])
-    expect(sidebar(first.w).find('#nav-group-ops').isVisible()).toBe(false)
+    expect(JSON.parse(localStorage.getItem('sentinel.nav.collapsed')!)).toEqual(['system'])
+    expect(sidebar(first.w).find('#nav-group-system').isVisible()).toBe(false)
 
     wrapper!.unmount()
     await open(singleRoleUsers.auditor, '/console/workbench')
@@ -99,10 +100,10 @@ describe('一级组折叠', () => {
   })
 
   it('进入某组的页面时该组自动展开', async () => {
-    localStorage.setItem('sentinel.nav.collapsed', JSON.stringify(['ops', 'detect']))
-    const { w } = await open(singleRoleUsers.auditor, '/console/ops/audit')
-    const ops = sidebar(w).findAll('button[aria-expanded]').find((b) => b.text() === '运行与审计')!
-    expect(ops.attributes('aria-expanded')).toBe('true')
+    localStorage.setItem('sentinel.nav.collapsed', JSON.stringify(['system', 'detect']))
+    const { w } = await open(singleRoleUsers.auditor, '/console/system/audit')
+    const system = sidebar(w).findAll('button[aria-expanded]').find((b) => b.text() === '系统管理')!
+    expect(system.attributes('aria-expanded')).toBe('true')
     expect(JSON.parse(localStorage.getItem('sentinel.nav.collapsed')!)).toEqual(['detect'])
   })
 

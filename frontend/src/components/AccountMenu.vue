@@ -46,7 +46,7 @@ async function changeSecret() {
 </script>
 
 <template>
-  <div class="border-t border-ink-hair pt-5 text-[12px]" aria-label="账户">
+  <div class="border-t border-ink-hair pt-4 text-[12px]" aria-label="账户">
     <p class="text-ink">{{ session.user?.displayName }} · <span class="num">{{ session.user?.username }}</span></p>
     <p class="mt-1 text-ink-3">{{ roles.join(' · ') || '无角色' }}</p>
     <div class="mt-4 flex gap-5">
@@ -56,13 +56,13 @@ async function changeSecret() {
 
     <Drawer :open="changing" title="修改口令" :kicker="session.user?.username" @close="changing = false">
       <div class="space-y-6">
-        <label class="block"><span class="label">当前口令</span><input v-model="secrets.current" type="password" autocomplete="current-password" class="field mt-2" maxlength="128" /></label>
-        <label class="block"><span class="label">新口令（≥ 12 个字符）</span><input v-model="secrets.next" type="password" autocomplete="new-password" class="field mt-2" maxlength="128" /></label>
-        <label class="block"><span class="label">再次输入新口令</span><input v-model="secrets.confirm" type="password" autocomplete="new-password" class="field mt-2" maxlength="128" /></label>
+        <label class="form-field"><span class="label">当前口令</span><input v-model="secrets.current" type="password" autocomplete="current-password" class="field" maxlength="128" /></label>
+        <label class="form-field"><span class="label">新口令（≥ 12 个字符）</span><input v-model="secrets.next" type="password" autocomplete="new-password" class="field" maxlength="128" /></label>
+        <label class="form-field"><span class="label">再次输入新口令</span><input v-model="secrets.confirm" type="password" autocomplete="new-password" class="field" maxlength="128" /></label>
         <p class="text-[12.5px] leading-relaxed text-ink-3">修改成功后本人全部会话立即失效，需要用新口令重新登录。当前口令连续输错会按登录限速暂时锁定。</p>
       </div>
       <template #foot>
-        <button type="button" class="link text-[13px]" @click="changing = false">取消</button>
+        <button type="button" class="act-ghost" @click="changing = false">取消</button>
         <button type="button" class="act" :disabled="busy || !secrets.current || !secrets.next" @click="changeSecret">修改</button>
       </template>
     </Drawer>

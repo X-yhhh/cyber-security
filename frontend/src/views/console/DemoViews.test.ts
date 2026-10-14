@@ -184,6 +184,8 @@ describe('lab 验证与 G3（FE-2）', () => {
 })
 
 describe('健康与审计（FE-3）', () => {
+  const dataReads = () => vi.mocked(guard.read).mock.calls.map((c) => c[0] as string).filter((p) => p !== 'summary')
+
   const window = {
     id: 'w1', assetId: 'a1', sensorId: 's1', captureScopeId: 'c1', sequence: 891, observerSessionId: 'o1',
     intervalStart: '2026-10-13T13:09:05Z', intervalEnd: '2026-10-13T13:09:06Z', receivedAt: '2026-10-13T13:09:06Z',
@@ -199,8 +201,8 @@ describe('健康与审计（FE-3）', () => {
       : { asOf: 'x', items: [], nextCursor: null }))
     const w = mount(HealthView, { global })
     await flushPromises()
-    expect(guard.read).toHaveBeenCalledTimes(1)
-    expect(guard.read).toHaveBeenCalledWith('ops/status', { cursor: undefined, limit: 50 })
+    // 页头读数另读汇总接口（summary），这里只统计分段数据请求。
+    expect(dataReads()).toEqual(['ops/status'])
     ;(w.vm as unknown as { view: string }).view = 'health'
     await flushPromises()
     expect(guard.read).toHaveBeenLastCalledWith('health-windows', { verificationStatus: undefined, cursor: undefined, limit: 50 })
@@ -221,7 +223,7 @@ describe('健康与审计（FE-3）', () => {
     vi.mocked(guard.read).mockResolvedValue({ asOf: 'x', items: [{ id: 'a', occurredAt: '2026-10-13T13:12:16Z', actorType: 'human', action: 'guard.lab.report_imported', resourceType: 'guard', requestId: 'r', outcome: 'success', resourceId: 'c45e4527-0000' }], nextCursor: null })
     const w = mount(HealthView, { global })
     await flushPromises()
-    expect(guard.read).not.toHaveBeenCalled()
+    expect(dataReads()).toEqual([])
     expect(w.text()).toContain('ops.read')
     ;(w.vm as unknown as { view: string }).view = 'audit'
     await flushPromises()

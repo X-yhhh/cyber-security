@@ -186,6 +186,68 @@ def test_status_unknown_pf_and_stale_heartbeat_fail(tmp_path):
     assert not result['checks']['sensor-heartbeats']['ok']
 
 
+def test_status_checks_every_sensor_latest_window_without_loading_history(tmp_path):
+    """机器跨页且每个传感器有超过一页的历史时，仍逐个核对最新窗口。"""
+    from urllib.parse import parse_qs, urlsplit
+    (tmp_path/'logs').mkdir()
+    sensor_ids = [str(uuid.uuid4()), str(uuid.uuid4())]
+    p = {'root': str(tmp_path), 'assetId': str(uuid.uuid4()), 'executorId': str(uuid.uuid4()),
+         'mode': 'alert-only', 'minFreeBytes': 0}
+    queried = []
+    class Reader:
+        def call(self, *a): return {'data': {'status': 'UP'}}
+        def request(self, method, path):
+            query = parse_qs(urlsplit(path).query)
+            assert query['assetId'] == [p['assetId']]
+            if path.startswith('/ops/status'): return {'items': [{'status': 'active'}]}
+            if path.startswith('/sensor-heartbeats'):
+                second = 'cursor' in query
+                if second: assert query['cursor'] == ['next+/=']
+                return {'items': [{'id': sensor_ids[int(second)], 'healthState': 'healthy', 'freshness': 'fresh'}],
+                        'nextCursor': None if second else 'next+/='}
+            if path.startswith('/executor-heartbeats'):
+                return {'items': [{'healthState': 'healthy', 'freshness': 'fresh'}]}
+            assert query['limit'] == ['1']
+            sensor = query['sensorId'][0]
+            queried.append(sensor)
+            return {'items': [{'sensorId': sensor, 'healthState': 'healthy', 'freshness': 'fresh'}],
+                    'nextCursor': 'more-than-200-historical-windows'}
+    result = status.inspect(p, Reader(), execute=lambda c: (0, '') if c[0] == '/sbin/pfctl' else (0, ' state = running\n pid = 12\n'))
+    assert result['ok'] and queried == sensor_ids
+    assert len(result['checks']['health-windows']['items']) == 2
+
+
+@pytest.mark.parametrize('health_state', [None, 'stale', 'unknown', 'unhealthy', 'replay_healthy'])
+def test_status_missing_or_unhealthy_latest_window_fails(tmp_path, health_state):
+    """旧健康窗口不能覆盖最新异常；缺窗口或回放健康也不能充当现场健康。"""
+    (tmp_path/'logs').mkdir()
+    sensor = str(uuid.uuid4())
+    p = {'root': str(tmp_path), 'assetId': str(uuid.uuid4()), 'executorId': str(uuid.uuid4()),
+         'mode': 'alert-only', 'minFreeBytes': 0}
+    class Reader:
+        def call(self, *a): return {'data': {'status': 'UP'}}
+        def request(self, method, path):
+            if path.startswith('/ops/status'): return {'items': [{'status': 'active'}]}
+            if path.startswith('/health-windows'):
+                return {'items': [] if health_state is None else [
+                    {'sensorId': sensor, 'healthState': health_state, 'freshness': 'fresh'}], 'nextCursor': 'old-healthy'}
+            return {'items': [{'id': sensor, 'healthState': 'healthy', 'freshness': 'fresh'}]}
+    result = status.inspect(p, Reader(), execute=lambda c: (0, '') if c[0] == '/sbin/pfctl' else (0, ' state = running\n pid = 12\n'))
+    assert not result['ok'] and not result['checks']['health-windows']['ok']
+
+
+def test_status_repeated_machine_cursor_fails(tmp_path):
+    """服务端游标未前进时有限退出，不能用不完整身份列表宣称健康。"""
+    (tmp_path/'logs').mkdir()
+    p = {'root': str(tmp_path), 'assetId': str(uuid.uuid4()), 'executorId': str(uuid.uuid4()),
+         'mode': 'alert-only', 'minFreeBytes': 0}
+    class Reader:
+        def call(self, *a): return {'data': {'status': 'UP'}}
+        def request(self, *a): return {'items': [], 'nextCursor': 'repeated'}
+    result = status.inspect(p, Reader(), execute=lambda c: (0, ''))
+    assert not result['ok'] and result['checks']['sensor-heartbeats']['state'] == 'unknown'
+
+
 def test_lab_dry_run_and_schedule_no_side_effect(tmp_path):
     import sys
     root = Path(__file__).resolve().parents[2]

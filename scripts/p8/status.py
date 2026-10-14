@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import sys
 import uuid
+from urllib.parse import urlencode
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from scripts.p8.toolkit import absolute, load, require, safe_main, sessions
 from scripts.p8.launchd import ORDER, PREFIX, DAEMONS
@@ -18,6 +19,22 @@ from executor.platform import PF
 def command(argv):
     result = subprocess.run(argv, capture_output=True, text=True, timeout=10)
     return result.returncode, result.stdout
+
+
+def machine_rows(client, endpoint, asset):
+    """完整读取资产的机器状态投影；游标重复或超过保护上限时拒绝宣称覆盖完整。"""
+    rows, seen = [], set()
+    query = {'assetId': asset, 'limit': 200}
+    for _ in range(100):
+        data = client.request('GET', '/' + endpoint + '?' + urlencode(query))
+        rows.extend(data['items'])
+        cursor = data.get('nextCursor')
+        if not cursor:
+            return rows
+        require(isinstance(cursor, str) and cursor not in seen, 'PAGINATION_CURSOR_INVALID')
+        seen.add(cursor)
+        query['cursor'] = cursor
+    raise ValueError('MACHINE_PAGE_LIMIT_EXCEEDED')
 
 
 def inspect(plan, client, *, execute=command):
@@ -44,22 +61,29 @@ def inspect(plan, client, *, execute=command):
         data = client.call('GET', '/api/v1/health/ready')['data']
         return {'status': data['status']}, data['status'] == 'UP'
     check('ready', ready)
-    for endpoint in ('ops/status', 'sensor-heartbeats', 'executor-heartbeats', 'health-windows'):
+    sensors = []
+    for endpoint in ('ops/status', 'sensor-heartbeats', 'executor-heartbeats'):
         def api(endpoint=endpoint):
-            data = client.request('GET', '/' + endpoint + '?assetId=' + asset + '&limit=200')
-            rows = data['items']
+            rows = machine_rows(client, endpoint, asset)
             if endpoint == 'ops/status':
                 return {'items': rows}, bool(rows) and all(r['status'] == 'active' for r in rows)
-            if endpoint == 'health-windows':
-                # 只判每个传感器最新窗口；历史不健康窗口仍在 API 可审查，不让旧失败永久污染巡检。
-                latest = {}
-                for row in rows:
-                    key = row['sensorId']
-                    if key not in latest or row['intervalEnd'] > latest[key]['intervalEnd']:
-                        latest[key] = row
-                rows = list(latest.values())
-            return {'items': rows}, bool(rows) and all(r['healthState'] == 'healthy' and r['freshness'] == 'fresh' for r in rows) and not data.get('nextCursor')
+            if endpoint == 'sensor-heartbeats':
+                sensors.extend(rows)
+            return {'items': rows}, bool(rows) and all(r['healthState'] == 'healthy' and r['freshness'] == 'fresh' for r in rows)
         check(endpoint, api)
+    def health():
+        # API 按 receivedAt 倒序；逐个传感器读取最新接收窗口，历史分页不代表当前异常。
+        # 身份来自完整心跳投影，避免繁忙传感器挤满首页后漏查另一个传感器。
+        rows = []
+        for sensor in sensors:
+            sensor_id = str(uuid.UUID(sensor['id']))
+            query = urlencode({'assetId': asset, 'sensorId': sensor_id, 'limit': 1})
+            data = client.request('GET', '/health-windows?' + query)
+            require(len(data['items']) == 1 and data['items'][0]['sensorId'] == sensor_id,
+                    'SENSOR_HEALTH_WINDOW_MISSING_OR_MISMATCHED')
+            rows.extend(data['items'])
+        return {'items': rows}, bool(rows) and all(r['healthState'] == 'healthy' and r['freshness'] == 'fresh' for r in rows)
+    check('health-windows', health)
     def pf():
         anchor = PF.anchor_root(str(uuid.UUID(plan['executorId'])))
         code, output = execute(['/sbin/pfctl', '-a', anchor + '/*', '-s', 'rules'])

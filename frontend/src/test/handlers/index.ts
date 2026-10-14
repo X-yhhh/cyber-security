@@ -6,8 +6,9 @@ import { setupServer } from 'msw/node'
 import { authHandlers } from './auth'
 import { detectHandlers } from './detect'
 import { summaryHandlers } from './summary'
+import { statsHandlers } from './stats'
 
-export const handlers = [...authHandlers, ...summaryHandlers, ...detectHandlers]
+export const handlers = [...authHandlers, ...summaryHandlers, ...detectHandlers, ...statsHandlers]
 
 export const server = setupServer(...handlers)
 

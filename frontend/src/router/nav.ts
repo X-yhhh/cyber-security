@@ -77,7 +77,7 @@ const Health = () => import('@/views/console/HealthView.vue')
  * 设为 ready 并指向新页面、删除自己承接的过渡行（legacy）、在 router/index.ts 为被合并的旧地址加重定向。
  */
 export const nav: readonly NavItem[] = [
-  { group: 'overview', key: 'live', title: '实时态势', en: 'Live', path: '/console/overview/live', anyOf: ['detection.read', 'action.read', 'ops.read'], component: null, ready: false, icon: Activity },
+  { group: 'overview', key: 'live', title: '实时态势', en: 'Live', path: '/console/overview/live', anyOf: ['detection.read', 'action.read', 'ops.read'], component: () => import('@/views/overview/LiveView.vue'), ready: true, icon: Activity },
   { group: 'overview', key: 'workbench', title: '待办中心', en: 'To-dos', path: '/console/workbench', anyOf: [], component: () => import('@/views/workbench/WorkbenchView.vue'), ready: true, icon: ListTodo },
   { group: 'detect', key: 'events', title: '事件研判', en: 'Events', path: '/console/detect/events', anyOf: ['detection.read'], component: Events, ready: true, icon: ShieldAlert },
   { group: 'detect', key: 'records', title: '检测记录', en: 'Records', path: '/console/detect/records', anyOf: ['detection.read'], component: null, ready: false, icon: ScanSearch },
@@ -123,6 +123,15 @@ export function visibleMenu(permissions: readonly string[] | undefined, items: r
   return groups
     .map((g) => ({ ...g, items: items.filter((i) => i.group === g.key && i.ready && allowed(i.anyOf, permissions)) }))
     .filter((g) => g.items.length > 0)
+}
+
+/**
+ * 登录后的默认落地页（权限设计第 7.1 节，任务单 F6）：持有 detection.read 或 ops.read 且实时态势已上线时进入实时态势，
+ * 其余进入待办中心。`/console` 空路径与登录跳转共用这一规则。
+ */
+export function landingRoute(permissions: readonly string[] | undefined): string {
+  const live = nav.find((i) => i.group === 'overview' && i.key === 'live')
+  return live?.ready && allowed(['detection.read', 'ops.read'], permissions) ? routeName(live) : 'workbench'
 }
 
 export const groupOf = (key: string | undefined) => groups.find((g) => g.key === key)

@@ -8,11 +8,13 @@
  * - 悬浮读数：指针悬停或聚焦后用左右方向键移动读数位置；另附读屏可用的数值表。
  * - `exportable` 时显示「导出 CSV」，点击触发 `export` 事件并带上 CSV 文本，由页面决定下载或复制。
  * - 颜色只来自固定调色板（chart.ts），按类别稳定分配；坐标轴与网格用发丝线，不加背景色块。
+ * - 序列可选 `area`（线下浅色填充，只填有数据的连续段）与 `dashed`（虚线，用于汇总线）；
+ *   `live` 时在每条线最后一个有数据的点上画脉冲圆点，提示这是持续刷新的数据。
  */
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { MAX_SERIES, chartPalette, niceMax, segments, toCsv, toneOf, type ChartTone } from './chart'
 
-export interface TrendSeries { key: string; name: string; tone?: ChartTone; points: readonly (number | null)[] }
+export interface TrendSeries { key: string; name: string; tone?: ChartTone; points: readonly (number | null)[]; area?: boolean; dashed?: boolean }
 export interface RankItem { key: string; name: string; value: number; tone?: ChartTone }
 
 const props = withDefaults(defineProps<{
@@ -27,6 +29,7 @@ const props = withDefaults(defineProps<{
   height?: number
   emptyText?: string
   exportable?: boolean
+  live?: boolean
 }>(), { kind: 'line', x: () => [], series: () => [], items: () => [], height: 180, emptyText: '该时段无数据' })
 const emit = defineEmits<{ export: [csv: string] }>()
 
@@ -77,6 +80,20 @@ const paths = computed(() => lines.value.map((s) => {
     d: segs.filter((g) => g.length > 1).map((g) => g.map(([i, v], k) => `${k ? 'L' : 'M'}${px(i).toFixed(1)} ${py(v).toFixed(1)}`).join(' ')).join(' '),
     /** 前后都无数据的孤立点画成小圆点，否则会因为没有线段而看不见。 */
     dots: segs.filter((g) => g.length === 1).map(([[i, v]]) => ({ i, cx: px(i), cy: py(v) })),
+    dashed: s.dashed,
+    /** 面积只覆盖连续有数据的段，断点处不填充。 */
+    area: s.area
+      ? segs.filter((g) => g.length > 1).map((g) => {
+        const base = py(0).toFixed(1)
+        const line = g.map(([i, v], k) => `${k ? 'L' : 'M'}${px(i).toFixed(1)} ${py(v).toFixed(1)}`).join(' ')
+        return `${line} L${px(g[g.length - 1][0]).toFixed(1)} ${base} L${px(g[0][0]).toFixed(1)} ${base} Z`
+      }).join(' ')
+      : '',
+    last: (() => {
+      const g = segs[segs.length - 1]
+      const p = g?.[g.length - 1]
+      return p ? { cx: px(p[0]), cy: py(p[1]) } : null
+    })(),
   }
 }))
 
@@ -120,7 +137,7 @@ function csv(): string {
   <figure class="min-w-0" :aria-label="title">
     <figcaption v-if="kind === 'line' || range || exportable" class="mb-3 flex flex-wrap items-center justify-between gap-x-6 gap-y-2 text-[12px] text-ink-3">
       <ul v-if="kind === 'line'" class="flex flex-wrap items-center gap-x-4 gap-y-1">
-        <li v-for="s in lines" :key="s.key" class="inline-flex items-center gap-1.5"><span class="h-0.5 w-3 rounded-full" :style="{ background: s.color }" />{{ s.name }}</li>
+        <li v-for="s in lines" :key="s.key" class="inline-flex items-center gap-1.5"><span class="h-0 w-3 border-t-2" :class="s.dashed ? 'border-dashed' : ''" :style="{ borderColor: s.color }" />{{ s.name }}</li>
       </ul>
       <span v-else>{{ title }}</span>
       <span class="flex items-center gap-4">
@@ -154,7 +171,12 @@ function csv(): string {
         </g>
         <g v-if="hasData">
           <template v-for="p in paths" :key="p.key">
-            <path v-if="p.d" :d="p.d" fill="none" :stroke="p.color" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round" data-series-path />
+            <path v-if="p.area" :d="p.area" :fill="p.color" fill-opacity="0.07" stroke="none" data-series-area />
+            <path v-if="p.d" :d="p.d" fill="none" :stroke="p.color" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round" :stroke-dasharray="p.dashed ? '4 3' : undefined" data-series-path />
+            <template v-if="live && p.last">
+              <circle :cx="p.last.cx" :cy="p.last.cy" r="6" :fill="p.color" fill-opacity="0.18" class="chart-pulse" />
+              <circle :cx="p.last.cx" :cy="p.last.cy" r="2.5" :fill="p.color" />
+            </template>
             <circle v-for="d in p.dots" :key="d.i" :cx="d.cx" :cy="d.cy" r="2" :fill="p.color" data-series-dot />
           </template>
         </g>

@@ -73,7 +73,8 @@ export const routes: RouteRecordRaw[] = [
     component: () => import('@/layouts/ConsoleLayout.vue'),
     meta: { shell },
     children: [
-      { path: '', redirect: { name: 'workbench' } },
+      // 空路径由守卫按权限改道到默认落地页（landingRoute），组件不会被挂载。
+      { path: '', name: 'console-home', component: NotFound, meta: { title: '控制台', shell } },
       ...navRoutes,
       ...detailRoutes,
       ...movedRoutes,

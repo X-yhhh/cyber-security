@@ -33,7 +33,7 @@ const shown = computed(() => props.stats.filter((s) => s.value !== undefined))
         <span class="truncate">{{ s.label }}</span>
       </p>
       <p v-if="typeof s.value === 'string'" class="num mt-3 text-[15px] leading-tight text-ink">{{ s.value }}</p>
-      <p v-else class="num mt-2 text-[1.75rem] font-light leading-none tracking-[-0.02em]" :class="s.value && s.tone ? toneText[s.tone] : 'text-ink'">{{ s.value ?? '—' }}</p>
+      <p v-else class="num mt-2 text-[1.75rem] font-light leading-none tracking-[-0.02em]" :class="s.value && s.tone ? toneText[s.tone] : 'text-ink'">{{ typeof s.value === 'number' ? s.value.toLocaleString('zh-CN') : '—' }}</p>
       <p v-if="s.hint" class="mt-2 truncate text-[11.5px] text-ink-4" :title="s.hint">{{ s.hint }}</p>
     </component>
   </section>

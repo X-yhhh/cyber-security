@@ -28,6 +28,7 @@ class DeployStartupCheckTest {
         file("signing.der", pair.getPrivate().getEncoded());
         file("trust.json", canonical(object("fixture", Base64.getEncoder().encodeToString(pair.getPublic().getEncoded()))).getBytes());
         file("protection.json", canonical(object("protectedBudgetTargetIds", List.of(), "protectedServicePorts", List.of(22))).getBytes());
+        file("index.html", "<html>fixture</html>".getBytes());
         file("tls.pem", "context-only-certificate".getBytes());
         file("tls.key", "context-only-key".getBytes());
         file("deployment.properties", "# fixture contains no credentials\n".getBytes());
@@ -36,6 +37,7 @@ class DeployStartupCheckTest {
             Files.setPosixFilePermissions(root.resolve(name), PosixFilePermissions.fromString("rwx------"));
         }
         variables = new LinkedHashMap<>(Map.ofEntries(
+                Map.entry("DEPLOY_WEB_ROOT", root.toString()),
                 Map.entry("DEPLOY_CONFIG_FILE", root.resolve("deployment.properties").toString()),
                 Map.entry("DEPLOY_DB_URL", "jdbc:mysql://127.0.0.1:3306/context_only"),
                 Map.entry("DEPLOY_DB_USERNAME", "fixture"), Map.entry("DEPLOY_DB_PASSWORD", "fixture-value"),
@@ -43,6 +45,7 @@ class DeployStartupCheckTest {
                 Map.entry("DEPLOY_SIGNING_KEY_ID", "fixture"), Map.entry("DEPLOY_SIGNING_KEY_FILE", root.resolve("signing.der").toString()),
                 Map.entry("DEPLOY_REPORT_TRUST_FILE", root.resolve("trust.json").toString()),
                 Map.entry("DEPLOY_PROTECTION_FILE", root.resolve("protection.json").toString()),
+                Map.entry("DEPLOY_TLS_CLIENT_CA", root.resolve("tls.pem").toString()),
                 Map.entry("DEPLOY_TLS_CERTIFICATE", root.resolve("tls.pem").toString()),
                 Map.entry("DEPLOY_TLS_KEY", root.resolve("tls.key").toString()),
                 Map.entry("DEPLOY_ARTIFACT_ROOT", root.resolve("artifacts").toString()),

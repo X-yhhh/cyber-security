@@ -12,6 +12,8 @@ server:
   port: ${DEPLOY_SERVER_PORT:18080}
   ssl:
     enabled: true
+    client-auth: want
+    trust-certificate: ${DEPLOY_TLS_CLIENT_CA}
     certificate: ${DEPLOY_TLS_CERTIFICATE}
     certificate-private-key: ${DEPLOY_TLS_KEY}
     enabled-protocols: TLSv1.3
@@ -42,6 +44,7 @@ cyber:
     artifact-root: ${DEPLOY_ARTIFACT_ROOT}
     queue-prefix: ${DEPLOY_QUEUE_PREFIX}
     deploy:
+      web-root: ${DEPLOY_WEB_ROOT}
       config-file: ${DEPLOY_CONFIG_FILE}
       ledger-root: ${DEPLOY_LEDGER_ROOT}
   ingest:

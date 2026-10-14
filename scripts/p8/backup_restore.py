@@ -13,6 +13,11 @@ from scripts.p7.j1_run import stamp
 
 
 def main(args):
+    if args.schedule:
+        print("建议：每次发布切换前及批准的每日维护窗口运行本脚本；必须停写且业务库无人连接。"
+              "只生成说明，不安装 launchd/cron。保留最近 7 次及每次发布前备份；删除与实际恢复须单独授权。"
+              "检查 result.json passed=true、temporarySchemaDeleted=true 和两份 SQL 的 SHA256。")
+        return
     os.umask(0o077)
     db = Database(args.mysql_service)
     require(int(db.query("SELECT COUNT(*) FROM information_schema.PROCESSLIST WHERE DB='cyber_security' AND ID<>CONNECTION_ID()")) == 0,
@@ -35,6 +40,7 @@ def main(args):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--schedule', action='store_true', help='只显示备份调度与保留建议，不取密、不连接数据库')
     parser.add_argument('--mysql-service', type=Path, default=HOME / 'development/services/databases/mysql-server-8.0.42')
     try:
         main(parser.parse_args())

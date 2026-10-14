@@ -51,7 +51,7 @@ async function submit() {
   try {
     await login(username.value.trim(), password.value)
     password.value = ''
-    const to = typeof route.query.redirect === 'string' && route.query.redirect.startsWith('/console') ? route.query.redirect : '/console'
+    const to = typeof route.query.redirect === 'string' && route.query.redirect.startsWith('/console') ? route.query.redirect : '/console/workbench'
     router.push(to)
   } catch (e) {
     error.value = e instanceof ApiError ? e.message : '登录失败，请稍后重试。'

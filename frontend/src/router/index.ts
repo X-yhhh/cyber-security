@@ -1,66 +1,98 @@
-import { loadSession, session } from '@/api/session'
 import { setUnauthorizedHandler } from '@/api/client'
-import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
+import { session } from '@/api/session'
+import { createRouter, createWebHistory, type RouteRecordRaw, type RouterHistory } from 'vue-router'
+import { installGuards } from './guards'
+import { details, nav, routeName, type GroupKey } from './nav'
 
-/**
- * 路由按功能模块划分（docs/功能模块设计.md §2），不再细拆子页面：
- * 同一模块内的子视图用页内分段切换，详情用抽屉或独立详情页。
- */
-export const modules = [
-  { path: 'overview', name: 'overview', title: '态势', en: 'Overview', component: () => import('@/views/console/OverviewView.vue') },
-  { path: 'events', name: 'events', title: '告警与事件', en: 'Detection', component: () => import('@/views/console/EventsView.vue') },
-  { path: 'response', name: 'response', title: '受控响应', en: 'Response', component: () => import('@/views/console/ResponseView.vue') },
-  { path: 'models', name: 'models', title: '模型治理', en: 'Models', component: () => import('@/views/console/ModelsView.vue') },
-  { path: 'assets', name: 'assets', title: '资产与传感器', en: 'Assets', component: () => import('@/views/console/AssetsView.vue') },
-  { path: 'sources', name: 'sources', title: '数据源与回放', en: 'Sources', component: () => import('@/views/console/SourcesView.vue') },
-  { path: 'audit', name: 'audit', title: '审计', en: 'Audit', component: () => import('@/views/console/AuditView.vue') },
-  { path: 'iam', name: 'iam', title: '身份与角色', en: 'Identity', component: () => import('@/views/console/IamView.vue') },
-  // host-guard v5（P4）新增：观测与推理、策略与发布、执行与预算三条 v2 链路。
-  { path: 'observation', name: 'observation', title: '观测与目标', en: 'Observation', component: () => import('@/views/console/ObservationView.vue') },
-  { path: 'release', name: 'release', title: '策略与发布', en: 'Release', component: () => import('@/views/console/ReleaseView.vue') },
-  { path: 'execution', name: 'execution', title: '执行与预算', en: 'Execution', component: () => import('@/views/console/ExecutionView.vue') },
-  // 演示最小集（FE-1—FE-3）：来源 × 类别判定、lab 验证与 G3 报告、健康与审计，全部只读。
-  { path: 'decisions', name: 'decisions', title: '判定与来源', en: 'Decisions', component: () => import('@/views/console/DecisionsView.vue') },
-  { path: 'lab', name: 'lab', title: 'lab 验证与 G3', en: 'Lab', component: () => import('@/views/console/LabView.vue') },
-  { path: 'health', name: 'health', title: '健康与审计', en: 'Health', component: () => import('@/views/console/HealthView.vue') },
-] as const
+declare module 'vue-router' {
+  interface RouteMeta {
+    title?: string
+    shell?: 'console'
+    /** 与会话权限有交集才放行；缺省或空数组表示登录即可。 */
+    anyOf?: readonly string[]
+    group?: GroupKey
+    item?: string
+    /** 详情页的 ID 参数名，用于面包屑第三段。 */
+    detail?: string
+  }
+}
 
-const routes: RouteRecordRaw[] = [
+const shell = 'console' as const
+
+/** 二级菜单路由：只注册 ready 的项（权限设计第 7.2 节）。 */
+const navRoutes: RouteRecordRaw[] = nav
+  .filter((i) => i.ready && i.component)
+  .map((i) => ({
+    path: i.path,
+    name: routeName(i),
+    component: i.component!,
+    props: i.segment ? { segment: i.segment } : false,
+    meta: { title: i.title, shell, anyOf: i.anyOf, group: i.group, item: i.key },
+  }))
+
+/** 详情整页随所属二级项注册，沿用其 anyOf。 */
+const detailRoutes: RouteRecordRaw[] = details.flatMap((d) => {
+  const parent = nav.find((i) => i.group === d.group && i.key === d.item)
+  if (!parent?.ready || !d.component) return []
+  return [{ path: d.path, name: d.name, component: d.component, meta: { title: d.title, shell, anyOf: parent.anyOf, group: d.group, item: d.item, detail: 'id' } }]
+})
+
+/** 迁入新位置的 09—14 旧地址保留重定向一个版本；保留旧路由名，页面内既有链接无需改动。 */
+const movedRoutes: RouteRecordRaw[] = [
+  { path: 'observation', name: 'observation', redirect: '/console/detect/observations' },
+  { path: 'decisions', name: 'decisions', redirect: '/console/detect/decisions' },
+  { path: 'release', name: 'release', redirect: '/console/release/bundles' },
+  { path: 'execution', name: 'execution', redirect: '/console/response/actions' },
+  { path: 'lab', name: 'lab', redirect: '/console/release/lab' },
+  { path: 'lab/:id', name: 'lab-detail', redirect: (to) => `/console/release/lab/${encodeURIComponent(String(to.params.id))}` },
+  { path: 'health', name: 'health', redirect: '/console/ops/health' },
+]
+
+/** v1 页面不进菜单，地址暂时保留，到 C1 删除（权限设计第 9.3 节）。 */
+const legacyRoutes: RouteRecordRaw[] = [
+  { path: 'overview', name: 'overview', component: () => import('@/views/console/OverviewView.vue'), meta: { title: '态势', shell } },
+  { path: 'events', name: 'events', component: () => import('@/views/console/EventsView.vue'), meta: { title: '告警与事件', shell } },
+  { path: 'events/:id', name: 'event-detail', component: () => import('@/views/console/EventDetailView.vue'), meta: { title: '事件详情', shell, detail: 'id' } },
+  { path: 'response', name: 'response', component: () => import('@/views/console/ResponseView.vue'), meta: { title: '受控响应', shell } },
+  { path: 'models', name: 'models', component: () => import('@/views/console/ModelsView.vue'), meta: { title: '模型治理', shell } },
+  { path: 'assets', name: 'assets', component: () => import('@/views/console/AssetsView.vue'), meta: { title: '资产与传感器', shell } },
+  { path: 'sources', name: 'sources', component: () => import('@/views/console/SourcesView.vue'), meta: { title: '数据源与回放', shell } },
+  { path: 'audit', name: 'audit', component: () => import('@/views/console/AuditView.vue'), meta: { title: '审计', shell } },
+  { path: 'iam', name: 'iam', component: () => import('@/views/console/IamView.vue'), meta: { title: '身份与角色', shell } },
+]
+
+const NotFound = () => import('@/views/system/NotFoundView.vue')
+
+export const routes: RouteRecordRaw[] = [
   { path: '/', name: 'landing', component: () => import('@/views/LandingView.vue'), meta: { title: '概览' } },
   { path: '/login', name: 'login', component: () => import('@/views/LoginView.vue'), meta: { title: '登录' } },
   {
     path: '/console',
     component: () => import('@/layouts/ConsoleLayout.vue'),
-    meta: { shell: 'console' },
-    redirect: { name: 'overview' },
+    meta: { shell },
     children: [
-      ...modules.map((m) => ({ path: m.path, name: m.name, component: m.component, meta: { title: m.title, shell: 'console' } })),
-      { path: 'events/:id', name: 'event-detail', component: () => import('@/views/console/EventDetailView.vue'), meta: { title: '事件详情', shell: 'console', parent: 'events' } },
-      { path: 'lab/:id', name: 'lab-detail', component: () => import('@/views/console/LabRunDetailView.vue'), meta: { title: 'lab 会话详情', shell: 'console', parent: 'lab' } },
+      { path: '', redirect: { name: 'workbench' } },
+      ...navRoutes,
+      ...detailRoutes,
+      ...movedRoutes,
+      ...legacyRoutes,
+      // 未知地址 404；守卫把无权限地址按名称改道到 403，两者同模式，按地址匹配时 404 在前。
+      { path: ':pathMatch(.*)*', name: 'console-not-found', component: NotFound, meta: { title: '页面不存在', shell } },
+      { path: ':pathMatch(.*)*', name: 'console-forbidden', component: () => import('@/views/system/ForbiddenView.vue'), meta: { title: '无权访问', shell } },
     ],
   },
-  { path: '/:pathMatch(.*)*', redirect: '/' },
+  { path: '/:pathMatch(.*)*', name: 'not-found', component: NotFound, meta: { title: '页面不存在' } },
 ]
 
-export const router = createRouter({
-  history: createWebHistory(),
-  routes,
-  scrollBehavior: (_to, _from, saved) => saved ?? { top: 0 },
-})
+export function createAppRouter(history: RouterHistory = createWebHistory()) {
+  const router = createRouter({ history, routes, scrollBehavior: (_to, _from, saved) => saved ?? { top: 0 } })
+  installGuards(router)
+  return router
+}
 
-/** 控制台路由要求有效会话；会话以 /auth/me 为准，首次进入时加载一次。 */
-router.beforeEach(async (to) => {
-  if (to.matched.some((r) => r.meta.shell === 'console')) {
-    if (!session.checked || !session.user) await loadSession()
-    if (!session.user) return { name: 'login', query: { redirect: to.fullPath } }
-  }
-})
+export const router = createAppRouter()
 
 setUnauthorizedHandler(() => {
   session.user = null
   if (router.currentRoute.value.name !== 'login') router.push({ name: 'login', query: { redirect: router.currentRoute.value.fullPath } })
-})
-
-router.afterEach((to) => {
-  document.title = `${to.meta.title ?? ''} · Sentinel`
 })

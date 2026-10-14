@@ -35,7 +35,9 @@ import { actionStateTone, identityTone, statusTone } from '@/data/tones'
 import { toast } from '@/composables/toast'
 
 type View = 'actions' | 'budgets'
-const view = ref<View>('actions')
+/** 两级菜单（FE-9）按二级项指定初始分段；F1—F4 拆分本页后删除。 */
+const props = defineProps<{ segment?: View }>()
+const view = ref<View>(props.segment ?? 'actions')
 
 /** v2 游标分页：不返回总数，游标栈支持回退。 */
 function useCursor<T>(load: (cursor?: string) => Promise<{ items: T[]; nextCursor: string | null }>) {

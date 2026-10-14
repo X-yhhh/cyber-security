@@ -163,6 +163,17 @@ class Rabbit:
 
 
 class Formal(lab_run.Runner):
+    # 子类可缩短演示窗口；正式 G3 默认值保持冻结时的两小时，不改变原流程。
+    authorization_minutes = 120
+    authorization_backdate_seconds = 30
+    formal_g3_eligible = True
+    human_session = j1_run.Session
+    csrf_path = '/api/v1/auth/csrf'
+    session_timeout_seconds = 7200
+
+    def scenario_rows(self):
+        return freeze_scenarios(self.source, self.artifacts)
+
     def __init__(self, args):
         validate_arguments(args)
         super().__init__(args)
@@ -172,7 +183,7 @@ class Formal(lab_run.Runner):
         self.rabbit_created = False
         self.root_dir = None
         self.state.update(schemaName=self.schema, mode='pf-' + args.target, evidenceKind='lab',
-                          formalG3Eligible=not args.admission_probe, realPF=not args.admission_probe,
+                          formalG3Eligible=not args.admission_probe and self.formal_g3_eligible, realPF=not args.admission_probe,
                           gateRehearsal=args.gate_rehearsal, sourceSchema=args.source_schema, rabbitVhost=self.rabbit.name)
 
     # ---- 准备 ----
@@ -242,15 +253,15 @@ class Formal(lab_run.Runner):
         for _ in range(120):
             require(self.backend.poll() is None, 'LAB_BACKEND_EXITED')
             try:
-                urllib.request.urlopen(self.base + '/api/v1/auth/csrf', context=self.context, timeout=2).close()
+                urllib.request.urlopen(self.base + self.csrf_path, context=self.context, timeout=2).close()
                 break
             except OSError:
                 time.sleep(1)
         else:
             raise ValueError('LAB_BACKEND_TIMEOUT')
-        self.op = j1_run.Session(self.base, self.context).login(load(self.work / 'private/isolated-operator.json'))
+        self.op = self.human_session(self.base, self.context).login(load(self.work / 'private/isolated-operator.json'))
         reviewer = load(self.args.reviewer_file)
-        self.rev = j1_run.Session(self.base, self.context).login({'username': reviewer.get('username', 'guard-reviewer'), 'password': reviewer['password']})
+        self.rev = self.human_session(self.base, self.context).login({'username': reviewer.get('username', 'guard-reviewer'), 'password': reviewer['password']})
 
     def prepare_bundle(self):
         """核对指定组合与报告的绑定；非 r4 必须提供自身 final，不能重贴旧报告标签。"""
@@ -318,7 +329,7 @@ class Formal(lab_run.Runner):
     def prepare_identities(self):
         base = datetime.now(UTC)
         base = base.replace(microsecond=(base.microsecond // 1000) * 1000)
-        self.valid_from, self.valid_until = base - timedelta(seconds=30), base + timedelta(hours=2)
+        self.valid_from, self.valid_until = base - timedelta(seconds=self.authorization_backdate_seconds), base + timedelta(minutes=self.authorization_minutes)
         self.asset = self.op.v2('/assets', dict(assetKey=self.work.name, platform='macos', environment='lab', owner='A6 G3 loopback lab (lo0)'))['id']
         self.boot, self.scope = uid(), uid()
         sensor = self.op.v2('/sensors', dict(assetId=self.asset, platform='macos', captureScopeId=self.scope))
@@ -346,7 +357,7 @@ class Formal(lab_run.Runner):
                           validFrom=self.valid_from.isoformat().replace('+00:00', 'Z'), validUntil=self.valid_until.isoformat().replace('+00:00', 'Z'),
                           evidenceRef=str(self.artifact_dir.relative_to(self.artifacts)) + '/source.json'))
         self.auth = auth['id']
-        approved = self.rev.v2('/authorizations/' + self.auth + '/decisions', dict(decision='approve', reason='A6 G3：本机回环 lab 资产，两小时'), 1)
+        approved = self.rev.v2('/authorizations/' + self.auth + '/decisions', dict(decision='approve', reason='本机回环 lab 独立批准，窗口不超过 %s 分钟' % self.authorization_minutes), 1)
         self.auth_revision = approved['revision']
         view = self.op.v2('/release-bundles/' + self.bundle, method='GET')
         activation = self.rev.v2('/release-bundles/' + self.bundle + '/activations', dict(assetIds=[self.asset], authorizationIds=[self.auth]), view['revision'])
@@ -499,7 +510,7 @@ class Formal(lab_run.Runner):
         manifest = dict(contractVersion=VERSION, sessionId=self.state['sessionId'], assetId=self.asset, bundleId=self.bundle, authorizationId=self.auth,
                         authorizationRevision=self.auth_revision, environment='lab', runnerIdentity=self.runner_name, evidenceKind='lab',
                         validFrom=self.valid_from.isoformat().replace('+00:00', 'Z'), validUntil=self.valid_until.isoformat().replace('+00:00', 'Z'),
-                        timeoutSeconds=7200, protocolVersions=self.versions, subjectSha256=self.subject_sha, evaluationPlanSha256=self.plan_sha,
+                        timeoutSeconds=self.session_timeout_seconds, protocolVersions=self.versions, subjectSha256=self.subject_sha, evaluationPlanSha256=self.plan_sha,
                         sensorId=self.sensor, bootId=self.boot, executorId=self.executor, executorBootId=self.executor_boot,
                         mappingRef=str(mapping_file.relative_to(self.artifacts)), mappingSha256=sha(mapping_file), mappingId=mapping_id,
                         scenarioRef=str(scenario_file.relative_to(self.artifacts)), scenarioSha256=sha(scenario_file), provenance=self.provenance, time=clock, speed=1)
@@ -543,7 +554,7 @@ class Formal(lab_run.Runner):
         approved = self.rev.v2('/lab-validation-runs/' + manifest['sessionId'] + '/decisions', dict(decision='approve', reason='A6 G3 正式会话（J3/J4）'), create['revision'])
         self.op.v2('/lab-validation-runs/' + manifest['sessionId'] + '/starts', {}, approved['revision'])
         write(self.work / 'runtime.json', dict(realBackend=True, realSensor=True, realPF=not self.args.admission_probe,
-                                               formalG3Eligible=not self.args.admission_probe, gateRehearsal=self.args.gate_rehearsal,
+                                               formalG3Eligible=not self.args.admission_probe and self.formal_g3_eligible, gateRehearsal=self.args.gate_rehearsal,
                                                automationEnabled=True, target=self.target,
                                                modelSha256=self.provenance['modelSha256'], speed=1, backendSha256=sha(self.work / 'bin/backend.jar'),
                                                sensorSha256=sha(self.work / 'bin/guardlive'), guardtargetsSha256=sha(self.work / 'bin/guardtargets'),
@@ -655,7 +666,7 @@ class Formal(lab_run.Runner):
         self.work.mkdir(parents=True, mode=0o700)
         (self.work / 'private').mkdir(mode=0o700)
         self.source = load(self.args.scenario)
-        self.rows = freeze_scenarios(self.source, self.artifacts)
+        self.rows = self.scenario_rows()
         write(self.work / 'frozen-source.json', self.source)
         write(self.work / 'frozen-scenarios.json', self.rows)
         self.artifact_dir = self.artifacts / 'g3' / self.work.name

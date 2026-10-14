@@ -51,6 +51,7 @@ public final class DeployStartupCheck implements BeanFactoryPostProcessor, Prior
             if (!Set.of(env.getActiveProfiles()).equals(Set.of("deploy"))) throw failure("PROFILE_CONFLICT");
             expect(env, "server.address", "127.0.0.1");
             expect(env, "server.ssl.enabled", "true");
+            expect(env, "server.ssl.client-auth", "want");
             expect(env, "server.ssl.enabled-protocols", "TLSv1.3");
             expect(env, "server.servlet.session.cookie.secure", "true");
             expect(env, "cyber.guard.automation-enabled", "false");
@@ -76,10 +77,11 @@ public final class DeployStartupCheck implements BeanFactoryPostProcessor, Prior
                 if (!setting(env, property).matches("[A-Za-z0-9][A-Za-z0-9_.-]{0,180}"))
                     throw failure("QUEUE_REFERENCE_INVALID");
 
+            com.xyh.cybersecurity.web.DeployWebConfiguration.verify(setting(env, "cyber.guard.deploy.web-root"));
             var paths = new LinkedHashMap<String, Path>();
             for (var entry : Map.of("config", "cyber.guard.deploy.config-file", "signing", "cyber.guard.signing-key-file",
                     "trust", "cyber.guard.report-trust-file", "protection", "cyber.guard.protection-file",
-                    "certificate", "server.ssl.certificate", "tlsKey", "server.ssl.certificate-private-key").entrySet()) {
+                    "clientCA", "server.ssl.trust-certificate", "certificate", "server.ssl.certificate", "tlsKey", "server.ssl.certificate-private-key").entrySet()) {
                 Path path = absolute(setting(env, entry.getValue()));
                 verifyPath(path.getParent(), true, owner);
                 verifyPath(path, false, owner);

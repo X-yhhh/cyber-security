@@ -63,6 +63,7 @@ class GuardIntegrationTest {
     }
     static final String TEST_PASSWORD="isolated-test-password";
     @Autowired MockMvc mvc;@Autowired JdbcTemplate jdbc;@Autowired GuardDetection detection;@Autowired GuardStore store;@Autowired GuardContracts contracts;@Autowired GuardBudget budget;@Autowired GuardModelRuntime runtime;@Autowired PlatformTransactionManager manager;@Autowired PasswordEncoder passwordEncoder;
+    @Autowired GuardMapper guardMapper;@Autowired GuardHealth guardHealth;@Autowired GuardActions guardActions;@Autowired GuardCases guardCases;@Autowired GuardLabExecutionGate labExecutionGate;
     IdentityPrincipal operator,reviewer;
     @BeforeEach void identities(){operator=identity("operator",List.of("platform_admin","model_operator","security_analyst"));reviewer=identity("reviewer",List.of("security_reviewer"));}
     IdentityPrincipal identity(String suffix,List<String> roles){String key=id(),username=suffix+"-"+key;jdbc.update("INSERT INTO sys_user(user_key,username,display_name,password_hash,status) VALUES (?,?,?,?, 'active')",key,username,"隔离测试身份",passwordEncoder.encode(TEST_PASSWORD));Long uid=jdbc.queryForObject("SELECT id FROM sys_user WHERE user_key=?",Long.class,key);for(String role:roles)jdbc.update("INSERT INTO sys_user_role(user_id,role_id,scope_type,scope_id) SELECT ?,id,'global','*' FROM sys_role WHERE role_key=?",uid,role);return new IdentityPrincipal(uid,key,username,"隔离测试身份","test-only-no-login","active",roles,List.of());}
@@ -99,9 +100,17 @@ class GuardIntegrationTest {
     /** exempt=true 时登记带签名豁免报告的 macOS PF 全入站能力（B1.2），其余步骤与普通夹具相同。 */
     Fixture setup(String family,List<JsonNode> rules,boolean exempt)throws Exception{return setup(family,rules,exempt,100);}
     Fixture setup(String family,List<JsonNode> rules,boolean exempt,int maxBatchSize)throws Exception{
+        return setup(family,rules,exempt,maxBatchSize,"auto","lab");
+    }
+    /** 只告警夹具也经真实登记、签名报告、封存和独立审批；仅隔离 schema 内生效。 */
+    Fixture setup(String family,List<JsonNode> rules,boolean exempt,int maxBatchSize,String mode,String environment)throws Exception{
+        return setup(family,rules,exempt,maxBatchSize,mode,environment,true);
+    }
+    /** closeSources=false 只供模式门反例：保留高分和来源自动资格，避免前置关闭门掩盖 alert_only 授权门。 */
+    Fixture setup(String family,List<JsonNode> rules,boolean exempt,int maxBatchSize,String mode,String environment,boolean closeSources)throws Exception{
         boolean scan=family.equals("port_scan");String direction=fixtureDirection(scan);
         String folder=id();Path dir=ROOT.resolve(folder);Files.createDirectories(dir);
-        String asset=human("/assets",object("assetKey",id(),"platform","macos","environment","lab","owner","isolated-p4-test"),operator,null).path("id").asText();
+        String asset=human("/assets",object("assetKey",id(),"platform","macos","environment",environment,"owner","isolated-p4-test"),operator,null).path("id").asText();
         ObjectNode cap=object("capabilityKey",id(),"version","fixture-v1","platform","macos","adapterVersion",fixtureAdapterVersion(),"addressFamily","ipv4","transport","tcp","direction",direction,"family",family,"profile","flow-prefix-v1","behaviorScope",List.of("slowloris","slowhttptest"),"latencyLimits",object("maxMs",10000),"level","lab_auto");
         if(exempt){write(dir,"exemption.json",GuardSignatures.sign(object("passed",true,"scope","peer_inbound","platform","macos-pf","protectionSetSha256",hash(PROTECTION)),"fixture-runner",signing.getPrivate()));
             cap.put("scope","peer_inbound").put("protectionSetSha256",hash(PROTECTION)).put("exemptionEvidenceSha256",sha(Files.readAllBytes(dir.resolve("exemption.json"))));}
@@ -125,9 +134,15 @@ class GuardIntegrationTest {
         for(var pair:Map.of("artifactSha256","model.onnx","preprocessingSha256","preprocessing.json","calibrationSha256","calibration.json").entrySet())manifest.put(pair.getKey(),sha(Files.readAllBytes(dir.resolve(pair.getValue()))));((ObjectNode)manifest.get("runtime")).put("runtimeVersion","1.23.2");write(dir,"manifest.json",manifest);
         human("/models",object("manifestRef",folder+"/manifest.json","manifestSha256",sha(Files.readAllBytes(dir.resolve("manifest.json")))),operator,null);assertThat(human("/models/"+model+"/validations",object("validationProfileId","host-guard-onnx-v1"),operator,null).path("status").asText()).isEqualTo("validated");
         ObjectNode policy=(ObjectNode)GuardDomainTest.example("decision-policy");String pid=id();policy.put("policyId",pid).put("modelId",model).put("policyVersion",folder).put("mode","auto").put("minDistinctFlows",1).put("minEvidenceSpanMs",0).put("protectionSetSha256",hash(PROTECTION)).put("evaluationPlanSha256",registeredPlan.path("planSha256").asText());policy.put("family",family);for(var fp:policy.path("familyPolicies"))if(fp.path("family").asText().equals(family))((ObjectNode)fp).put("autoEligible",true).put("modelAutoEligible",true).put("minDistinctFlows",scan?2:1);
-        policy.set("rulePolicies",node(rules));policy.set("supportedCapabilityIds",node(List.of(capability)));human("/decision-policies",policy,operator,null);human("/decision-policies/"+pid+"/reviews",object("decision","approve","reason","隔离测试策略"),reviewer,"1");
-        JsonNode bundle=human("/release-bundles",object("modelId",model,"policyId",pid,"featureProfileSha256",contracts.profileHash(),"extractorSha256",manifest.get("extractorSha256"),"protocolVersions",versions(),"evaluationPlanId",registeredPlan.get("id"),"capabilityIds",List.of(capability),"environment","lab"),operator,null);String bid=bundle.path("id").asText();var evaluationIds=new ArrayList<String>();
-        for(String kind:List.of("final","platform","canary")){write(dir,kind+".json",GuardSignatures.sign(object("protocolVersions",versions(),"subjectSha256",bundle.get("subjectSha256"),"evaluationPlanSha256",registeredPlan.get("planSha256"),"runKind",kind,"passed",true),"fixture-runner",signing.getPrivate()));evaluationIds.add(human("/release-bundles/"+bid+"/imports",object("reportRef",folder+"/"+kind+".json","sha256",sha(Files.readAllBytes(dir.resolve(kind+".json"))),"runnerIdentity","fixture-runner"),operator,null).path("id").asText());}
+        policy.set("rulePolicies",node(rules));policy.set("supportedCapabilityIds",node(List.of(capability)));
+        policy.put("mode",mode);
+        if(mode.equals("alert_only")&&closeSources) {
+            for(var fp:policy.path("familyPolicies"))((ObjectNode)fp).put("autoEligible",false).put("modelAutoEligible",false);
+            for(var rp:policy.path("rulePolicies"))((ObjectNode)rp).put("autoEligible",false);
+        }
+        human("/decision-policies",policy,operator,null);human("/decision-policies/"+pid+"/reviews",object("decision","approve","reason","隔离测试策略"),reviewer,"1");
+        JsonNode bundle=human("/release-bundles",object("modelId",model,"policyId",pid,"featureProfileSha256",contracts.profileHash(),"extractorSha256",manifest.get("extractorSha256"),"protocolVersions",versions(),"evaluationPlanId",registeredPlan.get("id"),"capabilityIds",List.of(capability),"environment",environment),operator,null);String bid=bundle.path("id").asText();var evaluationIds=new ArrayList<String>();
+        for(String kind:mode.equals("alert_only")?List.of("final"):List.of("final","platform","canary")){write(dir,kind+".json",GuardSignatures.sign(object("protocolVersions",versions(),"subjectSha256",bundle.get("subjectSha256"),"evaluationPlanSha256",registeredPlan.get("planSha256"),"runKind",kind,"passed",true),"fixture-runner",signing.getPrivate()));evaluationIds.add(human("/release-bundles/"+bid+"/imports",object("reportRef",folder+"/"+kind+".json","sha256",sha(Files.readAllBytes(dir.resolve(kind+".json"))),"runnerIdentity","fixture-runner"),operator,null).path("id").asText());}
         human("/release-bundles/"+bid+"/sealings",object("evaluationIds",evaluationIds),operator,"1");human("/release-bundles/"+bid+"/decisions",object("decision","approve","reason","隔离固定夹具批准"),reviewer,"2");human("/release-bundles/"+bid+"/activations",object("assetIds",List.of(asset),"authorizationIds",List.of(auth)),reviewer,"3");
         // 执行器按本机登记上报能力集合摘要；控制面领取时按 guard_capability 独立重算（B1.4）。
         JsonNode item=exempt?object("capabilityId",capability,"scope","peer_inbound","protectionSetSha256",hash(PROTECTION),"protectedPortsSha256",GuardEligibility.protectedPortsSha256(PROTECTION.get("protectedServicePorts")))
@@ -139,6 +154,67 @@ class GuardIntegrationTest {
         var h=GuardDomainTest.health(Instant.now().truncatedTo(ChronoUnit.MICROS),1,null);h.put("assetId",asset).put("sensorId",f.sensor).put("captureScopeId",scope).put("configSha256",hash(config));machine("/sensors/"+f.sensor+"/health-windows",h,f.sensorCredential);return f;
     }
     JsonNode targetBody(String eid,String sensor,String scope,String boot,String eboot,String target,String token){return object("bindingId",id(),"executorBootId",eboot,"sensorId",sensor,"collectorBootId",boot,"captureScopeId",scope,"targetRef",target,"peerKey","d".repeat(64),"keyEpoch",1,"direction","outbound","transport","tcp","servicePort",443,"addressFamily","ipv4","stableTargetToken",token,"scopeDigest",sha(token.getBytes()),"expiresAt",Instant.now().plusSeconds(14).truncatedTo(ChronoUnit.MICROS).toString());}
+
+    /** BE-15：final 单报告组合可独立批准、激活；自动化开启时仍仅告警，不产生动作或命令。 */
+    @ParameterizedTest @ValueSource(strings={"authorized","lab"})
+    void alertOnlyFinalBundleActivatesWithoutAutomaticActions(String environment)throws Exception {
+        Fixture f=setup("dos_slow",List.of(),false,100,"alert_only",environment);
+        var bundle=store.external("guard_release_bundle",f.bundle(),false);
+        assertThat(str(bundle,"status")).isEqualTo("active");
+        assertThat(json(bundle,"sealed_manifest_json").path("reports")).hasSize(1);
+        Instant at=Instant.now().truncatedTo(ChronoUnit.MICROS);
+        accept(f,List.of(observation(f,at,id(),0).put("environment",environment)),1,true);
+        var asset=store.external("asset",f.asset(),false);
+        var decisions=store.rows("guard_decision",map("asset_id",asset.get("id")),false,20);
+        assertThat(decisions).isNotEmpty().allSatisfy(d->assertThat(str(d,"decision")).isEqualTo("alert"));
+        assertThat(store.rows("guard_action",map("asset_id",asset.get("id")),false,20)).isEmpty();
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM guard_command c JOIN guard_action a ON a.id=c.action_id WHERE a.asset_id=?",Long.class,
+                asset.get("id"))).isZero();
+    }
+
+    /** BE-14d：同一生产服务构造和真实事务分别注入自动化开/关；authorized 只告警且人工入口也不能产生动作。 */
+    @ParameterizedTest @ValueSource(booleans={true,false})
+    void authorizedAlertOnlyRejectsManualActionAndExposesNoCapabilities(boolean automation)throws Exception {
+        Fixture f=setup("dos_slow",List.of(),false,100,"alert_only","authorized");
+        GuardEligibility gate=deploymentEligibility(automation);
+        acceptForDeployment(f,gate,"authorized");
+        assertAlertOnly(f,"CAPABILITY_NOT_SUPPORTED",gate);
+    }
+
+    /** BE-14d 独立模式门：lab 能力、质量、目标及高分来源可通过，只能由 alert_only 的授权门拒绝。 */
+    @Test void labAlertOnlyModeAloneRejectsExecution()throws Exception {
+        Fixture f=setup("dos_slow",List.of(),false,100,"alert_only","lab",false);
+        GuardEligibility gate=deploymentEligibility(true);
+        acceptForDeployment(f,gate,"lab");
+        assertAlertOnly(f,"AUTHORIZATION_INACTIVE",gate);
+    }
+
+    GuardEligibility deploymentEligibility(boolean automation) {
+        var gate=new GuardEligibility(store,automation,ROOT.resolve("protection.json").toString());
+        gate.labGate(labExecutionGate);return gate;
+    }
+    void acceptForDeployment(Fixture f,GuardEligibility gate,String environment)throws Exception {
+        var request=batch(f,List.of(observation(f,Instant.now().truncatedTo(ChronoUnit.MICROS),id(),0).put("environment",environment)),1);
+        machine("/sensors/"+f.sensor()+"/observation-batches",request,f.sensorCredential());
+        var service=new GuardDetection(store,guardMapper,runtime,budget,guardHealth,gate,guardActions,guardCases);
+        new TransactionTemplate(manager).executeWithoutResult(tx->service.consume(id(),"guard.observation.accepted",object("batchId",request.get("batchId"))));
+    }
+    void assertAlertOnly(Fixture f,String reason,GuardEligibility gate)throws Exception {
+        var asset=store.external("asset",f.asset(),false);
+        var decisions=store.rows("guard_decision",map("asset_id",asset.get("id")),false,20).stream().filter(d->{
+            var e=store.get("guard_episode",number(d,"episode_id"));return "dos_slow".equals(str(e,"family"))&&"model".equals(str(e,"source"));}).toList();
+        assertThat(decisions).isNotEmpty().allSatisfy(d->{assertThat(str(d,"decision")).isEqualTo("alert");assertThat(str(d,"reason_code")).isEqualTo(reason);});
+        var episode=store.get("guard_episode",number(decisions.getFirst(),"episode_id"));
+        assertThat(rejectedHuman("/actions",object("episodeId",episode.get("public_id"),"targetRef",f.target(),"policyId",f.policy(),"reason","隔离只告警人工入口验收"),operator,null,422)
+                .at("/error/code").asText()).isEqualTo("ACTION_EVIDENCE_REQUIRED");
+        assertThat(store.rows("guard_action",map("asset_id",asset.get("id")),false,20)).isEmpty();
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM guard_command c JOIN guard_action a ON a.id=c.action_id WHERE a.asset_id=?",Long.class,asset.get("id"))).isZero();
+        assertThat(gate.executorCapabilityHash(store.external("guard_executor",f.executor(),false))).isEqualTo(GuardEligibility.capabilitySetSha256(List.of()));
+    }
+
+    /** broker 验收由 Python 编排显式开启；专用 vhost、随机 schema 与同一生产 listener/消费者实现。 */
+    @Test @EnabledIfEnvironmentVariable(named="P8_BROKER_IT_ENABLED",matches="true")
+    void deploymentBrokerAcceptance()throws Exception { new GuardBrokerAcceptance(this).run(); }
 
     /** K5 方案 B：联合评价先封存，缺任一前置时不得批准或激活；合成夹具不产生 G3 资格。 */
     @Test void labBundleRequiresJointEvidenceBeforeIndependentApproval() throws Exception {

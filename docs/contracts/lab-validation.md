@@ -19,6 +19,12 @@ payload 的字段见 [合成示例](examples/lab-session.json)。身份绑定包
 
 创建、批准、开始和恢复都复核当前授权、资产、机器、输入和签名。`evaluation.run` 仅能申请/运行评价；批准另需 `authorization.approve` 且申请人与批准人不同。本线不会激活 bundle、调用适配器或创建/领取命令。已登记会话的 sensor 在既有 GuardEligibility 判定与领取路径附加会话门：资格/运行/授权到期、撤销、超时或换 boot 时拒绝新动作；清理和回执继续可用。未登记过会话的旧 P5 平台测试入口保留兼容。发布组合必须是 lab 环境且已独立批准（status 为 approved，或批准后已激活的 active；approved_by 非空）——candidate、evaluated、suspended、retired 及任何 research 组合一律以 `LAB_ENVIRONMENT_INVALID`/`LAB_BUNDLE_NOT_APPROVED` 拒绝。批准组合不等于已取得本次 G3 要证明的 `lab_auto` 类别等级；P5/P6 及专项授权仍是必需条件。
 
+## 只告警组合封存口径（2026-10-14，Q5 / BE-15）
+
+绑定策略 `mode=alert_only` 的组合可仅凭同组合、通过的正式 final 封存；签名、subject、评价计划、报告归属及 passed 检查不变，生产仍拒绝 bootstrap/synthetic 报告。缺 final 返回 `FINAL_EVALUATION_REQUIRED`。非 research 的 auto 组合仍须 final+platform+canary，缺任一联合报告返回 `JOINT_EVALUATION_REQUIRED`。未知模式不获得豁免。
+
+该口径不改变批准或激活，不升协议版本，不追溯修改已封存组合。只告警组合的执行授权门恒为 false，激活不要求执行能力等级，因而 platform/canary 不适用；这也不为其登记 G3 或自动执行资格。下述方案 B 继续描述 auto lab 组合。
+
 ## 方案 B：联合封存与类别等级分开
 
 方案 B 的目标状态路径为 candidate → 导入同 subject 的 final、platform、canary → evaluated（封存）→ 独立批准 approved → 仅 lab 资产绑定后 active → 独立批准 lab 会话 → G3 运行 → 追加 G3 报告 → 按来源登记 lab_auto。继续使用 V25，不增加 trial 状态或 V26。P5 platform/canary 是针对该 subject 的平台联合运行证据；G3 报告是后续类别闭环证据。

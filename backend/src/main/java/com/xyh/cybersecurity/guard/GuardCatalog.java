@@ -92,7 +92,11 @@ public class GuardCatalog {
         var reports=new ArrayList<JsonNode>();var kinds=new HashSet<String>();
         for(var rid:b.get("evaluationIds")){var r=store.external("guard_evaluation_run",uuid(rid.asText()),false);require(number(r,"bundle_id")==number(bundle,"id")&&"passed".equals(str(r,"status")),"EVALUATION_PLAN_MISMATCH");kinds.add(str(r,"run_kind"));reports.add(object("evaluationId",r.get("public_id"),"reportSha256",r.get("report_sha256")));}
         require(kinds.contains("final"),"FINAL_EVALUATION_REQUIRED");
-        if(!"research".equals(str(bundle,"environment")))require(kinds.containsAll(Set.of("platform","canary")),"JOINT_EVALUATION_REQUIRED");
+        // Q5：只告警组合没有执行资格，平台动作报告不适用；仍须 final、原报告绑定及后续独立批准。
+        // 仅精确的 alert_only 可豁免，未知模式不能放宽非 research 组合的联合证据门槛。
+        var policy=store.get("guard_decision_policy",number(bundle,"policy_id"));
+        if(!"research".equals(str(bundle,"environment"))&&!"alert_only".equals(json(policy,"definition_json").path("mode").asText()))
+            require(kinds.containsAll(Set.of("platform","canary")),"JOINT_EVALUATION_REQUIRED");
         reports.sort(Comparator.comparing(x->x.path("evaluationId").asText()));JsonNode sealed=object("subjectSha256",bundle.get("subject_sha256"),"reports",reports);
         store.update("guard_release_bundle",number(bundle,"id"),map("sealed_manifest_json",canonical(sealed),"sealed_manifest_sha256",hash(sealed),"status","evaluated","revision",number(bundle,"revision")+1));store.audit(access.human(),"guard.bundle.sealed",id,null,null,sealed);return object("id",id,"status","evaluated","revision",number(bundle,"revision")+1,"sealedManifestSha256",hash(sealed));}
     public JsonNode approveBundle(String id,JsonNode b,String revision){access.permission("bundle.approve",null);GuardAdministration.decisionBody(b);var bundle=store.external("guard_release_bundle",id,true);access.revision(bundle,revision);access.different(bundle,"requested_by");require("evaluated".equals(str(bundle,"status"))&&bundle.get("sealed_manifest_sha256")!=null,"STATE_CONFLICT");

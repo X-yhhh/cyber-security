@@ -18,10 +18,12 @@ import static com.xyh.cybersecurity.guard.GuardReadMapper.Kind.*;
 public class GuardReadController {
     private final GuardReadQueries queries;
     private final GuardSummary summary;
+    private final GuardLiveStats liveStats;
 
-    public GuardReadController(GuardReadQueries queries, GuardSummary summary) {
+    public GuardReadController(GuardReadQueries queries, GuardSummary summary, GuardLiveStats liveStats) {
         this.queries = queries;
         this.summary = summary;
+        this.liveStats = liveStats;
     }
 
     @GetMapping("/authorizations")
@@ -62,6 +64,12 @@ public class GuardReadController {
     @GetMapping("/summary")
     public JsonNode summary(@RequestParam MultiValueMap<String, String> p, HttpServletRequest r) {
         return GuardController.envelope(summary.summary(p), r);
+    }
+
+    /** B5.2 实时态势统计：按权限裁剪序列，无采集覆盖的桶为 null（见 GuardLiveStats）。 */
+    @GetMapping("/stats/live")
+    public JsonNode live(@RequestParam MultiValueMap<String, String> p, HttpServletRequest r) {
+        return GuardController.envelope(liveStats.live(p), r);
     }
 
     @GetMapping("/audit")

@@ -19,12 +19,13 @@ record GuardReadRequest(Map<String, Object> filters, int limit, String cursor) {
 
     static GuardReadRequest parse(Kind kind, MultiValueMap<String, String> input) {
         Set<String> allowed = switch (kind) {
-            case AUTHORIZATIONS -> Set.of("assetId", "status", "from", "until");
-            case CONFIGS, SENSORS -> Set.of("assetId", "sensorId", "status", "from", "until");
+            case AUTHORIZATIONS -> Set.of("assetId", "status", "q", "from", "until", "sort");
+            case CONFIGS -> Set.of("assetId", "sensorId", "status", "q", "from", "until", "sort");
+            case SENSORS -> Set.of("assetId", "sensorId", "status", "from", "until");
             case AUDIT -> Set.of("assetId", "action", "requestId", "from", "until");
             case HEALTH -> Set.of("assetId", "sensorId", "captureScopeId", "verificationStatus", "from", "until");
             case EXECUTORS -> Set.of("assetId", "executorId", "status", "from", "until");
-            case MACHINE_CLIENTS -> Set.of("assetId", "sensorId", "executorId", "clientType", "status", "from", "until");
+            case MACHINE_CLIENTS -> Set.of("assetId", "sensorId", "executorId", "clientType", "status", "q", "from", "until", "sort");
             case ASSIGNABLE_USERS, OPS -> Set.of("assetId");
         };
         Map<String, Object> filters = new TreeMap<>();
@@ -48,6 +49,10 @@ record GuardReadRequest(Map<String, Object> filters, int limit, String cursor) {
                 filters.put(key, uuid(value));
             } else if (key.equals("from") || key.equals("until")) {
                 filters.put(key, time(value));
+            } else if (key.equals("q")) {
+                filters.put(key, GuardCollectionFilter.parse(value, null, null, null).values().get("prefix"));
+            } else if (key.equals("sort")) {
+                filters.put(key, GuardCollectionFilter.parse(null, null, null, value).sort());
             } else {
                 if (!value.matches("[A-Za-z0-9_.:/-]{1,128}")) throw error(400, "INVALID_QUERY");
                 if (key.equals("status") && !statuses(kind).contains(value)) throw error(400, "INVALID_QUERY");
@@ -59,6 +64,8 @@ record GuardReadRequest(Map<String, Object> filters, int limit, String cursor) {
             }
         }
         if (kind == Kind.ASSIGNABLE_USERS && !filters.containsKey("assetId")) throw error(400, "INVALID_QUERY");
+        if (Set.of(Kind.AUTHORIZATIONS, Kind.CONFIGS, Kind.MACHINE_CLIENTS).contains(kind))
+            filters.putIfAbsent("sort", "createdAt");
         if (filters.containsKey("from") && filters.containsKey("until")
                 && !((LocalDateTime) filters.get("from")).isBefore((LocalDateTime) filters.get("until"))) {
             throw error(400, "INVALID_TIME_RANGE");

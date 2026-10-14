@@ -14,21 +14,24 @@ public class GuardCatalog {
     private final boolean bootstrapReportsEnabled;
     public GuardCatalog(GuardStore store,GuardAccess access,GuardContracts contracts,GuardArtifacts artifacts,GuardModelRuntime runtime,GuardSignatures signatures,
                         @Value("${cyber.guard.bootstrap-reports-enabled:false}") boolean bootstrapReportsEnabled){this.store=store;this.access=access;this.contracts=contracts;this.artifacts=artifacts;this.runtime=runtime;this.signatures=signatures;this.bootstrapReportsEnabled=bootstrapReportsEnabled;}
-    public JsonNode model(JsonNode b){access.permission("model.manage",null);fields(b,"manifestRef manifestSha256","");String ref=text(b,"manifestRef");JsonNode m=artifacts.json(ref,digest(b,"manifestSha256"));contracts.manifest(m);
+    public JsonNode model(JsonNode b){access.permission("model.manage",null);fields(b,"manifestRef manifestSha256","displayName notes");String ref=text(b,"manifestRef");JsonNode m=artifacts.json(ref,digest(b,"manifestSha256"));contracts.manifest(m);
         var key=map("contract_version",MODEL_CONTRACT,"profile_sha256",contracts.profileHash(),"schema_set_sha256",contracts.schemaHash(),"extractor_sha256",text(m,"extractorSha256"));var c=store.one("guard_contract",key,false);
         if(c==null){key.put("status","frozen");c=store.add("guard_contract",key);}
-        var row=store.insert("guard_model",map("public_id",uuid(m,"modelId"),"model_key",uuid(m,"modelId"),"version",text(m,"modelVersion"),"manifest_ref",ref,"manifest_sha256",text(b,"manifestSha256"),"artifact_sha256",text(m,"artifactSha256"),"contract_id",c.get("id"),"manifest_json",canonical(m),"created_by",access.human()));
-        store.audit(access.human(),"guard.model.registered",str(row,"public_id"),null,null,b);return object("id",row.get("public_id"),"candidateOnly",true,"validationStatus","pending");}
+        var values=map("public_id",uuid(m,"modelId"),"model_key",uuid(m,"modelId"),"version",text(m,"modelVersion"),"manifest_ref",ref,"manifest_sha256",text(b,"manifestSha256"),"artifact_sha256",text(m,"artifactSha256"),"contract_id",c.get("id"),"manifest_json",canonical(m),"created_by",access.human());values.putAll(GuardMetadata.values(b));
+        var row=store.insert("guard_model",values);
+        store.audit(access.human(),"guard.model.registered",str(row,"public_id"),null,null,b);return object("id",row.get("public_id"),"candidateOnly",true,"validationStatus","pending","revision",1);}
     public JsonNode validation(String id,JsonNode b){access.permission("model.validate",null);fields(b,"validationProfileId","");require("host-guard-onnx-v1".equals(text(b,"validationProfileId")),"VALIDATION_PROFILE_UNSUPPORTED");var m=store.external("guard_model",id,true);
+        if("retired".equals(str(m,"validation_status")))throw error(409,"STATE_CONFLICT");
         JsonNode result;try{result=runtime.validate(m);}catch(com.xyh.cybersecurity.common.api.ApiRequestException e){result=object("status","failed","reasonCode",e.code());}
-        store.update("guard_model",number(m,"id"),map("validation_status",result.path("status").asText(),"validation_json",canonical(result)));store.audit(access.human(),"guard.model.validated",id,null,null,result);return result;}
-    public JsonNode dataset(JsonNode b){access.permission("dataset.manage",null);fields(b,"manifestRef manifestSha256","");JsonNode m=artifacts.json(text(b,"manifestRef"),digest(b,"manifestSha256"));text(m,"datasetKey");text(m,"version");
-        var r=store.add("guard_dataset",map("dataset_key",text(m,"datasetKey"),"version",text(m,"version"),"manifest_ref",text(b,"manifestRef"),"manifest_sha256",text(b,"manifestSha256"),"payload_json",canonical(m)));return object("id",r.get("public_id"));}
+        store.update("guard_model",number(m,"id"),map("validation_status",result.path("status").asText(),"validation_json",canonical(result),"revision",number(m,"revision")+1));store.audit(access.human(),"guard.model.validated",id,null,null,result);return result;}
+    public JsonNode dataset(JsonNode b){access.permission("dataset.manage",null);fields(b,"manifestRef manifestSha256","displayName notes");JsonNode m=artifacts.json(text(b,"manifestRef"),digest(b,"manifestSha256"));text(m,"datasetKey");text(m,"version");
+        var values=map("dataset_key",text(m,"datasetKey"),"version",text(m,"version"),"manifest_ref",text(b,"manifestRef"),"manifest_sha256",text(b,"manifestSha256"),"payload_json",canonical(m));values.putAll(GuardMetadata.values(b));
+        var r=store.add("guard_dataset",values);store.audit(access.human(),"guard.dataset.registered",str(r,"public_id"),null,null,b);return object("id",r.get("public_id"),"status","active","revision",1);}
     public JsonNode plan(JsonNode b){access.permission("evaluation.run",null);if(b.has("planRef"))return frozenPlan(b);
         fields(b,"planKey version protocolVersions datasetRefs splitHashes behaviorSourceScope scenarioMappingSha256 labelTimelineSha256 captureHealthSha256 latencyRegistration metrics budget scenarioRefs","");versions(b.get("protocolVersions"));
         for(String k:List.of("scenarioMappingSha256","labelTimelineSha256","captureHealthSha256"))digest(b,k);
         require(b.path("datasetRefs").isArray()&&!b.get("datasetRefs").isEmpty()&&b.path("behaviorSourceScope").isArray()&&!b.get("behaviorSourceScope").isEmpty(),"EVALUATION_PLAN_MISMATCH");
-        for(var d:b.get("datasetRefs"))store.external("guard_dataset",uuid(d.asText()),false);
+        for(var d:b.get("datasetRefs")){var dataset=store.external("guard_dataset",uuid(d.asText()),true);if(!"active".equals(str(dataset,"status")))throw error(409,"RESOURCE_IN_USE");}
         for(String k:List.of("splitHashes","latencyRegistration","metrics","budget"))require(b.path(k).isObject()&&!b.path(k).isEmpty(),"EVALUATION_PLAN_MISMATCH");
         require(b.path("splitHashes").has("train")&&b.path("splitHashes").has("selection")&&b.path("splitHashes").has("calibration")&&b.path("splitHashes").has("development"),"EVALUATION_PLAN_MISMATCH");
         for(String role:List.of("train","selection","calibration","development"))digest(b.get("splitHashes"),role);
@@ -103,9 +106,12 @@ public class GuardCatalog {
         String status=text(b,"decision").equals("approve")?"approved":"retired";store.update("guard_release_bundle",number(bundle,"id"),map("status",status,"approved_by",access.human(),"revision",number(bundle,"revision")+1));store.audit(access.human(),"guard.bundle."+status,id,null,null,b);return object("id",id,"status",status,"revision",number(bundle,"revision")+1);}
     public JsonNode activate(String id,JsonNode b,String revision){fields(b,"assetIds authorizationIds","");require(b.path("assetIds").isArray()&&!b.get("assetIds").isEmpty()&&b.get("assetIds").size()<=32&&b.path("authorizationIds").isArray()&&b.get("assetIds").size()==b.get("authorizationIds").size(),"INVALID_REQUEST");
         var bundle=store.external("guard_release_bundle",id,false);access.permission("bundle.approve",null);access.revision(bundle,revision);require(Set.of("approved","active").contains(str(bundle,"status")),"STATE_CONFLICT");
+        // 激活与退役先争用同一模型行，不能在模型已退役后激活旧的 approved 组合。
+        var model=store.one("guard_model",map("id",bundle.get("model_id")),true);
+        if(model==null||!"validated".equals(str(model,"validation_status")))throw error(409,"RESOURCE_IN_USE");
         var pairs=new TreeMap<Long,String>();for(int i=0;i<b.get("assetIds").size();i++){var a=store.external("asset",uuid(b.get("assetIds").get(i).asText()),false);require(pairs.put(number(a,"id"),uuid(b.get("authorizationIds").get(i).asText()))==null,"INVALID_REQUEST");}
         var ids=new ArrayList<String>();for(var pair:pairs.entrySet()){long aid=pair.getKey();access.permission("bundle.approve",aid);var a=store.lockAsset(aid);var auth=store.external("asset_authorization",pair.getValue(),true);var now=store.now();
-            require(number(auth,"asset_id")==aid&&"active".equals(str(auth,"status"))&&!now.isBefore(instant(auth.get("valid_from")))&&now.isBefore(instant(auth.get("valid_until")))&&str(bundle,"environment").equals(str(a,"environment")),"AUTHORIZATION_INACTIVE");
+            require("active".equals(str(a,"status"))&&number(auth,"asset_id")==aid&&"active".equals(str(auth,"status"))&&!now.isBefore(instant(auth.get("valid_from")))&&now.isBefore(instant(auth.get("valid_until")))&&str(bundle,"environment").equals(str(a,"environment")),"AUTHORIZATION_INACTIVE");
             var policy=store.get("guard_decision_policy",number(bundle,"policy_id"));require("reviewed".equals(str(policy,"status")),"STATE_CONFLICT");
             for(var c:store.rows("guard_bundle_capability",map("bundle_id",bundle.get("id")),false,100)){var cap=store.get("guard_capability",number(c,"capability_id"));String env=str(a,"environment");String mode=json(policy,"definition_json").path("mode").asText();
                 if(!"alert_only".equals(mode))require(("lab".equals(env)&&Set.of("lab_auto","authorized_auto").contains(str(cap,"level")))||("authorized".equals(env)&&"authorized_auto".equals(str(cap,"level"))),"CAPABILITY_NOT_SUPPORTED");}
@@ -113,6 +119,60 @@ public class GuardCatalog {
             var row=store.add("guard_asset_binding",map("asset_id",aid,"bundle_id",bundle.get("id"),"authorization_id",auth.get("id"),"authorization_revision",auth.get("revision"),"status","active","activated_by",access.human()));ids.add(str(row,"public_id"));store.audit(access.human(),"guard.bundle.activated",id,aid,null,b);
         }
         bundle=store.external("guard_release_bundle",id,true);access.revision(bundle,revision);store.update("guard_release_bundle",number(bundle,"id"),map("status","active","revision",number(bundle,"revision")+1));return object("id",id,"bindingIds",ids,"status","active","revision",number(bundle,"revision")+1);}
+
+    /** 只维护资料投影，禁止请求触及 manifest、制品、冻结特征或策略正文。 */
+    public JsonNode updateResource(String id,JsonNode body,String revision,boolean model) {
+        fields(body,"","displayName notes");var values=GuardMetadata.values(body);
+        if(values.isEmpty())throw error(400,"INVALID_REQUEST");
+        access.consolePermission(model?"model.manage":"dataset.manage",null);
+        String table=model?"guard_model":"guard_dataset";var row=store.external(table,id,true);access.revision(row,revision);
+        long next=number(row,"revision")+1;values.put("revision",next);values.put("updated_at",db(store.now()));
+        store.update(table,number(row,"id"),values);
+        store.audit(access.human(),model?"guard.model.updated":"guard.dataset.updated",id,null,null,body);
+        return object("id",id,"revision",next,"displayName",values.getOrDefault("display_name",row.get("display_name")),
+                "notes",values.getOrDefault("notes",row.get("notes")),model?"validationStatus":"status",row.get(model?"validation_status":"status"));
+    }
+
+    /** 退役保留全部清单与评价；活动组合或活动资产绑定仍引用的模型必须先退出发布。 */
+    public JsonNode retireResource(String id,JsonNode body,String revision,boolean model) {
+        fields(body,"reason","");GuardMetadata.reason(body);access.consolePermission(model?"model.manage":"dataset.manage",null);
+        String table=model?"guard_model":"guard_dataset",column=model?"validation_status":"status";
+        var row=store.external(table,id,true);access.revision(row,revision);
+        if("retired".equals(str(row,column)))throw error(409,"STATE_CONFLICT");
+        if(model&&store.activeModelReference(number(row,"id"))!=null)throw error(409,"RESOURCE_IN_USE");
+        long next=number(row,"revision")+1;
+        store.update(table,number(row,"id"),map(column,"retired","revision",next,"updated_at",db(store.now())));
+        store.audit(access.human(),model?"guard.model.retired":"guard.dataset.retired",id,null,null,body);
+        return object("id",id,model?"validationStatus":"status","retired","revision",next);
+    }
+
+    public JsonNode deletePolicy(String id,String revision) {
+        access.consolePermission("policy.draft",null);var row=store.external("guard_decision_policy",id,true);access.revision(row,revision);
+        if(number(row,"created_by")!=access.human())throw error(403,"SCOPE_DENIED");
+        if(!"draft".equals(str(row,"status")))throw error(409,"RESOURCE_IN_USE");
+        store.deleteDraft("guard_decision_policy",number(row,"id"));
+        store.audit(access.human(),"guard.policy.deleted",id,null,null,object("definitionSha256",row.get("definition_sha256")));
+        return object("id",id,"status","deleted");
+    }
+
+    /** 申请方退役未批准组合，批准方退役已批准/暂停组合；active 必须通过既有暂停路径退出。 */
+    public JsonNode retireBundle(String id,JsonNode body,String revision) {
+        fields(body,"reason","");GuardMetadata.reason(body);var row=store.external("guard_release_bundle",id,false);
+        // 与激活、暂停和模型退役统一先锁模型；不能先持有组合/绑定，再反向等待资产锁。
+        store.one("guard_model",map("id",row.get("model_id")),true);row=store.external("guard_release_bundle",id,true);
+        String previous=str(row,"status");access.consolePermission(bundleRetirementPermission(previous),null);access.revision(row,revision);
+        if(!Set.of("candidate","evaluated","approved","suspended").contains(previous))throw error(409,"STATE_CONFLICT");
+        if(store.one("guard_asset_binding",map("bundle_id",row.get("id"),"status","active"),true)!=null)
+            throw error(409,"RESOURCE_IN_USE");
+        long next=number(row,"revision")+1;
+        store.update("guard_release_bundle",number(row,"id"),map("status","retired","revision",next,"updated_at",db(store.now())));
+        store.audit(access.human(),"guard.bundle.retired",id,null,null,object("previousStatus",previous,"reason",GuardMetadata.reason(body)));
+        return object("id",id,"status","retired","previousStatus",previous,"revision",next);
+    }
+
+    static String bundleRetirementPermission(String status) {
+        return Set.of("candidate","evaluated").contains(status)?"bundle.request":"bundle.approve";
+    }
 
     /** 研究回放只接受固定一倍速和已批准 research 包；请求字段中不得出现任何真实目标引用。 */
     public JsonNode replayRun(JsonNode b){

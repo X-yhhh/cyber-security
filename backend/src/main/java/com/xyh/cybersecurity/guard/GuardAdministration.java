@@ -15,6 +15,32 @@ public class GuardAdministration {
         require(Set.of("macos","windows").contains(text(b,"platform"))&&Set.of("research","lab","authorized").contains(text(b,"environment")),"INVALID_ASSET_SCOPE");
         var row=store.add("asset",map("asset_key",text(b,"assetKey"),"asset_type","host","environment",text(b,"environment"),"criticality","medium","owner",text(b,"owner"),"status","active","labels_json",canonical(object("platform",text(b,"platform")))));
         store.audit(access.human(),"guard.asset.created",str(row,"public_id"),number(row,"id"),null,b);return object("id",row.get("public_id"),"revision",1);}
+    public JsonNode updateAsset(String id,JsonNode b,String revision){
+        var a=store.external("asset",id,false);long aid=number(a,"id");access.permission("asset.manage",aid);a=store.lockAsset(aid);
+        access.revision(a,revision);fields(b,"","owner criticality status labels");
+        var values=map();
+        if(b.has("owner"))values.put("owner",text(b,"owner"));
+        if(b.has("criticality")){require(Set.of("low","medium","high","critical").contains(text(b,"criticality")),"INVALID_ASSET_SCOPE");values.put("criticality",text(b,"criticality"));}
+        String newStatus=null;
+        if(b.has("status")){newStatus=text(b,"status");require(Set.of("active","disabled","retired").contains(newStatus),"INVALID_ASSET_SCOPE");values.put("status",newStatus);}
+        if(b.has("labels")){
+            require(b.get("labels").isObject(),"INVALID_ASSET_SCOPE");
+            var labels=((com.fasterxml.jackson.databind.node.ObjectNode)b.get("labels")).deepCopy();
+            String platform=json(a,"labels_json").path("platform").asText("");
+            if(labels.has("platform"))require(platform.equals(labels.path("platform").asText()),"INVALID_ASSET_SCOPE");
+            else if(!platform.isEmpty())labels.put("platform",platform);
+            values.put("labels_json",canonical(labels));
+        }
+        require(!values.isEmpty(),"INVALID_REQUEST");
+        long nextRevision=number(a,"revision")+1;values.put("revision",nextRevision);values.put("updated_at",db(store.now()));
+        store.update("asset",aid,values);
+        if(newStatus!=null&&!"active".equals(newStatus)){
+            for(var binding:store.rows("guard_asset_binding",map("asset_id",aid,"status","active"),true,100))
+                store.update("guard_asset_binding",number(binding,"id"),map("status","suspended","revision",number(binding,"revision")+1));
+        }
+        store.audit(access.human(),"guard.asset.updated",id,aid,null,b);
+        return object("id",id,"status",values.getOrDefault("status",a.get("status")),"criticality",values.getOrDefault("criticality",a.get("criticality")),"owner",values.getOrDefault("owner",a.get("owner")),"revision",nextRevision);
+    }
     public JsonNode authorization(String assetId,JsonNode b){var a=store.external("asset",assetId,false);long aid=number(a,"id");access.permission("authorization.request",aid);store.lockAsset(aid);
         fields(b,"interfaces observationAllowed executionScopes validFrom validUntil evidenceRef","");
         require(b.path("interfaces").isArray()&&!b.path("interfaces").isEmpty()&&b.path("interfaces").size()<=16,"INVALID_AUTHORIZATION_SCOPE");
@@ -40,6 +66,48 @@ public class GuardAdministration {
         if(executor)store.insert("guard_executor",map("public_id",publicId,"asset_id",aid,"api_client_id",number(client,"id"),"platform",text(b,"platform"),"adapter_version","unverified","status","pending"));
         store.audit(access.human(),executor?"guard.executor.created":"guard.sensor.created",publicId,aid,null,object("clientId",client.get("public_id")));
         return object("id",publicId,"clientId",client.get("public_id"),"credential","mch_"+client.get("id")+"."+token,"status",executor?"pending":"active");}
+    public JsonNode rotateMachine(String id,JsonNode b,boolean executor){
+        fields(b,"","reason");String reason=b.has("reason")?text(b,"reason"):"credential_rotation";
+        var machine=store.external(executor?"guard_executor":"sensor_agent",id,false);
+        long aid=number(machine,"asset_id");access.permission("sensor.manage",aid);store.lockAsset(aid);
+        machine=store.external(executor?"guard_executor":"sensor_agent",id,true);
+        require(!"revoked".equals(str(machine,"status")),"STATE_CONFLICT");
+        var client=executor?store.one("api_client",map("id",number(machine,"api_client_id")),true)
+                :store.one("api_client",map("sensor_id",number(machine,"id")),true);
+        require(client!=null&&"active".equals(str(client,"status")),"STATE_CONFLICT");
+        var randomBytes=new byte[32];new SecureRandom().nextBytes(randomBytes);String encoded=Base64.getUrlEncoder().withoutPadding().encodeToString(randomBytes);
+        var nowInstant=store.now();var now=db(nowInstant);
+        store.update("api_client",number(client,"id"),map("credential_sha256",sha(encoded.getBytes(java.nio.charset.StandardCharsets.UTF_8)),"rotated_at",now,"updated_at",now));
+        store.audit(access.human(),executor?"guard.executor.credential.rotated":"guard.sensor.credential.rotated",id,aid,null,object("clientId",client.get("public_id"),"reason",reason));
+        return object("id",id,"clientId",client.get("public_id"),"credential","mch_"+client.get("id")+"."+encoded,"rotatedAt",nowInstant.toString(),"status",machine.get("status"));
+    }
+    public JsonNode revokeClient(String id,JsonNode b){
+        fields(b,"reason","");text(b,"reason");
+        var client=store.external("api_client",id,false);
+        Long aid=clientAsset(client);access.permission("sensor.manage",aid);
+        if(aid!=null)store.lockAsset(aid);
+        client=store.external("api_client",id,true);
+        require(Set.of("active","disabled").contains(str(client,"status")),"STATE_CONFLICT");
+        var now=db(store.now());
+        store.update("api_client",number(client,"id"),map("status","revoked","revoked_by",access.human(),"revoked_at",now,"revoke_reason",text(b,"reason"),"updated_at",now));
+        if(client.get("sensor_id")!=null){
+            var sensor=store.one("sensor_agent",map("id",number(client,"sensor_id")),true);
+            if(sensor!=null&&!"revoked".equals(str(sensor,"status")))
+                store.update("sensor_agent",number(sensor,"id"),map("status","revoked","revision",number(sensor,"revision")+1));
+        }
+        var executor=store.one("guard_executor",map("api_client_id",number(client,"id")),true);
+        if(executor!=null&&!"revoked".equals(str(executor,"status")))
+            store.update("guard_executor",number(executor,"id"),map("status","revoked","revision",number(executor,"revision")+1));
+        store.audit(access.human(),"guard.machine_client.revoked",id,aid,null,b);
+        return object("id",id,"status","revoked");
+    }
+    private Long clientAsset(Map<String,Object> client){
+        if(client.get("sensor_id")!=null)return number(store.get("sensor_agent",number(client,"sensor_id")),"asset_id");
+        var executor=store.one("guard_executor",map("api_client_id",number(client,"id")),false);
+        if(executor!=null)return number(executor,"asset_id");
+        String assetId=json(client,"scope_json").path("assetId").asText("");
+        return assetId.isEmpty()?null:number(store.external("asset",uuid(assetId),false),"id");
+    }
     public JsonNode config(String sensorId,JsonNode b){var s=store.external("sensor_agent",sensorId,false);long aid=number(s,"asset_id");access.permission("sensor.manage",aid);store.lockAsset(aid);
         fields(b,"contractVersion profileSha256 captureHealthVersion interfaceIds limits captureScopeId addressFamily buildSha256","");
         require(CONTRACT.equals(text(b,"contractVersion"))&&HEALTH_VERSIONS.contains(text(b,"captureHealthVersion"))&&contracts.profileHash().equals(digest(b,"profileSha256")),"CONTRACT_UNSUPPORTED");digest(b,"buildSha256");uuid(b,"captureScopeId");

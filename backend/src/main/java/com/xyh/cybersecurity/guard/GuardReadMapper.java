@@ -13,7 +13,8 @@ import java.util.Map;
 @Mapper
 public interface GuardReadMapper {
     enum Kind {
-        AUTHORIZATIONS("resource.read"), CONFIGS("resource.read"), AUDIT("audit.read"),
+        AUTHORIZATIONS("resource.read"), CONFIGS("resource.read"), MACHINE_CLIENTS("resource.read"),
+        ASSIGNABLE_USERS("event.manage"), AUDIT("audit.read"),
         HEALTH("ops.read"), SENSORS("ops.read"), EXECUTORS("ops.read"), OPS("ops.read");
         final String permission;
         Kind(String permission) { this.permission = permission; }
@@ -50,6 +51,48 @@ public interface GuardReadMapper {
     boolean referenceVisible(@Param("actor") long actor, @Param("permission") String permission,
                              @Param("type") String type, @Param("publicId") String publicId);
 
+    @SelectProvider(type = Sql.class, method = "summaryOpenEvents")
+    long summaryOpenEvents(@Param("actor") long actor);
+
+    @SelectProvider(type = Sql.class, method = "summaryPendingAuthorizations")
+    long summaryPendingAuthorizations(@Param("actor") long actor);
+
+    @SelectProvider(type = Sql.class, method = "summaryPendingSensorConfigs")
+    long summaryPendingSensorConfigs(@Param("actor") long actor);
+
+    @SelectProvider(type = Sql.class, method = "summaryPendingActions")
+    long summaryPendingActions(@Param("actor") long actor);
+
+    @SelectProvider(type = Sql.class, method = "summaryPendingLabRuns")
+    long summaryPendingLabRuns(@Param("actor") long actor);
+
+    @Select("SELECT COUNT(*) FROM guard_decision_policy WHERE status='draft' AND created_by<>#{actor}")
+    long summaryPendingPolicies(@Param("actor") long actor);
+
+    @Select("SELECT COUNT(*) FROM guard_release_bundle WHERE status='evaluated' AND requested_by<>#{actor}")
+    long summaryPendingBundles(@Param("actor") long actor);
+
+    @SelectProvider(type = Sql.class, method = "summaryPendingFeedbackReviews")
+    long summaryPendingFeedbackReviews(@Param("actor") long actor);
+
+    @Select("SELECT COUNT(*) FROM guard_release_bundle WHERE status=#{status}")
+    long summaryBundlesByStatus(@Param("status") String status);
+
+    @Select("SELECT COUNT(*) FROM guard_model WHERE validation_status='pending'")
+    long summaryModelsPendingValidation();
+
+    @SelectProvider(type = Sql.class, method = "summarySensorsUnhealthy")
+    long summarySensorsUnhealthy(@Param("actor") long actor, @Param("floor") LocalDateTime floor);
+
+    @SelectProvider(type = Sql.class, method = "summaryExecutorsUnhealthy")
+    long summaryExecutorsUnhealthy(@Param("actor") long actor, @Param("floor") LocalDateTime floor);
+
+    @SelectProvider(type = Sql.class, method = "summaryLastHealthAt")
+    Object summaryLastHealthAt(@Param("actor") long actor);
+
+    @SelectProvider(type = Sql.class, method = "summaryRecentAuditCount24h")
+    long summaryRecentAuditCount24h(@Param("actor") long actor, @Param("since") LocalDateTime since);
+
     final class Sql {
         private Sql() { }
 
@@ -61,6 +104,26 @@ public interface GuardReadMapper {
         private static String assetScope(String asset) {
             return "EXISTS(" + permissions() + " AND ((ur.scope_type='global' AND ur.scope_id='*')"
                     + " OR (ur.scope_type='asset' AND ur.scope_id=CAST(" + asset + " AS CHAR))))";
+        }
+
+        private static String machineClientScope() {
+            String rows = PERMISSION_ROWS.replace("#{actor}", "#{q.actor}")
+                    .replace("p.permission_key=#{permission}", "p.permission_key IN ('iam.manage','sensor.manage')");
+            return "r.client_type IN ('sensor','executor') AND EXISTS(" + rows
+                    + " AND ((ur.scope_type='global' AND ur.scope_id='*')"
+                    + " OR (ur.scope_type='asset' AND ur.scope_id=CAST(a.id AS CHAR))))";
+        }
+
+        private static String assignableScope() {
+            return assetScope("a.id")
+                    + " AND r.status='active' AND EXISTS("
+                    + "SELECT 1 FROM sys_user_role target_ur"
+                    + " JOIN sys_role target_role ON target_role.id=target_ur.role_id AND target_role.status='active'"
+                    + " JOIN sys_role_permission target_rp ON target_rp.role_id=target_role.id"
+                    + " JOIN sys_permission target_p ON target_p.id=target_rp.permission_id AND target_p.status='active'"
+                    + " WHERE target_ur.user_id=r.id AND target_p.permission_key='event.manage'"
+                    + " AND ((target_ur.scope_type='global' AND target_ur.scope_id='*')"
+                    + " OR (target_ur.scope_type='asset' AND target_ur.scope_id=CAST(a.id AS CHAR))))";
         }
 
         private static String auditScope() {
@@ -76,6 +139,10 @@ public interface GuardReadMapper {
             return switch (kind) {
                 case AUTHORIZATIONS -> "asset_authorization r JOIN asset a ON a.id=r.asset_id";
                 case CONFIGS -> "sensor_config r JOIN sensor_agent s ON s.id=r.sensor_id JOIN asset a ON a.id=s.asset_id";
+                case MACHINE_CLIENTS -> "api_client r LEFT JOIN sensor_agent s ON s.id=r.sensor_id"
+                        + " LEFT JOIN guard_executor ex ON ex.api_client_id=r.id"
+                        + " JOIN asset a ON a.id=COALESCE(s.asset_id,ex.asset_id)";
+                case ASSIGNABLE_USERS -> "sys_user r JOIN asset a ON a.public_id=#{q.filters.assetId}";
                 case AUDIT -> "audit_log r";
                 case HEALTH -> "guard_capture_health_window r JOIN asset a ON a.id=r.asset_id"
                         + " JOIN sensor_agent s ON s.id=r.sensor_id AND s.asset_id=r.asset_id"
@@ -110,6 +177,10 @@ public interface GuardReadMapper {
                         + "r.valid_from,r.valid_until,r.scope_json";
                 case CONFIGS -> "r.public_id,a.public_id asset_public_id,s.public_id sensor_public_id,"
                         + "r.status,r.revision,r.created_at,r.config_version,r.feature_contract_version,r.activated_at,r.content_sha256,r.guard_definition_json";
+                case MACHINE_CLIENTS -> "r.public_id,a.public_id asset_public_id,s.public_id sensor_public_id,"
+                        + "ex.public_id executor_public_id,r.client_key,r.client_type,r.status,"
+                        + "r.created_at,COALESCE(s.last_heartbeat_at,ex.last_heartbeat) last_used_at,r.expires_at";
+                case ASSIGNABLE_USERS -> "r.user_key,r.username,r.display_name,r.status,a.public_id asset_public_id";
                 case AUDIT -> "r.occurred_at,r.actor_type,r.action,r.resource_type,r.resource_id,r.request_id,r.outcome";
                 case HEALTH -> "r.public_id,a.public_id asset_public_id,s.public_id sensor_public_id,cs.public_id capture_scope_public_id,"
                         + "r.observer_session_id,r.sequence_no,r.interval_start,r.interval_end,r.received_at,r.verification_status,r.payload_json";
@@ -133,14 +204,21 @@ public interface GuardReadMapper {
         }
 
         private static String where(Query q) {
-            StringBuilder sql = new StringBuilder(q.kind == Kind.AUDIT ? auditScope()
-                    : assetScope(q.kind == Kind.OPS ? "r.id" : "a.id"));
+            StringBuilder sql = new StringBuilder(switch (q.kind) {
+                case AUDIT -> auditScope();
+                case MACHINE_CLIENTS -> machineClientScope();
+                case ASSIGNABLE_USERS -> assignableScope();
+                case OPS -> assetScope("r.id");
+                default -> assetScope("a.id");
+            });
             for (String key : q.filters.keySet()) {
+                if (q.kind == Kind.ASSIGNABLE_USERS && key.equals("assetId")) continue;
                 String column = switch (key) {
                     case "assetId" -> q.kind == Kind.OPS ? "r.public_id" : "a.public_id";
                     case "sensorId" -> q.kind == Kind.SENSORS ? "r.public_id" : "s.public_id";
-                    case "executorId" -> "r.public_id";
+                    case "executorId" -> q.kind == Kind.MACHINE_CLIENTS ? "ex.public_id" : "r.public_id";
                     case "captureScopeId" -> "cs.public_id";
+                    case "clientType" -> "r.client_type";
                     case "status" -> "r.status";
                     case "verificationStatus" -> "r.verification_status";
                     case "action" -> "r.action";
@@ -184,9 +262,81 @@ public interface GuardReadMapper {
                 default -> throw new IllegalArgumentException("Unknown resource reference");
             };
             String alias = parameters.get("type").equals("assetId") ? "x" : "ref";
-            String scope = assetScope("x.id").replace("#{q.actor}", "#{actor}")
-                    .replace("#{q.permission}", "#{permission}");
+            String scope;
+            if ("machineClient".equals(parameters.get("permission"))) {
+                String rows = PERMISSION_ROWS.replace("p.permission_key=#{permission}", "p.permission_key IN ('iam.manage','sensor.manage')");
+                scope = "EXISTS(" + rows + " AND ((ur.scope_type='global' AND ur.scope_id='*')"
+                        + " OR (ur.scope_type='asset' AND ur.scope_id=CAST(x.id AS CHAR))))";
+            } else {
+                scope = assetScope("x.id").replace("#{q.actor}", "#{actor}")
+                        .replace("#{q.permission}", "#{permission}");
+            }
             return "SELECT EXISTS(SELECT 1 FROM " + from + " WHERE " + alias + ".public_id=#{publicId} AND " + scope + ")";
+        }
+
+        private static String actorAssetScope(String asset, String permissionExpr) {
+            String rows = PERMISSION_ROWS.replace("p.permission_key=#{permission}", permissionExpr);
+            return "EXISTS(" + rows + " AND ((ur.scope_type='global' AND ur.scope_id='*')"
+                    + " OR (ur.scope_type='asset' AND ur.scope_id=CAST(" + asset + " AS CHAR))))";
+        }
+
+        public static String summaryOpenEvents() {
+            return "SELECT COUNT(*) FROM security_event r JOIN asset a ON a.id=r.guard_asset_id"
+                    + " WHERE r.status NOT IN ('resolved','false_positive','closed') AND "
+                    + actorAssetScope("a.id", "p.permission_key IN ('event.manage','detection.read')");
+        }
+
+        public static String summaryPendingAuthorizations() {
+            return "SELECT COUNT(*) FROM asset_authorization r JOIN asset a ON a.id=r.asset_id"
+                    + " WHERE r.status='pending' AND r.requested_by<>#{actor} AND "
+                    + actorAssetScope("a.id", "p.permission_key='authorization.approve'");
+        }
+
+        public static String summaryPendingSensorConfigs() {
+            return "SELECT COUNT(*) FROM sensor_config r JOIN sensor_agent s ON s.id=r.sensor_id JOIN asset a ON a.id=s.asset_id"
+                    + " WHERE r.status IN ('draft','pending') AND (r.requested_by IS NULL OR r.requested_by<>#{actor}) AND "
+                    + actorAssetScope("a.id", "p.permission_key='authorization.approve'");
+        }
+
+        public static String summaryPendingActions() {
+            return "SELECT COUNT(*) FROM guard_action r JOIN asset a ON a.id=r.asset_id"
+                    + " WHERE r.mode='manual' AND r.observed_state='pending' AND r.approved_by IS NULL"
+                    + " AND (r.created_by IS NULL OR r.created_by<>#{actor}) AND "
+                    + actorAssetScope("a.id", "p.permission_key='authorization.approve'");
+        }
+
+        public static String summaryPendingLabRuns() {
+            return "SELECT COUNT(*) FROM guard_validation_session r JOIN asset a ON a.id=r.asset_id"
+                    + " WHERE r.status='pending' AND r.requested_by<>#{actor} AND "
+                    + actorAssetScope("a.id", "p.permission_key='authorization.approve'");
+        }
+
+        public static String summaryPendingFeedbackReviews() {
+            return "SELECT COUNT(*) FROM guard_feedback r JOIN asset a ON a.id=r.asset_id"
+                    + " WHERE r.status='pending' AND r.created_by<>#{actor} AND "
+                    + actorAssetScope("a.id", "p.permission_key='feedback.review'");
+        }
+
+        public static String summarySensorsUnhealthy() {
+            return "SELECT COUNT(*) FROM sensor_agent r JOIN asset a ON a.id=r.asset_id"
+                    + " WHERE r.status<>'revoked' AND (r.status<>'active' OR r.last_heartbeat_at IS NULL OR r.last_heartbeat_at<#{floor}) AND "
+                    + actorAssetScope("a.id", "p.permission_key='ops.read'");
+        }
+
+        public static String summaryExecutorsUnhealthy() {
+            return "SELECT COUNT(*) FROM guard_executor r JOIN asset a ON a.id=r.asset_id"
+                    + " WHERE r.status<>'revoked' AND (r.status<>'active' OR r.last_heartbeat IS NULL OR r.last_heartbeat<#{floor}) AND "
+                    + actorAssetScope("a.id", "p.permission_key='ops.read'");
+        }
+
+        public static String summaryLastHealthAt() {
+            return "SELECT MAX(r.received_at) FROM guard_capture_health_window r JOIN asset a ON a.id=r.asset_id"
+                    + " WHERE " + actorAssetScope("a.id", "p.permission_key='ops.read'");
+        }
+
+        public static String summaryRecentAuditCount24h() {
+            String auditVisibility = auditScope().replace("#{q.actor}", "#{actor}").replace("#{q.permission}", "'audit.read'");
+            return "SELECT COUNT(*) FROM audit_log r WHERE r.occurred_at>=#{since} AND " + auditVisibility;
         }
     }
 }

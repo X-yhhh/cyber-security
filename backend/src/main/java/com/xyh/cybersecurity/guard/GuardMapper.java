@@ -58,6 +58,8 @@ public interface GuardMapper {
         JOIN sys_permission p ON p.id=cp.permission_id WHERE c.id=#{client} AND c.status='active'
         AND (c.expires_at IS NULL OR c.expires_at>UTC_TIMESTAMP(6)) AND p.status='active' AND p.permission_key=#{permission})
         """) boolean machinePermission(@Param("client") long client,@Param("permission") String permission);
+    @Select("SELECT role_id FROM sys_user_role WHERE user_id=#{userId} ORDER BY role_id,scope_type,scope_id FOR SHARE")
+    List<Long> lockUserRoles(@Param("userId") long userId);
     @Select("SELECT COUNT(*)<>COALESCE(MAX(sequence_no),0) FROM guard_observation_batch WHERE sensor_id=#{sensor} AND boot_id=#{boot}")
     boolean batchGap(@Param("sensor") long sensor,@Param("boot") String boot);
     /** 研究完成只引用已经落库的事实，不接受客户端自报执行完成作为唯一依据。 */
@@ -134,7 +136,8 @@ public interface GuardMapper {
         private static final Map<String,Set<String>> COLUMNS=new HashMap<>();
         private static final List<String> EPISODE_KEY_COLUMNS=List.of("asset_id","sensor_id","boot_id","peer_key","key_epoch","direction","transport","service_port_key","family","scope","source","rule_id","bundle_id","bucket_start");
         static {
-            COLUMNS.put("security_event",Set.of("id","public_id","guard_asset_id","revision","event_key","title","category","severity","status","risk_score","risk_rule_version","first_seen_at","last_seen_at","created_at","closed_at"));
+            COLUMNS.put("security_event",Set.of("id","public_id","guard_asset_id","revision","event_key","title","category","severity","status","risk_score","risk_rule_version","first_seen_at","last_seen_at","assignee_id","created_at","updated_at","closed_at"));
+            COLUMNS.put("sys_user",Set.of("id","user_key","username","display_name","status"));
             COLUMNS.put("event_timeline",Set.of("id","event_id","occurred_at","entry_type","actor_type","actor_id","summary","evidence_ref","details_json","created_at"));
             COLUMNS.put("guard_feedback",Set.of("id","public_id","created_at","asset_id","observation_id","label","evidence_ref","created_by","reviewed_by","status","review_reason","revision"));
             COLUMNS.put("guard_validation_session",Set.of("id","public_id","created_at","asset_id","bundle_id","authorization_id","requested_by","approved_by","status","payload_json","content_sha256","valid_until","revision"));
@@ -176,11 +179,11 @@ public interface GuardMapper {
             COLUMNS.put("guard_action_receipt",Set.of("id","public_id","created_at","command_id","executor_id","asset_id","revocation_id","status","observed_at","state_digest","content_sha256","payload_json","projected"));
             COLUMNS.put("guard_reconciliation",Set.of("id","public_id","created_at","executor_id","asset_id","boot_id","observed_at","owned_state_sha256","payload_json","error_count"));
             COLUMNS.put("guard_automation_stop",Set.of("id","public_id","created_at","asset_id","bundle_id","reason","requested_by","revoke_existing"));
-            COLUMNS.put("asset",Set.of("id","public_id","asset_key","asset_type","environment","criticality","owner","status","labels_json","revision","created_at","updated_at"));
+            COLUMNS.put("asset",Set.of("id","public_id","asset_key","asset_type","environment","criticality","owner","status","labels_json","platform","guard_environment","revision","created_at","updated_at"));
             COLUMNS.put("asset_authorization",Set.of("id","public_id","asset_id","authorization_ref","scope_json","valid_from","valid_until","status","approved_by","requested_by","revision","created_at","revoked_by","revoked_at","revoke_reason"));
             COLUMNS.put("sensor_agent",Set.of("id","public_id","agent_key","asset_id","platform","agent_version","capabilities_json","credential_ref","status","registered_at","last_heartbeat_at","revision","guard_boot_id","created_at"));
             COLUMNS.put("sensor_config",Set.of("id","public_id","sensor_id","config_version","interface_scope_json","filter_policy_json","flow_window_seconds","feature_contract_version","sampling_policy_json","status","approved_by","activated_at","requested_by","revision","guard_definition_json","content_sha256","created_at"));
-            COLUMNS.put("api_client",Set.of("id","public_id","client_key","client_type","sensor_id","secret_ref","credential_sha256","scope_json","status","expires_at","created_at"));
+            COLUMNS.put("api_client",Set.of("id","public_id","client_key","client_type","sensor_id","secret_ref","credential_sha256","scope_json","status","expires_at","rotated_at","revoked_by","revoked_at","revoke_reason","created_at","updated_at"));
             COLUMNS.put("outbox_event",Set.of("id","event_key","aggregate_type","aggregate_id","topic","payload_json","status","attempts","next_attempt_at","created_at","published_at"));
             COLUMNS.put("consumed_message",Set.of("id","consumer","message_key","status","attempts","last_error_code","last_error_message","consumed_at","updated_at"));
         }

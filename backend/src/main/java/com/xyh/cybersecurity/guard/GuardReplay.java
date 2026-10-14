@@ -49,7 +49,7 @@ public class GuardReplay {
         for(JsonNode binding:b.path("bindings")) {
             fields(binding,"segmentId sensorId bootId","");String sid=uuid(binding,"sensorId");uuid(binding,"bootId");
             require(segments.containsKey(text(binding,"segmentId"))&&assigned.add(text(binding,"segmentId"))&&sensors.add(sid),"REPLAY_SCENARIO_INVALID");
-            var sensor=store.external("sensor_agent",sid,false);long aid=number(sensor,"asset_id");access.permission("sensor.manage",aid);
+            var sensor=store.external("sensor_agent",sid,false);long aid=number(sensor,"asset_id");access.permission("evaluation.run",aid);
             require("research".equals(str(store.get("asset",aid),"environment"))&&"active".equals(str(sensor,"status")),"REPLAY_REAL_TARGET_FORBIDDEN");
             var config=store.one("sensor_config",map("sensor_id",sensor.get("id"),"status","active"),false);
             require(config!=null,"CONFIG_INACTIVE");JsonNode def=json(config,"guard_definition_json");
@@ -129,6 +129,22 @@ public class GuardReplay {
         metadata.set("result",b);metadata.put("finishedAt",store.now().toString());
         store.update("guard_replay_run",number(row,"id"),map("status","completed","payload_json",canonical(payload)));
         store.audit(access.human(),"guard.replay.completed",id,null,null,b);return object("id",id,"status","completed");
+    }
+
+    /** 回放执行失败或中断时把 queued/running 会话收口为 failed，释放占用的 research 传感器。 */
+    public JsonNode fail(String id,JsonNode b) {
+        access.permission("evaluation.run",null);fields(b,"reasonCode reason","");
+        String reasonCode=text(b,"reasonCode"),reason=text(b,"reason");
+        require(reasonCode.matches("[A-Z0-9_]{1,64}"),"INVALID_REQUEST");
+        var row=store.external("guard_replay_run",id,true);
+        require(Set.of("queued","running").contains(str(row,"status")),"STATE_CONFLICT");
+        ObjectNode payload=json(row,"payload_json").deepCopy();
+        ObjectNode failure=object("reasonCode",reasonCode,"reason",reason,"failedAt",store.now().toString());
+        if(payload.path("runtime").isObject())((ObjectNode)payload.get("runtime")).set("failure",failure);
+        else payload.set("failure",failure);
+        store.update("guard_replay_run",number(row,"id"),map("status","failed","payload_json",canonical(payload)));
+        store.audit(access.human(),"guard.replay.failed",id,null,null,failure);
+        return object("id",id,"status","failed","reasonCode",reasonCode);
     }
 
     private Map<String,Object> approved(Map<String,Object> run) {

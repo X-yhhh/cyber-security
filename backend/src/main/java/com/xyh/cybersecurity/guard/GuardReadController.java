@@ -17,8 +17,12 @@ import static com.xyh.cybersecurity.guard.GuardReadMapper.Kind.*;
 @RequestMapping(value = "/api/v2", produces = MediaType.APPLICATION_JSON_VALUE)
 public class GuardReadController {
     private final GuardReadQueries queries;
+    private final GuardSummary summary;
 
-    public GuardReadController(GuardReadQueries queries) { this.queries = queries; }
+    public GuardReadController(GuardReadQueries queries, GuardSummary summary) {
+        this.queries = queries;
+        this.summary = summary;
+    }
 
     @GetMapping("/authorizations")
     public JsonNode authorizations(@RequestParam MultiValueMap<String, String> p, HttpServletRequest r) {
@@ -38,6 +42,26 @@ public class GuardReadController {
     @GetMapping("/sensor-configs/{id}")
     public JsonNode config(@PathVariable String id, HttpServletRequest r) {
         return GuardController.envelope(queries.get(CONFIGS, id), r);
+    }
+
+    @GetMapping("/machine-clients")
+    public JsonNode machineClients(@RequestParam MultiValueMap<String, String> p, HttpServletRequest r) {
+        return GuardController.envelope(queries.list(MACHINE_CLIENTS, p), r);
+    }
+
+    @GetMapping("/machine-clients/{id}")
+    public JsonNode machineClient(@PathVariable String id, HttpServletRequest r) {
+        return GuardController.envelope(queries.get(MACHINE_CLIENTS, id), r);
+    }
+
+    @GetMapping("/assignable-users")
+    public JsonNode assignableUsers(@RequestParam MultiValueMap<String, String> p, HttpServletRequest r) {
+        return GuardController.envelope(queries.list(ASSIGNABLE_USERS, p), r);
+    }
+
+    @GetMapping("/summary")
+    public JsonNode summary(@RequestParam MultiValueMap<String, String> p, HttpServletRequest r) {
+        return GuardController.envelope(summary.summary(p), r);
     }
 
     @GetMapping("/audit")

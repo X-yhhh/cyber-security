@@ -31,9 +31,10 @@ public class GuardReadQueries {
     public JsonNode list(Kind kind, MultiValueMap<String, String> parameters) {
         long actor = actor(kind);
         GuardReadRequest request = GuardReadRequest.parse(kind, parameters);
+        String refPermission = kind == Kind.MACHINE_CLIENTS ? "machineClient" : kind.permission;
         for (var entry : request.filters().entrySet()) {
             if (Set.of("assetId", "sensorId", "executorId", "captureScopeId").contains(entry.getKey())
-                    && !mapper.referenceVisible(actor, kind.permission, entry.getKey(), entry.getValue().toString())) {
+                    && !mapper.referenceVisible(actor, refPermission, entry.getKey(), entry.getValue().toString())) {
                 throw error(404, "RESOURCE_NOT_FOUND");
             }
         }
@@ -75,7 +76,10 @@ public class GuardReadQueries {
 
     private long actor(Kind kind) {
         long actor = access.human();
-        if (!mapper.hasPermission(actor, kind.permission)) throw error(403, "SCOPE_DENIED");
+        boolean allowed = kind == Kind.MACHINE_CLIENTS
+                ? (mapper.hasPermission(actor, "iam.manage") || mapper.hasPermission(actor, "sensor.manage"))
+                : mapper.hasPermission(actor, kind.permission);
+        if (!allowed) throw error(403, "SCOPE_DENIED");
         return actor;
     }
 

@@ -433,6 +433,83 @@ class GuardReadIntegrationTest {
         assertThat(request(reader, "/api/v1/ops/status").getResponse().getStatus()).isEqualTo(403);
     }
 
+    @Test
+    void summaryMachineClientsAndAssignableUsersRespectScopeAndRedactSecrets() throws Exception {
+        IdentityPrincipal analystA = identity(List.of("resource.read", "detection.read", "event.manage"), "asset", Long.toString(a.pk));
+        IdentityPrincipal analystB = identity(List.of("event.manage"), "asset", Long.toString(b.pk));
+        IdentityPrincipal sensorAdminA = identity(List.of("sensor.manage", "ops.read"), "asset", Long.toString(a.pk));
+        IdentityPrincipal reviewerA = identity(List.of("authorization.approve", "policy.approve", "bundle.approve"), "asset", Long.toString(a.pk));
+        String sensorClientA = id();
+        jdbc.update("INSERT INTO api_client(public_id,client_key,client_type,sensor_id,secret_ref,credential_sha256,scope_json,status,created_at)"
+                + " VALUES (?,?,'sensor',?,'sentinel-private',?,'{}','active',?)",
+                sensorClientA, sensorClientA, sa.pk, "a".repeat(64), TIME);
+        jdbc.update("INSERT INTO security_event(public_id,guard_asset_id,revision,event_key,title,category,severity,status,risk_score,risk_rule_version,first_seen_at,last_seen_at,created_at)"
+                + " VALUES (?,?,1,?,'测试事件','dos_slow','high','open',80,'v5',?,?,?)", id(), a.pk, id(), TIME, TIME, TIME);
+        jdbc.update("INSERT INTO security_event(public_id,guard_asset_id,revision,event_key,title,category,severity,status,risk_score,risk_rule_version,first_seen_at,last_seen_at,created_at)"
+                + " VALUES (?,?,1,?,'跨资产事件','dos_slow','high','open',80,'v5',?,?,?)", id(), b.pk, id(), TIME, TIME, TIME);
+
+        error(reader, "machine-clients", 403, "SCOPE_DENIED");
+        var mcList = data(sensorAdminA, "machine-clients", "assetId", a.id);
+        assertThat(mcList.path("items")).hasSize(2);
+        assertThat(mcList.toString()).doesNotContain("sentinel-private", "credentialSha256", "secretRef");
+        assertThat(data(sensorAdminA, "machine-clients/" + sensorClientA).path("sensorId").asText()).isEqualTo(sa.id);
+        error(sensorAdminA, "machine-clients", 404, "RESOURCE_NOT_FOUND", "assetId", b.id);
+
+        error(reader, "assignable-users", 403, "SCOPE_DENIED", "assetId", a.id);
+        error(analystA, "assignable-users", 400, "INVALID_QUERY");
+        error(analystA, "assignable-users", 404, "RESOURCE_NOT_FOUND", "assetId", b.id);
+        var assignees = data(analystA, "assignable-users", "assetId", a.id);
+        assertThat(assignees.path("items").findValuesAsText("userKey")).contains(analystA.userKey()).doesNotContain(analystB.userKey(), reader.userKey());
+        assertThat(assignees.toString()).doesNotContain("password", "HASH");
+
+        var summaryAnalyst = data(analystA, "summary");
+        assertThat(summaryAnalyst.path("openEvents").asLong()).isEqualTo(1L);
+        assertThat(summaryAnalyst.has("pendingApprovals")).isFalse();
+        assertThat(summaryAnalyst.has("ops")).isFalse();
+
+        var summaryReviewer = data(reviewerA, "summary");
+        assertThat(summaryReviewer.path("pendingApprovals").isObject()).isTrue();
+        assertThat(summaryReviewer.path("releasePipeline").isObject()).isTrue();
+        error(analystA, "summary", 400, "INVALID_QUERY", "assetId", a.id);
+
+        // B2.5：6 个单角色账号逐一断言返回的字段集合，且不包含本人发起的待审对象
+        var pAdmin = roleUser("platform_admin");
+        var pAnalyst = roleUser("security_analyst");
+        var pReviewer = roleUser("security_reviewer");
+        var pOperator = roleUser("model_operator");
+        var pEvidence = roleUser("evidence_reviewer");
+        var pAuditor = roleUser("auditor");
+
+        jdbc.update("INSERT INTO asset_authorization(public_id,asset_id,authorization_ref,scope_json,valid_from,valid_until,status,requested_by,created_at) VALUES (?,?,'ref','{}',?,?, 'pending',?,?)",
+                id(), a.pk, TIME.minusDays(1), TIME.plusDays(1), pAdmin.id(), TIME);
+        jdbc.update("INSERT INTO asset_authorization(public_id,asset_id,authorization_ref,scope_json,valid_from,valid_until,status,requested_by,created_at) VALUES (?,?,'ref','{}',?,?, 'pending',?,?)",
+                id(), a.pk, TIME.minusDays(1), TIME.plusDays(1), pReviewer.id(), TIME);
+
+        assertThat(data(pAdmin, "summary").fieldNames()).toIterable()
+                .containsExactlyInAnyOrder("ops", "recentAuditCount24h");
+        assertThat(data(pAnalyst, "summary").fieldNames()).toIterable()
+                .containsExactlyInAnyOrder("openEvents");
+        var revSummary = data(pReviewer, "summary");
+        assertThat(revSummary.fieldNames()).toIterable()
+                .containsExactlyInAnyOrder("openEvents", "pendingApprovals", "releasePipeline", "ops");
+        // pReviewer 自己发起的 pending 授权被排除，只计入 pAdmin 发起的 1 条
+        assertThat(revSummary.at("/pendingApprovals/authorizations").asLong()).isEqualTo(1L);
+        assertThat(data(pOperator, "summary").fieldNames()).toIterable()
+                .containsExactlyInAnyOrder("releasePipeline", "modelsPendingValidation");
+        assertThat(data(pEvidence, "summary").fieldNames()).toIterable()
+                .containsExactlyInAnyOrder("openEvents", "pendingFeedbackReviews", "releasePipeline");
+        assertThat(data(pAuditor, "summary").fieldNames()).toIterable()
+                .containsExactlyInAnyOrder("openEvents", "releasePipeline", "ops", "recentAuditCount24h");
+    }
+
+    private IdentityPrincipal roleUser(String roleKey) {
+        String key = id();
+        jdbc.update("INSERT INTO sys_user(user_key,username,display_name,status,password_hash) VALUES (?,?,?,'active',?)", key, key, roleKey, HASH);
+        long pk = jdbc.queryForObject("SELECT id FROM sys_user WHERE user_key=?", Long.class, key);
+        jdbc.update("INSERT INTO sys_user_role(user_id,role_id,scope_type,scope_id) SELECT ?,id,'global','*' FROM sys_role WHERE role_key=?", pk, roleKey);
+        return new IdentityPrincipal(pk, key, key, roleKey, "fixture-no-login", "active", List.of(roleKey), List.of());
+    }
+
     private Resource asset() {
         String id = id();
         jdbc.update("INSERT INTO asset(public_id,asset_key,asset_type,environment,criticality,owner,status,labels_json,created_at) VALUES (?,?,'host','lab','low','fixture','active','{}',?)", id, id, TIME);

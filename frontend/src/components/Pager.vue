@@ -12,11 +12,11 @@ const pages = computed(() => Math.max(1, Math.ceil(props.total / props.size)))
 </script>
 
 <template>
-  <nav v-if="pages > 1" class="mt-6 flex items-center justify-between text-[12.5px] text-ink-3" :aria-label="`${label}分页`">
+  <nav v-if="pages > 1" class="mt-4 flex w-full items-center justify-between gap-4 text-[12.5px] text-ink-3" :aria-label="`${label}分页`">
     <span class="num" aria-live="polite">共 {{ total }} 条 · 第 {{ page + 1 }} / {{ pages }} 页</span>
-    <span class="flex gap-6">
-      <button type="button" class="link" :disabled="busy || page === 0" @click="emit('change', page - 1)">上一页</button>
-      <button type="button" class="link" :disabled="busy || page + 1 >= pages" @click="emit('change', page + 1)">下一页</button>
+    <span class="flex gap-2">
+      <button type="button" class="act-ghost act-sm" :disabled="busy || page === 0" @click="emit('change', page - 1)">上一页</button>
+      <button type="button" class="act-ghost act-sm" :disabled="busy || page + 1 >= pages" @click="emit('change', page + 1)">下一页</button>
     </span>
   </nav>
 </template>

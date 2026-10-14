@@ -2,6 +2,15 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * 视觉基线 v2（前端设计文档第 3、5 节，Q10）：
+ * - 页面与面板同为白底，面板（.panel / Panel）以 1px 细边框与 8px 圆角分组，无阴影、不嵌套；
+ * - 墨色是主操作、选中态、悬停与键盘焦点的颜色；钴蓝只保留给品牌标识的小方点与“进行中”状态语义；
+ * - 按钮与输入框 6px 圆角、高 32px；状态胶囊 full；线只用于表内分隔；
+ * - 中文标签、按钮与表头用常规字体，等宽只用于数值与标识符（.num）。
+ * 首屏 LandingView 保持原样：文件末尾按 html[data-surface='landing'] 锁定其沿用的 v1 样式。
+ */
+
 @layer base {
   html {
     background: #FFFFFF;
@@ -13,66 +22,161 @@
     @apply font-sans text-[14px] leading-relaxed;
     font-feature-settings: 'ss01', 'cv11', 'tnum';
   }
-  ::selection { background: #2438E8; color: #FFFFFF; }
-  :focus-visible { outline: 1.5px solid #2438E8; outline-offset: 2px; }
+  ::selection { background: #14161A; color: #FFFFFF; }
+  :focus-visible { outline: 1.5px solid #14161A; outline-offset: 2px; }
   button { cursor: pointer; }
   button:disabled { cursor: not-allowed; }
 }
 
 @layer components {
-  /* 小号大写标签：章节号、字段名 */
-  .label { @apply font-mono text-[11px] uppercase tracking-label text-ink-3; }
+  /* 小号标签：字段名、表头、分组标题。常规字体，不再使用等宽大写与宽字距（U0.8）。 */
+  .label { @apply text-[12px] font-normal text-ink-3; }
   .num { @apply font-mono tabular-nums; }
   .hair { @apply border-ink-hair; }
 
-  /* 文字型操作：下划线随悬停展开，避免面板按钮 */
+  /* 文字型行内操作（查看、复制、展开）：下划线随悬停变色。 */
   .link {
     @apply relative inline-flex items-center gap-1.5 text-ink transition-colors duration-300;
     background: linear-gradient(currentColor, currentColor) left bottom / 100% 1px no-repeat;
   }
-  .link:hover { color: #2438E8; }
+  .link:hover { color: #6B6E75; }
   .link:disabled { @apply text-ink-4; background-size: 0 1px; }
 
-  /* 唯一的实心操作，只用于每个页面最主要的一个动作 */
+  /*
+   * 操作控件阶梯（第 5.1 节）：.act 实心主操作每页唯一 → .act-ghost 边框次操作 → .act-danger 危险操作（需二次确认）。
+   * 三者同高 32px、圆角 6px；.act-sm 为表格行内或面板右上角的紧凑尺寸。
+   */
+  /* 主操作为墨色实心，悬停略微提亮，不转蓝（2026-10-14 用户确认：控制台不用钴蓝做交互色）。 */
   .act {
-    @apply inline-flex h-9 items-center gap-2 bg-ink px-4 text-[13px] text-paper transition-colors duration-300;
+    @apply inline-flex h-8 shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded border border-ink bg-ink px-3.5 text-[13px] text-paper transition-colors duration-300;
   }
-  .act:hover { background: #2438E8; }
-  .act:disabled { @apply bg-ink-line text-ink-3; }
+  .act:hover { @apply border-ink-2 bg-ink-2; }
+  .act:disabled { @apply border-ink-line bg-paper-soft text-ink-4; }
   .act-ghost {
-    @apply inline-flex h-9 items-center gap-2 border border-ink-line px-4 text-[13px] text-ink transition-colors duration-300;
+    @apply inline-flex h-8 shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded border border-ink-line bg-paper px-3.5 text-[13px] text-ink transition-colors duration-200;
   }
-  .act-ghost:hover { border-color: #14161A; }
-  .act-ghost:disabled { @apply text-ink-4; border-color: #E4E2DB; }
+  .act-ghost:hover { @apply border-ink-3; }
+  .act-ghost:disabled { @apply border-ink-hair text-ink-4; }
+  .act-danger {
+    @apply inline-flex h-8 shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded border border-threat bg-paper px-3.5 text-[13px] text-threat transition-colors duration-200;
+  }
+  .act-danger:hover { @apply bg-threat-soft; }
+  .act-danger:disabled { @apply border-ink-hair bg-paper text-ink-4; }
+  .act-sm { @apply h-7 px-2.5 text-[12.5px]; }
 
+  /* 框式输入框（input / select / textarea 同款）：1px 边框、6px 圆角、高 32px，聚焦时边框变墨色。 */
   .field {
-    @apply h-9 w-full border-0 border-b border-ink-line bg-transparent px-0 text-[14px] text-ink placeholder:text-ink-4 transition-colors;
+    @apply h-8 w-full rounded border border-ink-line bg-paper px-2.5 text-[13.5px] text-ink placeholder:text-ink-4 transition-colors duration-200;
   }
-  .field:focus { outline: none; border-color: #2438E8; }
+  .field:hover { @apply border-ink-4; }
+  .field:focus { outline: none; border-color: #14161A; box-shadow: 0 0 0 3px rgba(20, 22, 26, 0.06); }
+  .field:disabled { @apply cursor-not-allowed bg-paper-soft text-ink-3; }
+  textarea.field { @apply h-auto min-h-[5rem] py-1.5 leading-relaxed; field-sizing: content; }
+  select.field {
+    @apply appearance-none bg-no-repeat pr-8;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236B6E75' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+    background-position: right 0.6rem center;
+  }
 
-  /* 数据表：只有横向细线 */
+  /*
+   * 筛选条（第 5.1 节）：一行排开，控件同高 32px、底边对齐；字段标签放在控件左侧（.toolbar-field），
+   * 不再上下堆叠，避免与按钮错位。右侧 .toolbar-end 放开关与本区块的操作。
+   */
+  .toolbar { @apply flex flex-wrap items-center gap-x-3 gap-y-2.5; }
+  .toolbar-field { @apply inline-flex h-8 items-center gap-2 text-[12.5px] text-ink-3; }
+  .toolbar-field > .field { @apply w-auto min-w-[9rem]; }
+  .toolbar-end { @apply ml-auto flex flex-wrap items-center gap-3; }
+  .toolbar-sep { @apply mx-1 h-4 w-px bg-ink-line; }
+
+  /* 筛选胶囊组：状态等离散筛选，选中为墨色实心；aria-pressed 表达状态。 */
+  .chips { @apply inline-flex flex-wrap items-center gap-1; }
+  .chip {
+    @apply inline-flex h-7 items-center gap-1.5 whitespace-nowrap rounded-full border border-ink-line bg-paper px-3 text-[12.5px] text-ink-2 transition-colors duration-200;
+  }
+  .chip:hover { @apply border-ink-4 text-ink; }
+  .chip[aria-pressed='true'] { @apply border-ink bg-ink text-paper; }
+
+  /* 复选开关：与 32px 控件同高，墨色勾选。 */
+  .check { @apply inline-flex h-8 cursor-pointer select-none items-center gap-2 text-[12.5px] text-ink-2; }
+  .check > input { @apply h-3.5 w-3.5 cursor-pointer; accent-color: #14161A; }
+
+  /* 表单：抽屉内的字段纵向排列，标签在上、说明在下。 */
+  .form { @apply space-y-5; }
+  .form-field { @apply block; }
+  .form-field > .label { @apply mb-1.5 block text-ink-2; }
+  .form-hint { @apply mt-1.5 text-[12px] leading-relaxed text-ink-3; }
+
+  /* 键值清单：详情抽屉与详情页的字段列表。 */
+  .kv { @apply text-[13px]; }
+  .kv > div { @apply grid grid-cols-[7.5rem_minmax(0,1fr)] gap-4 border-b border-ink-hair py-2.5; }
+  .kv > div:last-child { @apply border-b-0; }
+  .kv dt { @apply text-ink-3; }
+  .kv dd { @apply min-w-0 break-words text-ink; }
+
+  /* 区块小标题与提示框：替代旧版的等宽大写标签与粗分隔线。 */
+  .section-title { @apply mb-3 text-[13px] font-medium text-ink; }
+  .note { @apply rounded border border-ink-hair bg-paper-soft px-3.5 py-2.5 text-[12.5px] leading-relaxed text-ink-2; }
+  .note-warn { @apply border-warn/30 bg-warn-soft text-ink-2; }
+  .note-threat { @apply border-threat/30 bg-threat-soft text-ink-2; }
+
+  /* 面板：一级区块容器，白底、1px 边框、8px 圆角、无阴影，每页 2—4 块，不嵌套（组件版见 Panel.vue）。 */
+  .panel { @apply rounded-panel border border-ink-line bg-paper; }
+
+  /* 数据表：表头 paper.soft 底、常规字体；行间发丝线，无竖线；宽表由外层横向滚动。 */
   .table { @apply w-full border-collapse text-left; }
-  .table th { @apply label border-b border-ink-line pb-3 pr-6 font-normal; }
-  .table td { @apply border-b border-ink-hair py-3.5 pr-6 align-middle text-[13.5px]; }
-  .table tbody tr { transition: background-color .25s; }
+  .table th { @apply whitespace-nowrap border-b border-ink-line bg-paper-soft px-3 py-2 text-[12px] font-normal text-ink-3; }
+  .table td { @apply border-b border-ink-hair px-3 py-2.5 align-middle text-[13.5px]; }
+  .table tbody tr:last-child td { @apply border-b-0; }
+  .table td.num { @apply whitespace-nowrap; }
+  .table tbody tr { transition: background-color .2s; }
   .table tbody tr.row-link { cursor: pointer; }
-  .table tbody tr.row-link:hover { background: #EFEEE9; }
+  .table tbody tr.row-link:hover { background: #F2F1EE; }
+  /* 面板内直接贴边的表格：首尾列与面板内边距对齐。 */
+  .panel-flush .table th:first-child, .panel-flush .table td:first-child { @apply pl-5; }
+  .panel-flush .table th:last-child, .panel-flush .table td:last-child { @apply pr-5; }
 
   .dot { @apply inline-block h-1.5 w-1.5 rounded-full; }
+
+  /* 状态胶囊：只用于状态列（Tag 的 pill 变体）。 */
+  .pill { @apply inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2 py-0.5 text-[12px] leading-5; }
+
+  /* 技术细节折叠区块（第 3.5 节）：哈希、修订号、内部键等放在页面底部，默认折叠。 */
+  .tech-details { @apply rounded-panel border border-ink-line bg-paper text-[12.5px]; }
+  .tech-details > summary {
+    @apply flex cursor-pointer select-none list-none items-center gap-2 px-5 py-3 text-[13px] text-ink-3 transition-colors hover:text-ink;
+  }
+  .tech-details > summary::-webkit-details-marker { display: none; }
+  .tech-details > summary::before {
+    content: '';
+    @apply inline-block h-1.5 w-1.5 rotate-[-45deg] border-b border-r border-current transition-transform duration-200;
+  }
+  .tech-details[open] > summary::before { transform: rotate(45deg); }
+  .tech-details[open] > summary { @apply border-b border-ink-hair text-ink; }
+  .tech-details > :not(summary) { @apply px-5 py-4; }
 }
 
-/* 页面与分区过渡 */
-.page-enter-active, .page-leave-active { transition: opacity .45s cubic-bezier(.22,1,.36,1), transform .45s cubic-bezier(.22,1,.36,1); }
-.page-enter-from { opacity: 0; transform: translateY(8px); }
+/* 页面与分区过渡：统一 cubic-bezier(0.22, 1, 0.36, 1)，页面 320ms、抽屉 420ms、淡入淡出 240ms。 */
+.page-enter-active, .page-leave-active { transition: opacity .32s cubic-bezier(.22,1,.36,1), transform .32s cubic-bezier(.22,1,.36,1); }
+.page-enter-from { opacity: 0; transform: translateY(4px); }
 .page-leave-to { opacity: 0; }
-.fade-enter-active, .fade-leave-active { transition: opacity .3s ease; }
+.fade-enter-active, .fade-leave-active { transition: opacity .24s ease; }
 .fade-enter-from, .fade-leave-to { opacity: 0; }
-.drawer-enter-active, .drawer-leave-active { transition: transform .5s cubic-bezier(.22,1,.36,1), opacity .3s; }
+.drawer-enter-active, .drawer-leave-active { transition: transform .42s cubic-bezier(.22,1,.36,1), opacity .24s; }
 .drawer-enter-from, .drawer-leave-to { transform: translateX(32px); opacity: 0; }
 
 /* 滚动出现 */
 .reveal { opacity: 0; transform: translateY(24px); transition: opacity 1s cubic-bezier(.22,1,.36,1), transform 1s cubic-bezier(.22,1,.36,1); }
 .reveal.in { opacity: 1; transform: none; }
+
+/* 首屏沿用 v1 的主操作与标签样式（Q10：首屏不改）；data-surface 由路由守卫按当前路由写到 <html>。 */
+html[data-surface='landing'] .act {
+  @apply h-9 rounded-none border-0 bg-ink px-4 font-normal;
+}
+html[data-surface='landing'] .act:hover { background: #2438E8; }
+html[data-surface='landing'] .link:hover { color: #2438E8; }
+html[data-surface='landing'] ::selection { background: #2438E8; }
+html[data-surface='landing'] :focus-visible { outline-color: #2438E8; }
+html[data-surface='landing'] .label { @apply font-mono text-[11px] uppercase tracking-label; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }

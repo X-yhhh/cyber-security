@@ -107,9 +107,9 @@ async function submit() {
       <span class="inline-flex items-center gap-2">状态 <Tag v-if="status" :tone="statusTone[status]" :label="status" /><template v-else>—</template></span>
     </p>
 
-    <h3 class="label mb-4 mt-10">标注历史</h3>
+    <h3 class="section-title mt-8">标注历史</h3>
     <LoadState :loading="loading" :error="error" :empty="!history.length" empty-text="该告警暂无人工标注。">
-      <ul class="border-t border-ink">
+      <ul>
         <li v-for="f in history" :key="f.id" class="border-b border-ink-hair py-4 text-[13px]">
           <p class="flex items-center justify-between gap-4">
             <Tag :tone="feedbackTone[f.label]" :label="feedbackLabel[f.label] ?? f.label" />
@@ -134,16 +134,16 @@ async function submit() {
           <label class="inline-flex items-center gap-2"><input v-model="choice" type="radio" name="feedback-label" value="true_positive" />真报</label>
         </div>
       </fieldset>
-      <label class="block">
+      <label class="form-field">
         <span class="label">研判说明</span>
-        <textarea v-model="note" rows="4" maxlength="1000" required aria-describedby="alert-feedback-hint" class="field mt-2 h-auto resize-none py-2" />
+        <textarea v-model="note" rows="4" maxlength="1000" required aria-describedby="alert-feedback-hint" class="field resize-none" />
         <span id="alert-feedback-hint" class="mt-2 block text-[12px] text-ink-3">写研判依据：时间、本机当时在做什么、服务/协议；不要写对端地址。</span>
       </label>
       <p class="text-[12px] leading-relaxed text-ink-3">标注误报后告警状态变为 false_positive，标注真报后变为 acknowledged。标注需第二人复核后才可能进入离线训练候选。</p>
     </form>
 
     <template v-if="labelable" #foot>
-      <button type="button" class="link text-[13px]" @click="emit('close')">取消</button>
+      <button type="button" class="act-ghost" @click="emit('close')">取消</button>
       <button type="submit" form="alert-feedback-form" class="act" :disabled="!valid || busy">提交标注</button>
     </template>
   </Drawer>

@@ -48,7 +48,7 @@ class ConsoleQueryIntegrationTest {
         }
         Flyway.configure().dataSource(baseUrl.replaceFirst("/+$", "") + "/" + TEST_SCHEMA,
                 System.getenv("DB_TEST_USERNAME"), System.getenv("DB_TEST_PASSWORD"))
-                .locations("classpath:db/migration").load().migrate();
+                .locations("classpath:db/migration").target("25") /* v1 兼容断言固定在权限停用前；V26 由 IAM/guard 套件验收。 */.load().migrate();
     }
 
     @DynamicPropertySource

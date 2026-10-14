@@ -24,6 +24,8 @@ class MigrationIntegrationTest {
 
     private static final String EMPTY_SCHEMA = com.xyh.cybersecurity.database.IsolatedDatabaseSchemas.name(MigrationIntegrationTest.class, "empty");
     private static final String OCCUPIED_SCHEMA = com.xyh.cybersecurity.database.IsolatedDatabaseSchemas.name(MigrationIntegrationTest.class, "occupied");
+    private static final String RBAC_EMPTY = IsolatedDatabaseSchemas.name(MigrationIntegrationTest.class, "rbac_empty");
+    private static final String RBAC_UPGRADE = IsolatedDatabaseSchemas.name(MigrationIntegrationTest.class, "rbac_upgrade");
     private static String baseUrl;
     private static String username;
     private static String password;
@@ -210,6 +212,52 @@ class MigrationIntegrationTest {
 
         assertThat(properties).isNotNull();
         assertThat(properties.getProperty("spring.flyway.baseline-on-migrate")).isEqualTo("false");
+    }
+
+    /** V26 必须同时支持空库与单步升级，历史账号、绑定、审计及迁移记录逐字段不变。 */
+    @Test
+    void rbacV26FreshAndUpgradePreserveIdentityAndMachineFacts() throws Exception {
+        for (String schema : List.of(RBAC_EMPTY, RBAC_UPGRADE)) {
+            var dataSource = new org.springframework.jdbc.datasource.DriverManagerDataSource(schemaUrl(schema), username, password);
+            var jdbc = new org.springframework.jdbc.core.JdbcTemplate(dataSource);
+            if (schema.equals(RBAC_UPGRADE)) {
+                Flyway.configure().dataSource(dataSource).target("25").load().migrate();
+                String hash = new org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder(4).encode("isolated-admin-password");
+                jdbc.update("INSERT INTO sys_user(user_key,username,display_name,password_hash,status) VALUES('admin-fixture','admin','保留管理员',?,'active')", hash);
+                jdbc.update("INSERT INTO sys_user_role(user_id,role_id,scope_type,scope_id) SELECT u.id,r.id,'global','*' FROM sys_user u CROSS JOIN sys_role r WHERE u.username='admin' AND r.role_key='platform_admin'");
+                jdbc.update("INSERT INTO sys_user_role(user_id,role_id,scope_type,scope_id) SELECT u.id,r.id,'model_registry','legacy' FROM sys_user u CROSS JOIN sys_role r WHERE u.username='admin' AND r.role_key='model_operator'");
+                var users = jdbc.queryForList("SELECT * FROM sys_user ORDER BY id");
+                var bindings = jdbc.queryForList("SELECT * FROM sys_user_role ORDER BY user_id,role_id,scope_type,scope_id");
+                var history = jdbc.queryForList("SELECT * FROM flyway_schema_history ORDER BY installed_rank");
+                var machine = jdbc.queryForList("SELECT * FROM sys_permission WHERE permission_key LIKE 'machine.%' ORDER BY id");
+                int roleCount=jdbc.queryForObject("SELECT COUNT(*) FROM sys_role",Integer.class);
+                int permissionCount=jdbc.queryForObject("SELECT COUNT(*) FROM sys_permission",Integer.class);
+                assertThat(Flyway.configure().dataSource(dataSource).load().migrate().migrationsExecuted).isEqualTo(1);
+                var afterUsers=jdbc.queryForList("SELECT * FROM sys_user ORDER BY id");
+                afterUsers.forEach(row -> row.remove("revision"));
+                var afterBindings=jdbc.queryForList("SELECT * FROM sys_user_role ORDER BY user_id,role_id,scope_type,scope_id");
+                afterBindings.forEach(row -> row.remove("id"));
+                assertThat(afterUsers).isEqualTo(users);
+                assertThat(afterBindings).isEqualTo(bindings);
+                assertThat(jdbc.queryForList("SELECT * FROM flyway_schema_history WHERE version<>'26' ORDER BY installed_rank")).isEqualTo(history);
+                assertThat(jdbc.queryForList("SELECT * FROM sys_permission WHERE permission_key LIKE 'machine.%' ORDER BY id")).isEqualTo(machine);
+                assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM sys_role",Integer.class)).isEqualTo(roleCount);
+                assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM sys_permission",Integer.class)).isEqualTo(permissionCount);
+                assertThat(new org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder().matches("isolated-admin-password",
+                        jdbc.queryForObject("SELECT password_hash FROM sys_user WHERE username='admin'",String.class))).isTrue();
+            } else {
+                assertThat(Flyway.configure().dataSource(dataSource).load().migrate().migrationsExecuted).isEqualTo(26);
+            }
+            assertThat(jdbc.queryForList("SELECT role_key FROM sys_role WHERE status='active'",String.class))
+                    .containsExactlyInAnyOrderElementsOf(com.xyh.cybersecurity.iam.IamFixtures.MATRIX.keySet());
+            for (var entry : com.xyh.cybersecurity.iam.IamFixtures.MATRIX.entrySet()) {
+                assertThat(jdbc.queryForList("SELECT p.permission_key FROM sys_role r JOIN sys_role_permission rp ON rp.role_id=r.id JOIN sys_permission p ON p.id=rp.permission_id WHERE r.role_key=?",String.class,entry.getKey()))
+                        .containsExactlyInAnyOrderElementsOf(entry.getValue());
+            }
+            assertThat(jdbc.queryForList("SELECT permission_key FROM sys_permission WHERE status='active' AND permission_key NOT LIKE 'machine.%'",String.class))
+                    .containsExactlyInAnyOrderElementsOf(com.xyh.cybersecurity.iam.IamFixtures.MATRIX.values().stream().flatMap(java.util.Set::stream).collect(java.util.stream.Collectors.toSet()));
+            assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM sys_role_permission rp JOIN sys_role r ON r.id=rp.role_id WHERE r.status='disabled'",Integer.class)).isZero();
+        }
     }
 
     private static int rolePermissionCount(Statement statement, String roleKey) throws Exception {

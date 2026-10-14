@@ -69,7 +69,7 @@ class LocalInferenceIntegrationTest {
         }
         String url = base.replaceFirst("/+$", "") + "/" + TEST_SCHEMA;
         Flyway.configure().dataSource(url, username, dbCredential).locations("classpath:db/migration")
-                .baselineOnMigrate(false).load().migrate();
+                .baselineOnMigrate(false).target("25") /* v1 兼容断言固定在权限停用前；V26 由 IAM/guard 套件验收。 */.load().migrate();
         // 上下文启动时会恢复 active 部署；必须在上下文加载前清空，保证“无激活模型”步骤可重复执行。
         try (var connection = java.sql.DriverManager.getConnection(url, username, dbCredential);
              var statement = connection.createStatement()) {

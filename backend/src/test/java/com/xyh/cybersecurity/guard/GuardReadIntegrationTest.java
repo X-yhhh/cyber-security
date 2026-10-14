@@ -425,11 +425,12 @@ class GuardReadIntegrationTest {
     }
 
     @Test
-    void existingV2AndV1ReadRoutesRemainAvailable() throws Exception {
+    void v2ReadsRemainAvailableAndV26DisablesLegacyOpsPermission() throws Exception {
         assertThat(data(reader, "assets/" + a.id).path("id").asText()).isEqualTo(a.id);
         assertThat(data(reader, "sensors/" + sa.id).path("id").asText()).isEqualTo(sa.id);
         assertThat(request(reader, "/api/v1/audit").getResponse().getStatus()).isEqualTo(200);
-        assertThat(request(reader, "/api/v1/ops/status").getResponse().getStatus()).isEqualTo(200);
+        // audit.read 为两代共用键，v1 audit 到 C1 删除；v1 专用 ops.status.read 已停用。
+        assertThat(request(reader, "/api/v1/ops/status").getResponse().getStatus()).isEqualTo(403);
     }
 
     private Resource asset() {

@@ -62,7 +62,9 @@ public class ApiExceptionHandler {
      * {@link MethodArgumentNotValidException}；两者都必须是 400，不能落到 500（机器客户端会把 5xx 当作可重试）。
      */
     @ExceptionHandler({MethodArgumentNotValidException.class, HttpMessageNotReadableException.class,
-            HandlerMethodValidationException.class, ConstraintViolationException.class})
+            HandlerMethodValidationException.class, ConstraintViolationException.class,
+            org.springframework.web.bind.MissingRequestHeaderException.class,
+            org.springframework.web.method.annotation.MethodArgumentTypeMismatchException.class})
     public ResponseEntity<ApiEnvelope<Void>> badRequest(Exception exception, HttpServletRequest request) {
         return ResponseEntity.badRequest().body(ApiEnvelope.failure(
                 "INVALID_REQUEST", "请求参数无效", requestId(request)));

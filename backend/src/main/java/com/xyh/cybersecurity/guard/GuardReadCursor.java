@@ -17,7 +17,7 @@ import static com.xyh.cybersecurity.guard.GuardJson.*;
 /** 进程生命周期内的认证加密游标：隐藏内部主键，拒绝篡改、换主体和换筛选。重启后须重读首屏。 */
 @Component
 public final class GuardReadCursor {
-    record Position(long ceiling, long id, LocalDateTime time, LocalDateTime asOf) { }
+    public record Position(long ceiling, long id, LocalDateTime time, LocalDateTime asOf) { }
     private final SecureRandom random = new SecureRandom();
     private final SecretKeySpec key;
 
@@ -27,7 +27,7 @@ public final class GuardReadCursor {
         key = new SecretKeySpec(bytes, "AES");
     }
 
-    String encode(Position position, String binding) {
+    public String encode(Position position, String binding) {
         try {
             byte[] iv = new byte[12];
             random.nextBytes(iv);
@@ -42,7 +42,7 @@ public final class GuardReadCursor {
         }
     }
 
-    Position decode(String token, String binding) {
+    public Position decode(String token, String binding) {
         try {
             if (token.length() > 2048 || !token.matches("[A-Za-z0-9_-]+")) throw new IllegalArgumentException();
             byte[] raw = Base64.getUrlDecoder().decode(token);

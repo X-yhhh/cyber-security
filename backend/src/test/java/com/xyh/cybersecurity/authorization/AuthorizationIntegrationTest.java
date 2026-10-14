@@ -52,7 +52,7 @@ class AuthorizationIntegrationTest {
                     + " CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci");
         }
         Flyway.configure().dataSource(baseUrl.replaceFirst("/+$", "") + "/" + TEST_SCHEMA, username, password)
-                .locations("classpath:db/migration").baselineOnMigrate(false).load().migrate();
+                .locations("classpath:db/migration").baselineOnMigrate(false).target("25") /* v1 兼容断言固定在权限停用前；V26 由 IAM/guard 套件验收。 */.load().migrate();
     }
 
     @DynamicPropertySource

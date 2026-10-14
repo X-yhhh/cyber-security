@@ -3,10 +3,11 @@
  * 控制台外壳（权限设计第 7 节，FE-9）：
  * - 左侧两级菜单由 nav.ts 生成并按会话权限过滤；一级组可折叠，折叠状态存 localStorage，
  *   进入某组的页面时该组自动展开；无可见二级项的组整组隐藏。
- * - 顶栏面包屑为“一级 / 二级 / 详情 ID”。
+ * - 顶栏面包屑为“一级 / 二级 / 详情 ID”；待办中心与其他二级项一样挂在「态势」组下。
  * - 宽度小于 768 时侧栏改为左侧抽屉，由顶栏菜单按钮打开；抽屉内 Tab 焦点循环、Escape 关闭，关闭后焦点回到菜单按钮。
  * - 左下角账户菜单：用户名、角色中文名、修改口令、退出。
- * 顶栏只保留后端就绪探针（/health/ready，无需权限）；采集与执行健康见「运行健康」页。
+ * 顶栏只保留后端就绪探针（/health/ready，无需权限）；采集与执行健康见「传感器与执行器」页。
+ * 视觉基线 v2：页面、侧栏与面板同为白底，以 1px 细边框分隔；当前菜单项为墨色实心。
  */
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { RouterLink, RouterView, useRoute } from 'vue-router'
@@ -22,7 +23,7 @@ const menu = computed(() => visibleMenu(session.user?.permissions))
 const activeGroup = computed(() => route.meta.group)
 const activeItem = computed(() => route.meta.item)
 
-/** 面包屑：一级 / 二级 / 详情 ID；工作台只有一段，旧页面只显示标题。 */
+/** 面包屑：一级 / 二级 / 详情 ID；旧页面只显示标题。 */
 const crumbs = computed(() => {
   const g = groupOf(activeGroup.value)
   const i = itemOf(activeGroup.value, activeItem.value)
@@ -95,25 +96,17 @@ onMounted(async () => {
 
 <template>
   <div class="flex min-h-screen bg-paper">
-    <aside class="sticky top-0 hidden h-screen w-60 shrink-0 flex-col border-r border-ink-hair px-8 py-8 md:flex">
-      <RouterLink to="/" class="flex items-center gap-2.5">
+    <aside class="sticky top-0 hidden h-screen w-60 shrink-0 flex-col border-r border-ink-hair bg-paper px-4 py-6 md:flex">
+      <RouterLink to="/" class="flex items-center gap-2.5 px-3">
         <span class="inline-flex h-4 w-4 items-center justify-center border border-ink"><span class="h-1 w-1 bg-signal" /></span>
         <span class="text-[13px] font-medium tracking-[0.2em]">SENTINEL</span>
       </RouterLink>
-      <nav class="mt-12 flex-1 overflow-y-auto" aria-label="功能菜单">
+      <nav class="mt-8 flex-1 overflow-y-auto" aria-label="功能菜单">
         <ul class="space-y-1">
-          <template v-for="g in menu" :key="g.key">
-            <li v-if="g.key === 'workbench'" class="mb-3">
-              <RouterLink :to="{ name: 'workbench' }" class="group flex items-center gap-3 py-2 text-[13.5px] transition-colors duration-300" :class="activeItem === 'workbench' ? 'text-ink' : 'text-ink-3 hover:text-ink'" :aria-current="activeItem === 'workbench' ? 'page' : undefined">
-                <span class="h-px transition-all duration-500 ease-out" :class="activeItem === 'workbench' ? 'w-5 bg-signal' : 'w-2 bg-ink-line group-hover:w-3.5'" />
-                {{ g.title }}
-              </RouterLink>
-            </li>
-            <NavGroup v-else :group="g" :open="!collapsed.has(g.key)" :active-item="activeGroup === g.key ? activeItem : undefined" @toggle="toggle(g.key)" />
-          </template>
+          <NavGroup v-for="g in menu" :key="g.key" :group="g" :open="!collapsed.has(g.key)" :active-item="activeGroup === g.key ? activeItem : undefined" @toggle="toggle(g.key)" />
         </ul>
       </nav>
-      <AccountMenu class="mt-6" />
+      <AccountMenu class="mx-3 mt-4" />
     </aside>
 
     <Transition name="fade">
@@ -123,30 +116,25 @@ onMounted(async () => {
       v-if="drawerOpen"
       id="console-drawer"
       ref="drawer"
-      class="fixed inset-y-0 left-0 z-50 flex w-72 max-w-[85vw] flex-col border-r border-ink-line bg-paper px-8 py-8 md:hidden"
+      class="fixed inset-y-0 left-0 z-50 flex w-72 max-w-[85vw] flex-col border-r border-ink-line bg-paper px-4 py-6 shadow-panel md:hidden"
       role="dialog"
       aria-modal="true"
       aria-label="功能菜单"
     >
-      <div class="flex items-center justify-between">
+      <div class="flex items-center justify-between px-3">
         <span class="text-[13px] font-medium tracking-[0.2em]">SENTINEL</span>
         <button type="button" class="p-1 text-ink-3 hover:text-ink" aria-label="关闭菜单" @click="drawerOpen = false"><X :size="18" :stroke-width="1.5" /></button>
       </div>
-      <nav class="mt-10 flex-1 overflow-y-auto" aria-label="功能菜单（抽屉）">
+      <nav class="mt-6 flex-1 overflow-y-auto" aria-label="功能菜单（抽屉）">
         <ul class="space-y-1">
-          <template v-for="g in menu" :key="g.key">
-            <li v-if="g.key === 'workbench'" class="mb-3">
-              <RouterLink :to="{ name: 'workbench' }" class="block py-2 text-[13.5px]" :class="activeItem === 'workbench' ? 'text-ink' : 'text-ink-3'" :aria-current="activeItem === 'workbench' ? 'page' : undefined">{{ g.title }}</RouterLink>
-            </li>
-            <NavGroup v-else :group="g" :open="!collapsed.has(g.key)" :active-item="activeGroup === g.key ? activeItem : undefined" @toggle="toggle(g.key)" @navigate="drawerOpen = false" />
-          </template>
+          <NavGroup v-for="g in menu" :key="g.key" :group="g" :open="!collapsed.has(g.key)" :active-item="activeGroup === g.key ? activeItem : undefined" @toggle="toggle(g.key)" @navigate="drawerOpen = false" />
         </ul>
       </nav>
-      <AccountMenu class="mt-6" />
+      <AccountMenu class="mx-3 mt-4" />
     </aside>
 
     <div class="min-w-0 flex-1">
-      <header class="sticky top-0 z-20 flex h-14 items-center justify-between border-b border-ink-hair bg-paper/85 px-6 backdrop-blur md:px-12">
+      <header class="sticky top-0 z-20 flex h-14 items-center justify-between border-b border-ink-hair bg-paper/90 px-6 backdrop-blur md:px-10">
         <div class="flex min-w-0 items-center gap-3 text-[12.5px]">
           <button
             ref="menuButton"
@@ -172,7 +160,7 @@ onMounted(async () => {
         </div>
       </header>
 
-      <main class="px-6 pb-24 pt-12 md:px-12 lg:px-16">
+      <main class="mx-auto max-w-[1440px] px-6 pb-20 pt-8 md:px-10">
         <RouterView v-slot="{ Component, route: r }">
           <Transition name="page" mode="out-in">
             <component :is="Component" :key="r.fullPath" />

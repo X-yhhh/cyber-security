@@ -11,8 +11,11 @@
  */
 import { computed, ref } from 'vue'
 import { RouterLink } from 'vue-router'
+import { ChevronRight, Eye, Grid3x3, History, List, ShieldX, Siren, X } from 'lucide-vue-next'
+import SectionTabs from '@/components/SectionTabs.vue'
 import PageHead from '@/components/PageHead.vue'
-import Segmented from '@/components/Segmented.vue'
+import Panel from '@/components/Panel.vue'
+import { countIf } from '@/components/viz'
 import Tag from '@/components/Tag.vue'
 import Drawer from '@/components/Drawer.vue'
 import LoadState from '@/components/LoadState.vue'
@@ -117,6 +120,17 @@ function clearFilters() {
   sourceFilter.value = ''
 }
 
+/* 概览与热度：只统计已加载样本。 */
+const loadedHint = computed(() => `已加载 ${rows.value.length} 条`)
+const stats = computed(() => [
+  { key: 'alert', label: '告警', value: countIf(rows.value, (d) => d.decision === 'alert'), icon: Siren, tone: 'warn' as const, hint: loadedHint.value },
+  { key: 'candidate', label: '阻断候选', value: countIf(rows.value, (d) => d.decision === 'block_candidate'), icon: ShieldX, tone: 'threat' as const, hint: loadedHint.value },
+  { key: 'observe', label: '仅观察', value: countIf(rows.value, (d) => d.decision === 'observe'), icon: Eye, hint: loadedHint.value },
+])
+const legendBg: Record<string, string> = { alert: 'bg-warn-soft text-warn', candidate: 'bg-threat-soft text-threat', observe: 'bg-paper-soft text-ink-3' }
+/** 矩阵单元格底色：有阻断候选为浅红，只有告警为浅黄，其余为浅灰。 */
+const heat = (c: Cell) => (c.candidate ? 'bg-threat-soft hover:bg-threat/15' : c.alert ? 'bg-warn-soft hover:bg-warn/15' : 'bg-paper-soft hover:bg-ink-hair')
+
 const picked = ref<GuardDecision | null>(null)
 const pickedEv = computed(() => (picked.value ? ev(picked.value) : null))
 const reasonText = (code: string | null | undefined) => (code ? `${guardReasonLabel[code] ?? code}` : '—')
@@ -125,20 +139,32 @@ const reasonText = (code: string | null | undefined) => (code ? `${guardReasonLa
 <template>
   <div>
     <PageHead title="判定与来源" desc="按「来源 × 类别」查看判定：模型与每条规则各自形成判定，互不借用证据。告警与自动处置是两回事——带原因码的告警表示已告警、未进入自动封禁。来源能否自动以 lab 验证登记的等级为准，且 lab_auto 只在 lab 资产有效。">
-      <template #kicker>Decisions &amp; Sources</template>
     </PageHead>
 
-    <p v-if="!allowed" class="py-10 text-[13px] text-ink-3">当前身份没有判定读取权限（detection.read），本页不显示数据。</p>
+    <p v-if="!allowed" class="panel px-5 py-10 text-center text-[13px] text-ink-3">当前身份没有判定读取权限（detection.read），本页不显示数据。</p>
     <template v-else>
-      <Segmented v-model="view" :options="views" />
+      <!-- 判定构成：三类判定的计数与占比，作为矩阵的图例 -->
+      <div class="mb-4 grid gap-3 sm:grid-cols-3">
+        <div v-for="st in stats" :key="st.key" class="panel flex items-center gap-4 px-5 py-4">
+          <span class="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded" :class="legendBg[st.key]" aria-hidden="true"><component :is="st.icon" :size="18" :stroke-width="1.5" /></span>
+          <div class="min-w-0">
+            <p class="text-[12.5px] text-ink-3">{{ st.label }}</p>
+            <p class="mt-0.5 flex items-baseline gap-2"><span class="num text-[1.5rem] font-light leading-none text-ink">{{ st.value }}</span><span class="num text-[12px] text-ink-4">{{ rows.length ? Math.round((st.value / rows.length) * 100) : 0 }}%</span></p>
+          </div>
+        </div>
+      </div>
 
-      <p class="num mt-6 flex flex-wrap items-center gap-x-6 gap-y-2 text-[12.5px] text-ink-3">
-        <span>已加载最近 {{ rows.length }} 条判定<template v-if="span">（{{ fmtTime(span.from) }} — {{ fmtTime(span.to) }}）</template></span>
-        <span>{{ next ? '还有更早的判定' : '已到最早一条' }}</span>
-        <button type="button" class="link text-[12.5px]" :disabled="!next || more || loading" @click="loadMore">{{ more ? '读取中…' : `再加载 ${PAGE} 条` }}</button>
-      </p>
-
-      <div class="mt-8">
+      <Panel :title="view === 'matrix' ? '来源 × 类别' : '判定列表'" :icon="view === 'matrix' ? Grid3x3 : List" flush>
+        <template #actions><SectionTabs v-model="view" :options="views" label="视图" /></template>
+        <template #toolbar>
+          <div class="toolbar w-full text-[12.5px] text-ink-3">
+            <span>已加载最近 <span class="num text-ink">{{ rows.length }}</span> 条判定<template v-if="span">（<span class="num">{{ fmtTime(span.from) }} — {{ fmtTime(span.to) }}</span>）</template></span>
+            <span>{{ next ? '还有更早的判定' : '已到最早一条' }}</span>
+            <div class="toolbar-end">
+              <button type="button" class="act-ghost act-sm" :disabled="!next || more || loading" @click="loadMore"><History :size="14" :stroke-width="1.5" />{{ more ? '读取中…' : `再加载 ${PAGE} 条` }}</button>
+            </div>
+          </div>
+        </template>
         <LoadState :loading="loading" :error="error" :empty="!rows.length" empty-text="数据库中暂无你授权范围内的判定记录。">
           <Transition name="fade" mode="out-in">
             <!-- 来源 × 类别：只统计已加载样本，点击单元格查看对应判定 -->
@@ -146,28 +172,28 @@ const reasonText = (code: string | null | undefined) => (code ? `${guardReasonLa
               <div class="overflow-x-auto">
               <table class="table min-w-[640px]">
                 <thead>
-                  <tr><th>类别</th><th v-for="s in sources" :key="s" class="whitespace-nowrap normal-case">{{ guardSourceLabel(s) }}</th></tr>
+                  <tr><th class="w-40">类别</th><th v-for="s in sources" :key="s" class="whitespace-nowrap normal-case">{{ guardSourceLabel(s) }}</th></tr>
                 </thead>
                 <tbody>
                   <tr v-for="f in GUARD_FAMILIES" :key="f">
                     <td class="text-ink">{{ guardFamilyLabel[f] }}<span class="num block text-[11.5px] text-ink-4">{{ f }}</span></td>
-                    <td v-for="s in sources" :key="s">
-                      <button v-if="cell(f, s)" type="button" class="group block w-full text-left" :aria-label="`查看${guardFamilyLabel[f]}·${guardSourceLabel(s)}的判定`" @click="drill(f, s)">
+                    <td v-for="s in sources" :key="s" class="!py-1.5">
+                      <button v-if="cell(f, s)" type="button" class="group block w-full rounded px-2.5 py-2 text-left transition-colors" :class="heat(cell(f, s)!)" :aria-label="`查看${guardFamilyLabel[f]}·${guardSourceLabel(s)}的判定`" @click="drill(f, s)">
                         <span class="num block whitespace-nowrap text-[13px]">
                           <span :class="cell(f, s)!.alert ? 'text-warn' : 'text-ink-4'">告警 {{ cell(f, s)!.alert }}</span>
                           <span class="mx-1.5 text-ink-4">·</span>
                           <span :class="cell(f, s)!.candidate ? 'text-threat' : 'text-ink-4'">候选 {{ cell(f, s)!.candidate }}</span>
                         </span>
                         <span class="num block text-[11.5px] text-ink-3">共 {{ cell(f, s)!.total }} 条<template v-if="cell(f, s)!.reasons.length"> · 主要原因 {{ reasonText(cell(f, s)!.reasons[0][0]) }}</template></span>
-                        <span class="text-[11.5px] text-ink-4 group-hover:text-signal">查看 →</span>
+                        <span class="mt-0.5 inline-flex items-center gap-0.5 text-[11.5px] text-ink-4 group-hover:text-ink">查看<ChevronRight :size="12" :stroke-width="1.5" /></span>
                       </button>
-                      <span v-else class="num text-ink-4">—</span>
+                      <span v-else class="num block px-2.5 text-ink-4">—</span>
                     </td>
                   </tr>
                 </tbody>
               </table>
               </div>
-              <p class="mt-6 max-w-3xl text-[12.5px] leading-relaxed text-ink-3">
+              <p class="border-t border-ink-hair px-5 py-3 text-[12.5px] leading-relaxed text-ink-3">
                 「候选」为通过全部自动门的阻断候选，是否实际执行另见受控响应；「告警」若带原因码，说明在该门被拒绝而只告警。
                 各来源的自动等级见 <RouterLink to="/console/release/lab" class="link">lab 验证与 G3</RouterLink>。
               </p>
@@ -175,26 +201,26 @@ const reasonText = (code: string | null | undefined) => (code ? `${guardReasonLa
 
             <!-- 判定列表：筛选只作用于已加载样本 -->
             <div v-else key="l">
-              <div class="mb-6 flex flex-wrap items-end gap-6 text-[13px]">
-                <label class="w-36"><span class="label">判定</span>
-                  <select v-model="decisionFilter" class="field mt-1">
+              <div class="toolbar border-b border-ink-hair px-5 pb-3.5">
+                <label class="toolbar-field"><span>判定</span>
+                  <select v-model="decisionFilter" class="field" aria-label="判定">
                     <option value="all">全部</option><option value="alert">告警</option><option value="block_candidate">阻断候选</option><option value="observe">观察</option>
                   </select>
                 </label>
-                <label class="w-36"><span class="label">类别</span>
-                  <select v-model="familyFilter" class="field mt-1">
+                <label class="toolbar-field"><span>类别</span>
+                  <select v-model="familyFilter" class="field" aria-label="类别">
                     <option value="">全部</option><option v-for="f in GUARD_FAMILIES" :key="f" :value="f">{{ guardFamilyLabel[f] }}</option>
                   </select>
                 </label>
-                <label class="w-44"><span class="label">来源</span>
-                  <select v-model="sourceFilter" class="field mt-1">
+                <label class="toolbar-field"><span>来源</span>
+                  <select v-model="sourceFilter" class="field" aria-label="来源">
                     <option value="">全部</option><option v-for="s in sources" :key="s" :value="s">{{ guardSourceLabel(s) }}</option>
                   </select>
                 </label>
-                <button type="button" class="link text-[12.5px] text-ink-3" @click="clearFilters">清除筛选</button>
-                <span class="num text-[12.5px] text-ink-3">符合 {{ filtered.length }} 条<template v-if="filtered.length > shown.length">，显示前 {{ shown.length }} 条</template></span>
+                <button type="button" class="act-ghost act-sm" @click="clearFilters"><X :size="13" :stroke-width="1.5" />清除筛选</button>
+                <span class="toolbar-end text-[12.5px] text-ink-3">符合 <span class="num text-ink">{{ filtered.length }}</span> 条<template v-if="filtered.length > shown.length">，显示前 {{ shown.length }} 条</template></span>
               </div>
-              <p v-if="!filtered.length" class="py-10 text-[13px] text-ink-3">已加载样本中没有符合条件的判定。</p>
+              <p v-if="!filtered.length" class="py-12 text-center text-[13px] text-ink-3">已加载样本中没有符合条件的判定。</p>
               <div v-else class="overflow-x-auto">
               <table class="table min-w-[760px]">
                 <thead><tr><th>判定</th><th>类别</th><th>来源</th><th>原因</th><th>作用域</th><th class="text-right">判定时间</th></tr></thead>
@@ -213,17 +239,17 @@ const reasonText = (code: string | null | undefined) => (code ? `${guardReasonLa
             </div>
           </Transition>
         </LoadState>
-      </div>
+      </Panel>
     </template>
 
-    <Drawer :open="!!picked" :title="picked ? `判定 ${picked.id.slice(0, 8)}` : ''" kicker="DECISION" @close="picked = null">
+    <Drawer :open="!!picked" :title="picked ? `判定 ${picked.id.slice(0, 8)}` : ''" @close="picked = null">
       <template v-if="picked && pickedEv">
-        <p class="mb-8 border-l-2 py-1 pl-4 text-[12.5px] leading-relaxed text-ink-2" :class="picked.decision === 'block_candidate' ? 'border-threat' : picked.decision === 'alert' ? 'border-warn' : 'border-ink-line'">
+        <p class="note mb-5" :class="picked.decision === 'block_candidate' ? 'note-threat' : picked.decision === 'alert' ? 'note-warn' : ''">
           <template v-if="picked.decision === 'block_candidate'">通过全部自动门的阻断候选；是否实际下发与生效以受控响应中的动作和回执为准。</template>
           <template v-else-if="picked.decision === 'alert'">已告警。{{ picked.reasonCode ? `自动门在「${reasonText(picked.reasonCode)}」处拒绝，因此不会自动封禁。` : '' }}</template>
           <template v-else>未达告警阈值，只作观察记录。</template>
         </p>
-        <dl class="border-t border-ink">
+        <dl class="kv">
           <div v-for="[k, v] in [
             ['判定', guardDecisionLabel[picked.decision] ?? picked.decision],
             ['原因码', picked.reasonCode ? `${reasonText(picked.reasonCode)}（${picked.reasonCode}）` : '—'],
@@ -240,12 +266,12 @@ const reasonText = (code: string | null | undefined) => (code ? `${guardReasonLa
             ['证据摘要', picked.evidenceSha256 ?? '—'],
             ['判定协议', picked.decisionContractVersion ?? '—'],
             ['判定时间', fmtTime(picked.decidedAt)],
-          ]" :key="k" class="grid grid-cols-[7rem_1fr] border-b border-ink-hair py-3 text-[13px]">
+          ]" :key="k" class="grid-cols-[7rem_minmax(0,1fr)] text-[13px]">
             <dt class="text-ink-3">{{ k }}</dt><dd class="num break-all">{{ v }}</dd>
           </div>
         </dl>
-        <h3 class="label mb-4 mt-10">选用证据（{{ pickedEv.selectedObservations?.length ?? 0 }}）</h3>
-        <ul class="border-t border-ink">
+        <h3 class="section-title mt-8">选用证据（{{ pickedEv.selectedObservations?.length ?? 0 }}）</h3>
+        <ul>
           <li v-for="o in pickedEv.selectedObservations ?? []" :key="o.observationId" class="grid grid-cols-[1fr_auto] gap-3 border-b border-ink-hair py-2.5 text-[12.5px]">
             <span><span class="num block">观察 {{ o.observationId.slice(0, 8) }}<template v-if="o.parentConnectionId"> · 父流 {{ o.parentConnectionId.slice(0, 8) }}</template></span>
               <span class="text-[11.5px] text-ink-4">{{ guardFamilyLabel[o.family ?? ''] ?? o.family ?? '—' }} · {{ guardSourceLabel(o.source, o.ruleId) }}<template v-if="o.observationId === pickedEv.triggerObservationId"> · 触发观察</template></span></span>

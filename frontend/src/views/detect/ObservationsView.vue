@@ -14,8 +14,10 @@
  */
 import { computed, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { Brain, FileStack, Layers, Radio } from 'lucide-vue-next'
 import PageHead from '@/components/PageHead.vue'
-import Segmented from '@/components/Segmented.vue'
+import ChainNav from '@/components/ChainNav.vue'
+import Panel from '@/components/Panel.vue'
 import Tag from '@/components/Tag.vue'
 import Drawer from '@/components/Drawer.vue'
 import LoadState from '@/components/LoadState.vue'
@@ -75,11 +77,13 @@ watch([batches.items, detections.items, episodes.items], () => {
   counts.value = { batches: batches.items.value.length, detections: detections.items.value.length, episodes: episodes.items.value.length }
 })
 
+/* 版式（视觉基线 v2，观测与推理）：四个分段就是证据链的四段，用因果链导航从左到右排列，计数为当前页条数。 */
+const current = computed(() => views.value.find((v) => v.value === view.value)!)
 const views = computed(() => [
-  { value: 'batches' as const, label: '观察批次', count: counts.value.batches },
-  { value: 'observations' as const, label: '观察记录' },
-  { value: 'detections' as const, label: '推理结论', count: counts.value.detections },
-  { value: 'episodes' as const, label: '证据迹', count: counts.value.episodes },
+  { value: 'batches' as const, label: '观察批次', icon: FileStack, count: counts.value.batches, note: '采集身份提交，202 只表示已受理' },
+  { value: 'observations' as const, label: '观察记录', icon: Radio, note: '单条因果快照，只含 asOf 之前的报文' },
+  { value: 'detections' as const, label: '推理结论', icon: Brain, count: counts.value.detections, note: '失败与不适用不带分数' },
+  { value: 'episodes' as const, label: '证据迹', icon: Layers, count: counts.value.episodes, note: '按 30 秒桶归并到目标' },
 ])
 
 /** 批次受理结果是局部接收：accepted / rejected / duplicate 三态并存，拒绝明细另附。 */
@@ -159,20 +163,19 @@ async function submitLabel() {
 
 <template>
   <div>
-    <PageHead title="观测与推理" desc="采集身份提交的观察批次、单条因果快照、模型推理结论与目标级证据归并。批次返回 202 仅表示持久化受理，不代表检测或阻断已完成；推理状态需单独读取。只显示全部来源都在你授权范围内的记录。">
-      <template #kicker>Observations &amp; Inference</template>
-      <label v-if="assets.length" class="w-48 text-[13px]">
-        <span class="label">资产筛选</span>
-        <select v-model="assetFilter" aria-label="资产筛选" class="field mt-1">
+    <PageHead title="观测与推理" desc="沿证据链查看观察批次、因果快照、推理结论与目标级证据归并。只显示全部来源都在你授权范围内的记录。">
+      <label v-if="assets.length" class="toolbar-field">
+        <span>资产</span>
+        <select v-model="assetFilter" aria-label="资产筛选" class="field">
           <option value="">全部授权资产</option>
           <option v-for="a in assets" :key="a.id" :value="a.id">{{ a.assetKey }}</option>
         </select>
       </label>
     </PageHead>
 
-    <Segmented v-model="view" :options="views" />
+    <ChainNav v-model="view" :options="views" label="证据链" />
 
-    <div class="mt-10">
+    <Panel class="mt-4" :title="current.label" :icon="current.icon" flush>
       <LoadState :loading="active.loading.value" :error="active.error.value" :empty="!active.items.value.length" empty-text="数据库中暂无你授权范围内的观测或推理记录。">
       <Transition name="fade" mode="out-in">
         <!-- 观察批次：受理结果三态并存，缺口未恢复期间相应上下文不得用于自动动作 -->
@@ -210,7 +213,10 @@ async function submitLabel() {
           <thead><tr><th>分数</th><th>结论</th><th>家族</th><th>四类分数</th><th>资产</th><th class="text-right">完成</th></tr></thead>
           <tbody>
             <tr v-for="d in detections.items.value" :key="d.id" class="row-link" tabindex="0" @click="pickedDetection = d; labelForm.open = false" @keydown.enter="pickedDetection = d; labelForm.open = false">
-              <td class="num w-20 text-[1.25rem] font-light" :class="(d.score ?? 0) >= 0.9 ? 'text-threat' : ''">{{ d.score == null ? '—' : Number(d.score).toFixed(3) }}</td>
+              <td class="w-28">
+                <span class="num block text-[15px]" :class="(d.score ?? 0) >= 0.9 ? 'text-threat' : 'text-ink'">{{ d.score == null ? '—' : Number(d.score).toFixed(3) }}</span>
+                <span v-if="d.score != null" class="mt-1 block h-1 w-20 overflow-hidden rounded-full bg-ink-hair"><span class="block h-full rounded-full" :class="d.score >= 0.9 ? 'bg-threat' : 'bg-ink-3'" :style="{ width: `${Math.min(1, Math.max(0, d.score)) * 100}%` }" /></span>
+              </td>
               <td><Tag :tone="inferenceTone[d.status]" :label="guardInferenceStatusLabel[d.status] ?? d.status" /><span v-if="d.errorCode" class="num ml-2 text-[12px] text-threat">{{ d.errorCode }}</span></td>
               <td class="text-ink-2">{{ d.family ? (guardFamilyLabel[d.family] ?? d.family) : '—' }}</td>
               <td><FamilyScores :scores="d.familyScores" compact /></td>
@@ -238,15 +244,17 @@ async function submitLabel() {
       </Transition>
       </LoadState>
 
-      <CursorPager :count="active.items.value.length" :has-next="!!active.next.value" :has-prev="!!active.stack.value.length"
+      <template #foot>
+        <CursorPager :count="active.items.value.length" :has-next="!!active.next.value" :has-prev="!!active.stack.value.length"
         :busy="active.turning.value" :label="String(view)" @next="active.forward()" @prev="active.back()" />
-    </div>
+      </template>
+    </Panel>
 
     <!-- 批次详情 -->
-    <Drawer :open="!!pickedBatch" :title="pickedBatch ? `批次 ${pickedBatch.id.slice(0, 8)}` : ''" kicker="OBSERVATION BATCH" @close="pickedBatch = null">
+    <Drawer :open="!!pickedBatch" :title="pickedBatch ? `批次 ${pickedBatch.id.slice(0, 8)}` : ''" @close="pickedBatch = null">
       <template v-if="pickedBatch">
-        <p class="mb-8 border-l-2 border-signal py-1 pl-4 text-[12.5px] leading-relaxed text-ink-2">202 表示批次已持久化受理，检测、处置与阻断都尚未完成。允许部分接收：拒绝明细由后端按 observationId 逐条返回。</p>
-        <dl class="border-t border-ink">
+        <p class="note mb-5">202 表示批次已持久化受理，检测、处置与阻断都尚未完成。允许部分接收：拒绝明细由后端按 observationId 逐条返回。</p>
+        <dl class="kv">
           <div v-for="[k, v] in [
             ['资产', assetLabel(pickedBatch.assetId)],
             ['采集身份', pickedBatch.sensorId],
@@ -255,13 +263,13 @@ async function submitLabel() {
             ['配置版本', pickedBatch.configId ?? '—'],
             ['请求摘要', pickedBatch.requestSha256],
             ['接收时间', fmtTime(pickedBatch.createdAt)],
-          ]" :key="k" class="grid grid-cols-[7rem_1fr] border-b border-ink-hair py-3 text-[13px]">
+          ]" :key="k" class="grid-cols-[7rem_minmax(0,1fr)] text-[13px]">
             <dt class="text-ink-3">{{ k }}</dt><dd class="num break-all">{{ v }}</dd>
           </div>
         </dl>
-        <h3 class="label mb-4 mt-10">受理结果</h3>
-        <dl class="border-t border-ink">
-          <div v-for="[k, v] in payloadEntries(pickedBatch.result)" :key="k" class="grid grid-cols-[9rem_1fr] border-b border-ink-hair py-2.5 text-[12.5px]">
+        <h3 class="section-title mt-8">受理结果</h3>
+        <dl class="kv">
+          <div v-for="[k, v] in payloadEntries(pickedBatch.result)" :key="k" class="grid-cols-[9rem_minmax(0,1fr)] text-[12.5px]">
             <dt class="num text-ink-3">{{ k }}</dt><dd class="num break-all">{{ v }}</dd>
           </div>
           <p v-if="!payloadEntries(pickedBatch.result).length" class="py-3 text-[12.5px] text-ink-3">未保存受理明细。</p>
@@ -270,10 +278,10 @@ async function submitLabel() {
     </Drawer>
 
     <!-- 观察记录详情 -->
-    <Drawer :open="!!pickedObservation" :title="pickedObservation ? `观察 ${pickedObservation.id.slice(0, 8)}` : ''" kicker="OBSERVATION" @close="pickedObservation = null">
+    <Drawer :open="!!pickedObservation" :title="pickedObservation ? `观察 ${pickedObservation.id.slice(0, 8)}` : ''" @close="pickedObservation = null">
       <template v-if="pickedObservation">
-        <p class="mb-8 border-l-2 border-ink-line py-1 pl-4 text-[12.5px] leading-relaxed text-ink-2">快照只包含 asOf 之前的报文，不读取未来包与最终时长；父流标识用于近重复归并，同一 parent 的续段不重复计数。</p>
-        <dl class="border-t border-ink">
+        <p class="note mb-5">快照只包含 asOf 之前的报文，不读取未来包与最终时长；父流标识用于近重复归并，同一 parent 的续段不重复计数。</p>
+        <dl class="kv">
           <div v-for="[k, v] in [
             ['资产', assetLabel(pickedObservation.assetId)],
             ['批次', pickedObservation.batchId],
@@ -293,13 +301,13 @@ async function submitLabel() {
             ['环境', pickedObservation.environment ?? '—'],
             ['内容哈希', pickedObservation.contentSha256],
             ['写入时间', fmtTime(pickedObservation.createdAt)],
-          ]" :key="k" class="grid grid-cols-[7rem_1fr] border-b border-ink-hair py-3 text-[13px]">
+          ]" :key="k" class="grid-cols-[7rem_minmax(0,1fr)] text-[13px]">
             <dt class="text-ink-3">{{ k }}</dt><dd class="num break-all">{{ v }}</dd>
           </div>
         </dl>
-        <h3 class="label mb-4 mt-10">特征与上下文</h3>
-        <dl class="border-t border-ink">
-          <div v-for="[k, v] in payloadEntries(pickedObservation.payload)" :key="k" class="grid grid-cols-[10rem_1fr] border-b border-ink-hair py-2.5 text-[12.5px]">
+        <h3 class="section-title mt-8">特征与上下文</h3>
+        <dl class="kv">
+          <div v-for="[k, v] in payloadEntries(pickedObservation.payload)" :key="k" class="grid-cols-[10rem_minmax(0,1fr)] text-[12.5px]">
             <dt class="num text-ink-3">{{ k }}</dt><dd class="num break-all">{{ v }}</dd>
           </div>
           <p v-if="!payloadEntries(pickedObservation.payload).length" class="py-3 text-[12.5px] text-ink-3">该记录未保存特征载荷。</p>
@@ -307,19 +315,19 @@ async function submitLabel() {
 
         <div v-if="canLabel" class="mt-10 border-t border-ink pt-6">
           <div class="flex items-center justify-between">
-            <h3 class="label">样本标注反馈</h3>
+            <h3 class="section-title">样本标注反馈</h3>
             <button v-if="!labelForm.open" type="button" class="link text-[12.5px]" @click="openLabelFor(pickedObservation.id, `sha256:${pickedObservation.contentSha256.slice(0, 16)}`)">标注此观察</button>
           </div>
           <div v-if="labelForm.open" class="mt-4 space-y-4 text-[13px]">
-            <label class="block">
+            <label class="form-field">
               <span class="label">标注结论</span>
-              <select v-model="labelForm.label" aria-label="标注结论" class="field mt-1">
+              <select v-model="labelForm.label" aria-label="标注结论" class="field">
                 <option v-for="(lbl, k) in guardFeedbackLabel" :key="k" :value="k">{{ lbl }}（{{ k }}）</option>
               </select>
             </label>
-            <label class="block">
+            <label class="form-field">
               <span class="label">证据引用说明</span>
-              <input v-model="labelForm.evidenceRef" aria-label="证据引用说明" class="field mt-1" placeholder="例如 sha256 或研判依据摘要" />
+              <input v-model="labelForm.evidenceRef" aria-label="证据引用说明" class="field" placeholder="例如 sha256 或研判依据摘要" />
             </label>
             <p v-if="labelForm.error" role="alert" class="text-[12.5px] text-threat">{{ labelForm.error }}</p>
             <p v-if="labelForm.done" class="text-[12.5px] text-ok">{{ labelForm.done }}</p>
@@ -335,12 +343,12 @@ async function submitLabel() {
     </Drawer>
 
     <!-- 推理详情 -->
-    <Drawer :open="!!pickedDetection" :title="pickedDetection ? `推理 ${pickedDetection.id.slice(0, 8)}` : ''" kicker="INFERENCE" @close="pickedDetection = null">
+    <Drawer :open="!!pickedDetection" :title="pickedDetection ? `推理 ${pickedDetection.id.slice(0, 8)}` : ''" @close="pickedDetection = null">
       <template v-if="pickedDetection">
-        <p class="mb-8 border-l-2 py-1 pl-4 text-[12.5px] leading-relaxed text-ink-2" :class="pickedDetection.status === 'succeeded' ? 'border-ok' : 'border-threat'">
+        <p class="note mb-5" :class="pickedDetection.status === 'succeeded' ? 'border-ok/40' : 'note-threat'">
           {{ pickedDetection.status === 'succeeded' ? '推理成功，分数为模型输出；分数本身不决定放行或隔离，判定由策略与发布组合完成。' : '推理未成功，不携带攻击概率；缺失数据不会被当作低风险。' }}
         </p>
-        <dl class="border-t border-ink">
+        <dl class="kv">
           <div v-for="[k, v] in [
             ['状态', guardInferenceStatusLabel[pickedDetection.status] ?? pickedDetection.status],
             ['分数', pickedDetection.score == null ? '—' : Number(pickedDetection.score).toFixed(4)],
@@ -353,28 +361,28 @@ async function submitLabel() {
             ['错误码', pickedDetection.errorCode ?? '—'],
             ['完成时间', fmtTime(pickedDetection.completedAt)],
             ['写入时间', fmtTime(pickedDetection.createdAt)],
-          ]" :key="k" class="grid grid-cols-[7rem_1fr] border-b border-ink-hair py-3 text-[13px]">
+          ]" :key="k" class="grid-cols-[7rem_minmax(0,1fr)] text-[13px]">
             <dt class="text-ink-3">{{ k }}</dt><dd class="num break-all">{{ v }}</dd>
           </div>
         </dl>
-        <h3 class="label mb-4 mt-10">四类分数</h3>
+        <h3 class="section-title mt-8">四类分数</h3>
         <FamilyScores :scores="pickedDetection.familyScores" />
 
         <div v-if="canLabel && pickedDetection.observationId" class="mt-10 border-t border-ink pt-6">
           <div class="flex items-center justify-between">
-            <h3 class="label">样本标注反馈</h3>
+            <h3 class="section-title">样本标注反馈</h3>
             <button v-if="!labelForm.open" type="button" class="link text-[12.5px]" @click="openLabelFor(pickedDetection.observationId, `det:${pickedDetection.id.slice(0, 8)}`)">标注关联观察</button>
           </div>
           <div v-if="labelForm.open" class="mt-4 space-y-4 text-[13px]">
-            <label class="block">
+            <label class="form-field">
               <span class="label">标注结论</span>
-              <select v-model="labelForm.label" aria-label="标注结论" class="field mt-1">
+              <select v-model="labelForm.label" aria-label="标注结论" class="field">
                 <option v-for="(lbl, k) in guardFeedbackLabel" :key="k" :value="k">{{ lbl }}（{{ k }}）</option>
               </select>
             </label>
-            <label class="block">
+            <label class="form-field">
               <span class="label">证据引用说明</span>
-              <input v-model="labelForm.evidenceRef" aria-label="证据引用说明" class="field mt-1" />
+              <input v-model="labelForm.evidenceRef" aria-label="证据引用说明" class="field" />
             </label>
             <p v-if="labelForm.error" role="alert" class="text-[12.5px] text-threat">{{ labelForm.error }}</p>
             <p v-if="labelForm.done" class="text-[12.5px] text-ok">{{ labelForm.done }}</p>
@@ -388,9 +396,9 @@ async function submitLabel() {
     </Drawer>
 
     <!-- 证据迹详情 -->
-    <Drawer :open="!!pickedEpisode" :title="pickedEpisode ? `证据迹 ${pickedEpisode.id.slice(0, 8)}` : ''" kicker="EVIDENCE EPISODE" @close="pickedEpisode = null">
+    <Drawer :open="!!pickedEpisode" :title="pickedEpisode ? `证据迹 ${pickedEpisode.id.slice(0, 8)}` : ''" @close="pickedEpisode = null">
       <template v-if="pickedEpisode">
-        <dl class="border-t border-ink">
+        <dl class="kv">
           <div v-for="[k, v] in [
             ['资产', assetLabel(pickedEpisode.assetId)],
             ['采集身份', pickedEpisode.sensorId],
@@ -405,13 +413,13 @@ async function submitLabel() {
             ['发布组合', pickedEpisode.bundleId ?? '—'],
             ['桶起点', fmtTime(pickedEpisode.bucketStart)],
             ['修订', String(pickedEpisode.revision)],
-          ]" :key="k" class="grid grid-cols-[7rem_1fr] border-b border-ink-hair py-3 text-[13px]">
+          ]" :key="k" class="grid-cols-[7rem_minmax(0,1fr)] text-[13px]">
             <dt class="text-ink-3">{{ k }}</dt><dd class="num break-all">{{ v }}</dd>
           </div>
         </dl>
-        <h3 class="label mb-4 mt-10">证据明细</h3>
+        <h3 class="section-title mt-8">证据明细</h3>
         <LoadState :loading="evidence.loading" :error="evidence.error" :empty="!evidence.items.length" empty-text="该证据迹暂无关联证据。">
-          <ul class="border-t border-ink">
+          <ul>
             <li v-for="x in evidence.items" :key="x.id" class="grid grid-cols-[6rem_1fr_auto] items-center gap-3 border-b border-ink-hair py-2.5 text-[12.5px]">
               <span class="num text-ink-3">#{{ x.score == null ? '—' : Number(x.score).toFixed(3) }}</span>
               <span><span class="block">观察 {{ x.observationId.slice(0, 8) }}<template v-if="x.parentConnectionId"> · 父流 {{ x.parentConnectionId.slice(0, 8) }}</template></span><span class="num text-[11.5px] text-ink-4">{{ guardSourceLabel(x.source, x.ruleId) }}<template v-if="x.source === 'rule'"> · {{ x.ruleMatched ? '命中' : '未命中' }}</template> · asOf {{ fmtTime(x.asOf) }}</span></span>
@@ -421,15 +429,15 @@ async function submitLabel() {
         </LoadState>
         <div v-if="canLabel && labelForm.open" class="mt-6 border-t border-ink pt-4 space-y-4 text-[13px]">
           <p class="num text-[12px] text-ink-3">观察 {{ labelForm.observationId }}</p>
-          <label class="block">
+          <label class="form-field">
             <span class="label">标注结论</span>
-            <select v-model="labelForm.label" aria-label="标注结论" class="field mt-1">
+            <select v-model="labelForm.label" aria-label="标注结论" class="field">
               <option v-for="(lbl, k) in guardFeedbackLabel" :key="k" :value="k">{{ lbl }}（{{ k }}）</option>
             </select>
           </label>
-          <label class="block">
+          <label class="form-field">
             <span class="label">证据引用说明</span>
-            <input v-model="labelForm.evidenceRef" aria-label="证据引用说明" class="field mt-1" />
+            <input v-model="labelForm.evidenceRef" aria-label="证据引用说明" class="field" />
           </label>
           <p v-if="labelForm.error" role="alert" class="text-[12.5px] text-threat">{{ labelForm.error }}</p>
           <p v-if="labelForm.done" class="text-[12.5px] text-ok">{{ labelForm.done }}</p>

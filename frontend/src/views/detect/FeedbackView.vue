@@ -10,12 +10,18 @@
  */
 import { computed, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { CircleCheck, CircleSlash, Hourglass, Layers, Plus, Tags } from 'lucide-vue-next'
+import DistBar from '@/components/DistBar.vue'
+import { tally } from '@/components/viz'
+import { useSummary } from '@/composables/summary'
 import PageHead from '@/components/PageHead.vue'
+import Panel from '@/components/Panel.vue'
 import Tag from '@/components/Tag.vue'
 import Drawer from '@/components/Drawer.vue'
 import LoadState from '@/components/LoadState.vue'
 import CursorPager from '@/components/CursorPager.vue'
 import { useCursor } from '@/composables/cursor'
+import { usePageTitle } from '@/composables/page'
 import { errText } from '@/composables/load'
 import { guard } from '@/api/client'
 import { detectApi, isUuid } from '@/api/v2/detect'
@@ -74,6 +80,18 @@ watch([statusFilter, assetFilter], ([s, a]) => {
   void router.replace({ query })
   feedback.reset()
 })
+
+/* 版式（视觉基线 v2，误报反馈）：左侧筛选栏 + 右侧标注列表；待复核总数来自汇总接口（排除本人标注），构成按当前页统计。 */
+const summary = useSummary()
+const fbHint = computed(() => `按当前页 ${feedback.items.value.length} 条统计`)
+const pageTitle = usePageTitle('反馈与复核')
+const statusRail = [
+  { value: 'pending' as const, label: '待复核', icon: Hourglass },
+  { value: 'reviewed' as const, label: '已复核', icon: CircleCheck },
+  { value: 'rejected' as const, label: '已驳回', icon: CircleSlash },
+  { value: '' as const, label: '全部', icon: Layers },
+]
+const byLabel = computed(() => tally(feedback.items.value, (f) => f.label, (k) => guardFeedbackLabel[k] ?? k, (k) => feedbackTone[k]))
 
 const visibleItems = computed(() => {
   if (statusFilter.value === 'pending' && excludeSelf.value) {
@@ -176,80 +194,91 @@ async function submitCreate() {
 
 <template>
   <div>
-    <PageHead title="反馈与复核" desc="针对观察快照的人工真/误报标注与独立复核。标注提交后为待复核（pending），须由非本人的证据复核人决定通过或驳回（职责分离 S6）；复核通过后仅登记为已复核样本，不触发在线重训。">
-      <template #kicker>Feedback &amp; Review</template>
-      <label v-if="assets.length" class="w-48 text-[13px]">
-        <span class="label">资产筛选</span>
-        <select v-model="assetFilter" aria-label="资产筛选" class="field mt-1">
-          <option value="">全部授权资产</option>
-          <option v-for="a in assets" :key="a.id" :value="a.id">{{ a.assetKey }}</option>
-        </select>
-      </label>
-      <button v-if="canLabel" type="button" class="act-ghost" @click="openCreate">新建标注</button>
+    <PageHead :title="pageTitle" desc="针对观察快照的人工真/误报标注与独立复核。标注提交后为待复核（pending），须由非本人的证据复核人决定通过或驳回（职责分离 S6）；复核通过后仅登记为已复核样本，不触发在线重训。">
+      <button v-if="canLabel" type="button" class="act" @click="openCreate"><Plus :size="14" :stroke-width="1.5" />新建标注</button>
     </PageHead>
 
-    <!-- 状态筛选与本人排除开关 -->
-    <div class="flex flex-wrap items-center justify-between gap-4 border-b border-ink-hair pb-5 text-[13px]" role="group" aria-label="反馈状态筛选">
-      <div class="flex flex-wrap items-center gap-x-6 gap-y-2">
-        <span class="label">状态</span>
-        <button type="button" :class="statusFilter === '' ? 'text-ink underline underline-offset-4' : 'text-ink-3 hover:text-ink'" @click="statusFilter = ''">全部</button>
-        <button v-for="s in STATUSES" :key="s" type="button"
-          :class="statusFilter === s ? 'text-ink underline underline-offset-4' : 'text-ink-3 hover:text-ink'"
-          @click="statusFilter = s">
-          {{ guardFeedbackStatusLabel[s] ?? s }}
-        </button>
-      </div>
-      <label v-if="statusFilter === 'pending'" class="flex cursor-pointer items-center gap-2 text-[12.5px] text-ink-2">
-        <input v-model="excludeSelf" type="checkbox" class="accent-ink" />
-        <span>默认排除本人标注</span>
-      </label>
-    </div>
-
-    <div class="mt-8">
-      <LoadState :loading="feedback.loading.value" :error="feedback.error.value" :empty="!visibleItems.length" empty-text="当前筛选条件下没有可显示的反馈记录。">
-        <div class="overflow-x-auto">
-          <table class="table min-w-[740px]">
-            <thead>
-              <tr>
-                <th>标注结论</th>
-                <th>复核状态</th>
-                <th>观察记录</th>
-                <th>证据引用</th>
-                <th>资产</th>
-                <th>修订</th>
-                <th class="text-right">提交时间</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="f in visibleItems" :key="f.id" class="row-link" tabindex="0"
-                @click="picked = f" @keydown.enter="picked = f">
-                <td><Tag :tone="feedbackTone[f.label]" :label="guardFeedbackLabel[f.label] ?? f.label" /></td>
-                <td>
-                  <Tag :tone="feedbackReviewTone[f.status]" :label="guardFeedbackStatusLabel[f.status] ?? f.status" />
-                  <span v-if="isSelf(f)" class="num ml-2 text-[11.5px] text-ink-4">本人标注</span>
-                </td>
-                <td class="num text-ink-2">{{ f.observationId.slice(0, 8) }}</td>
-                <td class="num max-w-[16rem] truncate text-ink-2">{{ f.evidenceRef }}</td>
-                <td class="num text-ink-2">{{ assetLabel(f.assetId) }}</td>
-                <td class="num text-ink-3">r{{ f.revision }}</td>
-                <td class="num text-right text-ink-3">{{ fmtTime(f.createdAt) }}</td>
-              </tr>
-            </tbody>
-          </table>
+    <div class="grid items-start gap-5 lg:grid-cols-[15rem_minmax(0,1fr)]">
+      <!-- 左侧筛选栏：复核状态为主筛选，资产与“排除本人”为辅 -->
+      <aside class="space-y-4 lg:sticky lg:top-20">
+        <nav class="panel p-2" role="group" aria-label="反馈状态筛选">
+          <p class="px-3 pb-1.5 pt-2 text-[12px] text-ink-4">复核状态</p>
+          <button v-for="o in statusRail" :key="o.value" type="button"
+            class="flex w-full items-center gap-2.5 rounded px-3 py-2 text-left text-[13.5px] transition-colors"
+            :class="statusFilter === o.value ? 'bg-ink text-paper' : 'text-ink-2 hover:bg-paper-soft'"
+            :aria-pressed="statusFilter === o.value" @click="statusFilter = o.value">
+            <component :is="o.icon" :size="15" :stroke-width="1.5" aria-hidden="true" />{{ o.label }}
+          </button>
+        </nav>
+        <div class="panel space-y-3 p-4">
+          <label v-if="assets.length" class="form-field">
+            <span class="label">资产</span>
+            <select v-model="assetFilter" aria-label="资产筛选" class="field">
+              <option value="">全部授权资产</option>
+              <option v-for="a in assets" :key="a.id" :value="a.id">{{ a.assetKey }}</option>
+            </select>
+          </label>
+          <label v-if="statusFilter === 'pending'" class="check">
+            <input v-model="excludeSelf" type="checkbox" />
+            <span>默认排除本人标注</span>
+          </label>
+          <p class="text-[12px] leading-relaxed text-ink-3">本人标注须由其他复核人决定（职责分离）。</p>
         </div>
+        <div class="panel p-4">
+          <p class="mb-3 flex items-center justify-between text-[12.5px] text-ink-3"><span>标注结论</span><span>{{ fbHint }}</span></p>
+          <DistBar :segments="byLabel" empty-text="当前页没有标注" />
+          <p v-if="summary.data.pendingFeedbackReviews !== undefined" class="mt-4 flex items-baseline justify-between border-t border-ink-hair pt-3 text-[12.5px] text-ink-3">
+            待我复核（全部）<span class="num text-[1.25rem] font-light text-ink">{{ summary.data.pendingFeedbackReviews }}</span>
+          </p>
+        </div>
+      </aside>
+
+    <Panel :title="`${statusRail.find((o) => o.value === statusFilter)?.label ?? '全部'}标注`" :icon="Tags" flush>
+      <LoadState :loading="feedback.loading.value" :error="feedback.error.value" :empty="!visibleItems.length" empty-text="当前筛选条件下没有可显示的反馈记录。">
+        <table class="table min-w-[740px]">
+          <thead>
+            <tr>
+              <th>标注结论</th>
+              <th>复核状态</th>
+              <th>观察记录</th>
+              <th>证据引用</th>
+              <th>资产</th>
+              <th>修订</th>
+              <th class="text-right">提交时间</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="f in visibleItems" :key="f.id" class="row-link" tabindex="0"
+              @click="picked = f" @keydown.enter="picked = f">
+              <td><Tag :tone="feedbackTone[f.label]" :label="guardFeedbackLabel[f.label] ?? f.label" /></td>
+              <td>
+                <Tag pill :tone="feedbackReviewTone[f.status]" :label="guardFeedbackStatusLabel[f.status] ?? f.status" />
+                <span v-if="isSelf(f)" class="ml-2 text-[11.5px] text-ink-4">本人标注</span>
+              </td>
+              <td class="num text-ink-2">{{ f.observationId.slice(0, 8) }}</td>
+              <td class="max-w-[16rem] truncate text-ink-2" :title="f.evidenceRef">{{ f.evidenceRef }}</td>
+              <td class="num text-ink-2">{{ assetLabel(f.assetId) }}</td>
+              <td class="num text-ink-3">r{{ f.revision }}</td>
+              <td class="num text-right text-ink-3">{{ fmtTime(f.createdAt) }}</td>
+            </tr>
+          </tbody>
+        </table>
       </LoadState>
 
-      <CursorPager :count="visibleItems.length" :has-next="!!feedback.next.value" :has-prev="!!feedback.stack.value.length"
-        :busy="feedback.turning.value" label="样本反馈" @next="feedback.forward()" @prev="feedback.back()" />
+      <template #foot>
+        <CursorPager :count="visibleItems.length" :has-next="!!feedback.next.value" :has-prev="!!feedback.stack.value.length"
+          :busy="feedback.turning.value" label="样本反馈" @next="feedback.forward()" @prev="feedback.back()" />
+      </template>
+    </Panel>
     </div>
 
     <!-- 反馈详情与复核抽屉 -->
-    <Drawer :open="!!picked" :title="picked ? `反馈 ${picked.id.slice(0, 8)}` : ''" kicker="FEEDBACK REVIEW" @close="picked = null">
+    <Drawer :open="!!picked" :title="picked ? `反馈 ${picked.id.slice(0, 8)}` : ''" kicker="反馈复核" @close="picked = null">
       <template v-if="picked">
-        <p class="mb-8 border-l-2 border-ink-line py-1 pl-4 text-[12.5px] leading-relaxed text-ink-2">
+        <p class="note mb-5">
           复核通过仅代表样本结论已由第二人核实，不会自动触发模型在线重训；离线重训须经独立数据集治理与校验流程。
         </p>
-        <dl class="border-t border-ink">
+        <dl class="kv">
           <div v-for="[k, v] in [
             ['反馈 ID', picked.id],
             ['标注结论', `${guardFeedbackLabel[picked.label] ?? picked.label}（${picked.label}）`],
@@ -260,15 +289,15 @@ async function submitCreate() {
             ['复核意见', picked.reviewReason ?? '—'],
             ['修订版本', `r${picked.revision}`],
             ['提交时间', fmtTime(picked.createdAt)],
-          ]" :key="k" class="grid grid-cols-[7.5rem_1fr] border-b border-ink-hair py-3 text-[13px]">
-            <dt class="text-ink-3">{{ k }}</dt>
-            <dd class="num break-all">{{ v }}</dd>
+          ]" :key="k">
+            <dt>{{ k }}</dt>
+            <dd class="break-all">{{ v }}</dd>
           </div>
         </dl>
 
-        <h3 class="label mb-4 mt-10">关联观察快照</h3>
+        <h3 class="section-title mt-8">关联观察快照</h3>
         <LoadState :loading="obs.loading" :error="obs.error" :empty="!obs.data" empty-text="未能读取关联观察详情。">
-          <dl v-if="obs.data" class="border-t border-ink">
+          <dl v-if="obs.data" class="kv rounded border border-ink-hair px-3 text-[12.5px]">
             <div v-for="[k, v] in [
               ['流标识', obs.data.flowId],
               ['对端键', obs.data.peerKey ?? '—'],
@@ -276,36 +305,36 @@ async function submitCreate() {
               ['Profile', obs.data.profile ?? '—'],
               ['asOf', fmtTime(obs.data.asOf)],
               ['内容哈希', obs.data.contentSha256],
-            ]" :key="k" class="grid grid-cols-[7.5rem_1fr] border-b border-ink-hair py-2.5 text-[12.5px]">
-              <dt class="text-ink-3">{{ k }}</dt>
+            ]" :key="k">
+              <dt>{{ k }}</dt>
               <dd class="num break-all">{{ v }}</dd>
             </div>
           </dl>
         </LoadState>
 
         <!-- 复核表单：仅 feedback.review、pending 且非本人标注时显示 -->
-        <div v-if="canDecidePicked" class="mt-10 border-t border-ink pt-6 space-y-5 text-[13px]">
-          <h3 class="label">独立复核决定</h3>
-          <label class="block">
+        <div v-if="canDecidePicked" class="form mt-8 border-t border-ink-hair pt-6 text-[13px]">
+          <h3 class="section-title">独立复核决定</h3>
+          <label class="form-field">
             <span class="label">复核结论</span>
-            <select v-model="reviewForm.decision" aria-label="复核结论" class="field mt-1">
+            <select v-model="reviewForm.decision" aria-label="复核结论" class="field">
               <option value="approve">通过（标记为已复核 reviewed）</option>
               <option value="reject">驳回（标记为已驳回 rejected）</option>
             </select>
           </label>
-          <label class="block">
+          <label class="form-field">
             <span class="label">复核理由（必填）</span>
-            <textarea v-model="reviewForm.reason" aria-label="复核理由" rows="3" maxlength="1000" class="field mt-1 h-auto resize-none py-2" placeholder="写明核对观察特征与上下文后的复核依据" />
+            <textarea v-model="reviewForm.reason" aria-label="复核理由" rows="3" maxlength="1000" class="field resize-none" placeholder="写明核对观察特征与上下文后的复核依据" />
           </label>
           <p v-if="reviewForm.error" role="alert" class="text-[12.5px] text-threat">{{ reviewForm.error }}</p>
         </div>
-        <p v-else-if="picked.status === 'pending' && isSelf(picked)" class="mt-10 border-t border-ink pt-4 text-[12.5px] text-ink-3">
+        <p v-else-if="picked.status === 'pending' && isSelf(picked)" class="note mt-8">
           本人标注的反馈须由其他复核人决定（职责分离 S6）。
         </p>
       </template>
 
       <template v-if="canDecidePicked" #foot>
-        <button type="button" class="link text-[13px]" @click="picked = null">取消</button>
+        <button type="button" class="act-ghost" @click="picked = null">取消</button>
         <button type="button" class="act" :disabled="reviewForm.busy || !reviewForm.reason.trim()" @click="submitReview">
           {{ reviewForm.busy ? '提交中…' : '提交复核' }}
         </button>
@@ -313,29 +342,29 @@ async function submitCreate() {
     </Drawer>
 
     <!-- 新建标注抽屉 -->
-    <Drawer :open="creating" title="新建观察标注" kicker="LABEL OBSERVATION" @close="creating = false">
-      <div class="space-y-6 text-[13px]">
-        <p class="border-l-2 border-signal py-1 pl-4 text-[12.5px] leading-relaxed text-ink-2">
+    <Drawer :open="creating" title="新建观察标注" kicker="观察标注" @close="creating = false">
+      <div class="form text-[13px]">
+        <p class="note">
           输入目标观察记录的外部 UUID 并选择标注结论。提交后状态为待复核（pending），须由另一名复核人独立审核。
         </p>
-        <label class="block">
+        <label class="form-field">
           <span class="label">观察记录 UUID</span>
-          <input v-model="createForm.observationId" aria-label="观察记录 UUID" class="field num mt-2" placeholder="例如 00000000-0000-4000-8000-000000000001" />
+          <input v-model="createForm.observationId" aria-label="观察记录 UUID" class="field num" placeholder="例如 00000000-0000-4000-8000-000000000001" />
         </label>
-        <label class="block">
+        <label class="form-field">
           <span class="label">标注结论</span>
-          <select v-model="createForm.label" aria-label="新建标注结论" class="field mt-2">
+          <select v-model="createForm.label" aria-label="新建标注结论" class="field">
             <option v-for="(lbl, k) in guardFeedbackLabel" :key="k" :value="k">{{ lbl }}（{{ k }}）</option>
           </select>
         </label>
-        <label class="block">
+        <label class="form-field">
           <span class="label">证据引用说明</span>
-          <textarea v-model="createForm.evidenceRef" aria-label="新建证据引用说明" rows="3" maxlength="1000" class="field mt-2 h-auto resize-none py-2" placeholder="说明标注依据或关联流量摘要" />
+          <textarea v-model="createForm.evidenceRef" aria-label="新建证据引用说明" rows="3" maxlength="1000" class="field resize-none" placeholder="说明标注依据或关联流量摘要" />
         </label>
         <p v-if="createForm.error" role="alert" class="text-[12.5px] text-threat">{{ createForm.error }}</p>
       </div>
       <template #foot>
-        <button type="button" class="link text-[13px]" @click="creating = false">取消</button>
+        <button type="button" class="act-ghost" @click="creating = false">取消</button>
         <button type="button" class="act" :disabled="createForm.busy" @click="submitCreate">
           {{ createForm.busy ? '提交中…' : '提交标注' }}
         </button>

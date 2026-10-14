@@ -413,6 +413,12 @@ export const guardIdentityStatusLabel: Record<string, string> = {
 }
 export const guardMachineClientTypeLabel: Record<string, string> = { sensor: '采集身份', executor: '执行身份' }
 /** feedback：未复核的标注不自动成为训练真值。 */
+/** v5 动作期望 / 观测状态的中文名；期望不等于执行，两者分开显示。未知值原样显示。 */
+export const guardActionStateLabel: Record<string, string> = {
+  pending: '待处理', active: '生效意图', revoked: '已撤销', applied: '已生效', cleared: '已清理', failed: '失败',
+  rejected: '已驳回', uncertain: '待核对', recovery_failed: '恢复失败', expired: '已过期',
+}
+export const guardActionModeLabel: Record<string, string> = { auto: '自动', manual: '人工' }
 export const guardFeedbackLabel: Record<string, string> = { benign: '正常', attack: '攻击', ambiguous: '存疑' }
 export const guardFeedbackStatusLabel: Record<string, string> = { pending: '待复核', reviewed: '已复核', rejected: '已驳回' }
 export const guardTimelineTypeLabel: Record<string, string> = {

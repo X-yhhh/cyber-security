@@ -104,6 +104,6 @@ describe('卡片链接', () => {
     }
     // 无权访问的目标不给链接。
     expect(linker(all.permissions)('detect', 'events', 'open')).toBeUndefined()
-    expect(linker(everything)('ops', 'audit')).toEqual({ name: 'ops-audit', query: undefined })
+    expect(linker(everything)('system', 'audit')).toEqual({ name: 'system-audit', query: undefined })
   })
 })

@@ -84,11 +84,12 @@ export const idempotencyKey = () => crypto.randomUUID()
 /** v2 列表结果：items 为当前页，nextCursor 为 null 表示已到末页。 */
 export interface Cursor<T> { items: T[]; nextCursor: string | null }
 
-export interface CursorQuery { assetId?: string; cursor?: string; limit?: number }
+export interface CursorQuery { assetId?: string; status?: string; cursor?: string; limit?: number }
 
 function cursorQuery(q: CursorQuery = {}) {
   const p = new URLSearchParams()
   if (q.assetId) p.set('assetId', q.assetId)
+  if (q.status) p.set('status', q.status)
   if (q.cursor) p.set('cursor', q.cursor)
   p.set('limit', String(q.limit ?? 50))
   return `?${p}`
@@ -116,11 +117,17 @@ export const guard = {
     request<T>('POST', `/api/v2/${collection}`, body, { 'Idempotency-Key': key }),
   /**
    * 状态操作。需要乐观并发的操作传 revision 生成 If-Match；
-   * 同一幂等键配不同 If-Match 会被后端视为不同请求，因此键随提交生成。
+   * 同一幂等键配不同 If-Match 会被后端视为不同请求，因此键必须随提交生成。
    */
   op: <T>(collection: string, id: string, operation: string, body: unknown = {}, revision?: number | string, key = idempotencyKey()) => {
     const headers: Record<string, string> = { 'Idempotency-Key': key }
     if (revision !== undefined && revision !== null) headers['If-Match'] = String(revision)
     return request<T>('POST', `/api/v2/${collection}/${encodeURIComponent(id)}/${operation}`, body, headers)
+  },
+  /** PUT 子资源（如 PUT /events/{id}/assignee），自动带 Idempotency-Key 与 If-Match。 */
+  put: <T>(collection: string, id: string, operation: string, body: unknown = {}, revision?: number | string, key = idempotencyKey()) => {
+    const headers: Record<string, string> = { 'Idempotency-Key': key }
+    if (revision !== undefined && revision !== null) headers['If-Match'] = String(revision)
+    return request<T>('PUT', `/api/v2/${collection}/${encodeURIComponent(id)}/${operation}`, body, headers)
   },
 }

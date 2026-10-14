@@ -357,8 +357,15 @@ export interface GuardBudgetLedger {
 }
 export interface GuardGuardEvent {
   id: string; guardAssetId: string | null; revision: number; eventKey: string; title: string; category: string
-  severity: Severity; status: string; riskScore: number | null; riskRuleVersion: string | null
-  firstSeenAt: string | null; lastSeenAt: string | null; createdAt: string; closedAt: string | null
+  severity: Severity; status: string; assigneeId?: string | null
+  riskScore: number | null; riskRuleVersion: string | null
+  firstSeenAt: string | null; lastSeenAt: string | null; createdAt: string; updatedAt?: string | null; closedAt: string | null
+  episodeIds?: string[]; decisionIds?: string[]
+  actionable?: boolean; budgetTargetId?: string | null; policyId?: string | null
+  actionEpisodeId?: string | null; targetRef?: string | null; actionableReasonCode?: string | null
+}
+export interface GuardAssignableUser {
+  id: string; assetId: string; userKey: string; username: string; displayName: string; status: string
 }
 export interface GuardTimelineEntry {
   id: string; eventId: string; occurredAt: string; entryType: string; actorType: string; actorId: string | null
@@ -367,6 +374,7 @@ export interface GuardTimelineEntry {
 export interface GuardFeedback {
   id: string; createdAt: string; assetId: string | null; observationId: string; label: string; evidenceRef: string
   status: string; reviewReason: string | null; revision: number
+  createdBy?: number | string | null; reviewedBy?: number | string | null
 }
 
 /** 机器身份台账（GET /machine-clients）。 */
@@ -406,6 +414,19 @@ export const guardIdentityStatusLabel: Record<string, string> = {
 export const guardMachineClientTypeLabel: Record<string, string> = { sensor: '采集身份', executor: '执行身份' }
 /** feedback：未复核的标注不自动成为训练真值。 */
 export const guardFeedbackLabel: Record<string, string> = { benign: '正常', attack: '攻击', ambiguous: '存疑' }
+export const guardFeedbackStatusLabel: Record<string, string> = { pending: '待复核', reviewed: '已复核', rejected: '已驳回' }
+export const guardTimelineTypeLabel: Record<string, string> = {
+  'guard.decision': '追加证据判定',
+  'guard.transition': '状态迁移',
+  'guard.assignment': '负责人指派',
+  'guard.note': '研判记录',
+}
+export const guardActionableReasonLabel: Record<string, string> = {
+  ...guardReasonLabel,
+  EVENT_NOT_OPEN: '事件已结案或关闭，不可申请处置',
+  ACTION_EVIDENCE_REQUIRED: '尚无阻断候选判定，仅告警或观察不产生可执行目标',
+  ACTION_ALREADY_ACTIVE: '该阻断候选已存在待处理或生效中的处置动作',
+}
 
 /* ------------------------------------------------------------------ *
  * 演示最小集（FE-1—FE-3）：来源 × 类别、lab 验证与 G3 报告、健康与审计。

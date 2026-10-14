@@ -24,7 +24,8 @@ record GuardReadRequest(Map<String, Object> filters, int limit, String cursor) {
             case AUDIT -> Set.of("assetId", "action", "requestId", "from", "until");
             case HEALTH -> Set.of("assetId", "sensorId", "captureScopeId", "verificationStatus", "from", "until");
             case EXECUTORS -> Set.of("assetId", "executorId", "status", "from", "until");
-            case OPS -> Set.of("assetId");
+            case MACHINE_CLIENTS -> Set.of("assetId", "sensorId", "executorId", "clientType", "status", "from", "until");
+            case ASSIGNABLE_USERS, OPS -> Set.of("assetId");
         };
         Map<String, Object> filters = new TreeMap<>();
         int limit = 50;
@@ -50,12 +51,14 @@ record GuardReadRequest(Map<String, Object> filters, int limit, String cursor) {
             } else {
                 if (!value.matches("[A-Za-z0-9_.:/-]{1,128}")) throw error(400, "INVALID_QUERY");
                 if (key.equals("status") && !statuses(kind).contains(value)) throw error(400, "INVALID_QUERY");
+                if (key.equals("clientType") && !Set.of("sensor", "executor").contains(value)) throw error(400, "INVALID_QUERY");
                 if (key.equals("verificationStatus") && !Set.of("healthy", "replay_healthy", "REPLAY_KERNEL_DROPS_INVALID", "HEALTH_DELAY_EXCEEDED", "CLOCK_UNTRUSTED",
                         "CAPTURE_GAP", "COUNTER_UNKNOWN", "CAPTURE_DROPS", "HEALTH_CHAIN_INCOMPLETE", "HEALTH_IDENTITY_CHANGED")
                         .contains(value)) throw error(400, "INVALID_QUERY");
                 filters.put(key, value);
             }
         }
+        if (kind == Kind.ASSIGNABLE_USERS && !filters.containsKey("assetId")) throw error(400, "INVALID_QUERY");
         if (filters.containsKey("from") && filters.containsKey("until")
                 && !((LocalDateTime) filters.get("from")).isBefore((LocalDateTime) filters.get("until"))) {
             throw error(400, "INVALID_TIME_RANGE");
@@ -80,6 +83,7 @@ record GuardReadRequest(Map<String, Object> filters, int limit, String cursor) {
             case CONFIGS -> Set.of("draft", "pending", "approved", "active", "retired", "rejected");
             case SENSORS -> Set.of("pending", "active", "offline", "revoked");
             case EXECUTORS -> Set.of("pending", "active", "suspended", "revoked");
+            case MACHINE_CLIENTS -> Set.of("active", "disabled", "revoked");
             default -> Set.of();
         };
     }

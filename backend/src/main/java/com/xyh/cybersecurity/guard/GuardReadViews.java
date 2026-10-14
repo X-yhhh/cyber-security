@@ -30,6 +30,12 @@ final class GuardReadViews {
                     : reference("resource:" + row.get("resource_type"), resource));
             return result;
         }
+        if (kind == Kind.ASSIGNABLE_USERS) {
+            result.set("id", node(row.get("user_key")));
+            result.set("assetId", node(row.get("asset_public_id")));
+            columns(result, row, "user_key username display_name status");
+            return result;
+        }
         result.set("id", node(row.get("public_id")));
         if (kind != Kind.OPS) result.set("assetId", node(row.get("asset_public_id")));
         switch (kind) {
@@ -61,6 +67,11 @@ final class GuardReadViews {
                 columns(result, row, "status revision created_at config_version feature_contract_version activated_at content_sha256");
                 JsonNode source = payload(row, "guard_definition_json");
                 result.set("definition", source.isObject() ? definition(source) : node(null));
+            }
+            case MACHINE_CLIENTS -> {
+                result.set("sensorId", node(row.get("sensor_public_id")));
+                result.set("executorId", node(row.get("executor_public_id")));
+                columns(result, row, "client_type status created_at last_used_at expires_at");
             }
             case HEALTH -> {
                 result.set("sensorId", node(row.get("sensor_public_id")));

@@ -353,6 +353,87 @@ class GuardIntegrationTest {
         assertThat(store.rows("guard_executor",map("asset_id",aid),false,10)).isEmpty();assertThat(store.rows("guard_asset_binding",map("asset_id",aid),false,10)).isEmpty();
     }
 
+    /** B2：资产更新、机器凭据轮换与吊销、事件指派、回放失败收口及发布组合/事件子列表闭合验证。 */
+    @Test void b2AssetUpdateMachineRotateEventAssignmentReplayFailAndChildLists()throws Exception{
+        Fixture f=setup();
+        var s0=humanSession(operator);
+        var patchRes=mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch("/api/v2/assets/"+f.asset()).cookie(s0.cookie()).header("X-CSRF-TOKEN",s0.csrfToken()).header("Idempotency-Key",id()).header("If-Match","1").contentType("application/json").content(canonical(object("owner","updated-owner","criticality","high","status","disabled","labels",object("zone","dmz"))))).andReturn();
+        assertThat(patchRes.getResponse().getStatus()).isEqualTo(200);
+        var updatedAsset=result(patchRes);
+        assertThat(updatedAsset.path("revision").asLong()).isEqualTo(2L);
+        assertThat(updatedAsset.path("status").asText()).isEqualTo("disabled");
+        assertThat(updatedAsset.path("owner").asText()).isEqualTo("updated-owner");
+        assertThat(updatedAsset.path("criticality").asText()).isEqualTo("high");
+        assertThat(store.one("guard_asset_binding",map("asset_id",number(store.external("asset",f.asset(),false),"id")),false).get("status")).isEqualTo("suspended");
+        rejectedHuman("/assets/"+f.asset()+"/updates",object("environment","authorized"),operator,"2",400);
+        rejectedHuman("/assets/"+f.asset()+"/updates",object("labels",object("platform","windows")),operator,"2",422);
+        rejectedHuman("/assets/"+f.asset()+"/updates",object("owner","conflict"),operator,"1",409);
+        human("/assets/"+f.asset()+"/updates",object("status","active"),operator,"2");
+
+        String rotateKey=id();
+        var rotatedSensor=human("/sensors/"+f.sensor()+"/credential-rotations",object("reason","定期轮换"),operator,null,rotateKey);
+        assertThat(rotatedSensor.path("credential").asText()).startsWith("mch_").isNotEqualTo(f.sensorCredential());
+        assertThat(rotatedSensor.path("rotatedAt").isTextual()).isTrue();
+        assertThat(rejectedHuman("/sensors/"+f.sensor()+"/credential-rotations",object("reason","定期轮换"),operator,null,409,rotateKey).at("/error/code").asText()).isEqualTo("CREDENTIAL_ALREADY_ISSUED");
+        var oldAuth=mvc.perform(get("/api/v2/machine/sensors/"+f.sensor()+"/config").header("Authorization","Bearer "+f.sensorCredential())).andReturn();
+        assertThat(oldAuth.getResponse().getStatus()).isEqualTo(401);
+        var newAuth=mvc.perform(get("/api/v2/machine/sensors/"+f.sensor()+"/config").header("Authorization","Bearer "+rotatedSensor.path("credential").asText())).andReturn();
+        assertThat(newAuth.getResponse().getStatus()).isEqualTo(200);
+
+        String clientId=rotatedSensor.path("clientId").asText();
+        var revokedClient=human("/machine-clients/"+clientId+"/revocations",object("reason","退役吊销"),operator,null);
+        assertThat(revokedClient.path("status").asText()).isEqualTo("revoked");
+        var afterRevoke=mvc.perform(get("/api/v2/machine/sensors/"+f.sensor()+"/config").header("Authorization","Bearer "+rotatedSensor.path("credential").asText())).andReturn();
+        assertThat(afterRevoke.getResponse().getStatus()).isEqualTo(401);
+
+        var session=humanSession(operator);
+        var bindings=result(mvc.perform(get("/api/v2/release-bundles/"+f.bundle()+"/bindings").cookie(session.cookie())).andReturn());
+        assertThat(bindings.path("items")).hasSize(1);
+        assertThat(bindings.at("/items/0/assetId").asText()).isEqualTo(f.asset());
+
+        long aid=number(store.external("asset",f.asset(),false),"id");
+        String eventId=id();
+        jdbc.update("INSERT INTO security_event(public_id,guard_asset_id,revision,event_key,title,category,severity,status,risk_score,risk_rule_version,first_seen_at,last_seen_at,created_at) VALUES (?,?,1,?,'B2事件','dos_slow','high','open',80,'v5',UTC_TIMESTAMP(3),UTC_TIMESTAMP(3),UTC_TIMESTAMP(3))",eventId,aid,id());
+        var putRes=mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put("/api/v2/events/"+eventId+"/assignee").cookie(session.cookie()).header("X-CSRF-TOKEN",session.csrfToken()).header("Idempotency-Key",id()).header("If-Match","1").contentType("application/json").content(canonical(object("userId",operator.userKey(),"reason","指派跟进")))).andReturn();
+        assertThat(putRes.getResponse().getStatus()).isEqualTo(200);
+        var assigned=result(putRes);
+        assertThat(assigned.path("userId").asText()).isEqualTo(operator.userKey());
+        assertThat(assigned.path("revision").asLong()).isEqualTo(2L);
+        var noEventPerm=identity("no-event",List.of());
+        assertThat(rejectedHuman("/events/"+eventId+"/assignments",object("userId",noEventPerm.userKey(),"reason","无权指派"),operator,"2",422).at("/error/code").asText()).isEqualTo("ASSIGNEE_NOT_ELIGIBLE");
+        human("/events/"+eventId+"/transitions",object("expectedRevision",2,"to","investigating","reason","开始研判"),operator,"2");
+        human("/events/"+eventId+"/transitions",object("expectedRevision",3,"to","resolved","reason","确认缓解"),operator,"3");
+        var closed=human("/events/"+eventId+"/transitions",object("expectedRevision",4,"to","closed","reason","演练结案"),operator,"4");
+        assertThat(closed.path("status").asText()).isEqualTo("closed");
+        session=humanSession(operator);
+        var eventDetail=result(mvc.perform(get("/api/v2/events/"+eventId).cookie(session.cookie())).andReturn());
+        assertThat(eventDetail.path("closedAt").isTextual()).isTrue();
+        assertThat(eventDetail.path("assigneeId").asText()).isEqualTo(operator.userKey());
+        assertThat(eventDetail.path("episodeIds").isArray()).isTrue();
+        assertThat(eventDetail.path("decisionIds").isArray()).isTrue();
+        assertThat(eventDetail.path("actionable").asBoolean()).isFalse();
+        assertThat(eventDetail.path("actionableReasonCode").asText()).isEqualTo("EVENT_NOT_OPEN");
+        var closedEvents=result(mvc.perform(get("/api/v2/events").param("status","closed").cookie(session.cookie())).andReturn());
+        assertThat(closedEvents.path("items").findValuesAsText("id")).contains(eventId);
+        var invalidStatus=mvc.perform(get("/api/v2/events").param("status","invalid_state").cookie(session.cookie())).andReturn();
+        assertThat(invalidStatus.getResponse().getStatus()).isEqualTo(400);
+        assertThat(result(mvc.perform(get("/api/v2/events/"+eventId+"/episodes").cookie(session.cookie())).andReturn()).path("items").isArray()).isTrue();
+        assertThat(result(mvc.perform(get("/api/v2/events/"+eventId+"/actions").cookie(session.cookie())).andReturn()).path("items").isArray()).isTrue();
+
+        var oldBundle=store.external("guard_release_bundle",f.bundle(),false);var subject=json(oldBundle,"subject_json");
+        var research=human("/release-bundles",object("modelId",f.model(),"policyId",f.policy(),"featureProfileSha256",contracts.profileHash(),"extractorSha256",subject.get("extractorSha256"),"protocolVersions",versions(),"evaluationPlanId",store.get("guard_evaluation_plan",number(oldBundle,"plan_id")).get("public_id"),"capabilityIds",List.of(f.capability()),"environment","research"),operator,null);
+        String rbid=research.path("id").asText(),rfolder=id();Path rdir=ROOT.resolve(rfolder);Files.createDirectories(rdir);
+        write(rdir,"r-final.json",GuardSignatures.sign(object("protocolVersions",versions(),"subjectSha256",research.get("subjectSha256"),"evaluationPlanSha256",subject.get("evaluationPlanSha256"),"runKind","final","passed",true),"fixture-runner",signing.getPrivate()));
+        var rimport=human("/release-bundles/"+rbid+"/imports",object("reportRef",rfolder+"/r-final.json","sha256",sha(Files.readAllBytes(rdir.resolve("r-final.json"))),"runnerIdentity","fixture-runner"),operator,null);
+        human("/release-bundles/"+rbid+"/sealings",object("evaluationIds",List.of(rimport.path("id").asText())),operator,"1");
+        human("/release-bundles/"+rbid+"/decisions",object("decision","approve","reason","回放失败测试批准"),reviewer,"2");
+        var queuedReplay=human("/replay-runs",object("scenarioId",id(),"scenarioSha256","a".repeat(64),"modelId",f.model(),"policyId",f.policy(),"speed",1),operator,null);
+        String rid=queuedReplay.path("id").asText();
+        var failedReplay=human("/replay-runs/"+rid+"/failures",object("reasonCode","REPLAY_PROCESS_ABORTED","reason","进程中断"),operator,null);
+        assertThat(failedReplay.path("status").asText()).isEqualTo("failed");
+        assertThat(rejectedHuman("/replay-runs/"+rid+"/failures",object("reasonCode","REPLAY_PROCESS_ABORTED","reason","重复失败"),operator,null,422).at("/error/code").asText()).isEqualTo("STATE_CONFLICT");
+    }
+
     /** B3：P6 冻结计划按原字节摘要登记，不能内联改写；发布组合须与计划登记的候选和提取器一致。 */
     @Test void frozenP6PlanRegistersByRawDigestAndBindsCandidate()throws Exception{
         String folder=id();Path dir=ROOT.resolve(folder);Files.createDirectories(dir);
@@ -481,7 +562,10 @@ class GuardIntegrationTest {
     }
     /** 测试专用的失败断言保留真实会话、CSRF 和请求幂等头。 */
     JsonNode rejectedHuman(String path,JsonNode body,IdentityPrincipal actor,String revision,int expected)throws Exception{
-        var session=humanSession(actor);var request=post("/api/v2"+path).cookie(session.cookie()).header("X-CSRF-TOKEN",session.csrfToken()).header("Idempotency-Key",id()).contentType("application/json").content(canonical(body));
+        return rejectedHuman(path,body,actor,revision,expected,id());
+    }
+    JsonNode rejectedHuman(String path,JsonNode body,IdentityPrincipal actor,String revision,int expected,String key)throws Exception{
+        var session=humanSession(actor);var request=post("/api/v2"+path).cookie(session.cookie()).header("X-CSRF-TOKEN",session.csrfToken()).header("Idempotency-Key",key).contentType("application/json").content(canonical(body));
         if(revision!=null)request.header("If-Match",revision);
         var response=mvc.perform(request).andReturn().getResponse();assertThat(response.getStatus()).withFailMessage("HTTP %s: %s",response.getStatus(),response.getContentAsString()).isEqualTo(expected);
         return parse(response.getContentAsString());

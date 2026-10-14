@@ -45,7 +45,35 @@ public class GuardCases {
         Map<String,Set<String>> transitions=Map.of("open",Set.of("investigating","false_positive"),"investigating",Set.of("contained","resolved","false_positive"),"contained",Set.of("investigating","resolved"),"resolved",Set.of("closed","investigating"),"false_positive",Set.of("closed","investigating"),"closed",Set.of());
         require(transitions.getOrDefault(from,Set.of()).contains(to),"STATE_CONFLICT");
         if(to.equals("contained")){boolean applied=false;for(var link:store.rows("guard_event_episode",map("event_id",event.get("id")),false,1000))for(var d:store.rows("guard_decision",map("episode_id",link.get("episode_id")),false,1000))applied|=store.one("guard_action",map("decision_id",d.get("id"),"observed_state","applied"),false)!=null;require(applied,"ACTION_EFFECT_UNVERIFIED");}
-        store.update("security_event",number(event,"id"),map("status",to,"revision",number(event,"revision")+1));timeline(number(event,"id"),"guard.transition",access.human(),text(b,"reason"),object("from",from,"to",to));store.audit(access.human(),"guard.event.transition",id,aid,null,b);return object("id",id,"status",to,"revision",number(event,"revision")+1);}
+        var now=db(store.now());var updates=map("status",to,"revision",number(event,"revision")+1,"updated_at",now);
+        if(to.equals("closed"))updates.put("closed_at",now);else if("closed".equals(from))updates.put("closed_at",null);
+        store.update("security_event",number(event,"id"),updates);timeline(number(event,"id"),"guard.transition",access.human(),text(b,"reason"),object("from",from,"to",to));store.audit(access.human(),"guard.event.transition",id,aid,null,b);return object("id",id,"status",to,"revision",number(event,"revision")+1);}
+    public JsonNode assign(String id,JsonNode b,String revision){
+        fields(b,"","userId assigneeId reason expectedRevision");
+        require(b.has("userId")||b.has("assigneeId"),"INVALID_REQUEST");
+        String reason=b.has("reason")?text(b,"reason"):"指派变更";
+        var event=store.external("security_event",id,false);require(event.get("guard_asset_id")!=null,"RESOURCE_NOT_FOUND");
+        long aid=number(event,"guard_asset_id");access.permission("event.manage",aid);store.lockAsset(aid);
+        event=store.external("security_event",id,true);access.revision(event,revision);
+        if(b.has("expectedRevision"))require(integer(b,"expectedRevision",1,Long.MAX_VALUE)==number(event,"revision"),"REVISION_CONFLICT");
+        JsonNode targetNode=b.has("userId")?b.get("userId"):b.get("assigneeId");
+        Long assigneeId=null;String assigneeKey=null;
+        if(targetNode!=null&&!targetNode.isNull()){
+            require(targetNode.isTextual()||targetNode.isIntegralNumber(),"INVALID_REQUEST");
+            String rawKey=targetNode.asText().trim();require(!rawKey.isEmpty(),"INVALID_REQUEST");
+            var user=store.one("sys_user",map("user_key",rawKey),true);
+            if(user==null&&rawKey.matches("[1-9][0-9]*"))user=store.one("sys_user",map("id",Long.parseLong(rawKey)),true);
+            if(user==null||!"active".equals(str(user,"status")))throw error(422,"ASSIGNEE_NOT_ELIGIBLE");
+            long uid=number(user,"id");store.lockUserRoles(uid);
+            if(!store.permitted(uid,"event.manage",aid))throw error(422,"ASSIGNEE_NOT_ELIGIBLE");
+            assigneeId=uid;assigneeKey=str(user,"user_key");
+        }
+        long nextRevision=number(event,"revision")+1;
+        store.update("security_event",number(event,"id"),map("assignee_id",assigneeId,"revision",nextRevision,"updated_at",db(store.now())));
+        timeline(number(event,"id"),"guard.assignment",access.human(),reason,object("userId",assigneeKey,"assigneeId",assigneeKey));
+        store.audit(access.human(),"guard.event.assigned",id,aid,null,object("userId",assigneeKey,"assigneeId",assigneeKey,"reason",reason));
+        return object("id",id,"userId",assigneeKey,"assigneeId",assigneeKey,"revision",nextRevision);
+    }
     public JsonNode note(String id,JsonNode b){fields(b,"note","");var e=store.external("security_event",id,false);require(e.get("guard_asset_id")!=null,"RESOURCE_NOT_FOUND");access.permission("event.manage",number(e,"guard_asset_id"));timeline(number(e,"id"),"guard.note",access.human(),text(b,"note"),object());return object("accepted",true);}
     public JsonNode feedback(JsonNode b){fields(b,"observationId label evidenceRef","");var o=store.external("guard_observation",uuid(b,"observationId"),false);access.permission("feedback.label",number(o,"asset_id"));require(Set.of("benign","attack","ambiguous").contains(text(b,"label")),"INVALID_LABEL");
         var f=store.add("guard_feedback",map("asset_id",o.get("asset_id"),"observation_id",o.get("id"),"label",text(b,"label"),"evidence_ref",text(b,"evidenceRef"),"created_by",access.human()));store.audit(access.human(),"guard.feedback.labelled",str(f,"public_id"),number(o,"asset_id"),null,b);return object("id",f.get("public_id"),"status","pending","revision",1,"trainingEligible",false);}

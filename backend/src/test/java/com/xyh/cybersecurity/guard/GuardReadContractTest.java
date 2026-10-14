@@ -156,4 +156,39 @@ class GuardReadContractTest {
         assertThat(first.toString()).doesNotContain("sentinel-private-address");
         assertThatCode(() -> uuid(first.path("id").asText())).doesNotThrowAnyException();
     }
+
+    @Test
+    void machineClientsAndAssignableUsersEnforceStrictFiltersAndRedactSecrets() {
+        var assignParams = new LinkedMultiValueMap<String, String>();
+        assertThatThrownBy(() -> GuardReadRequest.parse(ASSIGNABLE_USERS, assignParams)).hasMessageContaining("INVALID_QUERY");
+        String assetId = id();
+        assignParams.add("assetId", assetId);
+        var assignReq = GuardReadRequest.parse(ASSIGNABLE_USERS, assignParams);
+        assertThat(assignReq.filters()).containsEntry("assetId", assetId);
+
+        var mcParams = new LinkedMultiValueMap<String, String>();
+        mcParams.add("clientType", "sensor");
+        mcParams.add("status", "active");
+        assertThat(GuardReadRequest.parse(MACHINE_CLIENTS, mcParams).filters())
+                .containsEntry("clientType", "sensor").containsEntry("status", "active");
+        mcParams.set("clientType", "connector");
+        assertThatThrownBy(() -> GuardReadRequest.parse(MACHINE_CLIENTS, mcParams)).hasMessageContaining("INVALID_QUERY");
+
+        LocalDateTime now = LocalDateTime.parse("2026-10-14T00:00:00");
+        var mcView = GuardReadViews.view(MACHINE_CLIENTS, map(
+                "public_id", id(), "asset_public_id", assetId, "sensor_public_id", id(),
+                "client_type", "sensor", "status", "active", "created_at", now, "last_used_at", now,
+                "credential_sha256", "sentinel-secret", "secret_ref", "sentinel-secret"), now);
+        assertThat(mcView.path("clientType").asText()).isEqualTo("sensor");
+        assertThat(mcView.fieldNames()).toIterable().containsExactlyInAnyOrder(
+                "id", "clientType", "assetId", "sensorId", "executorId", "status", "createdAt", "lastUsedAt", "expiresAt");
+        assertThat(mcView.toString()).doesNotContain("sentinel-secret", "credentialSha256", "secretRef");
+
+        var userView = GuardReadViews.view(ASSIGNABLE_USERS, map(
+                "user_key", "usr-1", "username", "analyst", "display_name", "分析员", "status", "active",
+                "asset_public_id", assetId, "password_hash", "sentinel-secret"), now);
+        assertThat(userView.path("id").asText()).isEqualTo("usr-1");
+        assertThat(userView.path("assetId").asText()).isEqualTo(assetId);
+        assertThat(userView.toString()).doesNotContain("sentinel-secret", "passwordHash");
+    }
 }

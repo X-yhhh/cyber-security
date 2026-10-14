@@ -124,4 +124,6 @@ public class GuardStore {
     }
     /** 先锁资产再锁额度，后续绑定/目标/episode/action 统一按此顺序。 */
     public Map<String,Object> lockAsset(long asset){var r=one("asset",map("id",asset),true);if(r==null)throw error(404,"RESOURCE_NOT_FOUND");return r;}
+    public List<Long> lockUserRoles(long userId){return mapper.lockUserRoles(userId);}
+    public boolean permitted(long actor,String permission,Long asset){return mapper.permitted(actor,permission,asset==null?"global":"asset",asset==null?"*":asset.toString());}
 }

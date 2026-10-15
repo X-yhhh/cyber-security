@@ -13,6 +13,9 @@ import { resetCsrf } from '@/api/client'
 import { requests, server } from '@/test/handlers'
 import { signIn } from '@/test/handlers/auth'
 import { singleRoleUsers, type MeFixture } from '@/test/roles'
+import { detectState, EVENT_ALERT_ONLY, EVENT_OPEN } from '@/test/handlers/detect'
+import RecordsView from '@/views/detect/RecordsView.vue'
+import EventDetailView from '@/views/detect/EventDetailView.vue'
 
 const Host = defineComponent({ render: () => h(RouterView) })
 
@@ -81,6 +84,50 @@ describe('两级侧栏', () => {
     const { w } = await open(singleRoleUsers.auditor, '/console/workbench')
     expect(crumbs(w)).toEqual(['态势', '待办中心'])
     expect(sidebar(w).get('a[aria-current="page"]').text()).toBe('待办中心')
+  })
+})
+
+describe('F0R 页面生命周期与面包屑', () => {
+  it('同页查询变化复用页面实例', async () => {
+    const { router, w } = await open(singleRoleUsers.auditor, '/console/detect/records')
+    const page = w.getComponent(RecordsView).vm.$.uid
+    await router.replace({ query: { view: 'list' } })
+    await settle()
+    expect(w.getComponent(RecordsView).vm.$.uid).toBe(page)
+  })
+
+  it('事件名称加载后显示名称；切换详情 ID 创建新实例并重新读取；离开后不留旧名称', async () => {
+    server.use(http.get('/api/v2/events/:id', ({ params }) => HttpResponse.json({ requestId: 'r', error: null, data: detectState.events.find((e) => e.id === params.id) })))
+    const { router, w } = await open(singleRoleUsers.auditor, `/console/detect/events/${EVENT_OPEN}`)
+    const first = w.getComponent(EventDetailView).vm.$.uid
+    expect(crumbs(w).at(-1)).toBe(detectState.events.find((e) => e.id === EVENT_OPEN)!.title)
+    expect(w.get('nav[aria-label="面包屑"] [aria-current="page"]').attributes('title')).toBe(EVENT_OPEN)
+    await router.push(`/console/detect/events/${EVENT_ALERT_ONLY}`)
+    await settle()
+    expect(w.getComponent(EventDetailView).vm.$.uid).not.toBe(first)
+    expect(crumbs(w).at(-1)).toBe(detectState.events.find((e) => e.id === EVENT_ALERT_ONLY)!.title)
+    expect(requests.filter((r) => r === `GET /api/v2/events/${EVENT_ALERT_ONLY}`)).toHaveLength(1)
+    await router.push('/console/workbench')
+    await settle()
+    expect(crumbs(w)).toEqual(['态势', '待办中心'])
+  })
+
+  it('详情没有可读名称时截断 ID，悬停提示保留完整值', async () => {
+    server.use(http.get('/api/v2/events/:id', () => HttpResponse.json({ requestId: 'r', error: null, data: { ...detectState.events[0], title: '' } })))
+    const { w } = await open(singleRoleUsers.auditor, `/console/detect/events/${EVENT_OPEN}`)
+    expect(crumbs(w).at(-1)).toBe(`${EVENT_OPEN.slice(0, 8)}…`)
+    expect(w.get('nav[aria-label="面包屑"] [aria-current="page"]').attributes('title')).toBe(EVENT_OPEN)
+  })
+
+  it('lab 详情用会话键摘要作为标签', async () => {
+    const id = 'a1234567-0000-4000-8000-000000000001'
+    server.use(
+      http.get(`/api/v2/lab-validation-runs/${id}`, () => HttpResponse.json({ requestId: 'r', error: null, data: { id, runStatus: 'created', eligibilityStatus: 'eligible', effectiveEligibility: 'alert_only', blockedReason: null, revision: 1 } })),
+      http.get(`/api/v2/lab-validation-runs/${id}/qualifications`, () => HttpResponse.json({ requestId: 'r', error: null, data: { sources: [], bundleUsable: false } })),
+    )
+    const { w } = await open(singleRoleUsers.auditor, `/console/release/lab/${id}`)
+    expect(crumbs(w).at(-1)).toBe('会话 a1234567…')
+    expect(w.get('nav[aria-label="面包屑"] [aria-current="page"]').attributes('title')).toBe(id)
   })
 })
 

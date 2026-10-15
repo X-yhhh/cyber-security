@@ -3,7 +3,7 @@
  * 控制台外壳（权限设计第 7 节，FE-9）：
  * - 左侧两级菜单由 nav.ts 生成并按会话权限过滤；一级组可折叠，折叠状态存 localStorage，
  *   进入某组的页面时该组自动展开；无可见二级项的组整组隐藏。
- * - 顶栏面包屑为“一级 / 二级 / 详情 ID”；待办中心与其他二级项一样挂在「态势」组下。
+ * - 顶栏面包屑为“一级 / 二级 / 详情名称（缺省截断 ID）”；待办中心与其他二级项一样挂在「态势」组下。
  * - 宽度小于 768 时侧栏改为左侧抽屉，由顶栏菜单按钮打开；抽屉内 Tab 焦点循环、Escape 关闭，关闭后焦点回到菜单按钮。
  * - 左下角账户菜单：用户名、角色中文名、修改口令、退出。
  * 顶栏只保留后端就绪探针（/health/ready，无需权限）；采集与执行健康见「传感器与执行器」页。
@@ -15,6 +15,7 @@ import { Menu, X } from 'lucide-vue-next'
 import { api } from '@/api/client'
 import { session } from '@/api/session'
 import { groupOf, itemOf, routeName, visibleMenu } from '@/router/nav'
+import { provideCrumbLabel } from '@/composables/crumb'
 import NavGroup from '@/components/NavGroup.vue'
 import AccountMenu from '@/components/AccountMenu.vue'
 
@@ -22,17 +23,21 @@ const route = useRoute()
 const menu = computed(() => visibleMenu(session.user?.permissions))
 const activeGroup = computed(() => route.meta.group)
 const activeItem = computed(() => route.meta.item)
+const detailLabel = provideCrumbLabel()
 
-/** 面包屑：一级 / 二级 / 详情 ID；旧页面只显示标题。 */
+/** 面包屑优先显示详情页名称，缺省 ID 前 8 位；完整 ID 只在悬停提示中展示。 */
 const crumbs = computed(() => {
   const g = groupOf(activeGroup.value)
   const i = itemOf(activeGroup.value, activeItem.value)
-  const out: { label: string; to?: { name: string }; mono?: boolean }[] = []
+  const out: { label: string; to?: { name: string }; mono?: boolean; title?: string }[] = []
   if (g && i && g.key !== i.key) out.push({ label: g.title }, { label: i.title, to: route.meta.detail ? { name: routeName(i) } : undefined })
   else if (i) out.push({ label: i.title })
   else out.push({ label: String(route.meta.title ?? '') })
   const id = route.meta.detail ? route.params[route.meta.detail] : undefined
-  if (id) out.push({ label: String(id), mono: true })
+  if (id) {
+    const full = String(id)
+    out.push({ label: detailLabel.value ?? (full.length > 8 ? `${full.slice(0, 8)}…` : full), mono: !detailLabel.value, title: full })
+  }
   return out
 })
 
@@ -150,7 +155,7 @@ onMounted(async () => {
               <li v-for="(c, i) in crumbs" :key="i" class="flex items-center gap-3">
                 <span v-if="i > 0" class="text-ink-4" aria-hidden="true">/</span>
                 <RouterLink v-if="c.to" :to="c.to" class="text-ink-3 hover:text-ink">{{ c.label }}</RouterLink>
-                <span v-else :class="[i === crumbs.length - 1 ? 'text-ink' : 'text-ink-3', c.mono ? 'num' : '']" :aria-current="i === crumbs.length - 1 ? 'page' : undefined">{{ c.label }}</span>
+                <span v-else :class="[i === crumbs.length - 1 ? 'text-ink' : 'text-ink-3', c.mono ? 'num' : '']" :title="c.title" :aria-current="i === crumbs.length - 1 ? 'page' : undefined">{{ c.label }}</span>
               </li>
             </ol>
           </nav>
@@ -163,7 +168,7 @@ onMounted(async () => {
       <main class="mx-auto max-w-[1440px] px-6 pb-20 pt-8 md:px-10">
         <RouterView v-slot="{ Component, route: r }">
           <Transition name="page" mode="out-in">
-            <component :is="Component" :key="r.fullPath" />
+            <component :is="Component" :key="r.path" />
           </Transition>
         </RouterView>
       </main>

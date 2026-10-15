@@ -10,7 +10,6 @@
  * - 复核调用 POST /api/v2/feedback/{id}/reviews（{decision, reason}，带 If-Match）。
  */
 import { computed, reactive, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
 import { Hourglass, Layers, Plus, Tags, UserPen } from 'lucide-vue-next'
 import DistBar from '@/components/DistBar.vue'
 import { tally } from '@/components/viz'
@@ -23,6 +22,7 @@ import Drawer from '@/components/Drawer.vue'
 import LoadState from '@/components/LoadState.vue'
 import CursorPager from '@/components/CursorPager.vue'
 import { useCursor } from '@/composables/cursor'
+import { useQueryState } from '@/composables/query'
 import { usePageTitle } from '@/composables/page'
 import { errText } from '@/composables/load'
 import { tabKeydown, visibleTabs, type TabOption } from '@/composables/tabs'
@@ -48,18 +48,21 @@ const TABS: readonly (TabOption<Tab> & { icon: typeof Hourglass })[] = [
 ]
 const tabs = computed(() => visibleTabs(TABS, session.user?.permissions) as typeof TABS[number][])
 
-const route = useRoute()
-const router = useRouter()
-/** 初始分段：URL 的 tab 优先；旧链接 `?status=pending`（待办中心）进入待复核；否则取第一个可见分段。 */
-function initialTab(): Tab {
-  const visible = tabs.value.map((t) => t.value)
-  const want = route.query.tab ?? (route.query.status === 'pending' ? 'pending' : undefined)
-  return visible.includes(want as Tab) ? (want as Tab) : (visible[0] ?? 'all')
-}
-const tab = ref<Tab>(initialTab())
-const statusFilter = ref<FeedbackStatus | ''>(tab.value !== 'pending' && isStatus(route.query.status) ? route.query.status : '')
-const assetFilter = ref(typeof route.query.assetId === 'string' ? route.query.assetId : '')
-const range = ref<RangeKey | ''>(isRange(route.query.range) ? route.query.range : '')
+const defaultTab = tabs.value[0]?.value ?? 'all'
+const tab = ref<Tab>(defaultTab)
+const statusFilter = ref<FeedbackStatus | ''>('')
+const assetFilter = ref('')
+const range = ref<RangeKey | ''>('')
+useQueryState({
+  // 旧链接 ?status=pending（待办中心）仍进入待复核；外部链接不能选中无权分段。
+  tab: { state: tab, default: defaultTab, parse: (v, query) => {
+    const want = v ?? (query.status === 'pending' ? 'pending' : undefined)
+    return tabs.value.some((t) => t.value === want) ? want as Tab : defaultTab
+  } },
+  status: { state: statusFilter, default: '', parse: (v) => tab.value !== 'pending' && isStatus(v) ? v : '', serialize: (v) => tab.value !== 'pending' ? v : undefined },
+  assetId: { state: assetFilter, default: '' },
+  range: { state: range, default: '', parse: (v) => isRange(v) ? v : '' },
+})
 const excludeSelf = ref(true)
 
 /** 记录本会话刚刚创建的标注 ID，配合 createdBy 字段识别本人标注。 */
@@ -87,11 +90,6 @@ const feedback = useCursor<GuardFeedback>((cursor) =>
 )
 
 watch([tab, statusFilter, assetFilter, range], () => {
-  const query: Record<string, string> = { tab: tab.value }
-  if (tab.value !== 'pending' && statusFilter.value) query.status = statusFilter.value
-  if (assetFilter.value) query.assetId = assetFilter.value
-  if (range.value) query.range = range.value
-  void router.replace({ query })
   from = rangeFrom(range.value)
   feedback.reset()
 })

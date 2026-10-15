@@ -11,7 +11,7 @@
  * 缺口：stats 中 null 表示该时段没有采集覆盖，折线断开、不补 0，并写明“传感器未接入，最后一次数据 <时间>”。
  */
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRouter } from 'vue-router'
 import { Activity, Cpu, Pause, Play, Radio, RadioTower, ShieldAlert, ShieldBan, Siren, Waves } from 'lucide-vue-next'
 import PageHead from '@/components/PageHead.vue'
 import Panel from '@/components/Panel.vue'
@@ -34,9 +34,9 @@ import { decisionTone } from '@/data/tones'
 import { errText } from '@/composables/load'
 import { toast } from '@/composables/toast'
 import { useSummary } from '@/composables/summary'
+import { useQueryState } from '@/composables/query'
 
 const POLL_MS = 5000
-const route = useRoute()
 const router = useRouter()
 
 const canDetect = can('detection.read')
@@ -46,7 +46,8 @@ const wantsStats = canDetect || canAction
 
 const RANGES: LiveRange[] = ['15m', '1h', '24h', '7d']
 const isRange = (v: unknown): v is LiveRange => typeof v === 'string' && (RANGES as string[]).includes(v)
-const range = ref<LiveRange>(isRange(route.query.range) ? route.query.range : '15m')
+const range = ref<LiveRange>('15m')
+useQueryState({ range: { state: range, default: '15m', parse: (v) => isRange(v) ? v : '15m' } })
 const rangeOptions = RANGES.map((r) => ({ value: r, label: RANGE_LABEL[r] }))
 
 /* ---------- 数据 ---------- */
@@ -129,8 +130,7 @@ function togglePause() {
   paused.value = !paused.value
   if (!paused.value) void refresh(true)
 }
-watch(range, (r) => {
-  void router.replace({ query: { ...route.query, range: r } })
+watch(range, () => {
   stats.value = null
   void refresh()
 })

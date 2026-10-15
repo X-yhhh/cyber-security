@@ -17,7 +17,7 @@ import { requests, server } from '@/test/handlers'
 import { signIn } from '@/test/handlers/auth'
 import {
   ASSET_1, ASSET_2, detectState, EP_1, EVENT_ALERT_ONLY, EVENT_OPEN, FB_OTHER,
-  POLICY_1, resetDetectState, TARGET_REF_1,
+  OBS_1, POLICY_1, resetDetectState, TARGET_REF_1,
 } from '@/test/handlers/detect'
 import { singleRoleUsers, type MeFixture } from '@/test/roles'
 import '@/views/detect/EventDetailView.vue'
@@ -77,6 +77,53 @@ const tab = (w: VueWrapper, name: string) => w.findAll('[role="tab"]').find((t) 
 const bodyButton = (text: string) => Array.from(document.body.querySelectorAll('button')).find((b) => b.textContent?.includes(text))
 
 describe('检测记录（/console/detect/records）', () => {
+  it('追加样本后切换视图、本地筛选与分段不丢样本或重复读取，已打开抽屉保留', async () => {
+    server.use(http.get('/api/v2/decisions', ({ request }) => {
+      const cursor = new URL(request.url).searchParams.get('cursor')
+      return HttpResponse.json({ requestId: 'r', error: null, data: {
+        items: [detectState.decisions[cursor ? 1 : 0]], nextCursor: cursor ? null : 'next-page',
+      } })
+    }))
+    const { w } = await open(singleRoleUsers.security_reviewer, '/console/detect/records')
+    await w.findAll('button').find((b) => b.text().includes('再加载 200 条'))!.trigger('click')
+    await settle()
+    expect(w.text()).toContain('已加载 2 条')
+    const count = () => requests.filter((r) => r === 'GET /api/v2/decisions').length
+    expect(count()).toBe(2)
+    await tab(w, '判定列表').trigger('click')
+    await settle()
+    await w.get('tbody tr.row-link').trigger('click')
+    await settle()
+    expect(document.body.querySelector('[role="dialog"]')).not.toBeNull()
+    await tab(w, '来源 × 类别').trigger('click')
+    await settle()
+    expect(document.body.querySelector('[role="dialog"]')).not.toBeNull()
+    expect(w.text()).toContain('已加载 2 条')
+    await tab(w, '观察').trigger('click')
+    await settle()
+    await tab(w, '判定').trigger('click')
+    await settle()
+    expect(w.text()).toContain('已加载 2 条')
+    expect(count()).toBe(2)
+  })
+
+  it('同页外部链接同时回填分段与服务器筛选只读取一次，当前菜单重置缺省筛选', async () => {
+    const { router, w } = await open(singleRoleUsers.security_analyst, '/console/detect/records')
+    requests.length = 0
+    await router.push({ path: '/console/detect/records', query: { tab: 'observations', assetId: ASSET_2, range: '24h' } })
+    await settle()
+    expect(requests.filter((r) => r === 'GET /api/v2/observations')).toHaveLength(1)
+    expect((w.get('select[aria-label="资产筛选"]').element as HTMLSelectElement).value).toBe(ASSET_2)
+    expect((w.get('select[aria-label="时间范围"]').element as HTMLSelectElement).value).toBe('24h')
+    requests.length = 0
+    await w.get('nav[aria-label="功能菜单"]').findAll('a').find((a) => a.text() === '检测记录')!.trigger('click')
+    await settle()
+    expect(tab(w, '判定').attributes('aria-selected')).toBe('true')
+    expect((w.get('select[aria-label="资产筛选"]').element as HTMLSelectElement).value).toBe('')
+    expect(router.currentRoute.value.query).toEqual({})
+    expect(requests.filter((r) => r === 'GET /api/v2/decisions')).toHaveLength(1)
+  })
+
   it('默认打开判定段：矩阵与样本量提示，只请求判定；点单元格下钻到列表并打开判定详情', async () => {
     const { router, w } = await open(singleRoleUsers.security_reviewer, '/console/detect/records')
     expect(w.text()).toContain('检测记录')
@@ -89,7 +136,8 @@ describe('检测记录（/console/detect/records）', () => {
 
     await w.get('button[aria-label="查看暴力破解·模型的判定"]').trigger('click')
     await settle()
-    expect(router.currentRoute.value.query).toMatchObject({ tab: 'decisions', view: 'list', family: 'brute_force', source: 'model' })
+    expect(router.currentRoute.value.query).toMatchObject({ view: 'list', family: 'brute_force', source: 'model' })
+    expect(router.currentRoute.value.query.tab).toBeUndefined()
     expect(w.text()).toContain('模型来源未开自动')
     // 资产显示名称，不显示 UUID
     expect(w.text()).toContain('靶场主机 01')
@@ -195,6 +243,22 @@ describe('检测记录（/console/detect/records）', () => {
 })
 
 describe('事件研判列表与详情（/console/detect/events & /console/detect/events/:id）', () => {
+  it('外部 URL 回填全部筛选与搜索；一次改筛选只读取一次，当前菜单清除搜索草稿', async () => {
+    const { router, w } = await open(singleRoleUsers.security_analyst, '/console/detect/events')
+    requests.length = 0
+    await router.push({ path: '/console/detect/events', query: { status: 'open', assetId: ASSET_1, range: '24h', q: 'SSH' } })
+    await settle()
+    expect(requests.filter((r) => r === 'GET /api/v2/events')).toHaveLength(1)
+    expect((w.get('input[aria-label="搜索事件标题"]').element as HTMLInputElement).value).toBe('SSH')
+    await w.get('input[aria-label="搜索事件标题"]').setValue('尚未提交的搜索')
+    requests.length = 0
+    await w.get('nav[aria-label="功能菜单"]').findAll('a').find((a) => a.text() === '事件研判')!.trigger('click')
+    await settle()
+    expect(router.currentRoute.value.query).toEqual({})
+    expect((w.get('input[aria-label="搜索事件标题"]').element as HTMLInputElement).value).toBe('')
+    expect(requests.filter((r) => r === 'GET /api/v2/events')).toHaveLength(1)
+  })
+
   it('列表支持 ?status=open 初始筛选与资产筛选，点击行进入详情', async () => {
     let lastUrl = ''
     server.events.on('request:start', ({ request }) => {
@@ -339,6 +403,48 @@ describe('事件研判列表与详情（/console/detect/events & /console/detect
 })
 
 describe('误报反馈（/console/detect/feedback）', () => {
+  it('外部筛选回填不重挂载且抽屉保留；点击菜单恢复有权缺省段', async () => {
+    const { router, w } = await open(singleRoleUsers.security_analyst, '/console/detect/feedback?tab=all')
+    await w.findAll('button').find((b) => b.text().includes('新建标注'))!.trigger('click')
+    await settle()
+    requests.length = 0
+    await router.push({ path: '/console/detect/feedback', query: { tab: 'all', assetId: ASSET_2, range: '7d', status: 'reviewed' } })
+    await settle()
+    expect(requests.filter((r) => r === 'GET /api/v2/feedback')).toHaveLength(1)
+    expect(document.body.textContent).toContain('新建标注')
+    expect(document.body.querySelector('[role="dialog"]')).not.toBeNull()
+    await w.get('nav[aria-label="功能菜单"]').findAll('a').find((a) => a.text() === '误报反馈')!.trigger('click')
+    await settle()
+    expect(router.currentRoute.value.query).toEqual({})
+    expect(tab(w, '我的标注').attributes('aria-selected')).toBe('true')
+  })
+
+  it('没有 createdBy 的本会话新建标注在来回切段后仍识别为本人标注', async () => {
+    server.use(http.post('/api/v2/feedback', () => {
+      const created = { ...detectState.feedbacks[0], id: '90000000-0000-4000-8000-000000000099', createdBy: null, evidenceRef: '本会话标注依据' }
+      detectState.feedbacks.push(created)
+      return HttpResponse.json({ requestId: 'r', error: null, data: created })
+    }))
+    const { w } = await open(singleRoleUsers.security_analyst, '/console/detect/feedback')
+    await w.findAll('button').find((b) => b.text().includes('新建标注'))!.trigger('click')
+    await settle()
+    const fill = (selector: string, value: string) => {
+      const el = document.body.querySelector<HTMLInputElement | HTMLTextAreaElement>(selector)!
+      el.value = value
+      el.dispatchEvent(new Event('input'))
+    }
+    fill('input[aria-label="观察记录 UUID"]', OBS_1)
+    fill('textarea[aria-label="新建证据引用说明"]', '本会话标注依据')
+    bodyButton('提交标注')!.click()
+    await settle()
+    expect(w.text()).toContain('本会话标注依据')
+    await tab(w, '全部').trigger('click')
+    await settle()
+    await tab(w, '我的标注').trigger('click')
+    await settle()
+    expect(w.text()).toContain('本会话标注依据')
+  })
+
   it('分段按权限显示：复核员有待复核与全部，分析员有我的标注与全部且默认进入我的标注', async () => {
     const { w } = await open(singleRoleUsers.evidence_reviewer, '/console/detect/feedback')
     expect(w.findAll('[role="tab"]').map((t) => t.text())).toEqual(['待复核', '全部'])

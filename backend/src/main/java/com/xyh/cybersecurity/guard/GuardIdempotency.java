@@ -29,7 +29,10 @@ public class GuardIdempotency {
     private JsonNode executeWithDigest(String route,String key,JsonNode body,int status,boolean credential,Function<String,JsonNode> work,Consumer<JsonNode> authorize){
         uuid(key);String scope=hash(object("subject",access.subject(),"route",route));String digest=hash(body);
         try{return tx.execute(s->{
-            var old=store.one("guard_idempotency",map("request_scope",scope,"idempotency_key",key),true);
+            // 已提交幂等结果不再修改；首次查找无需锁定不存在的键。REPEATABLE READ 下的缺失键
+            // FOR UPDATE 会持有间隙锁，使不同请求互相阻塞插入。唯一键负责串行化同键写入；
+            // 插入冲突仍在下方回滚后开启新事务、锁定读取并复核授权和摘要，不重试业务副作用。
+            var old=store.one("guard_idempotency",map("request_scope",scope,"idempotency_key",key),false);
             if(old!=null){authorize.accept(json(old,"response_json"));return replay(old,digest,credential);}
             authorize.accept(null);
             var row=store.add("guard_idempotency",map("request_scope",scope,"idempotency_key",key,"request_sha256",digest));

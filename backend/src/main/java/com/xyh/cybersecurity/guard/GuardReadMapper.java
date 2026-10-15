@@ -215,9 +215,9 @@ public interface GuardReadMapper {
             String common = "r.id internal_id," + sort(q) + " sort_time,";
             return common + switch (kind) {
                 case AUTHORIZATIONS -> "r.public_id,a.public_id asset_public_id,r.status,r.revision,r.created_at,"
-                        + "r.valid_from,r.valid_until,r.scope_json";
+                        + "r.requested_by,r.valid_from,r.valid_until,r.scope_json";
                 case CONFIGS -> "r.public_id,a.public_id asset_public_id,s.public_id sensor_public_id,"
-                        + "r.status,r.revision,r.created_at,r.config_version,r.feature_contract_version,r.activated_at,r.content_sha256,r.guard_definition_json";
+                        + "r.status,r.revision,r.created_at,r.requested_by,r.config_version,r.feature_contract_version,r.activated_at,r.content_sha256,r.guard_definition_json";
                 case MACHINE_CLIENTS -> "r.public_id,a.public_id asset_public_id,s.public_id sensor_public_id,"
                         + "ex.public_id executor_public_id,r.client_key,r.client_type,r.status,"
                         + "r.created_at,COALESCE(s.last_heartbeat_at,ex.last_heartbeat) last_used_at,r.expires_at";

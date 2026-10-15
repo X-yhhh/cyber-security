@@ -40,7 +40,8 @@ final class GuardReadViews {
         if (kind != Kind.OPS) result.set("assetId", node(row.get("asset_public_id")));
         switch (kind) {
             case AUTHORIZATIONS -> {
-                columns(result, row, "status revision created_at valid_from valid_until");
+                // 与 auth/me.id 同口径，仅供本人入口识别；职责分离仍由写服务强制校验。
+                columns(result, row, "status revision created_at requested_by valid_from valid_until");
                 Instant now = asOf.toInstant(ZoneOffset.UTC);
                 result.put("validity", now.isBefore(instant(row.get("valid_from"))) ? "not_yet_valid"
                         : !now.isBefore(instant(row.get("valid_until"))) ? "expired" : "valid");
@@ -64,7 +65,8 @@ final class GuardReadViews {
             }
             case CONFIGS -> {
                 result.set("sensorId", node(row.get("sensor_public_id")));
-                columns(result, row, "status revision created_at config_version feature_contract_version activated_at content_sha256");
+                // 历史配置没有起草人时保留 null，不推断归属或扩大可见资产范围。
+                columns(result, row, "status revision created_at requested_by config_version feature_contract_version activated_at content_sha256");
                 JsonNode source = payload(row, "guard_definition_json");
                 result.set("definition", source.isObject() ? definition(source) : node(null));
             }

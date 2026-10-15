@@ -3,11 +3,11 @@
  *
  * - 资料编辑与状态变更带 If-Match（读取到的 revision），所有写入默认生成新的幂等键；
  *   登记传感器/执行器与轮换凭据的响应含一次性机器凭据，页面只在响应抽屉里显示一次，不写入任何持久状态。
- * - 列表与授权、配置不返回申请人/起草人；`requestedBy` 为可选字段，后端放出后页面自动按本人隐藏审批入口，
- *   缺失时入口照常显示，自批与越权由后端 403 拒绝。
+ * - 授权、配置列表和详情的 `requestedBy` 与 auth/me.id 同口径；历史记录可为空，
+ *   页面据此隐藏本人审批入口，职责分离与越权仍由后端独立拒绝。
  * - 资产集合只支持 status、q、时间与排序筛选；环境筛选由页面对已加载的当前页进行。
  */
-import { guard, idempotencyKey, type Cursor } from '@/api/client'
+import { ApiError, guard, idempotencyKey, type Cursor } from '@/api/client'
 import type {
   GuardCapability, GuardExecutor, GuardHealthWindow, GuardHeartbeat, GuardReadPage, GuardReleaseBundle, GuardSensor,
 } from '@/api/types'
@@ -101,6 +101,14 @@ export interface ConfigDraft {
 
 const page = (q: ScopedQuery) => ({ assetId: q.assetId, status: q.status, cursor: q.cursor, limit: q.limit ?? 50 })
 
+/** 修订过期只提示重读，不自动重试写入；保留后端错误码与 request-id，其他 409 按原语义展示。 */
+async function withRevision<T>(call: () => Promise<T>): Promise<T> {
+  try { return await call() } catch (e) {
+    if (e instanceof ApiError && (e.status === 412 || e.code === 'REVISION_CONFLICT')) throw new ApiError(e.status, e.code, '资源已更新，请刷新后重试。', e.requestId)
+    throw e
+  }
+}
+
 export const assetsApi = {
   /* 资产 */
   listAssets: (q: AssetQuery = {}): Promise<Cursor<Asset>> => guard.read('assets', { status: q.status, q: q.q, cursor: q.cursor, limit: q.limit ?? 50 }),
@@ -108,7 +116,7 @@ export const assetsApi = {
   /** asset.manage（全局）；登记不授予执行权。 */
   createAsset: (body: AssetCreate, key?: WriteKey): Promise<{ id: string; revision: number }> => guard.create('assets', body, key),
   /** asset.manage；status=disabled/retired 同时暂停该资产新命令与活动绑定，retired 为终态。 */
-  updateAsset: (id: string, revision: number, body: AssetUpdate, key?: WriteKey): Promise<{ id: string; status: string; revision: number }> => guard.patch('assets', id, body, revision, key),
+  updateAsset: (id: string, revision: number, body: AssetUpdate, key?: WriteKey): Promise<{ id: string; status: string; revision: number }> => withRevision(() => guard.patch('assets', id, body, revision, key)),
 
   /* 授权 */
   listAuthorizations: (q: ScopedQuery = {}): Promise<GuardReadPage<Authorization>> => guard.read('authorizations', page(q)),
@@ -117,13 +125,13 @@ export const assetsApi = {
     guard.op('assets', assetId, 'authorizations', body, undefined, key),
   /** authorization.approve；申请人本人 403。 */
   decideAuthorization: (id: string, revision: number, decision: 'approve' | 'reject', reason: string, key?: WriteKey) =>
-    guard.op<{ id: string; status: string; revision: number }>('authorizations', id, 'decisions', { decision, reason }, revision, key),
+    withRevision(() => guard.op<{ id: string; status: string; revision: number }>('authorizations', id, 'decisions', { decision, reason }, revision, key)),
   /** authorization.approve；202 只表示受理：拒绝新命令并排队撤销已有规则。 */
   revokeAuthorization: (id: string, revision: number, reason: string, key?: WriteKey) =>
-    guard.op<unknown>('authorizations', id, 'revocations', { reason }, revision, key),
+    withRevision(() => guard.op<unknown>('authorizations', id, 'revocations', { reason }, revision, key)),
   /** authorization.request；只撤回本人 pending 申请。 */
   withdrawAuthorization: (id: string, revision: number, reason: string, key?: WriteKey) =>
-    guard.op<{ id: string; status: string; revision: number }>('authorizations', id, 'withdrawals', { reason }, revision, key),
+    withRevision(() => guard.op<{ id: string; status: string; revision: number }>('authorizations', id, 'withdrawals', { reason }, revision, key)),
 
   /* 传感器与执行器 */
   listSensors: (q: ScopedQuery & { q?: string } = {}): Promise<Cursor<Sensor>> => guard.read('sensors', { ...page(q), q: q.q }),
@@ -133,10 +141,10 @@ export const assetsApi = {
   createSensor: (body: SensorCreate, key?: WriteKey): Promise<IssuedCredential> => guard.create('sensors', body, key),
   createExecutor: (body: ExecutorCreate, key?: WriteKey): Promise<IssuedCredential> => guard.create('executors', body, key),
   updateMachine: (kind: 'sensors' | 'executors', id: string, revision: number, body: { displayName?: string | null; notes?: string | null }, key?: WriteKey) =>
-    guard.patch<{ id: string; revision: number }>(kind, id, body, revision, key),
+    withRevision(() => guard.patch<{ id: string; revision: number }>(kind, id, body, revision, key)),
   /** 停用即吊销旧凭据；启用不恢复旧凭据，响应 credentialRotationRequired=true 时须再轮换。 */
   changeMachineStatus: (kind: 'sensors' | 'executors', id: string, revision: number, status: 'active' | 'disabled', reason: string, key?: WriteKey): Promise<MachineStatusResult> =>
-    guard.op(kind, id, 'status-changes', { status, reason }, revision, key),
+    withRevision(() => guard.op(kind, id, 'status-changes', { status, reason }, revision, key)),
   /** 生成新的一次性凭据，旧凭据立即失效。 */
   rotateCredential: (kind: 'sensors' | 'executors', id: string, reason: string, key?: WriteKey): Promise<IssuedCredential> =>
     guard.op(kind, id, 'credential-rotations', reason ? { reason } : {}, undefined, key),
@@ -151,9 +159,9 @@ export const assetsApi = {
     guard.op('sensors', sensorId, 'configs', body, undefined, key),
   /** authorization.approve；起草人本人 403，批准仍需代理验证。 */
   decideConfig: (id: string, revision: number, decision: 'approve' | 'reject', reason: string, key?: WriteKey) =>
-    guard.op<{ id: string; status: string; revision: number }>('sensor-configs', id, 'decisions', { decision, reason }, revision, key),
+    withRevision(() => guard.op<{ id: string; status: string; revision: number }>('sensor-configs', id, 'decisions', { decision, reason }, revision, key)),
   /** 只限本人起草且未被引用的草稿，否则 403 / 409 RESOURCE_IN_USE。 */
-  deleteConfig: (id: string, revision: number, key?: WriteKey) => guard.remove<{ id: string; status: string }>('sensor-configs', id, revision, key),
+  deleteConfig: (id: string, revision: number, key?: WriteKey) => withRevision(() => guard.remove<{ id: string; status: string }>('sensor-configs', id, revision, key)),
 
   /* 机器凭据 */
   listMachineClients: (q: ScopedQuery & { clientType?: string } = {}): Promise<GuardReadPage<MachineClient>> =>

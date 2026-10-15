@@ -288,7 +288,11 @@ class GuardReadIntegrationTest {
 
     @Test
     void authorizationValidityAndConfigurationFieldsAreReadWithoutSecrets() throws Exception {
+        jdbc.update("UPDATE asset_authorization SET requested_by=? WHERE id=?", reader.id(), aa.pk);
+        jdbc.update("UPDATE sensor_config SET requested_by=? WHERE id=?", reader.id(), ca.pk);
         var authorization = data(reader, "authorizations/" + aa.id);
+        assertThat(authorization.path("requestedBy").asLong()).isEqualTo(reader.id());
+        assertThat(data(reader, "authorizations").at("/items/0/requestedBy").asLong()).isEqualTo(reader.id());
         assertThat(authorization.path("status").asText()).isEqualTo("active");
         assertThat(authorization.path("validity").asText()).isEqualTo("expired");
         assertThat(authorization.path("revision").asLong()).isEqualTo(1);
@@ -297,11 +301,14 @@ class GuardReadIntegrationTest {
                 "198.51.100.7", "203.0.113.9", "peerAddress", "observedAddresses");
         assertThat(data(reader, "authorizations").toString()).doesNotContain("sentinel-private", "198.51.100.7", "203.0.113.9");
         var config = data(reader, "sensor-configs/" + ca.id);
+        assertThat(config.path("requestedBy").asLong()).isEqualTo(reader.id());
+        assertThat(data(reader, "sensor-configs").at("/items/0/requestedBy").asLong()).isEqualTo(reader.id());
         assertThat(config.at("/definition/limits/maxBatchSize").asInt()).isEqualTo(100);
         assertThat(config.at("/definition/interfaceIds/0").asText()).isEqualTo("fixture0");
         assertThat(config.toString()).doesNotContain("sentinel-private", "filterPolicy", "privateKey", "credential");
-        jdbc.update("UPDATE sensor_config SET guard_definition_json=NULL WHERE id=?", ca.pk);
+        jdbc.update("UPDATE sensor_config SET guard_definition_json=NULL,requested_by=NULL WHERE id=?", ca.pk);
         assertThat(data(reader, "sensor-configs/" + ca.id).path("definition").isNull()).isTrue();
+        assertThat(data(reader, "sensor-configs/" + ca.id).path("requestedBy").isNull()).isTrue();
     }
 
     @Test

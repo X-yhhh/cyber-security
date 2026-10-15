@@ -3,7 +3,8 @@ import type { LocationQuery, RouteLocation } from 'vue-router'
 
 export const RELEASE_TABS = ['bundles', 'policies', 'capabilities', 'validation'] as const
 export type ReleaseTab = typeof RELEASE_TABS[number]
-export const VALIDATION_RECORDS = ['evaluations', 'lab'] as const
+/** 验证记录的四类：lab 会话、评价运行、评价计划、研究回放（后两类为 F3 页面新增，旧入口只会落到前两类）。 */
+export const VALIDATION_RECORDS = ['evaluations', 'lab', 'plans', 'replays'] as const
 export type ValidationRecord = typeof VALIDATION_RECORDS[number]
 
 /** 旧地址已有有效分段时保留；裸参数、重复参数或未知值回落到该旧页面对应的分段。 */

@@ -11,8 +11,9 @@ import { releaseHandlers } from './release'
 import { responseHandlers } from './response'
 import { todoHandlers } from './todos'
 import { iamHandlers } from './iam'
+import { assetsHandlers } from './assets'
 
-export const handlers = [...authHandlers, ...summaryHandlers, ...detectHandlers, ...statsHandlers, ...releaseHandlers, ...responseHandlers, ...todoHandlers, ...iamHandlers]
+export const handlers = [...authHandlers, ...summaryHandlers, ...detectHandlers, ...statsHandlers, ...releaseHandlers, ...responseHandlers, ...todoHandlers, ...iamHandlers, ...assetsHandlers]
 
 export const server = setupServer(...handlers)
 

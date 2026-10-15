@@ -45,6 +45,9 @@ const toRecords = (fallback: 'observations' | 'decisions') => (to: RouteLocation
   return { path: '/console/detect/records', query: { ...to.query, tab }, hash: to.hash }
 }
 
+/** 旧健康链接保留资产、传感器和判定筛选及锚点，固定落在新页的健康分段。 */
+const toHealth = (to: RouteLocation) => ({ path: '/console/assets/agents', query: { ...to.query, tab: 'health' }, hash: to.hash })
+
 /** 迁入新位置的 09—14 旧地址与 Q10 被合并的地址保留重定向一个版本；保留旧路由名，页面内既有链接无需改动。 */
 const movedRoutes: RouteRecordRaw[] = [
   // F1R：观测与推理、判定与来源合并为检测记录（09—14 旧地址与 U0 过渡行地址）。
@@ -60,8 +63,8 @@ const movedRoutes: RouteRecordRaw[] = [
   { path: 'lab', name: 'lab', redirect: toRelease('validation', 'lab') },
   { path: 'lab/:id', name: 'lab-detail', redirect: (to) => ({ path: `/console/release/lab/${encodeURIComponent(String(to.params.id))}`, query: to.query, hash: to.hash }) },
   // F4：运行健康并入传感器与执行器的健康窗口分段，授权并入资产详情。
-  { path: 'health', name: 'health', redirect: { path: '/console/assets/agents', query: { tab: 'health' } } },
-  { path: 'ops/health', redirect: { path: '/console/assets/agents', query: { tab: 'health' } } },
+  { path: 'health', name: 'health', redirect: toHealth },
+  { path: 'ops/health', redirect: toHealth },
   { path: 'assets/authorizations', redirect: '/console/assets/list' },
   // F2：目标预算并入处置记录，预算占用改在动作详情中只读显示。
   { path: 'response/budgets', redirect: '/console/response/actions' },

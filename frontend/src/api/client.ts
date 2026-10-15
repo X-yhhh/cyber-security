@@ -130,4 +130,10 @@ export const guard = {
     if (revision !== undefined && revision !== null) headers['If-Match'] = String(revision)
     return request<T>('PUT', `/api/v2/${collection}/${encodeURIComponent(id)}/${operation}`, body, headers)
   },
+  /** 资料编辑只更新可变字段；必须用读取到的 revision，冲突后由页面重新读取。 */
+  patch: <T>(collection: string, id: string, body: unknown, revision: number | string, key = idempotencyKey()) =>
+    request<T>('PATCH', `/api/v2/${collection}/${encodeURIComponent(id)}`, body, { 'Idempotency-Key': key, 'If-Match': String(revision) }),
+  /** 删除草稿沿用幂等与并发契约；不附带 JSON 请求体，引用与归属仍由服务端校验。 */
+  remove: <T>(collection: string, id: string, revision: number | string, key = idempotencyKey()) =>
+    request<T>('DELETE', `/api/v2/${collection}/${encodeURIComponent(id)}`, undefined, { 'Idempotency-Key': key, 'If-Match': String(revision) }),
 }

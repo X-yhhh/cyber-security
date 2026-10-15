@@ -184,10 +184,10 @@ describe('404 与重定向', () => {
     expect(dataRequests()).toEqual([])
   })
 
-  it('v1 地址暂时保留（C1 删除）', async () => {
+  it('v1 地址已在 C1 删除，按未知地址处理', async () => {
     const router = createAppRouter(createMemoryHistory())
     for (const p of ['/console/overview', '/console/events', '/console/events/1', '/console/iam']) {
-      expect(router.resolve(p).name).not.toBe('console-not-found')
+      expect(router.resolve(p).name).toBe('console-not-found')
     }
   })
 })

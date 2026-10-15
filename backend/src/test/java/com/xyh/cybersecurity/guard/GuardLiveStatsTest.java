@@ -11,9 +11,31 @@ import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.*;
 
 /** B5.2 实时态势：范围与步长校验、覆盖与 null 语义（不需要数据库）。 */
 class GuardLiveStatsTest {
+    /** 服务器自然日只是展示口径，查询边界必须转回 UTC，包含夏令时切换当天。 */
+    @ParameterizedTest
+    @CsvSource({
+            "Asia/Shanghai,2026-10-14T16:30:00,2026-10-14T16:00:00",
+            "UTC,2026-10-14T16:30:00,2026-10-14T00:00:00",
+            "America/New_York,2026-03-08T12:00:00,2026-03-08T05:00:00",
+            "America/New_York,2026-11-01T12:00:00,2026-11-01T04:00:00"})
+    void serverCalendarDayIsConvertedBackToUtcForEveryTodayQuery(String zone, String utcNow, String utcStart) {
+        var mapper = mock(GuardReadMapper.class);
+        var access = mock(GuardAccess.class);
+        when(access.human()).thenReturn(7L);
+        when(mapper.now()).thenReturn(java.time.LocalDateTime.parse(utcNow));
+        when(mapper.hasPermission(7, "detection.read")).thenReturn(true);
+        when(mapper.hasPermission(7, "action.read")).thenReturn(true);
+        new GuardLiveStats(mapper, access, java.time.ZoneId.of(zone)).live(null);
+        var expected = java.time.LocalDateTime.parse(utcStart);
+        verify(mapper).liveTodayInbound(7, expected);
+        verify(mapper).liveTodayAlerts(7, expected);
+        verify(mapper).liveTodayBlocked(7, expected);
+    }
+
     private static LinkedMultiValueMap<String, String> q(String... kv) {
         var m = new LinkedMultiValueMap<String, String>();
         for (int i = 0; i < kv.length; i += 2) m.add(kv[i], kv[i + 1]);

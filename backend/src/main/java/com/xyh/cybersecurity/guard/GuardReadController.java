@@ -19,11 +19,13 @@ public class GuardReadController {
     private final GuardReadQueries queries;
     private final GuardSummary summary;
     private final GuardLiveStats liveStats;
+    private final GuardTodos todos;
 
-    public GuardReadController(GuardReadQueries queries, GuardSummary summary, GuardLiveStats liveStats) {
+    public GuardReadController(GuardReadQueries queries, GuardSummary summary, GuardLiveStats liveStats, GuardTodos todos) {
         this.queries = queries;
         this.summary = summary;
         this.liveStats = liveStats;
+        this.todos = todos;
     }
 
     @GetMapping("/authorizations")
@@ -64,6 +66,12 @@ public class GuardReadController {
     @GetMapping("/summary")
     public JsonNode summary(@RequestParam MultiValueMap<String, String> p, HttpServletRequest r) {
         return GuardController.envelope(summary.summary(p), r);
+    }
+
+    /** B5.1 待办中心：只列当前主体有权处理的对象，计数不受 100 条上限影响。 */
+    @GetMapping("/todos")
+    public JsonNode todos(@RequestParam MultiValueMap<String, String> p, HttpServletRequest r) {
+        return GuardController.envelope(todos.todos(p), r);
     }
 
     /** B5.2 实时态势统计：按权限裁剪序列，无采集覆盖的桶为 null（见 GuardLiveStats）。 */

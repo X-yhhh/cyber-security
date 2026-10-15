@@ -10,8 +10,8 @@
 import type { Component } from 'vue'
 import type { RouteComponent } from 'vue-router'
 import {
-  Activity, BrainCircuit, Eye, FlaskConical, Gauge, HeartPulse, ListTodo, MessageSquareWarning, PackageCheck, RadioTower,
-  Scale, ScanSearch, ScrollText, Server, ShieldAlert, ShieldBan, TestTubes, UserCog, Users, Workflow,
+  Activity, BrainCircuit, FlaskConical, Gauge, HeartPulse, ListTodo, MessageSquareWarning, PackageCheck, RadioTower,
+  ScanSearch, ScrollText, Server, ShieldAlert, ShieldBan, TestTubes, UserCog, Users, Workflow,
 } from 'lucide-vue-next'
 
 /** 人工权限键（权限设计第 4.1 节，25 个）。 */
@@ -63,8 +63,6 @@ export const groups: readonly NavGroupDef[] = [
   { key: 'system', title: '系统管理', en: 'System' },
 ]
 
-const Observations = () => import('@/views/detect/ObservationsView.vue')
-const Decisions = () => import('@/views/detect/DecisionsView.vue')
 const Events = () => import('@/views/detect/EventsView.vue')
 const Feedback = () => import('@/views/detect/FeedbackView.vue')
 const Release = () => import('@/views/console/ReleaseView.vue')
@@ -80,7 +78,7 @@ export const nav: readonly NavItem[] = [
   { group: 'overview', key: 'live', title: '实时态势', en: 'Live', path: '/console/overview/live', anyOf: ['detection.read', 'action.read', 'ops.read'], component: () => import('@/views/overview/LiveView.vue'), ready: true, icon: Activity },
   { group: 'overview', key: 'workbench', title: '待办中心', en: 'To-dos', path: '/console/workbench', anyOf: [], component: () => import('@/views/workbench/WorkbenchView.vue'), ready: true, icon: ListTodo },
   { group: 'detect', key: 'events', title: '事件研判', en: 'Events', path: '/console/detect/events', anyOf: ['detection.read'], component: Events, ready: true, icon: ShieldAlert },
-  { group: 'detect', key: 'records', title: '检测记录', en: 'Records', path: '/console/detect/records', anyOf: ['detection.read'], component: null, ready: false, icon: ScanSearch },
+  { group: 'detect', key: 'records', title: '检测记录', en: 'Records', path: '/console/detect/records', anyOf: ['detection.read'], component: () => import('@/views/detect/RecordsView.vue'), ready: true, icon: ScanSearch },
   { group: 'detect', key: 'feedback', title: '误报反馈', en: 'Feedback', path: '/console/detect/feedback', anyOf: ['feedback.label', 'feedback.review'], component: Feedback, ready: true, icon: MessageSquareWarning },
   { group: 'response', key: 'actions', title: '处置记录', en: 'Actions', path: '/console/response/actions', anyOf: ['action.read'], component: Execution, ready: true, icon: ShieldBan, segment: 'actions' },
   { group: 'release', key: 'models', title: '模型与数据集', en: 'Models', path: '/console/release/models', anyOf: ['model.manage', 'model.validate', 'dataset.manage', 'bundle.request', 'bundle.approve', 'evaluation.read'], component: null, ready: false, icon: BrainCircuit },
@@ -92,8 +90,6 @@ export const nav: readonly NavItem[] = [
   { group: 'system', key: 'audit', title: '审计日志', en: 'Audit', path: '/console/system/audit', anyOf: ['audit.read'], component: Health, ready: true, icon: ScrollText, segment: 'audit' },
 
   /* 过渡行：路径不变、继续显示，由括号内的卡片删除。 */
-  { group: 'detect', key: 'observations', title: '观测与推理', en: 'Observations', path: '/console/detect/observations', anyOf: ['detection.read'], component: Observations, ready: true, icon: Eye, legacy: true }, // F1R
-  { group: 'detect', key: 'decisions', title: '判定与来源', en: 'Decisions', path: '/console/detect/decisions', anyOf: ['detection.read'], component: Decisions, ready: true, icon: Scale, legacy: true }, // F1R
   { group: 'response', key: 'budgets', title: '目标预算', en: 'Budgets', path: '/console/response/budgets', anyOf: ['action.read'], component: Execution, ready: true, icon: Gauge, segment: 'budgets', legacy: true }, // F2
   { group: 'release', key: 'evaluations', title: '评价与回放', en: 'Evaluations', path: '/console/release/evaluations', anyOf: ['evaluation.read'], component: Release, ready: true, icon: FlaskConical, segment: 'evaluations', legacy: true }, // F3
   { group: 'release', key: 'policies', title: '决策策略', en: 'Policies', path: '/console/release/policies', anyOf: ['policy.draft', 'policy.approve', 'evaluation.read'], component: Release, ready: true, icon: Workflow, segment: 'policies', legacy: true }, // F3

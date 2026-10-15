@@ -4,13 +4,14 @@
  *
  * 口径（docs/接口设计.md、权限设计 §7.2）：
  * - 事件由后端按 15 分钟同资产与同攻击家族窗口自动归并，不再混合 v1 告警/规则/检测策略旧表；
- * - 支持按状态（status）与资产（assetId）筛选，游标分页每次切换筛选即重新请求；
+ * - 支持按状态（status）、资产（assetId）、时间（range → from）筛选与标题搜索（q，前缀匹配），均同步到 URL；
+ *   游标分页每次切换筛选即重新请求；
  * - 工作台「未结事件」带 `?status=open` 进入本页时，自动同步为初始状态筛选；
  * - 点击行进入整页详情 `/console/detect/events/:id`。
  */
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Flame, ListOrdered, Shapes, UserX } from 'lucide-vue-next'
+import { Flame, ListOrdered, Search, Shapes, UserX } from 'lucide-vue-next'
 import PageHead from '@/components/PageHead.vue'
 import DistBar from '@/components/DistBar.vue'
 import TrendChart from '@/components/TrendChart.vue'
@@ -22,13 +23,12 @@ import Tag from '@/components/Tag.vue'
 import LoadState from '@/components/LoadState.vue'
 import CursorPager from '@/components/CursorPager.vue'
 import { useCursor } from '@/composables/cursor'
-import { guard } from '@/api/client'
-import { detectApi } from '@/api/v2/detect'
-import { can } from '@/api/session'
+import { detectApi, isRange, RANGES, rangeFrom, type RangeKey } from '@/api/v2/detect'
 import {
   eventStatusLabel, fmtTime, guardFamilyLabel, severityLabel,
-  type EventStatus, type GuardAsset, type GuardGuardEvent,
+  type EventStatus, type GuardGuardEvent,
 } from '@/api/types'
+import { useAssetNames } from './assets'
 import { eventTone, severityTone } from '@/data/tones'
 
 const STATUSES: EventStatus[] = ['open', 'investigating', 'contained', 'resolved', 'false_positive', 'closed']
@@ -39,33 +39,40 @@ const router = useRouter()
 
 const statusFilter = ref<EventStatus | ''>(isStatus(route.query.status) ? route.query.status : '')
 const assetFilter = ref(typeof route.query.assetId === 'string' ? route.query.assetId : '')
+const range = ref<RangeKey | ''>(isRange(route.query.range) ? route.query.range : '')
+/** 搜索框输入与生效的查询分开：回车或失焦才提交，避免逐字请求。 */
+const search = ref(typeof route.query.q === 'string' ? route.query.q : '')
+const q = ref(search.value.trim())
 
-const assets = ref<GuardAsset[]>([])
-void (async () => {
-  if (!can('resource.read')) return
-  try { assets.value = (await guard.list<GuardAsset>('assets', { limit: 200 })).items } catch { /* 资产名称辅助不阻塞事件读取 */ }
-})()
-const assetLabel = (id: string | null) => (id ? (assets.value.find((a) => a.id === id)?.assetKey ?? id.slice(0, 8)) : '—')
+const { assets, label: assetLabel } = useAssetNames()
 
+/** 时间下界在筛选变化时计算一次，翻页沿用同一值（游标与筛选绑定）。 */
+let from = rangeFrom(range.value)
 const events = useCursor<GuardGuardEvent>((cursor) =>
   detectApi.listEvents({
     status: statusFilter.value || undefined,
     assetId: assetFilter.value || undefined,
+    q: q.value || undefined,
+    from,
     cursor,
     limit: 50,
   }),
 )
+function submitSearch() { q.value = search.value.trim() }
 
 watch(() => route.query.status, (q) => {
   const next = isStatus(q) ? q : ''
   if (next !== statusFilter.value) statusFilter.value = next
 })
 
-watch([statusFilter, assetFilter], ([s, a]) => {
+watch([statusFilter, assetFilter, range, q], ([s, a, r, text]) => {
   const query: Record<string, string> = {}
   if (s) query.status = s
   if (a) query.assetId = a
+  if (r) query.range = r
+  if (text) query.q = text
   void router.replace({ query })
+  from = rangeFrom(r)
   events.reset()
 })
 
@@ -97,15 +104,7 @@ function goDetail(id: string) {
 
 <template>
   <div>
-    <PageHead title="事件研判" desc="告警与阻断候选按 15 分钟同资产同类别窗口归并为事件。状态迁移、指派、研判记录与人工处置申请在事件详情页完成。">
-      <label v-if="assets.length" class="toolbar-field">
-        <span>资产</span>
-        <select v-model="assetFilter" aria-label="资产筛选" class="field">
-          <option value="">全部授权资产</option>
-          <option v-for="a in assets" :key="a.id" :value="a.id">{{ a.assetKey }}</option>
-        </select>
-      </label>
-    </PageHead>
+    <PageHead title="事件研判" desc="同一资产、同一类别 15 分钟内的告警归并为一个事件，点开处理。" />
 
     <!-- 生命周期状态条：主流程四段 + 旁路终态；点选即筛选，再次点选取消 -->
     <div class="mb-5 flex flex-wrap items-stretch gap-3" role="group" aria-label="事件状态筛选">
@@ -128,6 +127,25 @@ function goDetail(id: string) {
     <div class="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_18rem]">
       <Panel title="研判队列" :icon="ListOrdered" flush>
         <template #actions><span class="text-[12px] text-ink-3">最近发现在前</span></template>
+        <template #toolbar>
+          <form class="toolbar w-full" role="search" @submit.prevent="submitSearch">
+            <label class="toolbar-field"><Search :size="14" :stroke-width="1.5" aria-hidden="true" />
+              <input v-model="search" type="search" aria-label="搜索事件标题" class="field" maxlength="128" placeholder="按标题开头搜索" @blur="submitSearch" />
+            </label>
+            <label v-if="assets.length" class="toolbar-field"><span>资产</span>
+              <select v-model="assetFilter" aria-label="资产筛选" class="field">
+                <option value="">全部授权资产</option>
+                <option v-for="a in assets" :key="a.id" :value="a.id">{{ a.displayName || a.assetKey }}</option>
+              </select>
+            </label>
+            <label class="toolbar-field"><span>时间</span>
+              <select v-model="range" aria-label="时间范围" class="field">
+                <option value="">全部时间</option>
+                <option v-for="r in RANGES" :key="r.value" :value="r.value">{{ r.label }}</option>
+              </select>
+            </label>
+          </form>
+        </template>
         <LoadState :loading="events.loading.value" :error="events.error.value" :empty="!events.items.value.length" empty-text="当前筛选条件下没有可见的安全事件。">
           <table class="table min-w-[720px]">
             <thead>
@@ -147,7 +165,7 @@ function goDetail(id: string) {
                 <td class="relative w-1 !p-0"><span class="absolute inset-y-2 left-0 w-[3px] rounded-r-full" :class="stripe[e.severity] ?? 'bg-ink-line'" /></td>
                 <td>
                   <span class="block text-ink">{{ e.title }}</span>
-                  <span class="flex items-center gap-2 whitespace-nowrap text-[12px] text-ink-3">{{ guardFamilyLabel[e.category] ?? e.category }}<span class="text-ink-line">|</span><IdText :value="e.eventKey" :length="14" /><span class="num">r{{ e.revision }}</span></span>
+                  <span class="flex items-center gap-2 whitespace-nowrap text-[12px] text-ink-3">{{ guardFamilyLabel[e.category] ?? e.category }}<span class="text-ink-line">|</span><IdText :value="e.eventKey" :length="14" /></span>
                 </td>
                 <td class="whitespace-nowrap"><Tag :tone="severityTone[e.severity]" :label="severityLabel[e.severity] ?? e.severity" /></td>
                 <td><Tag pill :tone="eventTone[e.status]" :label="eventStatusLabel[e.status as EventStatus] ?? e.status" /></td>

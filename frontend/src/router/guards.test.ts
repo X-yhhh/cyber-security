@@ -79,7 +79,7 @@ describe('登录与默认入口', () => {
 describe('403：无权限地址', () => {
   it.each([
     ['security_analyst', '/console/system/audit'],
-    ['platform_admin', '/console/detect/observations'],
+    ['platform_admin', '/console/detect/records'],
     ['model_operator', '/console/response/actions'],
     ['evidence_reviewer', '/console/ops/health'],
     ['security_reviewer', '/console/system/audit'],
@@ -134,8 +134,6 @@ describe('404 与重定向', () => {
   })
 
   it.each([
-    ['/console/observation', '/console/detect/observations'],
-    ['/console/decisions', '/console/detect/decisions'],
     ['/console/release', '/console/release/bundles'],
     ['/console/execution', '/console/response/actions'],
     ['/console/lab', '/console/release/lab'],
@@ -148,6 +146,20 @@ describe('404 与重定向', () => {
     await router.push(from)
     expect(router.currentRoute.value.path).toBe(to)
     expect(router.currentRoute.value.redirectedFrom?.path).toBe(from)
+  })
+
+  it.each([
+    ['/console/detect/observations?assetId=a-1', 'observations'],
+    ['/console/detect/decisions', 'decisions'],
+    ['/console/observation', 'observations'],
+    ['/console/decisions', 'decisions'],
+  ])('合并进检测记录的旧地址 %s 进入 %s 分段并保留查询参数', async (from, tab) => {
+    signIn(singleRoleUsers.security_reviewer)
+    const router = createAppRouter(createMemoryHistory())
+    await router.push(from)
+    expect(router.currentRoute.value.path).toBe('/console/detect/records')
+    expect(router.currentRoute.value.query.tab).toBe(tab)
+    if (from.includes('assetId')) expect(router.currentRoute.value.query.assetId).toBe('a-1')
   })
 
   it('v1 地址暂时保留（C1 删除）', async () => {

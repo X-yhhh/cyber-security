@@ -1,9 +1,9 @@
 /**
- * 威胁检测 4 页单元测试（任务单 F1）：
+ * 威胁检测 3 页单元测试（任务单 F1、F1R）：检测记录、事件研判（列表与详情）、误报反馈。
  * - 四态覆盖：加载、空态、错误（含 request-id）、正常渲染；
  * - 权限显隐（权限设计第 8 节）：event.manage、action.request、feedback.label、feedback.review；
- * - 职责分离（S6）：待复核列表默认排除本人标注，本人标注详情不显示复核按钮；
- * - 写操作契约：Idempotency-Key、If-Match，成功后重新从后端读取。
+ * - 职责分离：待复核列表默认排除本人标注，本人标注详情不显示复核按钮；
+ * - 筛选同步到 URL 与请求参数，游标翻页；写操作契约：Idempotency-Key、If-Match，成功后重新从后端读取。
  */
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
@@ -16,7 +16,7 @@ import { resetCsrf } from '@/api/client'
 import { requests, server } from '@/test/handlers'
 import { signIn } from '@/test/handlers/auth'
 import {
-  ASSET_2, detectState, EP_1, EVENT_ALERT_ONLY, EVENT_OPEN, FB_OTHER,
+  ASSET_1, ASSET_2, detectState, EP_1, EVENT_ALERT_ONLY, EVENT_OPEN, FB_OTHER,
   POLICY_1, resetDetectState, TARGET_REF_1,
 } from '@/test/handlers/detect'
 import { singleRoleUsers, type MeFixture } from '@/test/roles'
@@ -64,92 +64,133 @@ afterEach(() => {
   server.resetHandlers()
 })
 
-describe('观测与推理（/console/detect/observations）', () => {
-  it('展示批次、观察、推理（含四类分数与非成功 —）与证据迹，支持资产筛选', async () => {
-    const { w } = await open(singleRoleUsers.security_analyst, '/console/detect/observations')
-    expect(w.text()).toContain('观测与推理')
-    expect(w.text()).toContain('boot-000')
-
-    // 切到推理结论：成功显示分数，不适用显示 — 而不是 0
-    const tabs = w.findAll('[role="tab"]')
-    await tabs.find((t) => t.text().includes('推理结论'))!.trigger('click')
-    await settle()
-    expect(w.text()).toContain('0.962')
-    expect(w.text()).toContain('PROFILE_UNSUPPORTED')
-    expect(w.text()).toContain('—')
-
-    // 切到证据迹并打开抽屉读取子资源 evidence-episodes/{id}/evidence
-    await tabs.find((t) => t.text().includes('证据迹'))!.trigger('click')
-    await settle()
-    await w.get('tbody tr.row-link').trigger('click')
-    await settle()
-    expect(document.body.textContent).toContain('证据明细')
-    expect(document.body.textContent).toContain('R-BF-1')
+/** 记录某个集合最近一次列表请求的查询参数。 */
+function lastQuery(path: string) {
+  const seen: URLSearchParams[] = []
+  server.events.on('request:start', ({ request }) => {
+    const u = new URL(request.url)
+    if (u.pathname === path) seen.push(u.searchParams)
   })
+  return () => seen[seen.length - 1]
+}
+const tab = (w: VueWrapper, name: string) => w.findAll('[role="tab"]').find((t) => t.text().includes(name))!
+const bodyButton = (text: string) => Array.from(document.body.querySelectorAll('button')).find((b) => b.textContent?.includes(text))
 
-  it('标注按钮按 feedback.label 显隐：分析员可提交标注，审计员不可见', async () => {
-    const { w } = await open(singleRoleUsers.security_analyst, '/console/detect/observations')
-    await w.findAll('[role="tab"]').find((t) => t.text().includes('观察记录'))!.trigger('click')
-    await settle()
-    await w.get('tbody tr.row-link').trigger('click')
-    await settle()
-    expect(document.body.textContent).toContain('标注此观察')
-
-    const labelBtn = Array.from(document.body.querySelectorAll('button')).find((b) => b.textContent?.includes('标注此观察'))!
-    labelBtn.click()
-    await settle()
-    const submitBtn = Array.from(document.body.querySelectorAll('button')).find((b) => b.textContent?.includes('提交标注'))!
-    submitBtn.click()
-    await settle()
-    expect(requests).toContain('POST /api/v2/feedback')
-    expect(document.body.textContent).toContain('已提交标注')
-
-    wrapper!.unmount()
-    document.body.innerHTML = ''
-    await open(singleRoleUsers.auditor, '/console/detect/observations')
-    await wrapper!.findAll('[role="tab"]').find((t) => t.text().includes('观察记录'))!.trigger('click')
-    await settle()
-    await wrapper!.get('tbody tr.row-link').trigger('click')
-    await settle()
-    expect(document.body.textContent).not.toContain('标注此观察')
-  })
-
-  it('空态与错误态（附带 request-id）', async () => {
-    server.use(http.get('/api/v2/observation-batches', () => HttpResponse.json({ requestId: 'r-empty', data: { items: [], nextCursor: null }, error: null })))
-    const { w } = await open(singleRoleUsers.auditor, '/console/detect/observations')
-    expect(w.text()).toContain('数据库中暂无你授权范围内的观测或推理记录')
-
-    wrapper!.unmount()
-    server.use(http.get('/api/v2/observation-batches', () => HttpResponse.json({ requestId: 'req-obs-err', data: null, error: { code: 'INTERNAL_ERROR', message: '观测读取失败' } }, { status: 500 })))
-    const second = await open(singleRoleUsers.auditor, '/console/detect/observations')
-    expect(second.w.get('[role="alert"]').text()).toBe('观测读取失败（request-id req-obs-err）')
-  })
-})
-
-describe('判定与来源（/console/detect/decisions）', () => {
-  it('展示来源 × 类别矩阵、样本量提示，点击单元格下钻到判定列表与证据抽屉', async () => {
-    const { w } = await open(singleRoleUsers.security_reviewer, '/console/detect/decisions')
-    expect(w.text()).toContain('已加载最近 2 条判定')
+describe('检测记录（/console/detect/records）', () => {
+  it('默认打开判定段：矩阵与样本量提示，只请求判定；点单元格下钻到列表并打开判定详情', async () => {
+    const { router, w } = await open(singleRoleUsers.security_reviewer, '/console/detect/records')
+    expect(w.text()).toContain('检测记录')
+    expect(tab(w, '判定').attributes('aria-selected')).toBe('true')
+    expect(w.text()).toContain('已加载 2 条')
     expect(w.text()).toContain('规则 R-BF-1')
-    expect(w.text()).toContain('lab_auto 只在 lab 资产有效')
+    expect(requests).toContain('GET /api/v2/decisions')
+    expect(requests).not.toContain('GET /api/v2/observation-batches')
+    expect(requests).not.toContain('GET /api/v2/observations')
 
     await w.get('button[aria-label="查看暴力破解·模型的判定"]').trigger('click')
     await settle()
+    expect(router.currentRoute.value.query).toMatchObject({ tab: 'decisions', view: 'list', family: 'brute_force', source: 'model' })
     expect(w.text()).toContain('模型来源未开自动')
-    await w.get('tbody tr.row-link').trigger('click')
+    // 资产显示名称，不显示 UUID
+    expect(w.text()).toContain('靶场主机 01')
+    expect(w.text()).not.toContain(ASSET_1)
+    await w.get('tbody tr.row-link').trigger('keydown', { key: 'Enter' })
     await settle()
-    expect(document.body.textContent).toContain('SOURCE_LEVEL_ALERT_ONLY')
+    // 原因码等内部键只在技术细节中
+    const tech = document.body.querySelector('details.tech-details')!
+    expect(tech.textContent).toContain('SOURCE_LEVEL_ALERT_ONLY')
   })
 
-  it('判定空态与错误态', async () => {
-    server.use(http.get('/api/v2/decisions', () => HttpResponse.json({ requestId: 'r-empty', data: { items: [], nextCursor: null }, error: null })))
-    const { w } = await open(singleRoleUsers.auditor, '/console/detect/decisions')
-    expect(w.text()).toContain('数据库中暂无你授权范围内的判定记录')
+  it('分段切换：推理显示四类分数且非成功为 —；观察、接入批次按需读取；分段同步到 URL', async () => {
+    const { router, w } = await open(singleRoleUsers.security_analyst, '/console/detect/records?tab=detections')
+    expect(w.text()).toContain('0.962')
+    expect(w.text()).toContain('PROFILE_UNSUPPORTED')
+    expect(w.text()).toContain('—')
+    expect(requests).not.toContain('GET /api/v2/decisions')
+
+    await tab(w, '接入批次').trigger('click')
+    await settle()
+    expect(router.currentRoute.value.query.tab).toBe('batches')
+    expect(w.get('tbody').text()).toMatch(/3\s*\/\s*0\s*\/\s*—/)
+    // 证据组不在本页单独成段
+    expect(w.findAll('[role="tab"]').map((t) => t.text())).not.toContain('证据迹')
+  })
+
+  it('资产与时间筛选由后端执行并同步到 URL；切换后旧分段重新读取', async () => {
+    const query = lastQuery('/api/v2/observations')
+    const { router, w } = await open(singleRoleUsers.security_analyst, '/console/detect/records?tab=observations')
+    expect(w.findAll('tbody tr.row-link')).toHaveLength(2)
+
+    await w.get('select[aria-label="资产筛选"]').setValue(ASSET_2)
+    await settle()
+    expect(query().get('assetId')).toBe(ASSET_2)
+    expect(w.findAll('tbody tr.row-link')).toHaveLength(1)
+
+    await w.get('select[aria-label="时间范围"]').setValue('24h')
+    await settle()
+    expect(query().get('from')).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/)
+    expect(query().has('q')).toBe(false)
+    expect(router.currentRoute.value.query).toMatchObject({ tab: 'observations', assetId: ASSET_2, range: '24h' })
+  })
+
+  it('游标翻页：下一页带 nextCursor，上一页回到首页', async () => {
+    const query = lastQuery('/api/v2/observation-batches')
+    server.use(http.get('/api/v2/observation-batches', ({ request }) => {
+      const cursor = new URL(request.url).searchParams.get('cursor')
+      const b = detectState.batches[0]
+      return HttpResponse.json({ requestId: 'r-page', data: cursor
+        ? { items: [{ ...b, id: 'b0000000-0000-4000-8000-000000000002', sequenceNo: 11 }], nextCursor: null }
+        : { items: [b], nextCursor: 'c-2' }, error: null })
+    }))
+    const { w } = await open(singleRoleUsers.auditor, '/console/detect/records?tab=batches')
+    await w.findAll('button').find((b) => b.text() === '下一页')!.trigger('click')
+    await settle()
+    expect(query().get('cursor')).toBe('c-2')
+    expect(w.text()).toContain('11')
+    await w.findAll('button').find((b) => b.text() === '上一页')!.trigger('click')
+    await settle()
+    expect(query().has('cursor')).toBe(false)
+  })
+
+  it('标注按 feedback.label 显隐：分析员在观察详情中提交成功，403 时显示原因；审计员看不到入口', async () => {
+    const { w } = await open(singleRoleUsers.security_analyst, '/console/detect/records?tab=observations')
+    await w.get('tbody tr.row-link').trigger('click')
+    await settle()
+    bodyButton('标注此观察')!.click()
+    await settle()
+    bodyButton('提交标注')!.click()
+    await settle()
+    expect(detectState.writes['POST /api/v2/feedback']?.idempotencyKey).toBeTruthy()
+    expect(document.body.textContent).toContain('已提交标注')
+
+    server.use(http.post('/api/v2/feedback', () =>
+      HttpResponse.json({ requestId: 'req-fb-403', data: null, error: { code: 'SCOPE_DENIED', message: '资产不在授权范围' } }, { status: 403 })))
+    bodyButton('提交标注')!.click()
+    await settle()
+    expect(document.body.querySelector('[role="alert"]')!.textContent).toBe('资产不在授权范围（request-id req-fb-403）')
 
     wrapper!.unmount()
-    server.use(http.get('/api/v2/decisions', () => HttpResponse.json({ requestId: 'req-dec-500', data: null, error: { code: 'INTERNAL_ERROR', message: '判定查询异常' } }, { status: 500 })))
-    const second = await open(singleRoleUsers.auditor, '/console/detect/decisions')
-    expect(second.w.get('[role="alert"]').text()).toBe('判定查询异常（request-id req-dec-500）')
+    document.body.innerHTML = ''
+    await open(singleRoleUsers.auditor, '/console/detect/records?tab=observations')
+    await wrapper!.get('tbody tr.row-link').trigger('click')
+    await settle()
+    expect(bodyButton('标注此观察')).toBeUndefined()
+  })
+
+  it('空态写明范围，错误态附带 request-id', async () => {
+    server.use(http.get('/api/v2/decisions', () => HttpResponse.json({ requestId: 'r-empty', data: { items: [], nextCursor: null }, error: null })))
+    const { w } = await open(singleRoleUsers.auditor, '/console/detect/records')
+    expect(w.text()).toContain('你可见范围内暂无判定记录')
+
+    wrapper!.unmount()
+    server.use(http.get('/api/v2/observation-batches', () => HttpResponse.json({ requestId: 'req-obs-err', data: null, error: { code: 'INTERNAL_ERROR', message: '批次读取失败' } }, { status: 500 })))
+    const second = await open(singleRoleUsers.auditor, '/console/detect/records?tab=batches')
+    expect(second.w.get('[role="alert"]').text()).toBe('批次读取失败（request-id req-obs-err）')
+  })
+
+  it('界面不出现内部编号', async () => {
+    const { w } = await open(singleRoleUsers.security_reviewer, '/console/detect/records')
+    expect(w.get('main').text()).not.toMatch(/\b(S5|S6|G3|r6)\b|lab_auto/)
   })
 })
 
@@ -161,6 +202,13 @@ describe('事件研判列表与详情（/console/detect/events & /console/detect
     })
     const { router, w } = await open(singleRoleUsers.security_analyst, '/console/detect/events?status=open')
     expect(lastUrl).toContain('status=open')
+
+    // 标题搜索：回车提交 q，并同步到 URL
+    await w.get('input[aria-label="搜索事件标题"]').setValue('SSH')
+    await w.get('form[role="search"]').trigger('submit')
+    await settle()
+    expect(lastUrl).toContain('q=SSH')
+    expect(router.currentRoute.value.query.q).toBe('SSH')
     expect(w.text()).toContain('SSH 暴力破解阻断候选事件')
     expect(w.text()).not.toContain('端口扫描只告警事件')
 
@@ -188,6 +236,13 @@ describe('事件研判列表与详情（/console/detect/events & /console/detect
     const { w } = await open(singleRoleUsers.security_analyst, `/console/detect/events/${EVENT_OPEN}`)
     expect(w.text()).toContain('EVT-LAB-001')
     expect(w.text()).toContain('满足人工处置申请条件')
+    // 关联资产显示名称；同类型、同主体、5 分钟内的系统记录合并为一条 ×3，可展开
+    expect(w.get('header.panel').text()).toContain('靶场主机 01')
+    expect(w.get('header.panel').text()).not.toContain(ASSET_1.slice(0, 8))
+    const merged = w.get('button[aria-label="展开合并的 3 条记录"]')
+    expect(w.text()).not.toContain('第 2 次')
+    await merged.trigger('click')
+    expect(w.text()).toContain('第 2 次')
 
     // 1. 状态迁移（POST /api/v2/events/:id/transitions）
     await w.findAll('button').find((b) => b.text() === '标记为研判中')!.trigger('click')
@@ -202,7 +257,7 @@ describe('事件研判列表与详情（/console/detect/events & /console/detect
       to: 'investigating',
       reason: '确认存在多次失败认证特征',
     })
-    expect(w.text()).toContain('r3')
+    expect(w.text()).toContain('标记为已遏制')
 
     // 2. 指派负责人（PUT /api/v2/events/:id/assignee）
     await w.findAll('button').find((b) => b.text() === '指派')!.trigger('click')
@@ -283,8 +338,34 @@ describe('事件研判列表与详情（/console/detect/events & /console/detect
   })
 })
 
-describe('反馈与复核（/console/detect/feedback）', () => {
-  it('待复核列表默认排除本人标注；本人标注对象在抽屉中不显示复核按钮（S6）', async () => {
+describe('误报反馈（/console/detect/feedback）', () => {
+  it('分段按权限显示：复核员有待复核与全部，分析员有我的标注与全部且默认进入我的标注', async () => {
+    const { w } = await open(singleRoleUsers.evidence_reviewer, '/console/detect/feedback')
+    expect(w.findAll('[role="tab"]').map((t) => t.text())).toEqual(['待复核', '全部'])
+    expect(tab(w, '待复核').attributes('aria-selected')).toBe('true')
+
+    wrapper!.unmount()
+    const analyst = await open(singleRoleUsers.security_analyst, '/console/detect/feedback')
+    expect(analyst.w.findAll('[role="tab"]').map((t) => t.text())).toEqual(['我的标注', '全部'])
+    expect(tab(analyst.w, '我的标注').attributes('aria-selected')).toBe('true')
+    // 我的标注只保留本人提交的（当前页筛选）
+    expect(analyst.w.text()).toContain('sha256:bbbbbbbbbbbbbbbb')
+    expect(analyst.w.text()).not.toContain('sha256:cccccccccccccccc')
+  })
+
+  it('全部分段按状态、时间筛选，参数同步到 URL 与请求', async () => {
+    const query = lastQuery('/api/v2/feedback')
+    const { router, w } = await open(singleRoleUsers.evidence_reviewer, '/console/detect/feedback?tab=all')
+    await w.findAll('[aria-label="复核状态筛选"] button').find((b) => b.text() === '已复核')!.trigger('click')
+    await w.get('select[aria-label="时间范围"]').setValue('7d')
+    await settle()
+    expect(query().get('status')).toBe('reviewed')
+    expect(query().get('from')).toBeTruthy()
+    expect(router.currentRoute.value.query).toMatchObject({ tab: 'all', status: 'reviewed', range: '7d' })
+    expect(w.text()).toContain('obs:verified-01')
+  })
+
+  it('待复核列表默认排除本人标注；本人标注对象在抽屉中不显示复核按钮', async () => {
     const { w } = await open(singleRoleUsers.evidence_reviewer, '/console/detect/feedback?status=pending')
     // evidence_reviewer 无 feedback.label，不显示「新建标注」按钮
     expect(w.findAll('button').some((b) => b.text() === '新建标注')).toBe(false)
@@ -299,7 +380,7 @@ describe('反馈与复核（/console/detect/feedback）', () => {
     const rows = w.findAll('tbody tr.row-link')
     await rows.find((r) => r.text().includes('sha256:cccccccccccccccc'))!.trigger('click')
     await settle()
-    expect(document.body.textContent).toContain('本人标注的反馈须由其他复核人决定（职责分离 S6）')
+    expect(document.body.textContent).toContain('本人提交的标注须由其他复核人决定')
     expect(Array.from(document.body.querySelectorAll('button')).some((b) => b.textContent?.includes('提交复核'))).toBe(false)
   })
 
@@ -325,7 +406,21 @@ describe('反馈与复核（/console/detect/feedback）', () => {
       reason: '核实观察快照包数与方向一致，确认为攻击样本',
     })
     // 复核后重新加载待复核列表，已无待复核项（除本人外为空）
-    expect(w.text()).toContain('当前筛选条件下没有可显示的反馈记录')
+    expect(w.text()).toContain('你可见范围内暂无待你复核的标注')
+  })
+
+  it('复核版本冲突（409）在表单中显示原因与 request-id', async () => {
+    const { w } = await open(singleRoleUsers.evidence_reviewer, '/console/detect/feedback')
+    await w.get('tbody tr.row-link').trigger('click')
+    await settle()
+    detectState.feedbacks.find((f) => f.id === FB_OTHER)!.revision = 7
+    const reasonInput = document.body.querySelector('textarea[aria-label="复核理由"]') as HTMLTextAreaElement
+    reasonInput.value = '并发复核'
+    reasonInput.dispatchEvent(new Event('input'))
+    await settle()
+    bodyButton('提交复核')!.click()
+    await settle()
+    expect(document.body.querySelector('[role="alert"]')!.textContent).toBe('反馈版本冲突（request-id req-detect-err）')
   })
 
   it('安全分析员可新建标注（校验 UUID 格式）但不能复核；复核 409 与列表错误态附带 request-id', async () => {
@@ -342,7 +437,7 @@ describe('反馈与复核（/console/detect/feedback）', () => {
     await settle()
     expect(document.body.textContent).toContain('观察记录 ID 须为有效的 UUID 格式')
 
-    await w.findAll('[aria-label="反馈状态筛选"] button').find((b) => b.text() === '全部')!.trigger('click')
+    await tab(w, '全部').trigger('click')
     await settle()
     await w.get('tbody tr.row-link').trigger('click')
     await settle()

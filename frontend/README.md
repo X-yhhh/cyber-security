@@ -74,6 +74,8 @@ API 客户端 `src/api/client.ts` 同时支持两套信封：v1 为 `{ success, 
 
 ## 5. F3 非页面交接（2026-10-15）
 
+> **页面已完成（[PR #71](https://github.com/X-yhhh/cyber-security/pull/71)，`75e18bc`）**：`ModelsView`、`BundlesView` 已替换为正式页面（分段面板与抽屉组件同在 `views/release/`），不再依赖 `views/console/ReleaseView.vue`、`LabView.vue`；验证记录新增 `record=plans|replays`。下文“还剩”中的页面部分已完成，msw 页面测试、本人识别字段与真实联调仍待接续，见[实施记录 6.32](../docs/系统实施记录.md#632-初版-f3模型与数据集发布管理页面2026-10-15)。
+
 **已完成**：接口、策略预校验、导航与重定向、合成 msw 状态回写和非页面回归（实现 `e6aad6d`，分支 `Xyhhh/v1-f3`，本次先通过 PR 合入 main）。**还剩**：模型与数据集、发布管理的页面设计与完整表单/详情交互，筛选与待办 `id` 打开、四态/写权限/本人审批隐藏、危险操作确认、真实后端联调。`views/release/ModelsView.vue` 是最小读取载体；`BundlesView.vue` 复用旧 Release/Lab 页面，均不作为正式页面验收结论。lab 详情已迁入 `views/release/LabRunDetailView.vue`；C1 删除旧组件前须先解除桥接层对 `views/console/ReleaseView.vue`、`LabView.vue` 的依赖。
 
 ### 接口入口

@@ -8,6 +8,8 @@ import { randomUUID, randomBytes } from 'node:crypto'
 export type Role = 'admin' | 'analyst' | 'reviewer' | 'operator' | 'evidence' | 'auditor'
 export const state = JSON.parse(readFileSync(process.env.E2E_STATE_FILE!, 'utf8'))
 export const ids: Record<string, any> = {}
+/** 保留浏览器成功写入的请求编号，关联内部资源编号被审计视图脱敏的 IAM 事实。 */
+export const mutationRequestIds = new Map<string, string[]>()
 export const unique = () => randomUUID()
 export const reason = 'T1 合成回归，不执行防火墙动作'
 export function registerSecret(value: string) {
@@ -58,6 +60,10 @@ export async function mutation(page: Page, suffix: string, action: () => Promise
   const json = await response.json()
   secretsIn(json)
   expect(Boolean(json.data), '响应包含 data').toBeTruthy()
+  expect(json.requestId, '写入响应包含有效请求编号').toMatch(/^[A-Za-z0-9._:-]{1,64}$/)
+  expect(json.requestId, '信封与响应头使用同一请求编号').toBe(response.headers()['x-request-id'])
+  const key = `${method} ${suffix}`
+  mutationRequestIds.set(key, [...(mutationRequestIds.get(key) ?? []), json.requestId])
   return json.data
 }
 export async function api(page: Page, suffix: string, body?: unknown, method = body === undefined ? 'GET' : 'POST', revision?: number) {

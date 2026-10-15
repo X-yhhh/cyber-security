@@ -1,5 +1,5 @@
 /** U1—U6 使用同一隔离库按业务依赖串行运行；前置制品合成，所有界面写入均请求真实后端。 */
-import { test, expect, login, dialog, mutation, read, api, fixture, fill, close, ids, state, unique, password, registerSecret, reason } from './helpers'
+import { test, expect, login, dialog, mutation, mutationRequestIds, read, api, fixture, fill, close, ids, state, unique, password, registerSecret, reason } from './helpers'
 import type { Page } from '@playwright/test'
 
 async function draftConfig(page: Page) {
@@ -294,9 +294,13 @@ test.describe.serial('U1—U6 与增删改查', () => {
     await expect(page.locator('tbody tr')).toHaveCount(1)
     await expect(page.locator('tbody tr')).toContainText('T1 合成传感器')
     await login(page, 'auditor')
-    // 逐项核对浏览器前面操作的对象，不能用环境初始化产生的同类审计代替。
+    // IAM 内部数字编号和角色键在审计 DTO 中为脱敏引用，按真实写请求关联；guard 按公开 UUID 关联。
+    const iamAuditRequests: Record<string, { suffix: string, count: number }> = {
+      'iam.user.create': { suffix: '/users', count: 1 },
+      'iam.binding.create': { suffix: `/users/${ids.user}/role-bindings`, count: 2 },
+      'iam.role.create': { suffix: '/roles', count: 1 },
+    }
     const auditTargets: Record<string, unknown[]> = {
-      'iam.user.create': [ids.user], 'iam.binding.create': [ids.binding, ids.customBinding], 'iam.role.create': [ids.role],
       'guard.asset.created': [ids.asset], 'guard.asset.updated': [ids.asset],
       'guard.authorization.requested': [ids.auth], 'guard.authorization.active': [ids.auth],
       'guard.sensor.created': [ids.sensor], 'guard.sensor.status.changed': [ids.sensor],
@@ -308,7 +312,7 @@ test.describe.serial('U1—U6 与增删改查', () => {
       'guard.action.approved': [ids.action], 'guard.action.revocation_requested': [ids.action],
       'guard.automation.stopped': [ids.labAsset], 'guard.policy.drafted': [ids.draftPolicy], 'guard.policy.deleted': [ids.draftPolicy],
     }
-    for (const [action, targets] of Object.entries(auditTargets)) {
+    for (const action of [...Object.keys(iamAuditRequests), ...Object.keys(auditTargets)]) {
       await page.goto('/console/system/audit')
       await page.getByLabel('动作（精确匹配）').fill(action)
       const result = page.waitForResponse(r => new URL(r.url()).pathname === '/api/v2/audit' && new URL(r.url()).searchParams.get('action') === action)
@@ -316,7 +320,19 @@ test.describe.serial('U1—U6 与增删改查', () => {
       expect((await result).status()).toBe(200)
       await expect(page.getByRole('button', { name: action, exact: true }).first()).toBeVisible()
       const rows = (await read(page, `/audit?action=${action}`)).items
-      for (const target of targets) {
+      const iam = iamAuditRequests[action]
+      if (iam) {
+        const requests = mutationRequestIds.get(`POST ${iam.suffix}`) ?? []
+        expect(requests, `${action} 的请求均由前置页面提交`).toHaveLength(iam.count)
+        for (const requestId of requests) {
+          const row = rows.find((row: any) => row.action === action && row.requestId === requestId && row.outcome === 'success')
+          expect(row, `${action} / ${requestId} 的成功审计`).toBeDefined()
+          expect(row.resourceType).toBe('iam')
+          expect(row.resourceId, '内部资源只返回脱敏引用').toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/)
+        }
+      }
+      // 逐项核对浏览器前面操作的对象，不能用环境初始化产生的同类审计代替。
+      for (const target of auditTargets[action] ?? []) {
         expect(target, `${action} 的预期对象已由前置步骤创建`).toBeDefined()
         expect(rows.some((row: any) => row.action === action && row.resourceId === String(target) && row.outcome === 'success'), `${action} / ${target} 的成功审计`).toBe(true)
       }

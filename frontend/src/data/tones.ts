@@ -75,4 +75,11 @@ export const scenarioTone = map({ passed: 'ok', failed: 'threat', incomplete: 'w
 /** 来源等级：lab_auto 用 warn 提示「仅 lab 有效」，不与授权环境的自动等级同色。 */
 export const qualificationTone = map({ lab_auto: 'warn', authorized_auto: 'ok', alert_only: 'mute' })
 export const machineStatusTone = map({ pending: 'signal', active: 'ok', offline: 'warn', suspended: 'warn', revoked: 'threat' })
+/** 资产与接入（F4）：停用暂停新命令用 warn，退役为终态用中性；授权与配置的待批用 signal。 */
+export const assetStatusTone = map({ active: 'ok', disabled: 'warn', retired: 'mute' })
+export const criticalityTone = map({ critical: 'threat', high: 'warn', medium: 'mute', low: 'mute' })
+export const authorizationTone = map({ pending: 'signal', active: 'ok', expired: 'mute', revoked: 'mute' })
+export const validityTone = map({ valid: 'ok', not_yet_valid: 'signal', expired: 'mute' })
+export const configTone = map({ draft: 'mute', pending: 'signal', approved: 'ok', active: 'ok', retired: 'mute', rejected: 'threat' })
+export const bindingTone = map({ active: 'ok', suspended: 'warn', retired: 'mute' })
 export const auditOutcomeTone = map({ success: 'ok', denied: 'threat', failure: 'threat', rejected: 'threat' })

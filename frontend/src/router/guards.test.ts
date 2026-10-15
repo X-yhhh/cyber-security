@@ -81,7 +81,7 @@ describe('403：无权限地址', () => {
     ['security_analyst', '/console/system/audit'],
     ['platform_admin', '/console/detect/records'],
     ['model_operator', '/console/response/actions'],
-    ['evidence_reviewer', '/console/ops/health'],
+    ['evidence_reviewer', '/console/assets/agents'],
     ['security_reviewer', '/console/system/audit'],
   ] as const)('%s 直达 %s 显示 403 页且不发数据请求', async (role, path) => {
     signIn(singleRoleUsers[role])
@@ -105,7 +105,7 @@ describe('403：无权限地址', () => {
     signIn(singleRoleUsers.model_operator)
     const { router, w } = await open('/console/workbench')
     requests.length = 0
-    await router.push('/console/ops/health')
+    await router.push('/console/assets/agents')
     await settle()
     expect(w.text()).toContain('无权访问此页面')
     expect(dataRequests()).toEqual([])
@@ -138,7 +138,7 @@ describe('404 与重定向', () => {
     ['/console/execution', '/console/response/actions'],
     ['/console/lab', '/console/release/bundles'],
     ['/console/lab/run-9', '/console/release/lab/run-9'],
-    ['/console/health', '/console/ops/health'],
+    ['/console/health', '/console/assets/agents'], // F4：带 tab=health 进入健康窗口分段
     ['/console/ops/audit', '/console/system/audit'],
   ])('旧地址 %s 重定向到 %s', async (from, to) => {
     signIn(singleRoleUsers.security_reviewer)

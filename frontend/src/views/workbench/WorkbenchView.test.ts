@@ -38,8 +38,6 @@ describe('待办中心', () => {
     expect(groupTitles(w)[0]).toBe('需要批准')
     const action = w.findAll('[data-todo-group="approve"] li').find((li) => li.text().includes('待批处置申请'))!
     expect(action.get('a').attributes('href')).toMatch(/^\/console\/response\/actions\?id=/)
-    // 资产授权的目标页尚未上线：只列出事项，不给进入按钮。
-    expect(w.findAll('[data-todo-group="approve"] li').find((li) => li.text().includes('待批资产授权'))!.find('a').exists()).toBe(false)
     w.unmount()
   })
 

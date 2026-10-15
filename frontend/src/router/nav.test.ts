@@ -82,10 +82,10 @@ describe('菜单配置（权限设计第 7.2 节）', () => {
     for (const i of nav) if (i.ready) expect(i.component, i.title).toBeTypeOf('function')
   })
 
-  it('F3 模型入口已接线，其余 4 行未上线', () => {
+  it('F3、F4 资产入口已接线，其余 2 行未上线', () => {
     const ready = target.filter((i) => i.ready).map((i) => i.title)
-    expect(ready).toEqual(['实时态势', '待办中心', '事件研判', '检测记录', '误报反馈', '处置记录', '模型与数据集', '发布管理', '审计日志'])
-    expect(target.filter((i) => !i.ready).map((i) => i.title)).toEqual(['资产', '传感器与执行器', '用户管理', '角色管理'])
+    expect(ready).toEqual(['实时态势', '待办中心', '事件研判', '检测记录', '误报反馈', '处置记录', '模型与数据集', '发布管理', '资产', '传感器与执行器', '审计日志'])
+    expect(target.filter((i) => !i.ready).map((i) => i.title)).toEqual(['用户管理', '角色管理'])
   })
 
   it('威胁检测组只剩 3 行且没有过渡行（任务单 F1R）', () => {
@@ -94,11 +94,9 @@ describe('菜单配置（权限设计第 7.2 节）', () => {
     ])
   })
 
-  it('F2、F3 过渡行均已合并，只保留运行健康', () => {
+  it('F2、F3、F4 过渡行均已合并', () => {
     const legacy = nav.filter((i) => i.legacy).map((i) => [i.title, i.group, i.path, i.ready])
-    expect(legacy).toEqual([
-      ['运行健康', 'assets', '/console/ops/health', true],
-    ])
+    expect(legacy).toEqual([])
   })
 
   it('anyOf 为空表示登录即可，否则需要交集', () => {
@@ -137,12 +135,12 @@ describe('角色可见性矩阵（权限设计第 7.3 节，全部 ready、去�
 
 describe('当前 ready 配置下的实际菜单', () => {
   const current: Record<HumanRole, string[]> = {
-    platform_admin: ['实时态势', '待办中心', '运行健康', '审计日志'],
+    platform_admin: ['实时态势', '待办中心', '资产', '传感器与执行器', '审计日志'],
     security_analyst: ['实时态势', '待办中心', '事件研判', '检测记录', '误报反馈', '处置记录'],
-    security_reviewer: ['实时态势', '待办中心', '事件研判', '检测记录', '处置记录', '模型与数据集', '发布管理', '运行健康'],
+    security_reviewer: ['实时态势', '待办中心', '事件研判', '检测记录', '处置记录', '模型与数据集', '发布管理', '资产', '传感器与执行器'],
     model_operator: ['待办中心', '模型与数据集', '发布管理'],
     evidence_reviewer: ['实时态势', '待办中心', '事件研判', '检测记录', '误报反馈', '模型与数据集', '发布管理'],
-    auditor: ['实时态势', '待办中心', '事件研判', '检测记录', '处置记录', '模型与数据集', '发布管理', '运行健康', '审计日志'],
+    auditor: ['实时态势', '待办中心', '事件研判', '检测记录', '处置记录', '模型与数据集', '发布管理', '资产', '传感器与执行器', '审计日志'],
   }
 
   it.each(humanRoles)('%s', (role) => {
@@ -158,7 +156,7 @@ describe('当前 ready 配置下的实际菜单', () => {
     const carried: Record<string, string> = {
       工作台: '待办中心', 观测与推理: '检测记录', 判定与来源: '检测记录', 事件研判: '事件研判', 反馈与复核: '误报反馈',
       处置动作: '处置记录', 目标预算: '处置记录', 评价与回放: '发布管理', 决策策略: '发布管理', 能力与发布组合: '发布管理',
-      'lab 验证与 G3': '发布管理', 运行健康: '运行健康', 审计日志: '审计日志',
+      'lab 验证与 G3': '发布管理', 运行健康: '传感器与执行器', 审计日志: '审计日志',
     }
     const before: Record<HumanRole, string[]> = {
       platform_admin: ['工作台', '运行健康', '审计日志'],
@@ -176,7 +174,7 @@ describe('当前 ready 配置下的实际菜单', () => {
 
   it('未上线的项不出现在菜单中', () => {
     const hidden = nav.filter((i) => !i.ready).map((i) => i.title)
-    expect(hidden).toHaveLength(4)
+    expect(hidden).toHaveLength(2)
     for (const role of humanRoles) {
       for (const t of hidden) expect(titles(visibleMenu(singleRoleUsers[role].permissions))).not.toContain(t)
     }

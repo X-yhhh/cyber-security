@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
  * 待办列表（权限设计第 7.4 节、前端设计文档第 10.1 节，任务单 U0.7）：
- * 按「待批 → 待研判 → 其他」分组，组标题带计数，每条显示对象、资产、时间与右侧进入按钮。
+ * 按「需要批准 → 需要研判 → 其他」分组，组标题带计数，每条显示对象、资产、时间与右侧进入按钮。
  *
  * - 组顺序固定为 approve、triage、other，与传入顺序无关；没有条目的组不显示。
  * - 计数以后端返回值为准（`count` 可大于本页条目数）；`truncated` 时写明“仅显示最近 N 条”。
@@ -34,7 +34,7 @@ const props = withDefaults(defineProps<{ groups: readonly TodoGroup[]; truncated
 })
 
 const ORDER: readonly TodoGroupKey[] = ['approve', 'triage', 'other']
-const TITLE: Record<TodoGroupKey, string> = { approve: '待批', triage: '待研判', other: '其他' }
+const TITLE: Record<TodoGroupKey, string> = { approve: '需要批准', triage: '需要研判', other: '其他' }
 
 const shown = computed(() => ORDER
   .map((key) => {

@@ -73,7 +73,7 @@ API 客户端 `src/api/client.ts` 同时支持两套信封：v1 为 `{ success, 
 
 ## 5. F3 非页面交接（2026-10-15）
 
-**已完成**：接口、策略预校验、导航与重定向、合成 msw 状态回写和非页面回归（实现 `e6aad6d`，分支 `Xyhhh/v1-f3`，未合入 main）。**还剩**：模型与数据集、发布管理的页面设计与完整表单/详情交互，筛选与待办 `id` 打开、四态/写权限/本人审批隐藏、危险操作确认、真实后端联调及用户合并。`views/release/ModelsView.vue` 是最小读取载体；`BundlesView.vue` 复用旧 Release/Lab 页面，均不作为正式页面验收结论。lab 详情已迁入 `views/release/LabRunDetailView.vue`；C1 删除旧组件前须先解除桥接层对 `views/console/ReleaseView.vue`、`LabView.vue` 的依赖。
+**已完成**：接口、策略预校验、导航与重定向、合成 msw 状态回写和非页面回归（实现 `e6aad6d`，分支 `Xyhhh/v1-f3`，本次先通过 PR 合入 main）。**还剩**：模型与数据集、发布管理的页面设计与完整表单/详情交互，筛选与待办 `id` 打开、四态/写权限/本人审批隐藏、危险操作确认、真实后端联调。`views/release/ModelsView.vue` 是最小读取载体；`BundlesView.vue` 复用旧 Release/Lab 页面，均不作为正式页面验收结论。lab 详情已迁入 `views/release/LabRunDetailView.vue`；C1 删除旧组件前须先解除桥接层对 `views/console/ReleaseView.vue`、`LabView.vue` 的依赖。
 
 ### 接口入口
 
@@ -116,4 +116,4 @@ API 客户端 `src/api/client.ts` 同时支持两套信封：v1 为 `{ success, 
 
 `test/handlers/release.ts` 已加入统一 msw 服务器；测试前调用 `resetReleaseState()`，可用 `releaseRows` / `labRow` 断言写后回读，用 `releaseState.referenced` 模拟 409 引用冲突。夹具和 `owners` 只存在于测试，不含真实制品或执行授权；合成 lab 报告不授予自动资格，也不推断清理成功。
 
-已通过 `npm ci`、`npm run lint`、`npm run typecheck`、`npm test -- --coverage`（27 文件、297 项，原阈值不变）和 `npm run build`。这些是客户端与合成 API 证据；真实后端、签名制品、数据库和浏览器端到端仍待后续验证。状态与接续范围见[初版任务单 F3](../docs/任务/初版落地任务单.md#f3-模型与数据集发布管理)及[实施记录 6.27](../docs/系统实施记录.md#627-初版-f3接口预校验与导航接线2026-10-15)。
+已通过 `npm ci`、`npm run lint`、`npm run typecheck`、`npm test -- --coverage`（30 文件、333 项，原阈值不变）和 `npm run build`。已整合 main 的 F2 菜单与待办中心，并重新运行上述检查（锁文件与依赖未变）；页面由用户从 main 另开分支实现。这些是客户端与合成 API 证据；真实后端、签名制品、数据库和浏览器端到端仍待后续验证。状态与接续范围见[初版任务单 F3](../docs/任务/初版落地任务单.md#f3-模型与数据集发布管理)及[实施记录 6.29](../docs/系统实施记录.md#629-初版-f3接口预校验与导航接线2026-10-15)。

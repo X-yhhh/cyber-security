@@ -37,7 +37,7 @@ export const decisionTone = map({ observe: 'mute', alert: 'warn', block_candidat
 
 /** 动作终态：desiredState 与 observedState 分开显示，未核实的执行不记为已生效。 */
 export const actionStateTone = map({
-  pending: 'signal', active: 'signal', revoked: 'mute',
+  pending: 'signal', dispatched: 'signal', active: 'signal', revoked: 'mute',
   applied: 'ok', cleared: 'mute', failed: 'threat', rejected: 'mute',
   uncertain: 'warn', recovery_failed: 'threat', expired: 'mute',
 })

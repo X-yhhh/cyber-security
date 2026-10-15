@@ -9,6 +9,7 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:e2e": "sh ../executor/python.sh ../scripts/p8/e2e_env.py",
     "lint": "eslint . --max-warnings=0",
     "typecheck": "vue-tsc -b --noEmit"
   },
@@ -22,6 +23,7 @@
     "vue-router": "^4.5.0"
   },
   "devDependencies": {
+    "@playwright/test": "1.61.0",
     "@types/node": "^22.10.2",
     "@types/three": "0.186.0",
     "@vitejs/plugin-vue": "^5.2.1",

@@ -163,12 +163,14 @@ public interface GuardReadMapper {
         }
 
         private static String auditScope() {
-            // 与 AuditMapper.visibleAuditPredicate 一致：仅全局 platform_admin 可绕过逐项精确范围。
+            // v2 全局 audit.read 覆盖每个已登记范围；局部授权仍须覆盖全部关联范围。
+            // 历史无范围记录仅保留 platform_admin 例外，v1 查询语义独立保留。
             return "(EXISTS(" + permissions() + " AND role_row.role_key='platform_admin'"
                     + " AND ur.scope_type='global' AND ur.scope_id='*') OR ("
                     + "EXISTS(SELECT 1 FROM audit_resource_scope s WHERE s.audit_id=r.id) AND NOT EXISTS("
                     + "SELECT 1 FROM audit_resource_scope s WHERE s.audit_id=r.id AND NOT EXISTS("
-                    + permissions() + " AND ur.scope_type=s.scope_type AND ur.scope_id=s.scope_id))))";
+                    + permissions() + " AND ((ur.scope_type='global' AND ur.scope_id='*')"
+                    + " OR (ur.scope_type=s.scope_type AND ur.scope_id=s.scope_id))))))";
         }
 
         private static String source(Kind kind) {

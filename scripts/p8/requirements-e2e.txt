@@ -1,0 +1,4 @@
+# T1 环境与合成制品；与 executor 的解释器分离安装亦可。
+bcrypt==5.0.0
+cryptography==49.0.0
+rfc8785==0.1.4

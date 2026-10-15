@@ -73,6 +73,20 @@ npm run preview     # 预览生产构建
 
 API 客户端 `src/api/client.ts` 同时支持两套信封：v1 为 `{ success, data, error, requestId }`，v2 为 `{ requestId, data, error }`；自动携带 CSRF 头与会话 Cookie；v2 业务封装和会话模块注入幂等键，需并发控制的操作注入 `If-Match`。详见[前端设计文档](../docs/前端设计文档.md)。
 
+## 真实后端端到端回归（T1 / FE-13）
+
+在仓库对应 worktree 安装锁定依赖，并按 [P8 脚本说明](../scripts/p8/README.md#t1-端到端隔离回归)准备 JDK 25、Maven、MySQL 客户端、Python 依赖及本机测试服务凭据：
+
+```sh
+npm ci
+./node_modules/.bin/playwright install chromium
+npm run test:e2e
+```
+
+默认重新构建当前源码的 JAR 和 dist，启动回环预览，使用六个单角色账号验证 U1—U6、菜单、403、旧地址重定向、增删改查与 390px 布局。没有业务 API 拦截、自动重试或真实执行器。T1 验收须连续两次完整通过。
+
+失败 trace、JSON 结果、运行摘要、零命令证明和清理结果在仓库忽略目录 `.cache/t1-e2e/<运行号>/`。日志先脱敏再输出；截图/视频关闭，防止一次性凭据进入位图。排查单个文件可用 `npm run test:e2e -- --skip-build -- journeys.spec.ts`；`--skip-build` 仅复用本 worktree 现有构建，不用于最终验收。
+
 ## 5. F3 非页面交接（2026-10-15）
 
 > **页面已完成（[PR #71](https://github.com/X-yhhh/cyber-security/pull/71)，`75e18bc`）**：`ModelsView`、`BundlesView` 为正式页面，分段面板与抽屉组件同在 `views/release/`。C1 已删除桥接层原先依赖的旧 Release/Lab 组件，见[实施记录 6.36](../docs/系统实施记录.md#636-初版-c1接口退役与非页面实现2026-10-15)。

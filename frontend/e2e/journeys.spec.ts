@@ -28,7 +28,7 @@ test.describe.serial('U1—U6 与增删改查', () => {
     ids.user = (await mutation(page, '/users', () => d.getByRole('button', { name: '新建用户', exact: true }).click())).id
     await dialog(page).getByRole('button', { name: '添加绑定', exact: true }).click()
     await dialog(page).getByRole('combobox', { name: /^角色/ }).selectOption('security_analyst')
-    await mutation(page, `/users/${ids.user}/role-bindings`, () => dialog(page).getByRole('button', { name: '添加绑定', exact: true }).click())
+    ids.binding = (await mutation(page, `/users/${ids.user}/role-bindings`, () => dialog(page).getByRole('button', { name: '添加绑定', exact: true }).click())).id
     expect((await read(page, `/users/${ids.user}/role-bindings`)).map((b: any) => b.roleKey)).toEqual(['security_analyst'])
     await page.goto('/console/assets/list')
     await page.getByRole('button', { name: '登记资产', exact: true }).click()
@@ -107,7 +107,7 @@ test.describe.serial('U1—U6 与增删改查', () => {
     await fill(d, '报告引用', report.reportRef)
     await fill(d, '报告 SHA-256', report.sha256)
     await fill(d, '签发身份', report.runnerIdentity)
-    await mutation(page, `/release-bundles/${ids.bundle}/imports`, () => d.getByRole('button', { name: '导入报告', exact: true }).click())
+    ids.report = (await mutation(page, `/release-bundles/${ids.bundle}/imports`, () => d.getByRole('button', { name: '导入报告', exact: true }).click())).id
     await dialog(page).getByRole('button', { name: '封存清单', exact: true }).click()
     d = dialog(page, '封存发布清单')
     await d.getByRole('checkbox').check()
@@ -240,7 +240,7 @@ test.describe.serial('U1—U6 与增删改查', () => {
     await page.goto(`/console/system/users?id=${ids.user}`)
     await dialog(page).getByRole('button', { name: '添加绑定', exact: true }).click()
     await dialog(page).getByRole('combobox', { name: /^角色/ }).selectOption(ids.role)
-    await mutation(page, `/users/${ids.user}/role-bindings`, () => dialog(page).getByRole('button', { name: '添加绑定', exact: true }).click())
+    ids.customBinding = (await mutation(page, `/users/${ids.user}/role-bindings`, () => dialog(page).getByRole('button', { name: '添加绑定', exact: true }).click())).id
     await close(page)
     await page.getByLabel('搜索用户').fill(ids.username)
     await page.getByLabel('搜索用户').press('Enter')
@@ -255,6 +255,7 @@ test.describe.serial('U1—U6 与增删改查', () => {
     await mutation(page, `/assets/${ids.asset}`, () => d.getByRole('button', { name: '保存资料' }).click(), 'PATCH')
     await expect(page.getByRole('heading', { name: ids.assetName, exact: true })).toBeVisible()
     const draft = await draftConfig(page)
+    ids.deletedConfig = draft.id
     await dialog(page).getByRole('button', { name: '删除草稿' }).click()
     await mutation(page, `/sensor-configs/${draft.id}`, () => dialog(page).getByRole('button', { name: '确认删除' }).click(), 'DELETE')
     expect((await api(page, `/sensor-configs/${draft.id}`)).status()).toBe(404)
@@ -275,6 +276,7 @@ test.describe.serial('U1—U6 与增删改查', () => {
     const policy = { ...state.fixtures.policyDefinition, policyId: unique(), policyVersion: 't1-delete-draft' }
     await fill(d, '策略原文', JSON.stringify(policy))
     const drafted = await mutation(page, '/decision-policies', () => d.getByRole('button', { name: '提交草稿' }).click())
+    ids.draftPolicy = drafted.id
     await dialog(page).getByRole('button', { name: '删除草稿' }).click()
     await mutation(page, `/decision-policies/${drafted.id}`, () => dialog(page).getByRole('button', { name: '确认删除' }).click(), 'DELETE')
     expect((await api(page, `/decision-policies/${drafted.id}`)).status()).toBe(404)
@@ -292,18 +294,32 @@ test.describe.serial('U1—U6 与增删改查', () => {
     await expect(page.locator('tbody tr')).toHaveCount(1)
     await expect(page.locator('tbody tr')).toContainText('T1 合成传感器')
     await login(page, 'auditor')
-    // 每类关键写入须能从实际审计列表命中，界面筛选与后端值都核验。
-    for (const action of ['iam.user.create', 'iam.binding.create', 'iam.role.create', 'guard.asset.created', 'guard.asset.updated',
-      'guard.authorization.requested', 'guard.authorization.active', 'guard.sensor.created', 'guard.sensor.status.changed', 'guard.config.drafted', 'guard.config.active', 'guard.config.deleted',
-      'guard.bundle.requested', 'guard.report.imported', 'guard.bundle.sealed', 'guard.bundle.approved', 'guard.bundle.activated', 'guard.feedback.labelled', 'guard.feedback.reviewed',
-      'guard.event.transition', 'guard.event.noted', 'guard.action.approved', 'guard.action.revocation_requested', 'guard.automation.stopped', 'guard.policy.drafted', 'guard.policy.deleted']) {
+    // 逐项核对浏览器前面操作的对象，不能用环境初始化产生的同类审计代替。
+    const auditTargets: Record<string, unknown[]> = {
+      'iam.user.create': [ids.user], 'iam.binding.create': [ids.binding, ids.customBinding], 'iam.role.create': [ids.role],
+      'guard.asset.created': [ids.asset], 'guard.asset.updated': [ids.asset],
+      'guard.authorization.requested': [ids.auth], 'guard.authorization.active': [ids.auth],
+      'guard.sensor.created': [ids.sensor], 'guard.sensor.status.changed': [ids.sensor],
+      'guard.config.drafted': [ids.config, ids.deletedConfig], 'guard.config.active': [ids.config], 'guard.config.deleted': [ids.deletedConfig],
+      'guard.bundle.requested': [ids.bundle], 'guard.report.imported': [ids.report], 'guard.bundle.sealed': [ids.bundle],
+      'guard.bundle.approved': [ids.bundle], 'guard.bundle.activated': [ids.bundle],
+      'guard.feedback.labelled': [ids.feedback], 'guard.feedback.reviewed': [ids.feedback],
+      'guard.event.transition': [ids.event], 'guard.event.noted': [ids.event],
+      'guard.action.approved': [ids.action], 'guard.action.revocation_requested': [ids.action],
+      'guard.automation.stopped': [ids.labAsset], 'guard.policy.drafted': [ids.draftPolicy], 'guard.policy.deleted': [ids.draftPolicy],
+    }
+    for (const [action, targets] of Object.entries(auditTargets)) {
       await page.goto('/console/system/audit')
       await page.getByLabel('动作（精确匹配）').fill(action)
       const result = page.waitForResponse(r => new URL(r.url()).pathname === '/api/v2/audit' && new URL(r.url()).searchParams.get('action') === action)
       await page.getByRole('button', { name: '筛选', exact: true }).click()
       expect((await result).status()).toBe(200)
       await expect(page.getByRole('button', { name: action, exact: true }).first()).toBeVisible()
-      expect((await read(page, `/audit?action=${action}`)).items.length, action).toBeGreaterThan(0)
+      const rows = (await read(page, `/audit?action=${action}`)).items
+      for (const target of targets) {
+        expect(target, `${action} 的预期对象已由前置步骤创建`).toBeDefined()
+        expect(rows.some((row: any) => row.action === action && row.resourceId === String(target) && row.outcome === 'success'), `${action} / ${target} 的成功审计`).toBe(true)
+      }
     }
     for (const url of ['/console/assets/list', `/console/assets/list/${ids.asset}`, '/console/assets/agents', '/console/release/models',
       '/console/release/bundles', `/console/response/actions?tab=all&id=${ids.action}`, '/console/system/roles']) {

@@ -169,7 +169,7 @@ class Preview(SimpleHTTPRequestHandler):
         pass
 
     def handle_request(self):
-        if self.path.startswith('/api/') or self.path.startswith('/actuator/'):
+        if self.path.startswith(('/api/', '/health/', '/actuator/')):
             length = int(self.headers.get('Content-Length', '0'))
             if length > 2 * 1024 * 1024:
                 self.send_error(413)
@@ -230,7 +230,8 @@ def seed_accounts(db, schema):
 
 
 def build(java, work):
-    for name, command, cwd in [('jar', ['mvn', '-q', '-DskipTests', 'package'], ROOT / 'backend'),
+    # 删除旧 class 后再打包，避免分支整合/接口退役后把已删除代码带进预览 JAR。
+    for name, command, cwd in [('jar', ['mvn', '-q', '-DskipTests', 'clean', 'package'], ROOT / 'backend'),
                                ('dist', ['npm', 'run', 'build'], ROOT / 'frontend')]:
         with (work / (name + '-build.log')).open('wb') as log:
             result = subprocess.run(command, cwd=cwd, env=dict(os.environ, JAVA_HOME=str(java.parent.parent)),

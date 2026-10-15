@@ -21,7 +21,7 @@
 | `E2E_BROKER_MANAGEMENT_URL` | 可选回环 HTTP 管理入口，默认 `http://127.0.0.1:15672` |
 | `E2E_MYSQL` | 可选 MySQL 客户端路径，默认 PATH 解析 |
 
-每次新建 `cyber_it_e2e_<随机值>` schema 与 `cyber-security-e2e-<随机值>` vhost，构建并启动当前 worktree JAR/dist；不读取或迁移业务库。真实 v2 登录、HTTP、MySQL、outbox 与 RabbitMQ 消费参与回归，六账号各绑定一个内置角色。U4 的常量 ONNX、自签报告和 U5 的 lab 动作、未核对回执均为一次性合成夹具，无实际模型成绩或平台资格。
+每次新建 `cyber_it_e2e_<随机值>` schema 与 `cyber-security-e2e-<随机值>` vhost，构建并启动当前 worktree JAR/dist；JAR 先 `clean` 再打包，避免已删除接口的旧 class 残留。不读取或迁移业务库。真实 v2 登录、HTTP、MySQL、outbox 与 RabbitMQ 消费参与回归，六账号各绑定一个内置角色。U4 的常量 ONNX、自签报告和 U5 的 lab 动作、未核对回执均为一次性合成夹具，无实际模型成绩或平台资格。
 
 U5 的自动化开关仅作用于本次隔离后端，保留真实授权/资格校验；命令签名配置为空，无执行器进程、不调用 claims、不抓包、不执行 PF。合成回执引用的命令明确标为 `t1-ui-synthetic` 且签名无效；`safety.json` 检查其余命令数量为零。
 

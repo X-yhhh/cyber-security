@@ -14,6 +14,7 @@ const matrix: Record<Role, { menus: string[]; denied: string; endpoint: string }
 for (const role of Object.keys(matrix) as Role[]) {
   test(`${role}：菜单、落地页、前后端 403 与 390px 导航`, async ({ page }) => {
     await login(page, role)
+    await expect(page.getByText('控制面正常', { exact: true })).toBeVisible()
     const nav = page.getByRole('navigation', { name: '功能菜单', exact: true })
     await expect(nav.getByRole('link')).toHaveText(matrix[role].menus)
     await page.goto(matrix[role].denied)

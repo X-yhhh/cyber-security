@@ -78,7 +78,8 @@ describe('F4 查询与范围', () => {
     const replay = (await assetsApi.listHealthWindows({ verificationStatus: 'replay_healthy' })).items[0]
     expect(replay).toMatchObject({ captureSource: 'file_replay', serverVerifiedHealthy: false, counterEnd: { kernelDrops: null } })
     expect(requests).toContain('GET /api/v2/machine-clients')
-    expect(requests.some((r) => r.includes('/api/v1/') || r.endsWith('/heartbeats'))).toBe(false)
+    expect(requests.every((r) => r.split(' ')[1]?.startsWith('/api/v2/'))).toBe(true)
+    expect(requests.some((r) => r.endsWith('/heartbeats'))).toBe(false)
   })
 
   it('发布与绑定读取沿用 v2 子资源，不虚构按资产的绑定集合', async () => {

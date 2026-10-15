@@ -141,9 +141,9 @@ class Session:
         return payload
 
     def login(self, credentials):
-        self.csrf = self.call("GET", "/api/v1/auth/csrf")["data"]["token"]
-        self.call("POST", "/api/v1/auth/login", credentials)
-        self.csrf = self.call("GET", "/api/v1/auth/csrf")["data"]["token"]
+        self.csrf = self.call("GET", "/api/v2/auth/csrf")["data"]["token"]
+        self.call("POST", "/api/v2/auth/login", credentials, {"Idempotency-Key": uid()})
+        self.csrf = self.call("GET", "/api/v2/auth/csrf")["data"]["token"]
         return self
 
     def v2(self, path, body=None, revision=None, method="POST"):
@@ -283,7 +283,7 @@ class Run:
             if self.process.poll() is not None:
                 raise RuntimeError("backend exited during startup")
             try:
-                with urllib.request.urlopen(self.base + "/api/v1/auth/csrf", context=self.context, timeout=2):
+                with urllib.request.urlopen(self.base + "/api/v2/auth/csrf", context=self.context, timeout=2):
                     break
             except (urllib.error.URLError, ConnectionError):
                 time.sleep(1)
@@ -294,7 +294,7 @@ class Run:
                 tls_version = connection.version()
         denied = False
         try:
-            urllib.request.urlopen(self.base + "/api/v1/auth/csrf", context=ssl_context(self.work / "private/tls", False), timeout=5)
+            urllib.request.urlopen(self.base + "/api/v2/auth/csrf", context=ssl_context(self.work / "private/tls", False), timeout=5)
         except (urllib.error.URLError, ssl.SSLError, ConnectionError):
             denied = True
         if tls_version != "TLSv1.3" or not denied:

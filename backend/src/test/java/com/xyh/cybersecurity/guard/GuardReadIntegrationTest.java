@@ -435,11 +435,11 @@ class GuardReadIntegrationTest {
     }
 
     @Test
-    void v2ReadsRemainAvailableAndV26DisablesLegacyOpsPermission() throws Exception {
+    void v2ReadsRemainAvailableAndLegacyHumanEndpointsStayClosed() throws Exception {
         assertThat(data(reader, "assets/" + a.id).path("id").asText()).isEqualTo(a.id);
         assertThat(data(reader, "sensors/" + sa.id).path("id").asText()).isEqualTo(sa.id);
-        assertThat(request(reader, "/api/v1/audit").getResponse().getStatus()).isEqualTo(200);
-        // audit.read 为两代共用键，v1 audit 到 C1 删除；v1 专用 ops.status.read 已停用。
+        assertThat(request(reader, "/api/v1/audit").getResponse().getStatus()).isEqualTo(403);
+        // C1 已删除所有 v1 人工入口；持有 audit.read 也不能访问旧接口。
         assertThat(request(reader, "/api/v1/ops/status").getResponse().getStatus()).isEqualTo(403);
     }
 
@@ -744,9 +744,9 @@ class GuardReadIntegrationTest {
     /** 使用真实 JDBC 会话，确保权限撤销测试检验旧会话，而非替换安全过滤器。 */
     private Cookie login(IdentityPrincipal actor) throws Exception {
         if (sessions.containsKey(actor.id())) return sessions.get(actor.id());
-        var csrf = mvc.perform(get("/api/v1/auth/csrf")).andReturn().getResponse();
+        var csrf = mvc.perform(get("/api/v2/auth/csrf")).andReturn().getResponse();
         String csrfValue = parse(csrf.getContentAsString()).at("/data/token").asText();
-        var response = mvc.perform(post("/api/v1/auth/login").cookie(csrf.getCookie("SESSION"))
+        var response = mvc.perform(post("/api/v2/auth/login").header("Idempotency-Key",id()).cookie(csrf.getCookie("SESSION"))
                 .header("X-CSRF-TOKEN", csrfValue).contentType("application/json")
                 .content(canonical(object("username", actor.getUsername(), "password", FIXTURE_LOGIN)))).andReturn().getResponse();
         assertThat(response.getStatus()).isEqualTo(200);

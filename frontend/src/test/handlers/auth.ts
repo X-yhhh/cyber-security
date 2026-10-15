@@ -54,6 +54,6 @@ export const authHandlers = [
     if (!b.newPassword || b.newPassword.length < 12 || b.newPassword.length > 128 || new TextEncoder().encode(b.newPassword).length > 72) return fail(400, 'INVALID_REQUEST')
     entry.value = b.newPassword; current = null; return v2({ status: 'password_changed' })
   }),
-  // 旧健康探针到 C1 再删除；认证处理器只注册 v2，回归时意外调用 v1 会直接报未处理请求。
-  http.get('/api/v1/health/ready', () => HttpResponse.json({ success: true, data: { status: 'UP' }, requestId: 'req-test' })),
+  // 公共就绪探针不提供业务数据；未注册的旧地址由 MSW 拒绝。
+  http.get('/health/ready', () => HttpResponse.json({ success: true, data: { status: 'UP' }, requestId: 'req-test' })),
 ]

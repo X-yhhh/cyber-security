@@ -1,9 +1,8 @@
 /**
  * 后端 API 客户端。
  *
- * 契约（docs/接口设计.md）：v1 响应为 `{ success, data, error, requestId }`；
- * v2（host-guard v5，P4）为 `{ requestId, data, error }`，**没有 success 字段**，
- * 成功以 HTTP 状态与 `error == null` 判定。两者共用同一套会话、CSRF 与 401 处理。
+ * v2 契约为 `{ requestId, data, error }`，成功以 HTTP 状态与 `error == null` 判定。
+ * 公共健康探针通过 `/health/*` 读取；会话、CSRF 与 401 处理共用本客户端。
  *
  * 浏览器会话走 HttpOnly Cookie，写请求须带 CSRF 头（从 /auth/csrf 获取）。
  * 失败统一抛出 ApiError，携带稳定错误码与 requestId，页面只展示脱敏消息。
@@ -17,7 +16,6 @@ export class ApiError extends Error {
   }
 }
 
-interface V1Envelope<T> { success: boolean; data: T; error?: { code: string; message: string }; requestId?: string }
 interface V2Envelope<T> { requestId?: string; data: T; error: { code: string; message: string } | null }
 
 let csrf: { headerName: string; token: string } | null = null
@@ -32,8 +30,8 @@ async function ensureCsrf() {
 /** 登录/注销会轮换会话与 CSRF 令牌，调用后必须重新获取。 */
 export const resetCsrf = () => { csrf = null }
 
-/** 会话与新增接口默认 v2；尚待 C1 删除的旧页面显式传 /api/v1，不再隐式落到旧契约。 */
-const url = (path: string) => (path.startsWith('/api/') ? path : `/api/v2${path}`)
+/** 业务路径默认 v2；公共探针使用独立的健康路径。 */
+const url = (path: string) => (path.startsWith('/api/') || path.startsWith('/health/') ? path : `/api/v2${path}`)
 
 async function raw(method: string, path: string, body?: unknown, headers: Record<string, string> = {}) {
   const h: Record<string, string> = { Accept: 'application/json', ...headers }
@@ -48,17 +46,17 @@ async function raw(method: string, path: string, body?: unknown, headers: Record
   } catch {
     throw new ApiError(0, 'NETWORK_UNAVAILABLE', '无法连接后端服务')
   }
-  let env: V1Envelope<unknown> | V2Envelope<unknown> | null = null
+  let env: V2Envelope<unknown> | null = null
   try { env = await res.json() } catch { /* 非 JSON 响应按失败处理 */ }
   if (!res.ok || !env || ('error' in env && env.error)) {
     if (res.status === 403 && method !== 'GET') csrf = null
     const error = env && 'error' in env ? env.error : undefined
     const err = new ApiError(res.status, error?.code ?? 'HTTP_' + res.status, error?.message ?? '请求失败', env?.requestId)
     // 登录失败应留在登录表单；业务请求 401 才清空会话并返回登录页。
-    if (res.status === 401 && !/^\/api\/v[12]\/auth\//.test(url(path))) onUnauthorized?.()
+    if (res.status === 401 && !url(path).startsWith('/api/v2/auth/')) onUnauthorized?.()
     throw err
   }
-  return { data: (env as V1Envelope<unknown>).data, requestId: env.requestId }
+  return { data: env.data, requestId: env.requestId }
 }
 
 async function request<T>(method: string, path: string, body?: unknown, headers: Record<string, string> = {}): Promise<T> {
@@ -73,12 +71,10 @@ export const api = {
   delete: <T>(path: string, headers?: Record<string, string>) => request<T>('DELETE', path, undefined, headers),
 }
 
-export interface Page<T> { totalElements: number; page: number; size: number; items: T[] }
-
 /* ------------------------------------------------------------------ *
  * host-guard v5 控制面（/api/v2，P4）
  *
- * 与 v1 的差异：信封无 success 字段；写入必带 Idempotency-Key（UUID 形态）；
+ * 信封无 success 字段；写入必带 Idempotency-Key（UUID 形态）；
  * 并发更新类操作带 If-Match: <revision>；列表用游标分页而非 page/size。
  * 只封装后端 switch 中真实存在的组合，不在前端做兜底猜测。
  * ------------------------------------------------------------------ */

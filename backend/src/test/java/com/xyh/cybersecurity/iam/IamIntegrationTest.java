@@ -90,6 +90,19 @@ class IamIntegrationTest {
                 object("roleKey",role,"scopeType","global","scopeId","*"),id(),null),201);
     }
 
+    /** C1 的公共探针经过真实过滤链；已登录身份也不能重新访问退役人工接口。 */
+    @Test void publicProbesRemainAnonymousAndLegacyHumanEndpointsAreClosed() throws Exception {
+        for(String path:List.of("/health/live","/health/ready")) {
+            assertThat(expect(mvc.perform(get(path)).andReturn(),200).path("status").asText()).isEqualTo("UP");
+        }
+        code(mvc.perform(get("/api/v1/auth/csrf")).andReturn(),401,"UNAUTHENTICATED");
+        Session admin=role("platform_admin");
+        for(String path:List.of("/api/v1/auth/csrf","/api/v1/auth/me","/api/v1/health/ready","/api/v1/users")) {
+            code(send(get(path),admin,null,null,null),403,"FORBIDDEN");
+        }
+        code(send(post("/api/v1/auth/login"),admin,object(),id(),null),403,"FORBIDDEN");
+    }
+
     @Test void preservedAdminCanLogInWithV2IamPermission() throws Exception {
         String key="admin-fixture-"+id(),hash=encoder.encode(PASSWORD);
         jdbc.update("INSERT INTO sys_user(user_key,username,display_name,password_hash,status) VALUES(?,'admin','隔离管理员',?,'active')",key,hash);

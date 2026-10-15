@@ -179,7 +179,7 @@ def wait_ready(root):
     deadline = time.monotonic() + 60
     while time.monotonic() < deadline:
         try:
-            with urllib.request.urlopen(sensor['upload']['baseUrl'] + '/api/v1/health/ready', context=context, timeout=2) as response:
+            with urllib.request.urlopen(sensor['upload']['baseUrl'] + '/health/ready', context=context, timeout=2) as response:
                 if json.load(response)['data']['status'] == 'UP':
                     return
         except (OSError, KeyError, ValueError):

@@ -27,7 +27,6 @@ const navRoutes: RouteRecordRaw[] = nav
     path: i.path,
     name: routeName(i),
     component: i.component!,
-    props: i.segment ? { segment: i.segment } : false,
     meta: { title: i.title, shell, anyOf: i.anyOf, group: i.group, item: i.key },
   }))
 

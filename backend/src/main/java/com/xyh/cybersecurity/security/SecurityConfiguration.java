@@ -161,13 +161,11 @@ public class SecurityConfiguration {
                         .authenticationEntryPoint(entryPoint)
                         .accessDeniedHandler(deniedHandler))
                 .authorizeHttpRequests(authorize -> authorize
-                        .requestMatchers("/api/v1/health/live", "/api/v1/health/ready",
-                                "/api/v1/auth/login", "/api/v1/auth/csrf",
+                        .requestMatchers("/health/live", "/health/ready",
                                 "/api/v2/auth/login", "/api/v2/auth/csrf").permitAll()
                         .requestMatchers("/actuator/health", "/actuator/health/**").permitAll()
                         .requestMatchers("/actuator/metrics/**", "/actuator/prometheus").hasAuthority("ops.status.read")
-                        .requestMatchers("/api/v1/auth/me", "/api/v1/auth/logout").authenticated()
-                        .requestMatchers("/api/v1/**", "/api/v2/**").authenticated()
+                        .requestMatchers("/api/v2/**").authenticated()
                         .anyRequest().denyAll())
                 .addFilterBefore(requestIdFilter, org.springframework.security.web.context.SecurityContextHolderFilter.class);
         http.addFilterAfter(absoluteSessionFilter, org.springframework.security.web.context.SecurityContextHolderFilter.class);

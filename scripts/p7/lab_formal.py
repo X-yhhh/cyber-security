@@ -168,7 +168,7 @@ class Formal(lab_run.Runner):
     authorization_backdate_seconds = 30
     formal_g3_eligible = True
     human_session = j1_run.Session
-    csrf_path = '/api/v1/auth/csrf'
+    csrf_path = '/api/v2/auth/csrf'
     session_timeout_seconds = 7200
 
     def scenario_rows(self):

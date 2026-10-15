@@ -16,7 +16,7 @@ class RequestIdFilterTest {
 
     @Test
     void generatesAndReturnsRequestIdWhenHeaderIsMissing() throws Exception {
-        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/v1/health/live");
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/health/live");
         MockHttpServletResponse response = new MockHttpServletResponse();
 
         filter.doFilter(request, response, new MockFilterChain());
@@ -28,7 +28,7 @@ class RequestIdFilterTest {
     @Test
     void preservesValidRequestId() throws Exception {
         String requestId = "01234567-89ab-cdef-0123-456789abcdef";
-        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/v1/health/live");
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/health/live");
         request.addHeader("X-Request-Id", requestId);
         MockHttpServletResponse response = new MockHttpServletResponse();
 

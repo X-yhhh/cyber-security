@@ -3,8 +3,7 @@
  *
  * - 一级组只是分组标题；二级项是独立路由 `/console/<group>/<item>`，路由由本文件生成。
  * - `anyOf` 与会话 `permissions` 有交集才显示该项，路由守卫用同一份 `anyOf` 判定 403。
- * - `ready=false` 的项既不显示也不注册路由；F1R、F2—F6 完成页面后只改自己那一行。
- * - `legacy` 过渡行照常显示与注册路由，但不计入第 7.3 节的可见性矩阵（任务单 U0.9）。
+ * - 13 行正式入口均已 ready；菜单与路由继续使用同一个 ready 判定。
  * - 前端过滤只用于隐藏入口，授权始终以后端为准。
  */
 import type { Component } from 'vue'
@@ -42,13 +41,6 @@ export interface NavItem {
   ready: boolean
   /** 侧栏与页头使用的线性图标（lucide）。 */
   icon: Component
-  /** 复用旧页面期间，打开该页时默认选中的分段；F1R、F2—F5 迁移后删除。 */
-  segment?: string
-  /**
-   * 过渡行（任务单 U0.9）：Q10 前已上线、将被合并进新页面的旧二级项。挂在新组下、路径不变、继续显示，
-   * 不属于权限设计第 7.3 节的 13 行，由承接它的页面卡片删除。
-   */
-  legacy?: true
 }
 
 /** 详情整页（权限设计第 7.2 节）；随所属二级项一起注册，沿用其 `anyOf`。 */
@@ -66,10 +58,7 @@ export const groups: readonly NavGroupDef[] = [
 const Events = () => import('@/views/detect/EventsView.vue')
 const Feedback = () => import('@/views/detect/FeedbackView.vue')
 
-/*
- * 每项一行，前 13 行逐项照抄权限设计第 7.2 节（6 组 12 项 + 待办中心）；F1R、F2—F6 只改自己负责的行：
- * 设为 ready 并指向新页面、删除自己承接的过渡行（legacy）、在 router/index.ts 为被合并的旧地址加重定向。
- */
+/** 13 行正式菜单逐项对应权限设计第 7.2 节；所有入口均已接线。 */
 export const nav: readonly NavItem[] = [
   { group: 'overview', key: 'live', title: '实时态势', en: 'Live', path: '/console/overview/live', anyOf: ['detection.read', 'action.read', 'ops.read'], component: () => import('@/views/overview/LiveView.vue'), ready: true, icon: Activity },
   { group: 'overview', key: 'workbench', title: '待办中心', en: 'To-dos', path: '/console/workbench', anyOf: [], component: () => import('@/views/workbench/WorkbenchView.vue'), ready: true, icon: ListTodo },
@@ -84,8 +73,6 @@ export const nav: readonly NavItem[] = [
   { group: 'system', key: 'users', title: '用户管理', en: 'Users', path: '/console/system/users', anyOf: ['iam.manage'], component: () => import('@/views/system/UsersView.vue'), ready: true, icon: Users },
   { group: 'system', key: 'roles', title: '角色管理', en: 'Roles', path: '/console/system/roles', anyOf: ['iam.manage', 'audit.read'], component: () => import('@/views/system/RolesView.vue'), ready: true, icon: UserCog },
   { group: 'system', key: 'audit', title: '审计日志', en: 'Audit', path: '/console/system/audit', anyOf: ['audit.read'], component: () => import('@/views/system/AuditView.vue'), ready: true, icon: ScrollText },
-
-  /* 过渡行：路径不变、继续显示，由括号内的卡片删除。 */
 ]
 
 export const details: readonly NavDetail[] = [

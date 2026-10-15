@@ -38,7 +38,7 @@ class HealthControllerTest {
 
     @Test
     void liveProbeReturnsSuccessEnvelope() throws Exception {
-        mockMvc.perform(get("/api/v1/health/live"))
+        mockMvc.perform(get("/health/live"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.requestId").isNotEmpty())
@@ -49,7 +49,7 @@ class HealthControllerTest {
     void readyProbeReportsDatabaseUnavailableWithoutDetails() throws Exception {
         doThrow(new IllegalStateException("private connection detail")).when(healthMapper).ping();
 
-        mockMvc.perform(get("/api/v1/health/ready"))
+        mockMvc.perform(get("/health/ready"))
                 .andExpect(status().isServiceUnavailable())
                 .andExpect(jsonPath("$.success").value(false))
                 .andExpect(jsonPath("$.error.code").value("DEPENDENCY_UNAVAILABLE"))
@@ -61,7 +61,7 @@ class HealthControllerTest {
     void readyProbeReportsDatabaseAvailable() throws Exception {
         when(healthMapper.ping()).thenReturn(1);
 
-        mockMvc.perform(get("/api/v1/health/ready"))
+        mockMvc.perform(get("/health/ready"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.database").value("UP"));
     }

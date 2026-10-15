@@ -20,40 +20,41 @@
 
 ## 2. 功能模块全景
 
-当前路由以 `src/router/nav.ts` 与 `src/router/index.ts` 为准。控制台页面挂在 `/console` 下，未登录访问会跳转登录页。以下保留历史模块对照，v1 页面与旧入口待 C1 删除；当前菜单及页面交付状态见[初版任务单](../docs/任务/初版落地任务单.md)。
+当前路由以 `src/router/nav.ts` 与 `src/router/index.ts` 为准。控制台为 6 组 13 行正式菜单，全部 `ready: true`；v1 页面和人工接口已在 C1 下线。登录后按权限显示菜单，越权与资源范围仍由后端校验。以下接口均以 `/api/v2` 为前缀（公共健康探针除外）。
 
-| 路由 | 页面 | 主要功能 | 调用的后端接口（未标版本的历史项为 `/api/v1`） |
-| --- | --- | --- | --- |
-| `/` | 首页 | 项目介绍与入口 | 无 |
-| `/login` | 登录 | v2 服务端会话登录，失败显示脱敏消息与 request ID | `/api/v2/auth/csrf`、`/api/v2/auth/login`、`/api/v2/auth/me` |
-| `/console/overview` | 态势 | 事件、传感器、审批、模型部署与漂移概览，运行状态 | `/overview`、`/events`、`/sensors`、`/approvals/ledger`、`/model-deployments`、`/model-drift-windows`、`/ops/status` |
-| `/console/events` | 告警与事件 | 告警与事件列表 | `/alerts`、`/events` |
-| `/console/events/:id` | 事件详情 | 关联告警与时间线（服务端分页）、状态迁移、研判笔记、告警误报/真报标注（`AlertFeedbackDrawer`）、发起处置申请 | `/alerts/{id}`、`/alerts/{id}/feedback`、`/events/{id}`、`/events/{id}/alerts`、`/events/{id}/timeline`、`/events/{id}/transitions`、`/events/{id}/notes`、`/events/{id}/actions`、`/response-policies` |
-| `/console/response` | 受控响应 | 审批台账、我的申请、响应策略起草/提交/撤回/批准/驳回/退役 | `/approvals/ledger`、`/approvals/{id}/decision`、`/actions/mine`、`/response-policies` |
-| `/console/models` | 模型治理 | 模型候选、校验、发布申请与审批、本机激活、漂移窗口、反馈样本、训练台账 | `/models`、`/models/{id}/validate`、`/models/{id}/release-requests`、`/model-release-requests/{id}/decision`、`/model-deployments`、`/model-deployments/active`、`/model-drift-windows`、`/feedback-samples`、`/training-jobs` |
-| `/console/assets` | 资产与传感器 | 资产台账、授权申请与审批、传感器列表 | `/assets`、`/assets/{id}/authorizations`、`/assets/{id}/authorizations/{authorizationId}/approve`、`/sensors` |
-| `/console/sources` | 数据源与回放 | 数据源、接入汇总、回放场景（只读）、影子报告与反馈第二人复核（`SourcesShadowPanel`） | `/data-sources`、`/data-sources/ingest-summary`、`/replay-scenarios`、`/data-sources/{id}/shadow-report`、`/feedback-reviews`、`/feedback-samples/{id}/review` |
-| `/console/audit` | 审计 | 追加式只读审计查询 | `/audit` |
-| `/console/iam` | 身份与角色 | 用户列表、内置角色与权限 | `/users`、`/roles`、`/users/{id}/roles` |
-| `/console/observation` | 观测与目标 | 观察批次受理、单条观察快照、推理结论、证据迹（只读） | `/api/v2/observation-batches`、`/observations`、`/detections`、`/evidence-episodes`、`/evidence-episodes/{id}/evidence`、`/assets`、`/budget-targets` |
-| `/console/release` | 策略与发布 | 决策策略复核、发布组合登记报告/封存/审批/激活/停用、能力等级、评价运行 | `/api/v2/decision-policies`、`/release-bundles`（含 `imports` `sealings` `decisions` `activations` `suspensions`）、`/capabilities`、`/evaluations`、`/evaluation-plans`、`/models` |
-| `/console/execution` | 执行与预算 | 动作台账与回执、人工处置申请与审批与撤销、稳定目标预算账本、自动化停用 | `/api/v2/actions`（含 `receipts` 子资源、`decisions`、`revocations`）、`/budget-targets`、`/automation-stops`、`/assets`、`/evidence-episodes`、`/decisions` |
+| 路由 | 页面 | 主要后端接口（v2） |
+| --- | --- | --- |
+| `/`、`/login` | 首页、登录 | `auth/csrf`、`auth/login`、`auth/me` |
+| `/console/overview/live` | 实时态势 | `stats/live` |
+| `/console/workbench` | 待办中心 | `todos` |
+| `/console/detect/events`、`/console/detect/events/:id` | 事件研判与详情 | `events`、`events/{id}`、`events/{id}/timeline`、`events/{id}/assignee`、`events/{id}/transitions`、`events/{id}/notes` |
+| `/console/detect/records` | 检测记录 | `observation-batches`、`observations`、`detections`、`decisions`、`evidence-episodes` |
+| `/console/detect/feedback` | 误报反馈 | `feedback`、`feedback/{id}/reviews` |
+| `/console/response/actions` | 处置记录 | `actions`、`actions/{id}/receipts`、`actions/{id}/decisions`、`actions/{id}/revocations`、`budget-targets` |
+| `/console/release/models` | 模型与数据集 | `models`、`datasets`、`capabilities`、`evaluations`、`evaluation-plans` |
+| `/console/release/bundles`、`/console/release/lab/:id` | 发布管理与 lab 详情 | `release-bundles`、`decision-policies`、`evaluations`、`lab-validation-runs` |
+| `/console/assets/list`、`/console/assets/list/:id` | 资产与详情 | `assets`、`assets/{id}/authorizations`、`assets/{id}/bindings`、`authorizations` |
+| `/console/assets/agents` | 传感器与执行器 | `sensors`、`executors`、`sensor-configs`、`machine-clients`、`sensor-heartbeats`、`executor-heartbeats`、`health-windows` |
+| `/console/system/users` | 用户管理 | `users`、`users/{id}/role-bindings` |
+| `/console/system/roles` | 角色管理 | `roles`、`permissions`、`roles/{roleKey}/members` |
+| `/console/system/audit` | 审计日志 | `audit` |
 
+外壳就绪状态读取 `/health/ready`；公共存活探针为 `/health/live`。旧 v2 地址仍按路由定义重定向一个版本，v1 页面地址显示 404。
 ---
 
 ## 3. 数据来源与会话
 
-控制台不内置演示数据，所有页面数据均从后端读取（后端以 MySQL 为事实源）。公共客户端默认 `/api/v2`，待 C1 删除的旧页面显式调用 `/api/v1`。开发服务器将 `/api/v1` 与 `/api/v2` 代理到 `127.0.0.1:18080`。
+控制台不内置演示数据，所有页面数据均从后端读取（后端以 MySQL 为事实源）。公共客户端默认 `/api/v2`，开发服务器只代理 `/api/v2` 与 `/health` 到 `127.0.0.1:18080`。
 
 - 登录走 `POST /api/v2/auth/login` 建立服务端会话（HttpOnly Cookie）；退出与改密也走 v2，三者均带 `Idempotency-Key`。写请求自动携带 `/api/v2/auth/csrf` 下发的 CSRF 头，头名不硬编码。未登录访问 `/console/*` 跳转登录页，会话失效（401）时自动返回登录页。
 - 页面按 `/api/v2/auth/me` 返回的权限决定请求哪些接口、显示哪些操作；最终授权始终由后端判定，无权限区块显示为空或提示，不补示例值。
 - 数据库中没有记录时页面如实显示“暂无记录”。
 - 已接入的写操作：事件状态迁移、研判笔记、处置申请（带 `Idempotency-Key`）、审批决定、资产授权批准、模型校验/发布申请/发布审批/本机激活、响应策略生命周期、告警标注与第二人复核。
-- P4 的 v2 写操作（09—11）：全部带 `Idempotency-Key`，审批/激活/停用类另带 `If-Match: <revision>`。包括决策策略复核、发布组合登记报告/封存/审批/激活/停用、人工处置申请/审批/撤销、自动化停用。前端只按权限隐藏入口，职责分离（自批 403）与状态迁移以后端判定为准。
+- v2 写操作全部带 `Idempotency-Key`，审批/激活/停用类另带 `If-Match: <revision>`。包括决策策略复核、发布组合登记报告/封存/审批/激活/停用、人工处置申请/审批/撤销、自动化停用。前端只按权限隐藏入口，职责分离（自批 403）与状态迁移以后端判定为准。
 - **机器侧路由不在控制台范围内**：`/api/v2/machine/**` 要求 `Bearer mch_*` 机器身份并清空浏览器会话，由采集器与执行器调用，浏览器不可用。
-- 回放启停与 v1 处置执行器未开放（后端执行端点固定返回 `503 ACTION_EXECUTION_UNAVAILABLE`）。
+- 旧人工处置执行端点已随 C1 删除；实际动作由策略校验后交给登记执行器，不由浏览器直接执行防火墙命令。
 
-F5 已完成 `api/v2/iam.ts`（用户、绑定、只读审计）、`roles.ts`（角色、权限、成员与冲突提示）、会话切换及 MSW 回归。用户/角色/新审计页面和对应导航尚未完成，按用户确认随页面交接。IAM asset `scopeId` 是内部十进制 ID，不能直接提交资产列表的公开 UUID。
+F5 已完成 `api/v2/iam.ts`（用户、绑定、只读审计）、`roles.ts`（角色、权限、成员与冲突提示）、会话切换及 MSW 回归；用户/角色/新审计页面与导航已由 [PR #73](https://github.com/X-yhhh/cyber-security/pull/73) 合入。IAM asset `scopeId` 是内部十进制 ID，不能直接提交资产列表的公开 UUID，范围选择器与新页面测试见任务单 F5 交接。
 
 ---
 
@@ -74,9 +75,9 @@ API 客户端 `src/api/client.ts` 同时支持两套信封：v1 为 `{ success, 
 
 ## 5. F3 非页面交接（2026-10-15）
 
-> **页面已完成（[PR #71](https://github.com/X-yhhh/cyber-security/pull/71)，`75e18bc`）**：`ModelsView`、`BundlesView` 已替换为正式页面（分段面板与抽屉组件同在 `views/release/`），不再依赖 `views/console/ReleaseView.vue`、`LabView.vue`；验证记录新增 `record=plans|replays`。下文“还剩”中的页面部分已完成，msw 页面测试、本人识别字段与真实联调仍待接续，见[实施记录 6.33](../docs/系统实施记录.md#633-初版-f3模型与数据集发布管理页面2026-10-15)。
+> **页面已完成（[PR #71](https://github.com/X-yhhh/cyber-security/pull/71)，`75e18bc`）**：`ModelsView`、`BundlesView` 为正式页面，分段面板与抽屉组件同在 `views/release/`。C1 已删除桥接层原先依赖的旧 Release/Lab 组件，见[实施记录 6.36](../docs/系统实施记录.md#636-初版-c1接口退役与非页面实现2026-10-15)。
 
-**已完成**：接口、策略预校验、导航与重定向、合成 msw 状态回写和非页面回归（实现 `e6aad6d`，分支 `Xyhhh/v1-f3`，本次先通过 PR 合入 main）。**还剩**：模型与数据集、发布管理的页面设计与完整表单/详情交互，筛选与待办 `id` 打开、四态/写权限/本人审批隐藏、危险操作确认、真实后端联调。`views/release/ModelsView.vue` 是最小读取载体；`BundlesView.vue` 复用旧 Release/Lab 页面，均不作为正式页面验收结论。lab 详情已迁入 `views/release/LabRunDetailView.vue`；C1 删除旧组件前须先解除桥接层对 `views/console/ReleaseView.vue`、`LabView.vue` 的依赖。
+**已完成**：接口、策略预校验、导航与重定向、合成 msw 状态回写和非页面回归（`e6aad6d`），以及正式页面、表单/详情、筛选与待办 `id` 打开和危险操作确认（`75e18bc`）。lab 详情在 `views/release/LabRunDetailView.vue`。**还剩**：新页面 msw 四态/写权限测试、策略/组合/lab 的本人识别契约及真实后端联调，见[实施记录 6.33](../docs/系统实施记录.md#633-初版-f3模型与数据集发布管理页面2026-10-15)。
 
 ### 接口入口
 
@@ -102,7 +103,7 @@ API 客户端 `src/api/client.ts` 同时支持两套信封：v1 为 `{ success, 
 
 ### 导航与兼容地址
 
-发布管理参数为 `tab=bundles|policies|capabilities|validation`；验证记录内为 `record=lab|evaluations`，缺省 lab，以承接后端待办 `tab=validation&id=…`。模型页使用 `tab=models|datasets`。`id` 的自动详情打开尚待正式页面实现。
+发布管理参数为 `tab=bundles|policies|capabilities|validation`；验证记录内为 `record=lab|evaluations|plans|replays`，缺省 lab，承接后端待办 `tab=validation&id=…`。模型页使用 `tab=models|datasets`；正式页面已支持 `id` 自动打开详情。
 
 | 旧地址 | 目标 |
 |---|---|
@@ -113,13 +114,13 @@ API 客户端 `src/api/client.ts` 同时支持两套信封：v1 为 `{ success, 
 | `/console/lab` | `/console/release/bundles?tab=validation&record=lab` |
 | `/console/lab/:id` | `/console/release/lab/:id` |
 
-跳转保留有效分段、其他查询参数与锚点，旧路由名保留一个兼容版本；非法或重复分段回退到旧入口对应段。最终路由继续鉴权，lab 详情独立要求 `evaluation.read`，不因归入发布管理而放宽。两个接线载体按分段和权限决定读取，正式页面应保持这一约束。
+跳转保留有效分段、其他查询参数与锚点，旧路由名保留一个兼容版本；非法或重复分段回退到旧入口对应段。最终路由继续鉴权，lab 详情独立要求 `evaluation.read`，不因归入发布管理而放宽；正式页面按分段和权限决定读取。
 
 ### 测试与边界
 
 `test/handlers/release.ts` 已加入统一 msw 服务器；测试前调用 `resetReleaseState()`，可用 `releaseRows` / `labRow` 断言写后回读，用 `releaseState.referenced` 模拟 409 引用冲突。夹具和 `owners` 只存在于测试，不含真实制品或执行授权；合成 lab 报告不授予自动资格，也不推断清理成功。
 
-已通过 `npm ci`、`npm run lint`、`npm run typecheck`、`npm test -- --coverage`（30 文件、333 项，原阈值不变）和 `npm run build`。已整合 main 的 F2 菜单与待办中心，并重新运行上述检查（锁文件与依赖未变）；页面由用户从 main 另开分支实现。这些是客户端与合成 API 证据；真实后端、签名制品、数据库和浏览器端到端仍待后续验证。状态与接续范围见[初版任务单 F3](../docs/任务/初版落地任务单.md#f3-模型与数据集发布管理)及[实施记录 6.29](../docs/系统实施记录.md#629-初版-f3接口预校验与导航接线2026-10-15)。
+F3 非页面轮次通过 `npm ci`、lint、typecheck、覆盖率（30 文件、333 项，原阈值不变）和构建；页面轮次见[实施记录 6.33](../docs/系统实施记录.md#633-初版-f3模型与数据集发布管理页面2026-10-15)。C1 清理后全量 23 文件、345 项通过，覆盖率阈值未改，详见[实施记录 6.36](../docs/系统实施记录.md#636-初版-c1接口退役与非页面实现2026-10-15)。这些是客户端与合成 API 证据；真实后端、签名制品与浏览器端到端仍待 T1，接续范围见[初版任务单 F3](../docs/任务/初版落地任务单.md#f3-模型与数据集发布管理)。
 
 ## 6. F4 非页面接续（2026-10-15）
 

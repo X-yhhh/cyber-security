@@ -47,7 +47,7 @@ class MachineIngestIntegrationTest {
                     + " CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci");
         }
         Flyway.configure().dataSource(base.replaceFirst("/+$", "") + "/" + TEST_SCHEMA, user, password)
-                .locations("classpath:db/migration").baselineOnMigrate(false).target("25") /* v1 兼容断言固定在权限停用前；V26 由 IAM/guard 套件验收。 */.load().migrate();
+                .locations("classpath:db/migration").baselineOnMigrate(false).load().migrate();
     }
 
     @DynamicPropertySource
@@ -64,6 +64,7 @@ class MachineIngestIntegrationTest {
     @Autowired private MockMvc mockMvc;
     @Autowired private JdbcTemplate jdbc;
     @Autowired private ObjectMapper objectMapper;
+    @Autowired private com.xyh.cybersecurity.identity.IdentityMapper identityMapper;
 
     private long sourceId;
     private long hiddenSourceId;
@@ -103,8 +104,8 @@ class MachineIngestIntegrationTest {
     }
 
     @Test
-    void browserSessionCannotCallMachineIngestEvenWhenHumanRoleCanSubmitBatches() throws Exception {
-        Cookie browser = login("machine-test-source-manager");
+    void browserSessionCannotCallMachineIngest() throws Exception {
+        Cookie browser = login("machine-test-admin");
         Csrf csrf = csrf(browser);
         mockMvc.perform(post("/api/v1/machine/ingest/batches").cookie(browser)
                         .header(CSRF_HEADER, csrf.token()).header("Idempotency-Key", "machine-test-browser")
@@ -116,20 +117,10 @@ class MachineIngestIntegrationTest {
 
     @Test
     void machineCredentialIsScopedAndIdempotentWithAtomicOutbox() throws Exception {
-        Cookie admin = login("machine-test-admin");
-        Csrf adminCsrf = csrf(admin);
-        MvcResult issued = mockMvc.perform(post("/api/v1/machine-clients").cookie(admin)
-                        .header(CSRF_HEADER, adminCsrf.token()).contentType(APPLICATION_JSON)
-                        .content("{\"clientKey\":\"machine-test-connector\",\"clientType\":\"connector\","
-                                + "\"scopes\":[{\"scopeType\":\"data_source\",\"scopeId\":\"" + sourceId + "\"},"
-                                + "{\"scopeType\":\"asset\",\"scopeId\":\"" + assetId + "\"},"
-                                + "{\"scopeType\":\"asset\",\"scopeId\":\"" + unpairedAssetId + "\"}],"
-                                + "\"sourceAssetBindings\":[{\"dataSourceId\":" + sourceId + ",\"assetId\":" + assetId + "}]}"))
-                .andExpect(status().isCreated()).andExpect(jsonPath("$.data.credential").isString()).andReturn();
-        JsonNode issuedBody = objectMapper.readTree(issued.getResponse().getContentAsString()).path("data");
-        String credential = issuedBody.path("credential").asText();
-        long clientId = issuedBody.path("id").asLong();
-        assertThat(credential).isNotBlank();
+        // 旧登记接口已下线；夹具只在随机隔离库生成机器身份，继续验证实际机器安全链。
+        var issued = LegacyMachineFixtures.connector(jdbc, identityMapper, sourceId, assetId, unpairedAssetId);
+        String credential = issued.credential();
+        long clientId = issued.id();
 
         String body = batch(sourceId, assetId, "machine-flow-1", "42");
         MvcResult accepted = mockMvc.perform(post("/api/v1/machine/ingest/batches")
@@ -219,16 +210,16 @@ class MachineIngestIntegrationTest {
     }
 
     private Cookie login(String username) throws Exception {
-        MvcResult csrfResult = mockMvc.perform(get("/api/v1/auth/csrf")).andReturn();
+        MvcResult csrfResult = mockMvc.perform(get("/api/v2/auth/csrf")).andReturn();
         Cookie cookie = csrfResult.getResponse().getCookie("SESSION");
         String token = objectMapper.readTree(csrfResult.getResponse().getContentAsString()).path("data").path("token").asText();
-        return mockMvc.perform(post("/api/v1/auth/login").cookie(cookie).header(CSRF_HEADER, token)
+        return mockMvc.perform(post("/api/v2/auth/login").header("Idempotency-Key", java.util.UUID.randomUUID().toString()).cookie(cookie).header(CSRF_HEADER, token)
                         .contentType(APPLICATION_JSON).content("{\"username\":\"" + username + "\",\"password\":\"admin\"}"))
                 .andExpect(status().isOk()).andReturn().getResponse().getCookie("SESSION");
     }
 
     private Csrf csrf(Cookie cookie) throws Exception {
-        var result = mockMvc.perform(get("/api/v1/auth/csrf").cookie(cookie)).andReturn();
+        var result = mockMvc.perform(get("/api/v2/auth/csrf").cookie(cookie)).andReturn();
         return new Csrf(objectMapper.readTree(result.getResponse().getContentAsString()).path("data").path("token").asText());
     }
 

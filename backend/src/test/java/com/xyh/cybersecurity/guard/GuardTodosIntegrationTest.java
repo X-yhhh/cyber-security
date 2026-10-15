@@ -397,9 +397,9 @@ class GuardTodosIntegrationTest {
     /** 使用真实 JDBC 会话，确保权限撤销测试检验旧会话，而非替换安全过滤器。 */
     private Cookie login(IdentityPrincipal actor) throws Exception {
         if (sessions.containsKey(actor.id())) return sessions.get(actor.id());
-        var csrf = mvc.perform(get("/api/v1/auth/csrf")).andReturn().getResponse();
+        var csrf = mvc.perform(get("/api/v2/auth/csrf")).andReturn().getResponse();
         String csrfValue = parse(csrf.getContentAsString()).at("/data/token").asText();
-        var response = mvc.perform(post("/api/v1/auth/login").cookie(csrf.getCookie("SESSION"))
+        var response = mvc.perform(post("/api/v2/auth/login").header("Idempotency-Key",id()).cookie(csrf.getCookie("SESSION"))
                 .header("X-CSRF-TOKEN", csrfValue).contentType("application/json")
                 .content(canonical(object("username", actor.getUsername(), "password", FIXTURE_LOGIN)))).andReturn().getResponse();
         assertThat(response.getStatus()).isEqualTo(200);

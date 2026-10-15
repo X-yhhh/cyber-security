@@ -204,13 +204,16 @@ function csv(): string {
           </p>
         </template>
       </div>
-      <table class="sr-only">
+      <!-- 表格的固有宽度不能由 sr-only 直接收缩，使用容器裁切并保留读屏语义。 -->
+      <div class="sr-only">
+      <table>
         <caption>{{ title }}数值表</caption>
         <thead><tr><th scope="col">时间</th><th v-for="s in lines" :key="s.key" scope="col">{{ s.name }}</th></tr></thead>
         <tbody>
           <tr v-for="i in count" :key="i"><th scope="row">{{ x[i - 1] ?? i }}</th><td v-for="s in lines" :key="s.key">{{ s.points[i - 1] ?? '无数据' }}</td></tr>
         </tbody>
       </table>
+      </div>
     </div>
 
     <!-- 排行 -->

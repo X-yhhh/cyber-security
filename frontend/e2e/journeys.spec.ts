@@ -1,0 +1,348 @@
+/** U1—U6 使用同一隔离库按业务依赖串行运行；前置制品合成，所有界面写入均请求真实后端。 */
+import { test, expect, login, dialog, mutation, mutationRequestIds, read, api, fixture, fill, close, ids, state, unique, password, registerSecret, reason } from './helpers'
+import type { Page } from '@playwright/test'
+
+async function draftConfig(page: Page) {
+  await page.goto(`/console/assets/agents?tab=sensors&id=${ids.sensor}`)
+  await dialog(page).getByRole('button', { name: '起草采集配置', exact: true }).click()
+  const d = dialog(page, /^起草采集配置/)
+  await fill(d, '采集接口', 'lo0')
+  await fill(d, '采集域 ID', ids.scope)
+  await fill(d, '特征档案摘要', state.fixtures.profile)
+  await fill(d, '构建摘要', 'b'.repeat(64))
+  return mutation(page, `/sensors/${ids.sensor}/configs`, () => d.getByRole('button', { name: '提交草稿' }).click())
+}
+
+test.describe.serial('U1—U6 与增删改查', () => {
+  test('U1 管理员新建用户与角色绑定、资产、一次性传感器凭据和授权申请', async ({ page }) => {
+    await login(page, 'admin')
+    await page.goto('/console/system/users')
+    await page.getByRole('button', { name: '新建用户', exact: true }).click()
+    let d = dialog(page, '新建用户')
+    ids.username = 't1-' + unique().slice(0, 8)
+    const pw = password()
+    await fill(d, '用户名', ids.username)
+    await fill(d, '显示名', 'T1 新建研判员')
+    await fill(d, '初始口令', pw)
+    await fill(d, '再次输入', pw)
+    ids.user = (await mutation(page, '/users', () => d.getByRole('button', { name: '新建用户', exact: true }).click())).id
+    await dialog(page).getByRole('button', { name: '添加绑定', exact: true }).click()
+    await dialog(page).getByRole('combobox', { name: /^角色/ }).selectOption('security_analyst')
+    ids.binding = (await mutation(page, `/users/${ids.user}/role-bindings`, () => dialog(page).getByRole('button', { name: '添加绑定', exact: true }).click())).id
+    expect((await read(page, `/users/${ids.user}/role-bindings`)).map((b: any) => b.roleKey)).toEqual(['security_analyst'])
+    await page.goto('/console/assets/list')
+    await page.getByRole('button', { name: '登记资产', exact: true }).click()
+    d = dialog(page, '登记资产')
+    ids.assetKey = 't1-research-' + unique().slice(0, 8)
+    ids.assetName = 'T1 研究资产'
+    await fill(d, '资产键', ids.assetKey)
+    await d.getByRole('combobox', { name: /^环境/ }).selectOption('research')
+    await fill(d, '显示名', ids.assetName)
+    await fill(d, '责任人', 'T1 合成测试')
+    ids.asset = (await mutation(page, '/assets', () => d.getByRole('button', { name: '登记资产', exact: true }).click())).id
+    await expect(page).toHaveURL(new RegExp(`/console/assets/list/${ids.asset}$`))
+    await page.getByRole('button', { name: '申请授权', exact: true }).click()
+    d = dialog(page, '申请授权')
+    await fill(d, '采集接口', 'lo0')
+    await fill(d, '授权证明引用', 'synthetic:T1-ui-only')
+    ids.auth = (await mutation(page, `/assets/${ids.asset}/authorizations`, () => d.getByRole('button', { name: '提交申请' }).click())).id
+    await page.goto('/console/assets/agents')
+    await page.getByRole('button', { name: '登记设备', exact: true }).click()
+    d = dialog(page, '登记设备')
+    await d.getByRole('combobox', { name: /^资产/ }).selectOption(ids.asset)
+    ids.scope = unique()
+    await fill(d, '采集域 ID', ids.scope)
+    await fill(d, '显示名', 'T1 合成传感器')
+    const sensor = await mutation(page, '/sensors', () => d.getByRole('button', { name: '登记并签发凭据' }).click())
+    ids.sensor = sensor.id; ids.credential = sensor.credential
+    registerSecret(ids.credential)
+    expect((await page.locator('[data-credential]').textContent()) === ids.credential, '凭据默认遮蔽').toBe(false)
+    await dialog(page).getByRole('button', { name: '显示', exact: true }).click()
+    // 用布尔比较，避免断言失败时将明文口令放进报告。
+    expect((await page.locator('[data-credential]').textContent()) === ids.credential, '一次性凭据可显示').toBe(true)
+    await dialog(page).getByRole('button', { name: '我已保存，关闭' }).click()
+    await expect(page.locator('[data-credential]')).toHaveCount(0)
+    expect(JSON.stringify(await read(page, `/sensors/${ids.sensor}`)).includes(ids.credential), '详情不再次返回凭据').toBe(false)
+    expect(await page.evaluate(secret => [document.body.textContent, JSON.stringify(localStorage), JSON.stringify(sessionStorage)].some(v => v?.includes(secret)), ids.credential), 'DOM 与浏览器存储无凭据').toBe(false)
+  })
+
+  test('U1 审批人在待办中心进入批准授权，再由管理员起草、审批人批准配置', async ({ page }) => {
+    await login(page, 'reviewer')
+    await page.goto('/console/workbench')
+    const todo = page.locator('[data-todo-group="approve"] li').filter({ has: page.locator(`a[href*="id=${ids.auth}"]`) })
+    await expect(todo).toContainText(ids.assetName)
+    await todo.getByRole('link', { name: '去审批' }).click()
+    await page.getByRole('button', { name: '批准授权', exact: true }).click()
+    await fill(dialog(page, '批准授权'), '理由', reason)
+    await mutation(page, `/authorizations/${ids.auth}/decisions`, () => dialog(page, '批准授权').getByRole('button', { name: '批准授权', exact: true }).click())
+    await login(page, 'admin')
+    ids.config = (await draftConfig(page)).id
+    ids.configDefinition = (await read(page, `/sensor-configs/${ids.config}`)).definition
+    await login(page, 'reviewer')
+    await page.goto('/console/workbench')
+    const configTodo = page.locator(`[data-todo-group="approve"] a[href*="id=${ids.config}"]`)
+    await expect(configTodo).toBeVisible()
+    await configTodo.click()
+    await dialog(page).getByRole('button', { name: '批准配置', exact: true }).click()
+    await fill(dialog(page), '理由', reason)
+    await mutation(page, `/sensor-configs/${ids.config}/decisions`, () => dialog(page).getByRole('button', { name: '确认批准', exact: true }).click())
+    expect((await read(page, `/sensor-configs/${ids.config}`)).status).toBe('active')
+  })
+
+  test('U4 申请 research 发布、导入合成报告、封存、职责分离与激活', async ({ page }) => {
+    await login(page, 'operator')
+    await page.goto('/console/release/bundles')
+    await page.getByRole('button', { name: '申请发布组合', exact: true }).click()
+    let d = dialog(page, '申请发布组合')
+    await d.getByLabel('模型（已校验）', { exact: false }).selectOption(state.fixtures.model)
+    await d.getByLabel('决策策略（已审核）', { exact: false }).selectOption(state.fixtures.policy)
+    await d.getByRole('combobox', { name: /^环境/ }).selectOption('research')
+    await fill(d, '特征档案摘要', state.fixtures.profile)
+    await fill(d, '提取器摘要', state.fixtures.extractor)
+    const bundle = await mutation(page, '/release-bundles', () => d.getByRole('button', { name: '申请组合' }).click())
+    ids.bundle = bundle.id
+    const report = fixture('report', { subjectSha256: bundle.subjectSha256 })
+    await dialog(page).getByRole('button', { name: '导入报告', exact: true }).click()
+    d = dialog(page, '导入评价报告')
+    await fill(d, '报告引用', report.reportRef)
+    await fill(d, '报告 SHA-256', report.sha256)
+    await fill(d, '签发身份', report.runnerIdentity)
+    ids.report = (await mutation(page, `/release-bundles/${ids.bundle}/imports`, () => d.getByRole('button', { name: '导入报告', exact: true }).click())).id
+    await dialog(page).getByRole('button', { name: '封存清单', exact: true }).click()
+    d = dialog(page, '封存发布清单')
+    await d.getByRole('checkbox').check()
+    await mutation(page, `/release-bundles/${ids.bundle}/sealings`, () => d.getByRole('button', { name: '确认封存' }).click())
+    await expect(dialog(page).getByRole('button', { name: '批准组合' })).toHaveCount(0)
+    expect((await api(page, `/release-bundles/${ids.bundle}/decisions`, { decision: 'approve', reason }, 'POST', 2)).status()).toBe(403)
+    await login(page, 'reviewer')
+    await page.goto(`/console/release/bundles?id=${ids.bundle}`)
+    await dialog(page).getByRole('button', { name: '批准组合', exact: true }).click()
+    await fill(dialog(page), '理由', reason)
+    await mutation(page, `/release-bundles/${ids.bundle}/decisions`, () => dialog(page).getByRole('button', { name: '确认批准' }).click())
+    await dialog(page).getByRole('button', { name: '按资产激活', exact: true }).click()
+    d = dialog(page)
+    await d.getByRole('combobox', { name: /^资产/ }).selectOption(ids.asset)
+    await d.getByLabel('有效授权', { exact: false }).selectOption(ids.auth)
+    await mutation(page, `/release-bundles/${ids.bundle}/activations`, () => d.getByRole('button', { name: '确认激活' }).click())
+    await expect(dialog(page)).toContainText(ids.assetName)
+    const bindings = await read(page, `/release-bundles/${ids.bundle}/bindings`)
+    expect(bindings.items.some((b: any) => b.assetId === ids.asset && b.status === 'active')).toBe(true)
+  })
+
+  test('U2 合成观察经真实消费产生检测、告警和事件，态势计数增加', async ({ page }) => {
+    await login(page, 'analyst')
+    const count = async (label: string) => Number((await page.locator('[data-stat]').filter({ hasText: label }).locator('p.num').textContent())?.replaceAll(',', ''))
+    await expect(page.locator('[data-stat]').filter({ hasText: '今日入站观察' })).toBeVisible()
+    const inbound = await count('今日入站观察'), alerts = await count('今日告警')
+    const observation = fixture('observe', { asset: ids.asset, sensor: ids.sensor, credential: ids.credential, scope: ids.scope, config: ids.config, configDefinition: ids.configDefinition })
+    ids.observation = observation.observation; ids.health = observation.health
+    await expect.poll(async () => (await read(page, `/events?assetId=${ids.asset}`)).items.length).toBe(1)
+    ids.event = (await read(page, `/events?assetId=${ids.asset}`)).items[0].id
+    await page.reload()
+    await expect.poll(() => count('今日入站观察')).toBe(inbound + 1)
+    await expect.poll(() => count('今日告警')).toBe(alerts + 1)
+    for (const tab of ['observations', 'detections', 'decisions']) {
+      await page.goto(`/console/detect/records?tab=${tab}&assetId=${ids.asset}&range=1h`)
+      await expect(page.getByLabel('资产筛选')).toHaveValue(ids.asset)
+      if (tab === 'decisions') await page.getByRole('tab', { name: /^判定列表/ }).click()
+      await expect(page.locator('tbody tr')).toHaveCount(1)
+      await expect(page.locator('tbody tr')).toContainText(ids.assetName)
+    }
+    await page.goto(`/console/detect/events?assetId=${ids.asset}&range=1h`)
+    await expect(page.locator('tbody tr')).toHaveCount(1)
+    const event = await read(page, `/events/${ids.event}`)
+    ids.eventTitle = event.title
+    await page.getByLabel('搜索事件标题').fill(event.title.slice(0, 6))
+    await page.getByLabel('搜索事件标题').press('Enter')
+    await expect(page.locator('tbody tr')).toHaveCount(1)
+    await page.getByLabel('搜索事件标题').fill('t1-no-match')
+    await page.getByLabel('搜索事件标题').press('Enter')
+    await expect(page.locator('tbody tr')).toHaveCount(0)
+  })
+
+  test('U3 事件迁移与追加记录、标注和待办独立复核', async ({ page }) => {
+    await login(page, 'analyst')
+    await page.goto(`/console/detect/events/${ids.event}`)
+    await page.getByRole('button', { name: /研判中/ }).click()
+    await page.getByLabel('状态迁移理由').fill(reason)
+    await mutation(page, `/events/${ids.event}/transitions`, () => page.getByRole('button', { name: '确认迁移' }).click())
+    expect((await read(page, `/events/${ids.event}`)).status).toBe('investigating')
+    await page.getByLabel('追加研判记录').fill('T1 已核对合成观察与只告警策略')
+    await mutation(page, `/events/${ids.event}/notes`, () => page.getByRole('button', { name: '添加记录' }).click())
+    await expect(page.getByText('T1 已核对合成观察与只告警策略', { exact: true })).toBeVisible()
+    await page.goto('/console/detect/feedback')
+    await page.getByRole('button', { name: '新建标注' }).click()
+    const d = dialog(page, '新建观察标注')
+    await d.getByLabel('观察记录 UUID').fill(ids.observation)
+    await d.getByLabel('新建标注结论').selectOption('attack')
+    await d.getByLabel('新建证据引用说明').fill('T1 合成回归观察，非实网攻击')
+    ids.feedback = (await mutation(page, '/feedback', () => d.getByRole('button', { name: '提交标注' }).click())).id
+    await page.locator('tbody tr').filter({ hasText: 'T1 合成回归观察' }).click()
+    await expect(dialog(page).getByRole('button', { name: '提交复核' })).toHaveCount(0)
+    expect((await api(page, `/feedback/${ids.feedback}/reviews`, { decision: 'approve', reason }, 'POST', 1)).status()).toBe(403)
+    await login(page, 'evidence')
+    await page.goto('/console/workbench')
+    const todo = page.locator('[data-todo-group] li').filter({ hasText: '待复核' })
+    await expect(todo).toContainText(ids.assetName)
+    await todo.getByRole('link').click()
+    await page.locator('tbody tr').filter({ hasText: 'T1 合成回归观察' }).click()
+    await dialog(page).getByLabel('复核理由', { exact: true }).fill(reason)
+    await mutation(page, `/feedback/${ids.feedback}/reviews`, () => dialog(page).getByRole('button', { name: '提交复核' }).click())
+    expect((await read(page, `/feedback/${ids.feedback}`)).status).toBe('reviewed')
+  })
+
+  test('U5 只验证合成动作批准、202 撤销与未核对回执的独立状态', async ({ page }) => {
+    const action = fixture('lab-action')
+    ids.action = action.action; ids.labAsset = action.asset
+    // 夹具使用独立 HTTP 会话；单会话限制会撤销该账号旧会话，因此界面在夹具完成后登录。
+    await login(page, 'reviewer')
+    await page.goto(`/console/response/actions?tab=all&id=${ids.action}`)
+    await fill(dialog(page), '理由', reason)
+    await mutation(page, `/actions/${ids.action}/decisions`, () => dialog(page).getByRole('button', { name: '批准', exact: true }).click())
+    expect((await read(page, `/actions/${ids.action}`)).observedState).toBe('pending')
+    await expect(dialog(page).getByText('命令未下发', { exact: true })).toBeVisible()
+    fixture('receipt', { action: ids.action })
+    await page.reload()
+    await expect(dialog(page).getByLabel('回执时间线')).toContainText('未通过实态核对')
+    await fill(dialog(page), '理由', reason)
+    await mutation(page, `/actions/${ids.action}/revocations`, () => dialog(page).getByRole('button', { name: '撤销', exact: true }).click())
+    const after = await read(page, `/actions/${ids.action}`)
+    expect(after.desiredState).toBe('revoked')
+    expect(after.observedState).toBe('pending')
+    await expect(dialog(page).getByLabel('期望与观测状态')).toContainText('待处理')
+    await expect(dialog(page)).toContainText('规则是否清理以后续回执为准')
+    expect(fixture('assert-no-issued-command').noIssuedCommands).toBe(true)
+  })
+
+  test('增删改查：冲突角色拒绝、有效角色绑定、资产编辑、设备停启和删除草稿', async ({ page }) => {
+    await login(page, 'admin')
+    await page.goto('/console/system/roles')
+    await page.getByRole('button', { name: '新建自定义角色' }).click()
+    let d = dialog(page, '新建自定义角色')
+    ids.role = 'custom_t1_' + unique().slice(0, 8)
+    await fill(d, '角色键', ids.role.replace('custom_', ''))
+    await fill(d, '名称', 'T1 只读扩展')
+    await fill(d, '职责说明', 'T1 合成权限校验')
+    await d.locator('label[title="authorization.request"] input').check()
+    await d.locator('label[title="authorization.approve"] input').check()
+    await expect(d.getByRole('button', { name: '新建角色', exact: true })).toBeDisabled()
+    await expect(d.getByRole('alert')).toContainText('职责冲突')
+    const conflict = await api(page, '/roles', { roleKey: ids.role, name: 'T1 冲突', description: '合成冲突', permissions: ['authorization.request', 'authorization.approve'] })
+    expect(conflict.status()).toBe(422)
+    expect((await conflict.json()).error.code).toBe('PERMISSION_CONFLICT')
+    await d.locator('label[title="authorization.request"] input').uncheck()
+    await d.locator('label[title="authorization.approve"] input').uncheck()
+    await d.locator('label[title="resource.read"] input').check()
+    await mutation(page, '/roles', () => d.getByRole('button', { name: '新建角色', exact: true }).click())
+    await close(page)
+    await page.getByLabel('筛选角色').fill(ids.role)
+    await expect(page.getByText('T1 只读扩展', { exact: true }).first()).toBeVisible()
+    await page.goto(`/console/system/users?id=${ids.user}`)
+    await dialog(page).getByRole('button', { name: '添加绑定', exact: true }).click()
+    await dialog(page).getByRole('combobox', { name: /^角色/ }).selectOption(ids.role)
+    ids.customBinding = (await mutation(page, `/users/${ids.user}/role-bindings`, () => dialog(page).getByRole('button', { name: '添加绑定', exact: true }).click())).id
+    await close(page)
+    await page.getByLabel('搜索用户').fill(ids.username)
+    await page.getByLabel('搜索用户').press('Enter')
+    await page.getByLabel('创建时间范围').selectOption('7d')
+    await expect(page.locator('tbody tr')).toHaveCount(1)
+    await expect(page.locator('tbody tr')).toContainText(ids.username)
+    await page.goto(`/console/assets/list/${ids.asset}`)
+    await page.getByRole('button', { name: '编辑资料', exact: true }).click()
+    d = dialog(page, '编辑资产资料')
+    ids.assetName = 'T1 已编辑研究资产'
+    await fill(d, '显示名', ids.assetName)
+    await mutation(page, `/assets/${ids.asset}`, () => d.getByRole('button', { name: '保存资料' }).click(), 'PATCH')
+    await expect(page.getByRole('heading', { name: ids.assetName, exact: true })).toBeVisible()
+    const draft = await draftConfig(page)
+    ids.deletedConfig = draft.id
+    await dialog(page).getByRole('button', { name: '删除草稿' }).click()
+    await mutation(page, `/sensor-configs/${draft.id}`, () => dialog(page).getByRole('button', { name: '确认删除' }).click(), 'DELETE')
+    expect((await api(page, `/sensor-configs/${draft.id}`)).status()).toBe(404)
+    await page.goto(`/console/assets/agents?tab=sensors&id=${ids.sensor}`)
+    await dialog(page).getByRole('button', { name: '停用传感器' }).click()
+    await fill(dialog(page), '理由', reason)
+    await mutation(page, `/sensors/${ids.sensor}/status-changes`, () => dialog(page).getByRole('button', { name: '确认停用' }).click())
+    await dialog(page).getByRole('button', { name: '启用传感器' }).click()
+    await fill(dialog(page), '理由', reason)
+    const enabled = await mutation(page, `/sensors/${ids.sensor}/status-changes`, () => dialog(page).getByRole('button', { name: '确认启用' }).click())
+    expect(enabled.credentialRotationRequired).toBe(true)
+    await expect(page.getByText('已启用传感器；须轮换凭据后才能接入。', { exact: true })).toBeVisible()
+    expect((await page.request.get(`/api/v2/machine/sensors/${ids.sensor}/config`, { headers: { Authorization: 'Bearer ' + ids.credential } })).status(), '启用不复活旧凭据').toBe(401)
+    await login(page, 'operator')
+    await page.goto('/console/release/bundles?tab=policies')
+    await page.getByRole('button', { name: '起草策略', exact: true }).click()
+    d = dialog(page, '起草决策策略')
+    const policy = { ...state.fixtures.policyDefinition, policyId: unique(), policyVersion: 't1-delete-draft' }
+    await fill(d, '策略原文', JSON.stringify(policy))
+    const drafted = await mutation(page, '/decision-policies', () => d.getByRole('button', { name: '提交草稿' }).click())
+    ids.draftPolicy = drafted.id
+    await dialog(page).getByRole('button', { name: '删除草稿' }).click()
+    await mutation(page, `/decision-policies/${drafted.id}`, () => dialog(page).getByRole('button', { name: '确认删除' }).click(), 'DELETE')
+    expect((await api(page, `/decision-policies/${drafted.id}`)).status()).toBe(404)
+  })
+
+  test('U6 停用自动化、健康窗口、审计记录与审计员只读', async ({ page }) => {
+    await login(page, 'reviewer')
+    await page.goto('/console/response/actions')
+    await page.getByRole('button', { name: '停用自动化', exact: true }).click()
+    const d = dialog(page, '停用自动化')
+    await d.getByRole('checkbox', { name: /T1 合成处置资产/ }).check()
+    await fill(d, '原因', reason)
+    await mutation(page, '/automation-stops', () => d.getByRole('button', { name: '确认停用' }).click())
+    await page.goto(`/console/assets/agents?tab=health&assetId=${ids.asset}`)
+    await expect(page.locator('tbody tr')).toHaveCount(1)
+    await expect(page.locator('tbody tr')).toContainText('T1 合成传感器')
+    await login(page, 'auditor')
+    // IAM 内部数字编号和角色键在审计 DTO 中为脱敏引用，按真实写请求关联；guard 按公开 UUID 关联。
+    const iamAuditRequests: Record<string, { suffix: string, count: number }> = {
+      'iam.user.create': { suffix: '/users', count: 1 },
+      'iam.binding.create': { suffix: `/users/${ids.user}/role-bindings`, count: 2 },
+      'iam.role.create': { suffix: '/roles', count: 1 },
+    }
+    const auditTargets: Record<string, unknown[]> = {
+      'guard.asset.created': [ids.asset], 'guard.asset.updated': [ids.asset],
+      'guard.authorization.requested': [ids.auth], 'guard.authorization.active': [ids.auth],
+      'guard.sensor.created': [ids.sensor], 'guard.sensor.status.changed': [ids.sensor],
+      'guard.config.drafted': [ids.config, ids.deletedConfig], 'guard.config.active': [ids.config], 'guard.config.deleted': [ids.deletedConfig],
+      'guard.bundle.requested': [ids.bundle], 'guard.report.imported': [ids.report], 'guard.bundle.sealed': [ids.bundle],
+      'guard.bundle.approved': [ids.bundle], 'guard.bundle.activated': [ids.bundle],
+      'guard.feedback.labelled': [ids.feedback], 'guard.feedback.reviewed': [ids.feedback],
+      'guard.event.transition': [ids.event], 'guard.event.noted': [ids.event],
+      'guard.action.approved': [ids.action], 'guard.action.revocation_requested': [ids.action],
+      'guard.automation.stopped': [ids.labAsset], 'guard.policy.drafted': [ids.draftPolicy], 'guard.policy.deleted': [ids.draftPolicy],
+    }
+    for (const action of [...Object.keys(iamAuditRequests), ...Object.keys(auditTargets)]) {
+      await page.goto('/console/system/audit')
+      await page.getByLabel('动作（精确匹配）').fill(action)
+      const result = page.waitForResponse(r => new URL(r.url()).pathname === '/api/v2/audit' && new URL(r.url()).searchParams.get('action') === action)
+      await page.getByRole('button', { name: '筛选', exact: true }).click()
+      expect((await result).status()).toBe(200)
+      await expect(page.getByRole('button', { name: action, exact: true }).first()).toBeVisible()
+      const rows = (await read(page, `/audit?action=${action}`)).items
+      const iam = iamAuditRequests[action]
+      if (iam) {
+        const requests = mutationRequestIds.get(`POST ${iam.suffix}`) ?? []
+        expect(requests, `${action} 的请求均由前置页面提交`).toHaveLength(iam.count)
+        for (const requestId of requests) {
+          const row = rows.find((row: any) => row.action === action && row.requestId === requestId && row.outcome === 'success')
+          expect(row, `${action} / ${requestId} 的成功审计`).toBeDefined()
+          expect(row.resourceType).toBe('iam')
+          expect(row.resourceId, '内部资源只返回脱敏引用').toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/)
+        }
+      }
+      // 逐项核对浏览器前面操作的对象，不能用环境初始化产生的同类审计代替。
+      for (const target of auditTargets[action] ?? []) {
+        expect(target, `${action} 的预期对象已由前置步骤创建`).toBeDefined()
+        expect(rows.some((row: any) => row.action === action && row.resourceId === String(target) && row.outcome === 'success'), `${action} / ${target} 的成功审计`).toBe(true)
+      }
+    }
+    for (const url of ['/console/assets/list', `/console/assets/list/${ids.asset}`, '/console/assets/agents', '/console/release/models',
+      '/console/release/bundles', `/console/response/actions?tab=all&id=${ids.action}`, '/console/system/roles']) {
+      await page.goto(url)
+      await expect(page.getByRole('button', { name: /^(登记资产|申请授权|编辑资料|登记设备|停用自动化|申请发布组合|起草策略|起草决策策略|新建自定义角色|批准|撤销|立即解除)$/ })).toHaveCount(0)
+    }
+    expect((await api(page, '/automation-stops', { assetIds: [ids.asset], reason, revokeExisting: true })).status()).toBe(403)
+    expect(fixture('assert-no-issued-command').noIssuedCommands).toBe(true)
+  })
+})

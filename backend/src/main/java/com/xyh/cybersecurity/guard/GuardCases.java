@@ -74,7 +74,15 @@ public class GuardCases {
         store.audit(access.human(),"guard.event.assigned",id,aid,null,object("userId",assigneeKey,"assigneeId",assigneeKey,"reason",reason));
         return object("id",id,"userId",assigneeKey,"assigneeId",assigneeKey,"revision",nextRevision);
     }
-    public JsonNode note(String id,JsonNode b){fields(b,"note","");var e=store.external("security_event",id,false);require(e.get("guard_asset_id")!=null,"RESOURCE_NOT_FOUND");access.permission("event.manage",number(e,"guard_asset_id"));timeline(number(e,"id"),"guard.note",access.human(),text(b,"note"),object());return object("accepted",true);}
+    /** 研判记录与资产范围审计在同一事务追加；审计仅保存摘要，避免复制自由文本证据。 */
+    public JsonNode note(String id,JsonNode b){
+        fields(b,"note","");var e=store.external("security_event",id,false);
+        require(e.get("guard_asset_id")!=null,"RESOURCE_NOT_FOUND");long aid=number(e,"guard_asset_id");
+        access.permission("event.manage",aid);String note=text(b,"note");
+        timeline(number(e,"id"),"guard.note",access.human(),note,object());
+        store.audit(access.human(),"guard.event.noted",id,aid,null,object("noteSha256",hash(object("note",note))));
+        return object("accepted",true);
+    }
     public JsonNode feedback(JsonNode b){fields(b,"observationId label evidenceRef","");var o=store.external("guard_observation",uuid(b,"observationId"),false);access.permission("feedback.label",number(o,"asset_id"));require(Set.of("benign","attack","ambiguous").contains(text(b,"label")),"INVALID_LABEL");
         var f=store.add("guard_feedback",map("asset_id",o.get("asset_id"),"observation_id",o.get("id"),"label",text(b,"label"),"evidence_ref",text(b,"evidenceRef"),"created_by",access.human()));store.audit(access.human(),"guard.feedback.labelled",str(f,"public_id"),number(o,"asset_id"),null,b);return object("id",f.get("public_id"),"status","pending","revision",1,"trainingEligible",false);}
     public JsonNode review(String id,JsonNode b,String revision){var f=store.external("guard_feedback",id,false);access.permission("feedback.review",number(f,"asset_id"));store.lockAsset(number(f,"asset_id"));f=store.external("guard_feedback",id,true);access.revision(f,revision);access.different(f,"created_by");GuardAdministration.decisionBody(b);require("pending".equals(str(f,"status")),"STATE_CONFLICT");String status=text(b,"decision").equals("approve")?"reviewed":"rejected";

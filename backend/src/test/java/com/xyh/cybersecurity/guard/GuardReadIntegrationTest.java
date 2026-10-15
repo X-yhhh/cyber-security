@@ -327,7 +327,9 @@ class GuardReadIntegrationTest {
         addRole(reader, List.of("audit.read"), "data_source", "fixture-source");
         assertThat(data(reader, "audit", "action", action).path("items")).hasSize(2);
         IdentityPrincipal global = identity(List.of("audit.read"), "global", "*");
-        assertThat(data(global, "audit", "action", action).path("items")).isEmpty();
+        // T1：全局只读审计覆盖已登记范围，但不能绕过历史无范围记录的保护。
+        assertThat(data(global, "audit", "action", action).path("items")).hasSize(3);
+        assertThat(data(global, "audit", "action", action, "assetId", a.id).path("items")).hasSize(3);
         IdentityPrincipal admin = identity(List.of(), "global", "*");
         jdbc.update("INSERT INTO sys_user_role(user_id,role_id,scope_type,scope_id) SELECT ?,id,'global','*' FROM sys_role WHERE role_key='platform_admin'", admin.id());
         var all = data(admin, "audit", "action", action);

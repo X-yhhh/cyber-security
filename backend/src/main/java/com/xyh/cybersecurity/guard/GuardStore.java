@@ -124,7 +124,8 @@ public class GuardStore {
     public void audit(Long actor,String action,String resource,Long asset,String requestId,JsonNode proof){
         var a=new AuditMapper.AuditInsert(LocalDateTime.now(ZoneOffset.UTC),actor==null?"system":"human",actor==null?"guard":actor.toString(),
                 action,"guard",resource,requestId,"success",hash(proof));audit.insertAudit(a);
-        if(asset!=null)audit.insertResourceScope(a.getId(),"asset",asset.toString());
+        // 目录写入也有显式范围，使 v2 全局审计员可追溯；历史无范围记录仍受管理员例外约束。
+        audit.insertResourceScope(a.getId(),asset==null?"global":"asset",asset==null?"*":asset.toString());
     }
     /** 批量审计的每一项仍持有独立资源与证据摘要，不能只留下一个批次总摘要。 */
     public record AuditProof(String resource,long asset,JsonNode proof){}

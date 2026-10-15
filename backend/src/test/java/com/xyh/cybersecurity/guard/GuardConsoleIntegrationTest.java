@@ -84,6 +84,22 @@ class GuardConsoleIntegrationTest {
         return new Fixture(asset,sensor,executor,dataset,model,policy,bundle,config,auth,contract.key(),plan.key());
     }
 
+    /** T1-R2：原子追加时间线和资产范围审计；同一幂等键重试不复制写入，越权不产生事实。 */
+    @Test void caseNotesAreAuditedOnceAndReadOnlyRolesCannotAppend() throws Exception {
+        Fixture f=fixture();
+        Entity event=add("security_event",map("guard_asset_id",f.asset().key(),"event_key",id(),"title","合成研判",
+                "category","dos_slow","severity","medium","status","open","risk_rule_version",DECISION,
+                "first_seen_at",db(store.now()),"last_seen_at",db(store.now())));
+        String path="/api/v2/events/"+event.id()+"/notes",key=id();JsonNode body=object("note","仅写入时间线的合成研判记录");
+        Session analyst=role("security_analyst");
+        JsonNode added=expect(send(mvc,post(path),analyst,body,key,null),201);
+        assertThat(added.path("accepted").asBoolean()).isTrue();
+        assertThat(expect(send(mvc,post(path),analyst,body,key,null),201)).isEqualTo(added);
+        code(send(mvc,post(path),role("auditor"),body,id(),null),403,"SCOPE_DENIED");
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM event_timeline WHERE event_id=? AND entry_type='guard.note'",Long.class,event.key())).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM audit_log a JOIN audit_resource_scope s ON s.audit_id=a.id WHERE a.resource_id=? AND a.action='guard.event.noted' AND s.scope_type='asset' AND s.scope_id=?",Long.class,event.id(),Long.toString(f.asset().key()))).isEqualTo(1);
+    }
+
     @Test void metadataWritesAreRevisionCheckedAuditedAndNeverChangeFrozenFields() throws Exception {
         Fixture f=fixture();Session admin=role("platform_admin"),operator=role("model_operator");
         for(Entity e:List.of(f.asset(),f.sensor(),f.executor(),f.dataset(),f.model())){

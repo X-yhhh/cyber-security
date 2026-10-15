@@ -1,10 +1,33 @@
 # P8 部署准备脚本
 
-本目录当前实现 BE-14 和 DB-9 的准备、验证与登记。A21 允许本机独立 RabbitMQ vhost 和 r6 登记至 approved；常驻服务、真实资产、采集与激活须另按 A8/P8 授权。步骤和回退见 [部署与回退](../../docs/部署与回退.md)。脚本不调用 PF、不读 test、不训练、不启用自动化。
+本目录实现 BE-14、DB-9 及初版部署与回归工具。A21 允许本机独立 RabbitMQ vhost 和 r6 登记至 approved；常驻服务、真实资产、采集与激活须另按 A8/P8 授权。步骤和回退见 [部署与回退](../../docs/部署与回退.md)。T1 仅使用隔离库合成事实；B3 中的真实 PF 演示入口仍须独立授权。
 
 ## 运行环境
 
 从仓库根使用现有 `sh executor/python.sh -B`。JDK 固定 Temurin 25.0.2、Maven 3.9.13、MySQL 8.0.42 和 RabbitMQ 4.2.5，参数可指定已审查的安装目录。密钥和凭据由受控文件、现有 `DB_TEST_*`/`RABBITMQ_IT_*` 环境或 Keychain 读取，不写入命令行或 Git。每次 `--work` 必须是不存在的新目录；结果、日志、TLS 材料与数据库备份按 0700/0600 保存。
+
+## T1 端到端隔离回归
+
+入口为 `frontend` 下的 `npm run test:e2e`。使用 JDK 25（显式设置 `JAVA_HOME`）、PATH 中的 Maven、Node/npm 和 MySQL 8 客户端；Python 使用 `executor/python.sh` 对应虚拟环境，依赖见 `requirements-e2e.txt`（可用 `sh executor/python.sh -m pip install -r scripts/p8/requirements-e2e.txt` 安装）。先在 frontend 运行 `npm ci` 与 `./node_modules/.bin/playwright install chromium`。
+
+调用环境须通过受控注入提供以下变量，不把秘密写进命令或文档：
+
+| 参数 | 契约 |
+|---|---|
+| `DB_TEST_BASE_URL` | 仅 `jdbc:mysql://127.0.0.1:<端口>` 或 localhost，无 schema、用户信息或查询串 |
+| `DB_TEST_USERNAME` / `DB_TEST_PASSWORD` | 测试服务账号，须能创建、迁移和删除本次随机 schema |
+| `RABBITMQ_IT_USERNAME` / `RABBITMQ_IT_PASSWORD` | 本机测试 broker 管理与消息账号，须能创建本次 vhost 及授权 |
+| `RABBITMQ_IT_PORT` | 可选 AMQP 端口，默认 5672；仅本机 |
+| `E2E_BROKER_MANAGEMENT_URL` | 可选回环 HTTP 管理入口，默认 `http://127.0.0.1:15672` |
+| `E2E_MYSQL` | 可选 MySQL 客户端路径，默认 PATH 解析 |
+
+每次新建 `cyber_it_e2e_<随机值>` schema 与 `cyber-security-e2e-<随机值>` vhost，构建并启动当前 worktree JAR/dist；JAR 先 `clean` 再打包，避免已删除接口的旧 class 残留。不读取或迁移业务库。真实 v2 登录、HTTP、MySQL、outbox 与 RabbitMQ 消费参与回归，六账号各绑定一个内置角色。U4 的常量 ONNX、自签报告和 U5 的 lab 动作、未核对回执均为一次性合成夹具，无实际模型成绩或平台资格。
+
+U5 的自动化开关仅作用于本次隔离后端，保留真实授权/资格校验；命令签名配置为空，无执行器进程、不调用 claims、不抓包、不执行 PF。合成回执引用的命令明确标为 `t1-ui-synthetic` 且签名无效；`safety.json` 检查其余命令数量为零。
+
+每轮必须核验 `.cache/t1-e2e/<运行号>/cleanup.json` 全部为 true：停止本次浏览器、预览和 JAR，删除本次 schema/vhost，脱敏日志与失败 trace 后删除凭据/私钥。目录 0700、文件 0600；脱敏失败会清除本次诊断副本并非零退出，不能把失败清理视作验收成功。正常保留 `runtime.json`、`results.json`、`safety.json`、`cleanup.json` 及失败 trace；可用已安装的 Playwright `show-trace` 查看。SIGTERM 会进入清理；强制终止进程/主机掉电不保证 finally 执行，须按 runtime 中准确 schema/vhost/PID 人工核验，不可按前缀批量清理。
+
+最终验收连续执行两次 `npm run test:e2e`，均须 0 失败、0 跳过、0 重试。定位时可追加 `-- --skip-build -- journeys.spec.ts`；不提供业务环境或任意外部 URL 模式，R1 克隆预演由其独立卡片接续。
 
 ## Broker 验收
 

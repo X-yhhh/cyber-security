@@ -162,6 +162,10 @@ class GuardIntegrationTest {
         var bundle=store.external("guard_release_bundle",f.bundle(),false);
         assertThat(str(bundle,"status")).isEqualTo("active");
         assertThat(json(bundle,"sealed_manifest_json").path("reports")).hasSize(1);
+        // T1-R2：冻结策略和报告成功导入各有可追溯审计，不以封存记录替代原始写入。
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM audit_log WHERE action='guard.policy.drafted' AND resource_id=?",Long.class,f.policy())).isEqualTo(1);
+        String reportId=json(bundle,"sealed_manifest_json").at("/reports/0/evaluationId").asText();
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM audit_log WHERE action='guard.report.imported' AND resource_id=?",Long.class,reportId)).isEqualTo(1);
         Instant at=Instant.now().truncatedTo(ChronoUnit.MICROS);
         accept(f,List.of(observation(f,at,id(),0).put("environment",environment)),1,true);
         var asset=store.external("asset",f.asset(),false);

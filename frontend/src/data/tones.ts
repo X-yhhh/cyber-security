@@ -50,6 +50,10 @@ export const policyReviewTone = map({ draft: 'mute', reviewed: 'ok', retired: 'm
 
 /** 能力等级：越高越需要独立证据，研究级不冒充已验证。 */
 export const capabilityTone = map({ research: 'mute', alert_only: 'signal', lab_auto: 'warn', authorized_auto: 'ok', suspended: 'threat' })
+/** F3 模型与数据集：校验状态与数据集状态共用；评价运行（导入报告 passed/failed）与研究回放的状态。 */
+export const catalogTone = map({ pending: 'signal', validated: 'ok', failed: 'threat', retired: 'mute', active: 'ok' })
+export const evaluationTone = map({ pending: 'mute', running: 'signal', completed: 'ok', passed: 'ok', failed: 'threat' })
+export const replayTone = map({ queued: 'mute', running: 'signal', completed: 'ok', failed: 'threat' })
 
 /** 目标预算标识核验状态。 */
 export const identityTone = map({ verified: 'ok', unverified: 'warn', rotated: 'warn', conflict: 'threat' })

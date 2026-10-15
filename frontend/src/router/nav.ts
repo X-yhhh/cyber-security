@@ -10,7 +10,7 @@
 import type { Component } from 'vue'
 import type { RouteComponent } from 'vue-router'
 import {
-  Activity, BrainCircuit, HeartPulse, ListTodo, MessageSquareWarning, PackageCheck, RadioTower,
+  Activity, BrainCircuit, ListTodo, MessageSquareWarning, PackageCheck, RadioTower,
   ScanSearch, ScrollText, Server, ShieldAlert, ShieldBan, UserCog, Users,
 } from 'lucide-vue-next'
 

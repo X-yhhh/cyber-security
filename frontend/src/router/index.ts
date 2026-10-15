@@ -60,8 +60,8 @@ const movedRoutes: RouteRecordRaw[] = [
   { path: 'lab', name: 'lab', redirect: toRelease('validation', 'lab') },
   { path: 'lab/:id', name: 'lab-detail', redirect: (to) => ({ path: `/console/release/lab/${encodeURIComponent(String(to.params.id))}`, query: to.query, hash: to.hash }) },
   // F4：运行健康并入传感器与执行器的健康窗口分段，授权并入资产详情。
-  { path: 'health', name: 'health', redirect: '/console/assets/agents' },
-  { path: 'ops/health', redirect: '/console/assets/agents' },
+  { path: 'health', name: 'health', redirect: { path: '/console/assets/agents', query: { tab: 'health' } } },
+  { path: 'ops/health', redirect: { path: '/console/assets/agents', query: { tab: 'health' } } },
   { path: 'assets/authorizations', redirect: '/console/assets/list' },
   // F2：目标预算并入处置记录，预算占用改在动作详情中只读显示。
   { path: 'response/budgets', redirect: '/console/response/actions' },

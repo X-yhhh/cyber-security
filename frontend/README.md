@@ -121,7 +121,7 @@ API 客户端 `src/api/client.ts` 同时支持两套信封：v1 为 `{ success, 
 
 ## 6. F4 非页面接续（2026-10-15）
 
-页面沿用 PR #69，本轮补 `test/fixtures/assets.ts`、`test/handlers/assets.ts`、`api/v2/assets.test.ts` 与 `views/assets/AssetsViews.test.ts`，统一资产名称与两类心跳夹具。测试前按需调用 `resetDetectState()`、`resetAssetsState()`、`resetReleaseState()`；全部为合成状态，不进入生产包。
+页面沿用 PR #69，非页面实现 `0e47a5a` 由 [PR #70](https://github.com/X-yhhh/cyber-security/pull/70) 交付：补齐 `test/fixtures/assets.ts`、`test/handlers/assets.ts`、`api/v2/assets.test.ts` 与 `views/assets/AssetsViews.test.ts`，统一资产名称与两类心跳夹具。测试前按需调用 `resetDetectState()`、`resetAssetsState()`、`resetReleaseState()`；全部为合成状态，不进入生产包。
 
 - API 入口为 `@/api/v2/assets` 的 `assetsApi`，覆盖资产、授权、传感器/执行器、采集配置、机器客户端、心跳及健康窗口；绑定仍从 `release-bundles/{id}/bindings` 读取。
 - 授权、采集配置集合及详情已返回 `requestedBy`，与 `/api/v2/auth/me.id` 同口径；历史 null 保留未知，后端写服务仍独立校验职责分离。修订冲突保留错误码及 request-id，提示刷新，不自动重试。

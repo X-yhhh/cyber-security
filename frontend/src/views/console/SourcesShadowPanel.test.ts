@@ -57,7 +57,7 @@ describe('SourcesShadowPanel', () => {
   })
 
   it('generates the report with UTC instants and renders verdict, criteria, drift and limitations', async () => {
-    getMock.mockImplementation((path: string) => Promise.resolve(path.startsWith('/feedback-reviews') ? pending([]) : report()))
+    getMock.mockImplementation((path: string) => Promise.resolve(path.startsWith('/api/v1/feedback-reviews') ? pending([]) : report()))
     const wrapper = mountPanel()
     await flushPromises()
     expect(getMock).not.toHaveBeenCalledWith(expect.stringContaining('shadow-report'))
@@ -69,7 +69,7 @@ describe('SourcesShadowPanel', () => {
 
     const path = getMock.mock.calls.map((c) => c[0] as string).find((p) => p.includes('shadow-report'))!
     const q = new URL(path, 'http://x').searchParams
-    expect(path.startsWith('/data-sources/3/shadow-report?')).toBe(true)
+    expect(path.startsWith('/api/v1/data-sources/3/shadow-report?')).toBe(true)
     expect(q.get('from')).toBe(new Date('2026-10-01T08:00').toISOString())
     expect(q.get('to')).toBe(new Date('2026-10-08T08:00').toISOString())
     expect(q.get('zone')).toBe('Asia/Shanghai')
@@ -111,7 +111,7 @@ describe('SourcesShadowPanel', () => {
     const wrapper = mountPanel()
     await flushPromises()
 
-    expect(getMock).toHaveBeenCalledWith('/feedback-reviews?page=0&size=20')
+    expect(getMock).toHaveBeenCalledWith('/api/v1/feedback-reviews?page=0&size=20')
     expect(wrapper.text()).toContain('复核人不能是标注人')
     await wrapper.get('button[aria-label="复核 alt-41"]').trigger('click')
     expect(wrapper.text()).toContain('本机在执行备份')
@@ -122,7 +122,7 @@ describe('SourcesShadowPanel', () => {
     await decide.trigger('click')
     await flushPromises()
 
-    expect(postMock).toHaveBeenCalledWith('/feedback-samples/77/review', { decision, reason: '说明与时间线一致' })
+    expect(postMock).toHaveBeenCalledWith('/api/v1/feedback-samples/77/review', { decision, reason: '说明与时间线一致' })
     expect(getMock).toHaveBeenCalledTimes(2)
     expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
     expect(wrapper.text()).toContain('没有待你复核的标注。')
@@ -131,18 +131,18 @@ describe('SourcesShadowPanel', () => {
 
   it('hides the review queue without feedback.review and opens the label drawer from a sample', async () => {
     canMock.mockImplementation((p: string) => p !== 'feedback.review')
-    getMock.mockImplementation((path: string) => Promise.resolve(path.includes('shadow-report') ? report() : path === '/alerts/41' ? { id: 41, status: 'new', alertType: 'model' } : []))
+    getMock.mockImplementation((path: string) => Promise.resolve(path.includes('shadow-report') ? report() : path === '/api/v1/alerts/41' ? { id: 41, status: 'new', alertType: 'model' } : []))
     const wrapper = mountPanel()
     await flushPromises()
     expect(wrapper.text()).not.toContain('待我复核')
-    expect(getMock).not.toHaveBeenCalledWith(expect.stringContaining('/feedback-reviews'))
+    expect(getMock).not.toHaveBeenCalledWith(expect.stringContaining('/api/v1/feedback-reviews'))
 
     await wrapper.get('form').trigger('submit')
     await flushPromises()
     await wrapper.get('button[aria-label="标注 alt-41"]').trigger('click')
     await flushPromises()
 
-    expect(getMock).toHaveBeenCalledWith('/alerts/41/feedback')
+    expect(getMock).toHaveBeenCalledWith('/api/v1/alerts/41/feedback')
     expect(wrapper.find('input[value="false_positive"]').exists()).toBe(true)
     wrapper.unmount()
   })

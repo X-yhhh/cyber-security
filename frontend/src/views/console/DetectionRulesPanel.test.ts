@@ -67,7 +67,7 @@ describe('检测规则页签', () => {
     await w.get('.drawer textarea').setValue('阈值与离线检出已复核')
     await button(w, '批准启用')!.trigger('click')
     await flushPromises()
-    expect(api.post).toHaveBeenCalledWith('/detection-rules/5/decision', { decision: 'approve', reason: '阈值与离线检出已复核' })
+    expect(api.post).toHaveBeenCalledWith('/api/v1/detection-rules/5/decision', { decision: 'approve', reason: '阈值与离线检出已复核' })
     expect(reload).toHaveBeenCalled()
     w.unmount()
   })
@@ -99,7 +99,7 @@ describe('检测规则页签', () => {
     await reason!.setValue('离线回放检出 9/9')
     await button(w, '登记')!.trigger('click')
     await flushPromises()
-    expect(api.post).toHaveBeenCalledWith('/detection-rules', {
+    expect(api.post).toHaveBeenCalledWith('/api/v1/detection-rules', {
       ruleKey: 'udp-burst', version: '1', severity: 'medium', condition: { all: [{ field: 'features.proto', op: 'eq', value: 'udp' }] },
       scope: { featureContractVersion: 'unsw-nb15-flow-v4' }, reason: '离线回放检出 9/9',
     })
@@ -127,7 +127,7 @@ describe('检测规则阶段 2 生命周期', () => {
     const w = mount(DetectionRulesPanel, { global })
     await w.get('tr.row-link').trigger('click')
     await flushPromises()
-    expect(api.get).toHaveBeenCalledWith('/detection-rules/5')
+    expect(api.get).toHaveBeenCalledWith('/api/v1/detection-rules/5')
     expect(w.get('.drawer').text()).toContain('严重')
     w.unmount()
   })
@@ -146,7 +146,7 @@ describe('检测规则阶段 2 生命周期', () => {
     await areas[areas.length - 1]!.setValue('收紧阈值')
     await button(w, '登记新版本')!.trigger('click')
     await flushPromises()
-    expect(api.post).toHaveBeenCalledWith('/detection-rules/5/versions', { version: '6', reason: '收紧阈值' })
+    expect(api.post).toHaveBeenCalledWith('/api/v1/detection-rules/5/versions', { version: '6', reason: '收紧阈值' })
     w.unmount()
   })
 
@@ -162,7 +162,7 @@ describe('检测规则阶段 2 生命周期', () => {
     await w.get('.drawer textarea').setValue('误报过高')
     await button(w, '退役')!.trigger('click')
     await flushPromises()
-    expect(api.post).toHaveBeenCalledWith('/detection-rules/5/retire', { reason: '误报过高' })
+    expect(api.post).toHaveBeenCalledWith('/api/v1/detection-rules/5/retire', { reason: '误报过高' })
     w.unmount()
   })
 })
@@ -171,7 +171,7 @@ describe('机器客户端登记', () => {
   it('按配对推导资源范围，凭据只显示一次且关闭后清除', async () => {
     perms.value = new Set(['iam.user.read', 'system.config.read', 'system.config.update'])
     seed({ users: [], roles: [], clients: [] })
-    vi.mocked(api.get).mockImplementation((url: string) => Promise.resolve(url.startsWith('/data-sources')
+    vi.mocked(api.get).mockImplementation((url: string) => Promise.resolve(url.startsWith('/api/v1/data-sources')
       ? { items: [{ id: 3, sourceKey: 'lab-src', status: 'active' }, { id: 4, sourceKey: 'old-src', status: 'disabled' }] }
       : { items: [{ id: 7, assetKey: 'lab-host', status: 'active' }, { id: 9, assetKey: 'lab-host-2', status: 'active' }] }))
     vi.mocked(api.post).mockResolvedValue({
@@ -193,7 +193,7 @@ describe('机器客户端登记', () => {
     await sources[1]!.setValue(3); await assets[1]!.setValue(9)
     await button(w, '登记并签发')!.trigger('click')
     await flushPromises()
-    expect(api.post).toHaveBeenCalledWith('/machine-clients', {
+    expect(api.post).toHaveBeenCalledWith('/api/v1/machine-clients', {
       clientKey: 'lab-connector', clientType: 'connector',
       scopes: [{ scopeType: 'data_source', scopeId: '3' }, { scopeType: 'asset', scopeId: '7' }, { scopeType: 'asset', scopeId: '9' }],
       sourceAssetBindings: [{ dataSourceId: 3, assetId: 7 }, { dataSourceId: 3, assetId: 9 }],

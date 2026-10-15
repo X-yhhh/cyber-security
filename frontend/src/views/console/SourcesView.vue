@@ -23,9 +23,9 @@ import { errText, optional, useLoad } from '@/composables/load'
 
 const { data, loading, error, reload } = useLoad(async () => {
   const [sources, summary, replay] = await Promise.all([
-    can('source.read') ? api.get<Page<DataSourceView>>('/data-sources?size=100').then((p) => p.items) : [],
-    can('ingest.batch.read') ? optional(api.get<IngestSummary[]>('/data-sources/ingest-summary'), []) : [],
-    can('source.read') ? api.get<ReplayScenarioView[]>('/replay-scenarios') : [],
+    can('source.read') ? api.get<Page<DataSourceView>>('/api/v1/data-sources?size=100').then((p) => p.items) : [],
+    can('ingest.batch.read') ? optional(api.get<IngestSummary[]>('/api/v1/data-sources/ingest-summary'), []) : [],
+    can('source.read') ? api.get<ReplayScenarioView[]>('/api/v1/replay-scenarios') : [],
   ])
   return { sources, summary, replay }
 }, { sources: [] as DataSourceView[], summary: [] as IngestSummary[], replay: [] as ReplayScenarioView[] })
@@ -65,7 +65,7 @@ async function loadMappings() {
   mapError.value = ''
   if (!picked.value) return
   try {
-    const result = await api.get<MappingView[]>(`/data-sources/${id}/mappings`)
+    const result = await api.get<MappingView[]>(`/api/v1/data-sources/${id}/mappings`)
     if (request === mappingRequest && picked.value?.id === id) mappings.value = result
   } catch (e) { if (request === mappingRequest && picked.value?.id === id) mapError.value = errText(e) }
 }
@@ -81,12 +81,12 @@ const refreshPicked = async () => {
   picked.value = id == null ? null : data.value.sources.find((d) => d.id === id) ?? null
   await loadMappings()
 }
-const saveSource = () => act(() => api.put(`/data-sources/${picked.value!.id}`, form.value), '数据源已更新。', refreshPicked)
+const saveSource = () => act(() => api.put(`/api/v1/data-sources/${picked.value!.id}`, form.value), '数据源已更新。', refreshPicked)
 const mine = (m: MappingView) => m.requestedBy != null && m.requestedBy === session.user?.id
-const approve = (m: MappingView) => act(() => api.post(`/data-sources/${picked.value!.id}/mappings/${m.id}/approve`), '映射已批准，可用于接入。', loadMappings)
+const approve = (m: MappingView) => act(() => api.post(`/api/v1/data-sources/${picked.value!.id}/mappings/${m.id}/approve`), '映射已批准，可用于接入。', loadMappings)
 function decide(m: MappingView, path: 'reject' | 'retire') {
   if (!reason.value.trim()) return toast('请先填写理由。', 'warn')
-  return act(() => api.post(`/data-sources/${picked.value!.id}/mappings/${m.id}/${path}`, { reason: reason.value.trim() }),
+  return act(() => api.post(`/api/v1/data-sources/${picked.value!.id}/mappings/${m.id}/${path}`, { reason: reason.value.trim() }),
     path === 'reject' ? '映射已驳回。' : '映射已退役；使用该版本的新批次将被拒绝。', loadMappings)
 }
 
@@ -96,14 +96,14 @@ function registerMapping() {
   let sourceSchema: unknown, mappingJson: unknown
   try { sourceSchema = JSON.parse(mapForm.value.sourceSchema); mappingJson = JSON.parse(mapForm.value.mapping) } catch { return toast('模式与映射须为 JSON 对象。', 'warn') }
   const contract = mapForm.value.featureContractVersion.trim()
-  return act(() => api.post(`/data-sources/${picked.value!.id}/mappings`, {
+  return act(() => api.post(`/api/v1/data-sources/${picked.value!.id}/mappings`, {
     mappingVersion: mapForm.value.mappingVersion.trim(), sourceSchema, mapping: mappingJson, ...(contract ? { featureContractVersion: contract } : {}),
   }), '映射版本已登记，须由其他管理员批准。', async () => { mapping.value = false; await loadMappings() })
 }
 
 const creating = ref(false)
 const newSource = ref({ sourceKey: '', sourceType: 'sensor', environment: 'lab', schemaVersion: 'v1' })
-const createSource = () => act(() => api.post('/data-sources', { ...newSource.value, sourceKey: newSource.value.sourceKey.trim() }), '数据源已登记。',
+const createSource = () => act(() => api.post('/api/v1/data-sources', { ...newSource.value, sourceKey: newSource.value.sourceKey.trim() }), '数据源已登记。',
   () => { creating.value = false; newSource.value = { sourceKey: '', sourceType: 'sensor', environment: 'lab', schemaVersion: 'v1' } })
 </script>
 

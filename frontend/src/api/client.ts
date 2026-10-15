@@ -9,9 +9,11 @@
  * 失败统一抛出 ApiError，携带稳定错误码与 requestId，页面只展示脱敏消息。
  */
 
+import { iamErrorMessages } from './v2/iam-errors'
+
 export class ApiError extends Error {
   constructor(public status: number, public code: string, message: string, public requestId?: string) {
-    super(message)
+    super(iamErrorMessages[code] ?? message)
   }
 }
 
@@ -24,14 +26,14 @@ let onUnauthorized: (() => void) | null = null
 export const setUnauthorizedHandler = (fn: () => void) => { onUnauthorized = fn }
 
 async function ensureCsrf() {
-  if (!csrf) csrf = await request<{ headerName: string; token: string }>('GET', '/api/v1/auth/csrf')
+  if (!csrf) csrf = await request<{ headerName: string; token: string }>('GET', '/api/v2/auth/csrf')
   return csrf
 }
 /** 登录/注销会轮换会话与 CSRF 令牌，调用后必须重新获取。 */
 export const resetCsrf = () => { csrf = null }
 
-/** 路径以 /api 开头时视为已含版本前缀，否则补 v1，保持既有调用点不变。 */
-const url = (path: string) => (path.startsWith('/api/') ? path : `/api/v1${path}`)
+/** 会话与新增接口默认 v2；尚待 C1 删除的旧页面显式传 /api/v1，不再隐式落到旧契约。 */
+const url = (path: string) => (path.startsWith('/api/') ? path : `/api/v2${path}`)
 
 async function raw(method: string, path: string, body?: unknown, headers: Record<string, string> = {}) {
   const h: Record<string, string> = { Accept: 'application/json', ...headers }
@@ -52,7 +54,8 @@ async function raw(method: string, path: string, body?: unknown, headers: Record
     if (res.status === 403 && method !== 'GET') csrf = null
     const error = env && 'error' in env ? env.error : undefined
     const err = new ApiError(res.status, error?.code ?? 'HTTP_' + res.status, error?.message ?? '请求失败', env?.requestId)
-    if (res.status === 401 && !path.startsWith('/auth/')) onUnauthorized?.()
+    // 登录失败应留在登录表单；业务请求 401 才清空会话并返回登录页。
+    if (res.status === 401 && !/^\/api\/v[12]\/auth\//.test(url(path))) onUnauthorized?.()
     throw err
   }
   return { data: (env as V1Envelope<unknown>).data, requestId: env.requestId }
@@ -66,6 +69,8 @@ export const api = {
   get: <T>(path: string) => request<T>('GET', path),
   post: <T>(path: string, body?: unknown, headers?: Record<string, string>) => request<T>('POST', path, body ?? {}, headers),
   put: <T>(path: string, body?: unknown) => request<T>('PUT', path, body ?? {}),
+  patch: <T>(path: string, body: unknown, headers?: Record<string, string>) => request<T>('PATCH', path, body, headers),
+  delete: <T>(path: string, headers?: Record<string, string>) => request<T>('DELETE', path, undefined, headers),
 }
 
 export interface Page<T> { totalElements: number; page: number; size: number; items: T[] }
@@ -79,7 +84,7 @@ export interface Page<T> { totalElements: number; page: number; size: number; it
  * ------------------------------------------------------------------ */
 
 /** 幂等键必须为 UUID 形态，后端对非 UUID 返回 400 INVALID_UUID。 */
-export const idempotencyKey = () => crypto.randomUUID()
+export const idempotencyKey = (): string => crypto.randomUUID()
 
 /** v2 列表结果：items 为当前页，nextCursor 为 null 表示已到末页。 */
 export interface Cursor<T> { items: T[]; nextCursor: string | null }
@@ -130,4 +135,9 @@ export const guard = {
     if (revision !== undefined && revision !== null) headers['If-Match'] = String(revision)
     return request<T>('PUT', `/api/v2/${collection}/${encodeURIComponent(id)}/${operation}`, body, headers)
   },
+  /** 资料修改与受限删除必须携带已读取的修订；幂等重试显式复用原键和原修订。 */
+  patch: <T>(collection: string, id: string | number, body: unknown, revision: number, key = idempotencyKey()) =>
+    request<T>('PATCH', `/api/v2/${collection}/${encodeURIComponent(id)}`, body, { 'Idempotency-Key': key, 'If-Match': String(revision) }),
+  remove: <T>(collection: string, id: string | number, revision: number, key = idempotencyKey()) =>
+    request<T>('DELETE', `/api/v2/${collection}/${encodeURIComponent(id)}`, undefined, { 'Idempotency-Key': key, 'If-Match': String(revision) }),
 }

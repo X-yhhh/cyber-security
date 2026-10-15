@@ -22,8 +22,8 @@ import { errText, useLoad } from '@/composables/load'
 const V4 = 'unsw-nb15-flow-v4'
 const { data, loading, error, reload } = useLoad(async () => {
   const [assets, sensors] = await Promise.all([
-    can('asset.read') ? api.get<Page<AssetView>>('/assets?size=100').then((p) => p.items) : [],
-    can('sensor.read') ? api.get<SensorView[]>('/sensors') : [],
+    can('asset.read') ? api.get<Page<AssetView>>('/api/v1/assets?size=100').then((p) => p.items) : [],
+    can('sensor.read') ? api.get<SensorView[]>('/api/v1/sensors') : [],
   ])
   return { assets, sensors }
 }, { assets: [] as AssetView[], sensors: [] as SensorView[] })
@@ -65,7 +65,7 @@ async function loadAuths() {
   authError.value = ''
   if (!picked.value || !can('asset.authorization.read')) return
   try {
-    const result = await api.get<AuthorizationView[]>(`/assets/${id}/authorizations`)
+    const result = await api.get<AuthorizationView[]>(`/api/v1/assets/${id}/authorizations`)
     if (request === authRequest && picked.value?.id === id) auths.value = result
   } catch (e) { if (request === authRequest && picked.value?.id === id) authError.value = errText(e) }
 }
@@ -81,12 +81,12 @@ const refreshPicked = async () => {
   picked.value = id == null ? null : data.value.assets.find((a) => a.id === id) ?? null
   await loadAuths()
 }
-const saveAsset = () => act(() => api.put(`/assets/${picked.value!.id}`, { ...assetForm.value, owner: assetForm.value.owner.trim() || null }),
+const saveAsset = () => act(() => api.put(`/api/v1/assets/${picked.value!.id}`, { ...assetForm.value, owner: assetForm.value.owner.trim() || null }),
   assetForm.value.status === picked.value?.status ? '资产已更新。' : `资产状态已改为 ${label(assetForm.value.status)}。`, refreshPicked)
-const approveAuth = (a: AuthorizationView) => act(() => api.post(`/assets/${a.assetId}/authorizations/${a.id}/approve`), '授权已批准并写入审计。', loadAuths)
+const approveAuth = (a: AuthorizationView) => act(() => api.post(`/api/v1/assets/${a.assetId}/authorizations/${a.id}/approve`), '授权已批准并写入审计。', loadAuths)
 function revokeAuth(a: AuthorizationView) {
   if (!authReason.value.trim()) return toast('请先填写撤销理由。', 'warn')
-  return act(() => api.post(`/assets/${a.assetId}/authorizations/${a.id}/revoke`, { reason: authReason.value.trim() }),
+  return act(() => api.post(`/api/v1/assets/${a.assetId}/authorizations/${a.id}/revoke`, { reason: authReason.value.trim() }),
     '授权已撤销；未有其他有效授权时，接入与处置将被拒绝。', loadAuths)
 }
 const canRevoke = (a: AuthorizationView) => ['pending', 'active'].includes(a.status)
@@ -104,14 +104,14 @@ function submitRequest() {
   const scope = parseJson(authForm.value.scope, '授权范围')
   if (!scope || !picked.value) return
   const f = authForm.value
-  return act(() => api.post(`/assets/${picked.value!.id}/authorizations`, {
+  return act(() => api.post(`/api/v1/assets/${picked.value!.id}/authorizations`, {
     authorizationRef: f.ref.trim(), scope, validFrom: new Date(f.from + 'Z').toISOString(), validUntil: new Date(f.until + 'Z').toISOString(),
   }), '授权申请已登记，须由其他管理员批准。', async () => { requesting.value = false; await loadAuths() })
 }
 
 const creatingAsset = ref(false)
 const newAsset = ref({ assetKey: '', assetType: 'host', environment: 'lab', criticality: 'medium', owner: '' })
-const createAsset = () => act(() => api.post('/assets', { ...newAsset.value, assetKey: newAsset.value.assetKey.trim(), owner: newAsset.value.owner.trim() || null, labels: {} }),
+const createAsset = () => act(() => api.post('/api/v1/assets', { ...newAsset.value, assetKey: newAsset.value.assetKey.trim(), owner: newAsset.value.owner.trim() || null, labels: {} }),
   '资产已登记。', () => { creatingAsset.value = false; newAsset.value = { assetKey: '', assetType: 'host', environment: 'lab', criticality: 'medium', owner: '' } })
 
 // ---------------- 传感器 ----------------
@@ -130,7 +130,7 @@ async function loadSensor() {
   sensorError.value = ''
   if (sensorId.value == null) { sensor.value = null; return }
   try {
-    const result = await api.get<SensorDetail>(`/sensors/${id}`)
+    const result = await api.get<SensorDetail>(`/api/v1/sensors/${id}`)
     if (request !== sensorRequest || sensorId.value !== id) return
     sensor.value = result
     platform.value = result.sensor.platform
@@ -140,19 +140,19 @@ watch(sensorId, () => { sensorReason.value = ''; issued.value = null; drafting.v
 const mine = (requestedBy: number | null) => requestedBy != null && requestedBy === session.user?.id
 const sensorActive = computed(() => sensor.value?.sensor.status !== 'revoked')
 const sid = () => sensor.value!.sensor.id
-const savePlatform = () => act(() => api.put(`/sensors/${sid()}`, { platform: platform.value.trim() }), '平台标识已更新。', loadSensor)
+const savePlatform = () => act(() => api.put(`/api/v1/sensors/${sid()}`, { platform: platform.value.trim() }), '平台标识已更新。', loadSensor)
 function decideConfig(configId: number, decision: 'approve' | 'reject') {
   if (!sensorReason.value.trim()) return toast('请先填写审批理由。', 'warn')
-  return act(() => api.post(`/sensors/${sid()}/configs/${configId}/decision`, { decision, reason: sensorReason.value.trim() }),
+  return act(() => api.post(`/api/v1/sensors/${sid()}/configs/${configId}/decision`, { decision, reason: sensorReason.value.trim() }),
     decision === 'approve' ? '配置已批准；启用后才会下发到传感器。' : '配置已驳回。', loadSensor)
 }
-const activateConfig = (configId: number) => act(() => api.post(`/sensors/${sid()}/configs/${configId}/activate`),
+const activateConfig = (configId: number) => act(() => api.post(`/api/v1/sensors/${sid()}/configs/${configId}/activate`),
   '配置已启用，旧版本已退役；传感器须以新配置版本上报。', loadSensor)
 async function rotate() {
   const id = sid()
   busy.value = true
   try {
-    const r = await api.post<{ credential: string; expiresAt: string }>(`/sensors/${id}/credentials/rotate`)
+    const r = await api.post<{ credential: string; expiresAt: string }>(`/api/v1/sensors/${id}/credentials/rotate`)
     if (sensorId.value !== id) return
     issued.value = { credential: r.credential, note: `旧凭据已失效；新凭据有效期至 ${fmtTime(r.expiresAt)}。` }
     toast('凭据已轮换。')
@@ -161,7 +161,7 @@ async function rotate() {
 }
 function withReason(path: string, done: string) {
   if (!sensorReason.value.trim()) return toast('请先填写理由。', 'warn')
-  return act(() => api.post(`/sensors/${sid()}/${path}`, { reason: sensorReason.value.trim() }), done, loadSensor)
+  return act(() => api.post(`/api/v1/sensors/${sid()}/${path}`, { reason: sensorReason.value.trim() }), done, loadSensor)
 }
 
 const drafting = ref(false)
@@ -182,7 +182,7 @@ function submitDraft() {
   const samplingPolicy = filterPolicy && parseJson(f.samplingPolicy, '采样策略')
   if (!samplingPolicy) return
   if (!f.reason.trim()) return toast('请填写起草理由。', 'warn')
-  return act(() => api.post(`/sensors/${sid()}/configs`, {
+  return act(() => api.post(`/api/v1/sensors/${sid()}/configs`, {
     configVersion: f.configVersion.trim(), interfaceScope, filterPolicy, samplingPolicy, flowWindowSeconds: Number(f.flowWindowSeconds),
     featureContractVersion: f.featureContractVersion.trim(), reason: f.reason.trim(),
   }), '配置版本已起草，须由其他管理员批准。', async () => { drafting.value = false; await loadSensor() })
@@ -196,7 +196,7 @@ async function register() {
   if (!interfaceScope) return
   busy.value = true
   try {
-    const r = await api.post<{ sensorId: number; credential: string; expiresAt: string }>('/sensors', {
+    const r = await api.post<{ sensorId: number; credential: string; expiresAt: string }>('/api/v1/sensors', {
       agentKey: f.agentKey.trim(), assetId: Number(f.assetId), dataSourceId: Number(f.dataSourceId), platform: f.platform.trim(),
       agentVersion: f.agentVersion.trim(), capabilities: {},
       config: { configVersion: f.configVersion.trim(), interfaceScope, filterPolicy: {}, flowWindowSeconds: Number(f.flowWindowSeconds), featureContractVersion: V4, samplingPolicy: {} },

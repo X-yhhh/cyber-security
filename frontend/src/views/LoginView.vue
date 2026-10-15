@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
  * 登录。左侧复用首屏粒子场景的"边界"形态作为品牌延续，右侧是极简表单。
- * 提交到 /api/v1/auth/login 建立服务端会话；失败文案直接使用后端稳定且脱敏的消息
+ * 通过 session.ts 提交到 /api/v2/auth/login 建立服务端会话；失败使用后端稳定且脱敏的消息
  * （不区分用户名不存在与密码错误），并附带 request-id 便于排查。
  */
 import { onBeforeUnmount, onMounted, ref, shallowRef } from 'vue'

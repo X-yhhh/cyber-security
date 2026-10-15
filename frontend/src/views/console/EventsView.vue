@@ -29,8 +29,8 @@ const q = ref('')
 
 const { data, loading, error } = useLoad(async () => {
   const [events, alerts] = await Promise.all([
-    can('event.read') ? api.get<Page<EventView>>('/events?size=100') : null,
-    can('alert.read') ? api.get<Page<AlertView>>('/alerts?size=100') : null,
+    can('event.read') ? api.get<Page<EventView>>('/api/v1/events?size=100') : null,
+    can('alert.read') ? api.get<Page<AlertView>>('/api/v1/alerts?size=100') : null,
   ])
   return { events: events?.items ?? [], alerts: alerts?.items ?? [], eventTotal: events?.totalElements ?? 0, alertTotal: alerts?.totalElements ?? 0 }
 }, { events: [] as EventView[], alerts: [] as AlertView[], eventTotal: 0, alertTotal: 0 })
@@ -50,7 +50,7 @@ async function loadSignals() {
   signals.value.loading = true
   signals.value.error = ''
   try {
-    const p = await api.get<Page<AlertView>>('/alerts?layer=signal&size=100')
+    const p = await api.get<Page<AlertView>>('/api/v1/alerts?layer=signal&size=100')
     signals.value = { items: p.items, total: p.totalElements, loading: false, error: '', loaded: true }
   } catch (e) {
     signals.value = { ...signals.value, loading: false, error: errText(e) }

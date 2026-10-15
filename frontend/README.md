@@ -20,12 +20,12 @@
 
 ## 2. 功能模块全景
 
-路由定义见 `src/router/index.ts`。控制台页面挂在 `/console` 下，未登录访问会跳转登录页。
+当前路由以 `src/router/nav.ts` 与 `src/router/index.ts` 为准。控制台页面挂在 `/console` 下，未登录访问会跳转登录页。以下保留历史模块对照，v1 页面与旧入口待 C1 删除；当前菜单及页面交付状态见[初版任务单](../docs/任务/初版落地任务单.md)。
 
-| 路由 | 页面 | 主要功能 | 调用的后端接口（`/api/v1` 下） |
+| 路由 | 页面 | 主要功能 | 调用的后端接口（未标版本的历史项为 `/api/v1`） |
 | --- | --- | --- | --- |
 | `/` | 首页 | 项目介绍与入口 | 无 |
-| `/login` | 登录 | 服务端会话登录，失败显示脱敏消息与 request ID | `/auth/csrf`、`/auth/login`、`/auth/me` |
+| `/login` | 登录 | v2 服务端会话登录，失败显示脱敏消息与 request ID | `/api/v2/auth/csrf`、`/api/v2/auth/login`、`/api/v2/auth/me` |
 | `/console/overview` | 态势 | 事件、传感器、审批、模型部署与漂移概览，运行状态 | `/overview`、`/events`、`/sensors`、`/approvals/ledger`、`/model-deployments`、`/model-drift-windows`、`/ops/status` |
 | `/console/events` | 告警与事件 | 告警与事件列表 | `/alerts`、`/events` |
 | `/console/events/:id` | 事件详情 | 关联告警与时间线（服务端分页）、状态迁移、研判笔记、告警误报/真报标注（`AlertFeedbackDrawer`）、发起处置申请 | `/alerts/{id}`、`/alerts/{id}/feedback`、`/events/{id}`、`/events/{id}/alerts`、`/events/{id}/timeline`、`/events/{id}/transitions`、`/events/{id}/notes`、`/events/{id}/actions`、`/response-policies` |
@@ -43,16 +43,17 @@
 
 ## 3. 数据来源与会话
 
-控制台不内置演示数据，所有页面数据均从后端读取（后端以 MySQL 为事实源）：既有页面走 `/api/v1`，
-09—11 三个模块走 host-guard v5 的 `/api/v2`。开发服务器将 `/api/v1` 与 `/api/v2` 代理到 `127.0.0.1:18080`。
+控制台不内置演示数据，所有页面数据均从后端读取（后端以 MySQL 为事实源）。公共客户端默认 `/api/v2`，待 C1 删除的旧页面显式调用 `/api/v1`。开发服务器将 `/api/v1` 与 `/api/v2` 代理到 `127.0.0.1:18080`。
 
-- 登录走 `POST /api/v1/auth/login` 建立服务端会话（HttpOnly Cookie）；写请求自动携带 `/auth/csrf` 下发的 CSRF 头。未登录访问 `/console/*` 跳转登录页，会话失效（401）时自动返回登录页。
-- 页面按 `/auth/me` 返回的权限决定请求哪些接口、显示哪些操作；最终授权始终由后端判定，无权限区块显示为空或提示，不补示例值。
+- 登录走 `POST /api/v2/auth/login` 建立服务端会话（HttpOnly Cookie）；退出与改密也走 v2，三者均带 `Idempotency-Key`。写请求自动携带 `/api/v2/auth/csrf` 下发的 CSRF 头，头名不硬编码。未登录访问 `/console/*` 跳转登录页，会话失效（401）时自动返回登录页。
+- 页面按 `/api/v2/auth/me` 返回的权限决定请求哪些接口、显示哪些操作；最终授权始终由后端判定，无权限区块显示为空或提示，不补示例值。
 - 数据库中没有记录时页面如实显示“暂无记录”。
 - 已接入的写操作：事件状态迁移、研判笔记、处置申请（带 `Idempotency-Key`）、审批决定、资产授权批准、模型校验/发布申请/发布审批/本机激活、响应策略生命周期、告警标注与第二人复核。
 - P4 的 v2 写操作（09—11）：全部带 `Idempotency-Key`，审批/激活/停用类另带 `If-Match: <revision>`。包括决策策略复核、发布组合登记报告/封存/审批/激活/停用、人工处置申请/审批/撤销、自动化停用。前端只按权限隐藏入口，职责分离（自批 403）与状态迁移以后端判定为准。
 - **机器侧路由不在控制台范围内**：`/api/v2/machine/**` 要求 `Bearer mch_*` 机器身份并清空浏览器会话，由采集器与执行器调用，浏览器不可用。
 - 回放启停与 v1 处置执行器未开放（后端执行端点固定返回 `503 ACTION_EXECUTION_UNAVAILABLE`）。
+
+F5 已完成 `api/v2/iam.ts`（用户、绑定、只读审计）、`roles.ts`（角色、权限、成员与冲突提示）、会话切换及 MSW 回归。用户/角色/新审计页面和对应导航尚未完成，按用户确认随页面交接。IAM asset `scopeId` 是内部十进制 ID，不能直接提交资产列表的公开 UUID。
 
 ---
 
@@ -69,4 +70,4 @@ npm run build       # 类型检查 + 生产构建
 npm run preview     # 预览生产构建
 ```
 
-API 客户端 `src/api/client.ts` 同时支持两套信封：v1 为 `{ success, data, error, requestId }`，v2 为 `{ requestId, data, error }`；自动携带 CSRF 头与会话 Cookie，写请求注入幂等键，审批类操作注入 `If-Match`。详见[前端设计文档](../docs/前端设计文档.md)。
+API 客户端 `src/api/client.ts` 同时支持两套信封：v1 为 `{ success, data, error, requestId }`，v2 为 `{ requestId, data, error }`；自动携带 CSRF 头与会话 Cookie；v2 业务封装和会话模块注入幂等键，需并发控制的操作注入 `If-Match`。详见[前端设计文档](../docs/前端设计文档.md)。

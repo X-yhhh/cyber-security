@@ -26,9 +26,9 @@ const SECRET_FIELD = { created: 'password', reset: 'newPassword' } as const
 const { data, loading, error, reload } = useLoad(async () => {
   if (!can('iam.user.read')) throw new Error('当前身份没有身份管理查看权限。')
   const [users, roles, clients] = await Promise.all([
-    api.get<Page<UserSummary>>('/users?size=100').then((p) => p.items),
-    can('iam.role.read') ? api.get<RoleSummary[]>('/roles') : [],
-    can('system.config.read') ? api.get<Page<MachineClientView>>('/machine-clients?size=100').then((p) => p.items) : [],
+    api.get<Page<UserSummary>>('/api/v1/users?size=100').then((p) => p.items),
+    can('iam.role.read') ? api.get<RoleSummary[]>('/api/v1/roles') : [],
+    can('system.config.read') ? api.get<Page<MachineClientView>>('/api/v1/machine-clients?size=100').then((p) => p.items) : [],
   ])
   return { users, roles, clients }
 }, { users: [] as UserSummary[], roles: [] as RoleSummary[], clients: [] as MachineClientView[] })
@@ -64,7 +64,7 @@ async function openUser(id: number) {
   resetValue.value = ''
   editingRoles.value = false
   try {
-    const [detail, roles] = await Promise.all([api.get<UserDetail>(`/users/${id}`), api.get<RoleBindingView[]>(`/users/${id}/roles`)])
+    const [detail, roles] = await Promise.all([api.get<UserDetail>(`/api/v1/users/${id}`), api.get<RoleBindingView[]>(`/api/v1/users/${id}/roles`)])
     if (request !== userRequest || pickedId.value !== id) return
     user.value = detail
     bindings.value = roles
@@ -85,12 +85,12 @@ async function run(action: () => Promise<unknown>, done: string, needReason = fa
     if (pickedId.value != null) await openUser(pickedId.value)
   } catch (e) { toast(errText(e), 'threat') } finally { busy.value = false }
 }
-const saveProfile = () => run(() => api.put(`/users/${user.value!.id}`, { displayName: displayName.value.trim() }), '显示名称已更新。')
-const setStatus = (status: 'active' | 'disabled') => run(() => api.post(`/users/${user.value!.id}/status`, { status, reason: reason.value.trim() }),
+const saveProfile = () => run(() => api.put(`/api/v1/users/${user.value!.id}`, { displayName: displayName.value.trim() }), '显示名称已更新。')
+const setStatus = (status: 'active' | 'disabled') => run(() => api.post(`/api/v1/users/${user.value!.id}/status`, { status, reason: reason.value.trim() }),
   status === 'disabled' ? '已冻结，该用户的全部会话已撤销。' : '已解冻。', true)
 function resetSecret() {
   if (resetValue.value.length < 12) return toast('新口令至少 12 个字符。', 'warn')
-  return run(() => api.post(`/users/${user.value!.id}/password-reset`, { [SECRET_FIELD.reset]: resetValue.value, reason: reason.value.trim() }),
+  return run(() => api.post(`/api/v1/users/${user.value!.id}/password-reset`, { [SECRET_FIELD.reset]: resetValue.value, reason: reason.value.trim() }),
     '口令已重置，该用户须用新口令重新登录。', true).then(() => { resetValue.value = '' })
 }
 
@@ -99,7 +99,7 @@ function editRoles() {
   if (!roleRows.value.length) roleRows.value.push({ roleKey: data.value.roles[0]?.roleKey ?? '', scopeType: 'asset', scopeId: '' })
   editingRoles.value = true
 }
-const saveRoles = () => run(() => api.put(`/users/${user.value!.id}/roles`, { assignments: roleRows.value.map((r) => ({ ...r, scopeId: r.scopeId.trim() })) }),
+const saveRoles = () => run(() => api.put(`/api/v1/users/${user.value!.id}/roles`, { assignments: roleRows.value.map((r) => ({ ...r, scopeId: r.scopeId.trim() })) }),
   '角色范围已整体替换，该用户的会话已撤销。')
 
 // ---- 新建用户 ----
@@ -111,7 +111,7 @@ async function createUser() {
   if (f.initial.length < 12) return toast('初始口令至少 12 个字符。', 'warn')
   busy.value = true
   try {
-    await api.post('/users', { username: f.username.trim(), displayName: f.displayName.trim(), [SECRET_FIELD.created]: f.initial })
+    await api.post('/api/v1/users', { username: f.username.trim(), displayName: f.displayName.trim(), [SECRET_FIELD.created]: f.initial })
     toast('用户已创建，未授予任何角色。')
     creating.value = false
     createForm.value = { username: '', displayName: '', initial: '' }
@@ -126,7 +126,7 @@ async function revokeClient() {
   if (!client.value || !clientReason.value.trim()) return toast('请填写吊销理由。', 'warn')
   busy.value = true
   try {
-    await api.post(`/machine-clients/${client.value.id}/revoke`, { reason: clientReason.value.trim() })
+    await api.post(`/api/v1/machine-clients/${client.value.id}/revoke`, { reason: clientReason.value.trim() })
     toast('凭据已吊销，立即失效。')
     client.value = null
     clientReason.value = ''
@@ -147,7 +147,7 @@ async function openIssue() {
   issuing.value = true
   try {
     const [sources, assets] = await Promise.all([
-      api.get<Page<DataSourceView>>('/data-sources?size=100'), api.get<Page<AssetView>>('/assets?size=100')])
+      api.get<Page<DataSourceView>>('/api/v1/data-sources?size=100'), api.get<Page<AssetView>>('/api/v1/assets?size=100')])
     issueOptions.value = { sources: sources.items.filter((x) => x.status === 'active'), assets: assets.items.filter((x) => x.status === 'active') }
   } catch (e) { issueError.value = errText(e) }
 }
@@ -158,7 +158,7 @@ async function issueClient() {
     .map((k) => ({ scopeType: k.split(':')[0], scopeId: k.split(':')[1] }))
   busy.value = true
   try {
-    issuedClient.value = await api.post<IssuedMachineClient>('/machine-clients', {
+    issuedClient.value = await api.post<IssuedMachineClient>('/api/v1/machine-clients', {
       clientKey: issueForm.value.clientKey.trim(), clientType: 'connector', scopes, sourceAssetBindings: pairs,
     })
     toast('连接器已登记，凭据只显示这一次。')

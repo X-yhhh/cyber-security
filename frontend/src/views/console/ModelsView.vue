@@ -22,11 +22,11 @@ import { errText, useLoad } from '@/composables/load'
 const { data, loading, error, reload } = useLoad(async () => {
   if (!can('model.validation.read')) throw new Error('当前身份没有模型治理查看权限（model.validation.read），平台管理员与模型治理按职责分离。')
   const [models, deployments, drift, feedback, jobs] = await Promise.all([
-    api.get<Page<ModelView>>('/models?size=100').then((p) => p.items),
-    api.get<DeploymentView[]>('/model-deployments'),
-    api.get<DriftView[]>('/model-drift-windows'),
-    api.get<FeedbackView[]>('/feedback-samples'),
-    api.get<TrainingJobView[]>('/training-jobs'),
+    api.get<Page<ModelView>>('/api/v1/models?size=100').then((p) => p.items),
+    api.get<DeploymentView[]>('/api/v1/model-deployments'),
+    api.get<DriftView[]>('/api/v1/model-drift-windows'),
+    api.get<FeedbackView[]>('/api/v1/feedback-samples'),
+    api.get<TrainingJobView[]>('/api/v1/training-jobs'),
   ])
   return { models, deployments, drift, feedback, jobs }
 }, { models: [] as ModelView[], deployments: [] as DeploymentView[], drift: [] as DriftView[], feedback: [] as FeedbackView[], jobs: [] as TrainingJobView[] })
@@ -40,7 +40,7 @@ const deployment = computed(() => data.value.deployments.find((d) => d.modelVers
 const releases = ref<ReleaseView[]>([])
 watch(m, async (x) => {
   releases.value = []
-  if (x) try { releases.value = await api.get<ReleaseView[]>(`/models/${x.id}/release-requests`) } catch { /* 无权限时留空 */ }
+  if (x) try { releases.value = await api.get<ReleaseView[]>(`/api/v1/models/${x.id}/release-requests`) } catch { /* 无权限时留空 */ }
 })
 const pendingRelease = computed(() => releases.value.find((r) => r.reviewStatus === 'pending'))
 
@@ -67,14 +67,14 @@ async function run(label: string, fn: () => Promise<unknown>) {
     toast(`${label}已提交并写入审计。`)
     reason.value = ''
     await reload()
-    if (m.value) releases.value = await api.get<ReleaseView[]>(`/models/${m.value.id}/release-requests`).catch(() => [])
+    if (m.value) releases.value = await api.get<ReleaseView[]>(`/api/v1/models/${m.value.id}/release-requests`).catch(() => [])
   } catch (e) { toast(errText(e), 'threat') } finally { busy.value = false }
 }
-const validate = () => run('制品校验', () => api.post(`/models/${m.value!.id}/validate`))
-const requestRelease = () => run('发布申请', () => api.post(`/models/${m.value!.id}/release-requests`, { reason: reason.value.trim() }))
-const decideRelease = (ok: boolean) => run(ok ? '发布批准' : '发布驳回', () => api.post(`/model-release-requests/${pendingRelease.value!.id}/decision`, { decision: ok ? 'approve' : 'reject', reason: reason.value.trim() }))
-const activate = () => run('本机激活', () => api.put('/model-deployments/active', { modelVersionId: m.value!.id, reason: reason.value.trim() }))
-const retire = () => run('版本退役', () => api.post(`/models/${m.value!.id}/retire`, { reason: reason.value.trim() }))
+const validate = () => run('制品校验', () => api.post(`/api/v1/models/${m.value!.id}/validate`))
+const requestRelease = () => run('发布申请', () => api.post(`/api/v1/models/${m.value!.id}/release-requests`, { reason: reason.value.trim() }))
+const decideRelease = (ok: boolean) => run(ok ? '发布批准' : '发布驳回', () => api.post(`/api/v1/model-release-requests/${pendingRelease.value!.id}/decision`, { decision: ok ? 'approve' : 'reject', reason: reason.value.trim() }))
+const activate = () => run('本机激活', () => api.put('/api/v1/model-deployments/active', { modelVersionId: m.value!.id, reason: reason.value.trim() }))
+const retire = () => run('版本退役', () => api.post(`/api/v1/models/${m.value!.id}/retire`, { reason: reason.value.trim() }))
 // 回退需二次确认：第一次点击只展开确认区，确认时以当前活动版本作为 expectedCurrentModelId
 const confirmingRollback = ref(false)
 watch(m, () => { confirmingRollback.value = false })
@@ -84,7 +84,7 @@ function askRollback() {
 }
 const rollback = () => run('部署回退', async () => {
   confirmingRollback.value = false
-  await api.post('/model-deployments/rollback', { expectedCurrentModelId: m.value!.id, reason: reason.value.trim() })
+  await api.post('/api/v1/model-deployments/rollback', { expectedCurrentModelId: m.value!.id, reason: reason.value.trim() })
 })
 const stages = ['candidate', 'validated', 'approved']
 const stageIdx = computed(() => (deployment.value ? 3 : stages.indexOf(m.value?.approvalStatus ?? '')))

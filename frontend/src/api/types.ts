@@ -8,7 +8,8 @@ import type { Page } from './client'
 export type Severity = 'critical' | 'high' | 'medium' | 'low'
 export type EventStatus = 'open' | 'investigating' | 'contained' | 'resolved' | 'false_positive' | 'closed'
 
-export interface SessionUser { id: number; userKey: string; username: string; displayName: string; roles: string[]; permissions: string[] }
+/** v2 auth/me 不返回 userKey；旧页面和测试的兼容字段在 C1 一并删除。 */
+export interface SessionUser { id: number; userKey?: string; username: string; displayName: string; roles: string[]; permissions: string[]; bindings?: import('./v2/iam').RoleBinding[] }
 /** 告警视图；V13 起带来源追溯（模型/规则版本、契约版本与哈希、分级策略）和评分依据快照 basisJson。 */
 export interface AlertView {
   id: number; alertKey: string; alertType: string; severity: Severity; status: string; score: number | null; detectedAt: string; dataSourceId: number; assetId: number | null

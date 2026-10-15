@@ -1,10 +1,11 @@
 /**
- * 威胁检测（F1）msw 处理器：覆盖观测与推理、判定与来源、事件研判（含详情/时间线/证据组/动作/可指派人员）、
+ * 威胁检测（F1、F1R）msw 处理器：覆盖检测记录四段、事件研判（含详情/时间线/证据组/动作/可指派人员）、
  * 反馈与复核的读取与写操作，并校验写请求的 Idempotency-Key 与 If-Match。
  */
 import { http, HttpResponse } from 'msw'
+import type { NamedAsset } from '@/api/v2/detect'
 import type {
-  GuardAction, GuardAsset, GuardAssignableUser, GuardDecision, GuardDetection,
+  GuardAction, GuardAssignableUser, GuardDecision, GuardDetection,
   GuardEpisode, GuardEpisodeEvidence, GuardFeedback, GuardGuardEvent,
   GuardObservation, GuardObservationBatch, GuardTimelineEntry,
 } from '@/api/types'
@@ -33,7 +34,7 @@ export interface RecordedWrite {
 }
 
 export interface DetectFixtureState {
-  assets: GuardAsset[]
+  assets: NamedAsset[]
   batches: GuardObservationBatch[]
   observations: GuardObservation[]
   detections: GuardDetection[]
@@ -51,7 +52,7 @@ export interface DetectFixtureState {
 function defaultState(): DetectFixtureState {
   return {
     assets: [
-      { id: ASSET_1, assetKey: 'host-lab-01', assetType: 'host', environment: 'lab', criticality: 'high', owner: 'sec', status: 'active', labels: {}, revision: 1, createdAt: '2026-10-13T10:00:00Z', updatedAt: '2026-10-13T10:00:00Z' },
+      { id: ASSET_1, displayName: '靶场主机 01', assetKey: 'host-lab-01', assetType: 'host', environment: 'lab', criticality: 'high', owner: 'sec', status: 'active', labels: {}, revision: 1, createdAt: '2026-10-13T10:00:00Z', updatedAt: '2026-10-13T10:00:00Z' },
       { id: ASSET_2, assetKey: 'host-auth-02', assetType: 'host', environment: 'authorized', criticality: 'high', owner: 'sec', status: 'active', labels: {}, revision: 1, createdAt: '2026-10-13T10:00:00Z', updatedAt: '2026-10-13T10:00:00Z' },
     ],
     batches: [
@@ -309,6 +310,19 @@ function defaultState(): DetectFixtureState {
           details: { decision: 'block_candidate' },
           createdAt: '2026-10-13T10:01:03Z',
         },
+        // 同类型、同主体、5 分钟内的系统记录：界面合并为一条并显示 ×3
+        ...[2, 3].map((m) => ({
+          id: `tl-1-${m}`,
+          eventId: EVENT_OPEN,
+          occurredAt: `2026-10-13T10:0${m}:03Z`,
+          entryType: 'guard.decision',
+          actorType: 'system',
+          actorId: 'guard',
+          summary: `规则 R-BF-1 再次命中（第 ${m} 次）`,
+          evidenceRef: DEC_1,
+          details: { decision: 'block_candidate' },
+          createdAt: `2026-10-13T10:0${m}:03Z`,
+        })),
       ],
       [EVENT_ALERT_ONLY]: [],
     },
@@ -451,7 +465,15 @@ export const detectHandlers = [
     return ok({ items })
   }),
 
-  http.get('/api/v2/decisions', () => ok({ items: detectState.decisions, nextCursor: null })),
+  http.get('/api/v2/decisions', ({ request }) => {
+    const u = new URL(request.url)
+    return ok({ items: filterByAsset(detectState.decisions, u.searchParams.get('assetId')), nextCursor: null })
+  }),
+
+  http.get('/api/v2/assets/:id', ({ params }) => {
+    const hit = detectState.assets.find((a) => a.id === params.id)
+    return hit ? ok(hit) : fail(404, 'RESOURCE_NOT_FOUND', '资产不存在')
+  }),
 
   http.get('/api/v2/events', ({ request }) => {
     const u = new URL(request.url)

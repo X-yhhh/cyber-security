@@ -10,11 +10,11 @@ F2 处置记录与待办中心已完成（[PR #66](https://github.com/X-yhhh/cyb
 
 F5 已完成：接口与 v2 会话（实现 `274140d`，[PR #68](https://github.com/X-yhhh/cyber-security/pull/68)）、用户/角色/审计页面与导航（[PR #73](https://github.com/X-yhhh/cyber-security/pull/73)）均已合入；后续测试与范围选择器限制见[初版任务单 F5](docs/任务/初版落地任务单.md#f5-系统管理--登录切到-v2)及[实施记录 6.34](docs/系统实施记录.md#634-初版-f5用户管理角色管理审计日志页面2026-10-15)。
 
-**F4 已完成**：页面已由 [PR #69](https://github.com/X-yhhh/cyber-security/pull/69) 合入，非页面部分（实现 `0e47a5a`）已由 [PR #70](https://github.com/X-yhhh/cyber-security/pull/70) 合入，包含资产与接入 MSW、44 项接口/页面回归、授权与采集配置的本人识别字段、修订冲突刷新提示及旧健康链接筛选保留。前端全量 411 项通过，后端全量 687 项通过、77 项条件跳过，0 失败；真实后端 HTTP 与六角色浏览器联调由独立 T1 卡片接续，仍待执行。交付与验证见[实施记录 6.32](docs/系统实施记录.md#632-初版-f4非页面实现与自动化验收2026-10-15)。
+**F4 已完成**：页面已由 [PR #69](https://github.com/X-yhhh/cyber-security/pull/69) 合入，非页面部分（实现 `0e47a5a`）已由 [PR #70](https://github.com/X-yhhh/cyber-security/pull/70) 合入，包含资产与接入 MSW、44 项接口/页面回归、授权与采集配置的本人识别字段、修订冲突刷新提示及旧健康链接筛选保留。前端全量 411 项通过，后端全量 687 项通过、77 项条件跳过，0 失败；真实后端 HTTP 与六角色浏览器联调已由独立 T1 卡片验收，见[实施记录 6.37](docs/系统实施记录.md#637-初版-t1端到端回归与验收阻塞修复2026-10-15)。交付与验证见[实施记录 6.32](docs/系统实施记录.md#632-初版-f4非页面实现与自动化验收2026-10-15)。
 
 | 方向 | 状态摘要 | 接下来的任务 |
 |---|---|---|
-| 前端 | Vue 3 控制台的 W2 页面已完成：F0/F0R、U0、F1/F1R、F2—F6；6 组 13 行全部 ready。C1 已删除旧页面、接口封装与过渡字段；接续 T1 端到端测试，各卡片的剩余测试及契约限制见任务交接 | [前端任务](docs/任务/前端.md) |
+| 前端 | Vue 3 控制台的 W2 页面已完成：F0/F0R、U0、F1/F1R、F2—F6；6 组 13 行全部 ready。C1 已删除旧页面、接口封装与过渡字段；T1 已完成 U1—U6、菜单、增删改查及 390px 真实后端端到端验收；接续 R1 克隆预演，各卡片的剩余测试及契约限制见任务交接 | [前端任务](docs/任务/前端.md) |
 | 后端（含传感器、执行器、编排） | v2 控制面、多分类推理、来源汇总、规则、决策、lab 会话、G3 报告与正式编排；Mac PF 执行器 E1—E3 真实通过；正式 G3 通过 | [后端任务](docs/任务/后端.md) |
 | 数据库 | Flyway 代码 V1—V27（B4 已合入）；本机业务库 V25，每次写入均备份与恢复演练 | [数据库任务](docs/任务/数据库.md) |
 | 模型 | 第二轮去主机上下文候选：G1 检出率 99.528524%、FPR 0%，G2 macro-F1 0.996283；G3 三类模型来源 `lab_auto`；L3 慢速 0/29、L2 未评估 | [模型任务](docs/任务/模型.md) |
@@ -25,9 +25,11 @@ B4（BE-21、DB-11）**已完成**角色维护、统一职责冲突、用户资�
 
 初版 B3 部署工具链已完成代码、临时目录和克隆登记验收；[使用说明](scripts/p8/README.md#b3-初版部署工具链2026-10-14)，实际安装/采集/PF 仍待 P1/A23。
 
-F3 已完成非页面部分（`e6aad6d`）与正式页面（[PR #71](https://github.com/X-yhhh/cyber-security/pull/71)）；剩余页面测试、本人识别契约与真实联调见[前端 README 第 5 节](frontend/README.md#5-f3-非页面交接2026-10-15)及[实施记录 6.33](docs/系统实施记录.md#633-初版-f3模型与数据集发布管理页面2026-10-15)。
+F3 已完成非页面部分（`e6aad6d`）与正式页面（[PR #71](https://github.com/X-yhhh/cyber-security/pull/71)）；U4 真实后端发布闭环已由 T1 验收。剩余页面 MSW 测试与本人识别契约见[前端 README 第 5 节](frontend/README.md#5-f3-非页面交接2026-10-15)及[实施记录 6.33](docs/系统实施记录.md#633-初版-f3模型与数据集发布管理页面2026-10-15)。
 
-**W3-C1 已完成**：前端页面由 [PR #74](https://github.com/X-yhhh/cyber-security/pull/74) 删除；[PR #75](https://github.com/X-yhhh/cyber-security/pull/75) 补齐前端接口与类型清理、BE-17 人工接口退役、P7 v2 登录、P8 健康探针及文档。人工入口统一 `/api/v2`，公共探针为 `/health/live`、`/health/ready`，旧 `/api/v1/machine/*` 仍保留。接口对照见[前端 README 第 2 节](frontend/README.md#2-功能模块全景)，验证与边界见[实施记录 6.36](docs/系统实施记录.md#636-初版-c1接口退役与非页面实现2026-10-15)。T1、R1 仍待执行；业务库保持 V25，未部署。
+**W3-C1 已完成**：前端页面由 [PR #74](https://github.com/X-yhhh/cyber-security/pull/74) 删除；[PR #75](https://github.com/X-yhhh/cyber-security/pull/75) 补齐前端接口与类型清理、BE-17 人工接口退役、P7 v2 登录、P8 健康探针及文档。人工入口统一 `/api/v2`，公共探针为 `/health/live`、`/health/ready`，旧 `/api/v1/machine/*` 仍保留。接口对照见[前端 README 第 2 节](frontend/README.md#2-功能模块全景)，验证与边界见[实施记录 6.36](docs/系统实施记录.md#636-初版-c1接口退役与非页面实现2026-10-15)。T1 已完成（[PR #76](https://github.com/X-yhhh/cyber-security/pull/76)），R1 待执行；业务库保持 V25，未部署。
+
+**W3-T1 / FE-13 已完成**（[PR #76](https://github.com/X-yhhh/cyber-security/pull/76)）：真实 JAR/dist、隔离 MySQL 与 RabbitMQ 下的 U1—U6、六角色菜单/403、旧地址重定向、增删改查及 390px 回归；连续两次全部通过，验收阻塞 T1-R1—R3 已修复。完成状态随本 PR 合入 main 生效，验证与边界见[实施记录 6.37](docs/系统实施记录.md#637-初版-t1端到端回归与验收阻塞修复2026-10-15)。
 
 部署准备收尾与测试跳过明细见[系统实施记录 6.13 节](docs/系统实施记录.md#613-部署准备收尾2026-10-14)；[A8 申请材料](docs/部署与回退.md#8-a8-申请材料待用户授权)已整理，P8 尚未授权或执行。
 

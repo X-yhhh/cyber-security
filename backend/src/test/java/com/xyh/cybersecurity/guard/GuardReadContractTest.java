@@ -18,6 +18,20 @@ import static org.assertj.core.api.Assertions.*;
 /** 游标绑定、严格参数和嵌套类型白名单，不依赖数据库或运行服务。 */
 class GuardReadContractTest {
     @Test
+    void requesterMatchesSessionIdWithoutExposingReviewersOrInventingLegacyOwners() {
+        var time = LocalDateTime.parse("2026-10-15T00:00:00");
+        for (var kind : java.util.List.of(AUTHORIZATIONS, CONFIGS)) {
+            var row = map("requested_by", 123L, "approved_by", 456L,
+                    "valid_from", time.minusDays(1), "valid_until", time.plusDays(1));
+            var view = GuardReadViews.view(kind, row, time);
+            assertThat(view.path("requestedBy").asLong()).isEqualTo(123L);
+            assertThat(view.has("approvedBy")).isFalse();
+            row.remove("requested_by");
+            assertThat(GuardReadViews.view(kind, row, time).path("requestedBy").isNull()).isTrue();
+        }
+    }
+
+    @Test
     void cursorAuthenticatesAllContextAndDoesNotExposeInternalIds() {
         var codec = new GuardReadCursor();
         var position = new GuardReadCursor.Position(103, 99, LocalDateTime.parse("2026-10-11T01:02:03.123456"),

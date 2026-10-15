@@ -118,3 +118,14 @@ API 客户端 `src/api/client.ts` 同时支持两套信封：v1 为 `{ success, 
 `test/handlers/release.ts` 已加入统一 msw 服务器；测试前调用 `resetReleaseState()`，可用 `releaseRows` / `labRow` 断言写后回读，用 `releaseState.referenced` 模拟 409 引用冲突。夹具和 `owners` 只存在于测试，不含真实制品或执行授权；合成 lab 报告不授予自动资格，也不推断清理成功。
 
 已通过 `npm ci`、`npm run lint`、`npm run typecheck`、`npm test -- --coverage`（30 文件、333 项，原阈值不变）和 `npm run build`。已整合 main 的 F2 菜单与待办中心，并重新运行上述检查（锁文件与依赖未变）；页面由用户从 main 另开分支实现。这些是客户端与合成 API 证据；真实后端、签名制品、数据库和浏览器端到端仍待后续验证。状态与接续范围见[初版任务单 F3](../docs/任务/初版落地任务单.md#f3-模型与数据集发布管理)及[实施记录 6.29](../docs/系统实施记录.md#629-初版-f3接口预校验与导航接线2026-10-15)。
+
+## 6. F4 非页面接续（2026-10-15）
+
+页面沿用 PR #69，非页面实现 `0e47a5a` 由 [PR #70](https://github.com/X-yhhh/cyber-security/pull/70) 交付：补齐 `test/fixtures/assets.ts`、`test/handlers/assets.ts`、`api/v2/assets.test.ts` 与 `views/assets/AssetsViews.test.ts`，统一资产名称与两类心跳夹具。测试前按需调用 `resetDetectState()`、`resetAssetsState()`、`resetReleaseState()`；全部为合成状态，不进入生产包。
+
+- API 入口为 `@/api/v2/assets` 的 `assetsApi`，覆盖资产、授权、传感器/执行器、采集配置、机器客户端、心跳及健康窗口；绑定仍从 `release-bundles/{id}/bindings` 读取。
+- 授权、采集配置集合及详情已返回 `requestedBy`，与 `/api/v2/auth/me.id` 同口径；历史 null 保留未知，后端写服务仍独立校验职责分离。修订冲突保留错误码及 request-id，提示刷新，不自动重试。
+- MSW 先做逐资产范围校验再分页，游标绑定主体/权限/范围/集合/筛选；写入检查 CSRF、幂等键及适用的 `If-Match`，回写后可重读。用 `assetsState.referencedConfigs` 模拟引用保护；一次性凭据只在响应生成，不放进状态、写记录或重放缓存，同键不二次签发。
+- 18 项 API 与 26 项页面测试覆盖四态、六角色路由与按钮、本人识别、生命周期、危险操作确认、写后重读、凭据关闭不可找回、配置草稿校验与审批失败、未知/回放健康及待办直达。旧健康地址保留筛选与锚点；前端全量 33 文件 411 项通过，覆盖率阈值未改。
+
+合成夹具不模拟真实事务、冻结摘要校验、密码验证、采集或 PF；后端本人识别已用隔离 MySQL 验证。真实后端 HTTP 与六角色浏览器端到端仍归 T1，不作为已部署或实网验收。完整验证与交付见[实施记录 6.32](../docs/系统实施记录.md#632-初版-f4非页面实现与自动化验收2026-10-15)。

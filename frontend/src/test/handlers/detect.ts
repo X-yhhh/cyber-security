@@ -433,8 +433,6 @@ function filterByAsset<T extends { assetId?: string | null; guardAssetId?: strin
 }
 
 export const detectHandlers = [
-  http.get('/api/v2/assets', () => ok({ items: detectState.assets, nextCursor: null })),
-
   http.get('/api/v2/observation-batches', ({ request }) => {
     const u = new URL(request.url)
     return ok({ items: filterByAsset(detectState.batches, u.searchParams.get('assetId')), nextCursor: null })
@@ -468,11 +466,6 @@ export const detectHandlers = [
   http.get('/api/v2/decisions', ({ request }) => {
     const u = new URL(request.url)
     return ok({ items: filterByAsset(detectState.decisions, u.searchParams.get('assetId')), nextCursor: null })
-  }),
-
-  http.get('/api/v2/assets/:id', ({ params }) => {
-    const hit = detectState.assets.find((a) => a.id === params.id)
-    return hit ? ok(hit) : fail(404, 'RESOURCE_NOT_FOUND', '资产不存在')
   }),
 
   http.get('/api/v2/events', ({ request }) => {

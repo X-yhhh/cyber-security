@@ -94,10 +94,9 @@ describe('菜单配置（权限设计第 7.2 节）', () => {
     ])
   })
 
-  it('5 个过渡行挂在新组下、路径不变、继续可进入', () => {
+  it('4 个过渡行挂在新组下、路径不变、继续可进入', () => {
     const legacy = nav.filter((i) => i.legacy).map((i) => [i.title, i.group, i.path, i.ready])
     expect(legacy).toEqual([
-      ['目标预算', 'response', '/console/response/budgets', true],
       ['评价与回放', 'release', '/console/release/evaluations', true],
       ['决策策略', 'release', '/console/release/policies', true],
       ['lab 验证与 G3', 'release', '/console/release/lab', true],
@@ -142,11 +141,11 @@ describe('角色可见性矩阵（权限设计第 7.3 节，全部 ready、去�
 describe('当前 ready 配置下的实际菜单', () => {
   const current: Record<HumanRole, string[]> = {
     platform_admin: ['实时态势', '待办中心', '运行健康', '审计日志'],
-    security_analyst: ['实时态势', '待办中心', '事件研判', '检测记录', '误报反馈', '处置记录', '目标预算'],
-    security_reviewer: ['实时态势', '待办中心', '事件研判', '检测记录', '处置记录', '目标预算', '发布管理', '评价与回放', '决策策略', 'lab 验证与 G3', '运行健康'],
+    security_analyst: ['实时态势', '待办中心', '事件研判', '检测记录', '误报反馈', '处置记录'],
+    security_reviewer: ['实时态势', '待办中心', '事件研判', '检测记录', '处置记录', '发布管理', '评价与回放', '决策策略', 'lab 验证与 G3', '运行健康'],
     model_operator: ['待办中心', '发布管理', '评价与回放', '决策策略', 'lab 验证与 G3'],
     evidence_reviewer: ['实时态势', '待办中心', '事件研判', '检测记录', '误报反馈', '发布管理', '评价与回放', '决策策略', 'lab 验证与 G3'],
-    auditor: ['实时态势', '待办中心', '事件研判', '检测记录', '处置记录', '目标预算', '发布管理', '评价与回放', '决策策略', 'lab 验证与 G3', '运行健康', '审计日志'],
+    auditor: ['实时态势', '待办中心', '事件研判', '检测记录', '处置记录', '发布管理', '评价与回放', '决策策略', 'lab 验证与 G3', '运行健康', '审计日志'],
   }
 
   it.each(humanRoles)('%s', (role) => {
@@ -161,7 +160,7 @@ describe('当前 ready 配置下的实际菜单', () => {
     /* F0 的 18 项菜单中当时 ready 的 12 项加工作台 → 现在承载它的行。 */
     const carried: Record<string, string> = {
       工作台: '待办中心', 观测与推理: '检测记录', 判定与来源: '检测记录', 事件研判: '事件研判', 反馈与复核: '误报反馈',
-      处置动作: '处置记录', 目标预算: '目标预算', 评价与回放: '评价与回放', 决策策略: '决策策略', 能力与发布组合: '发布管理',
+      处置动作: '处置记录', 目标预算: '处置记录', 评价与回放: '评价与回放', 决策策略: '决策策略', 能力与发布组合: '发布管理',
       'lab 验证与 G3': 'lab 验证与 G3', 运行健康: '运行健康', 审计日志: '审计日志',
     }
     const before: Record<HumanRole, string[]> = {

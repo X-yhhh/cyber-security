@@ -162,7 +162,7 @@ describe('TodoList', () => {
     const w = mount(TodoList, { props: { groups }, global: { plugins: [router] } })
     const sections = w.findAll('[data-todo-group]')
     expect(sections.map((s) => s.attributes('data-todo-group'))).toEqual(['approve', 'other'])
-    expect(sections[0].get('h3').text()).toBe('待批3')
+    expect(sections[0].get('h3').text()).toBe('需要批准3')
     expect(sections[0].findAll('li')).toHaveLength(2)
     expect(sections[0].findAll('a').map((a) => a.text())).toEqual(['进入', '审核'])
     expect(sections[0].text()).toContain('mac-01')

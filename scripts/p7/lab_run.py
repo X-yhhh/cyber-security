@@ -371,7 +371,7 @@ class Runner:
         for _ in range(90):
             require(self.backend.poll() is None, 'LAB_BACKEND_EXITED')
             try:
-                urllib.request.urlopen(self.base+'/api/v1/auth/csrf', context=self.context, timeout=2).close()
+                urllib.request.urlopen(self.base+'/api/v2/auth/csrf', context=self.context, timeout=2).close()
                 break
             except (OSError, urllib.error.URLError):
                 time.sleep(1)

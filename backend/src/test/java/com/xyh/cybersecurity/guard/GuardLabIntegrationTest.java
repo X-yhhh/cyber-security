@@ -119,12 +119,12 @@ class GuardLabIntegrationTest {
         for(var actor:List.of(operator,reviewer,outsider))clients.put(actor.id(),login(actor));
     }
     Client login(IdentityPrincipal actor) throws Exception {
-        var bootstrap=mvc.perform(get("/api/v1/auth/csrf")).andReturn();var cookie=bootstrap.getResponse().getCookie("SESSION");
+        var bootstrap=mvc.perform(get("/api/v2/auth/csrf")).andReturn();var cookie=bootstrap.getResponse().getCookie("SESSION");
         var csrfValue=parse(bootstrap.getResponse().getContentAsString()).at("/data/token").asText();
-        var login=mvc.perform(post("/api/v1/auth/login").cookie(cookie).header("X-CSRF-TOKEN",csrfValue).contentType("application/json")
+        var login=mvc.perform(post("/api/v2/auth/login").header("Idempotency-Key",id()).cookie(cookie).header("X-CSRF-TOKEN",csrfValue).contentType("application/json")
                 .content(canonical(object("username",actor.getUsername(),"password","isolated-lab-password")))).andReturn();
         assertThat(login.getResponse().getStatus()).isEqualTo(200);cookie=login.getResponse().getCookie("SESSION");
-        var csrf=mvc.perform(get("/api/v1/auth/csrf").cookie(cookie)).andReturn();
+        var csrf=mvc.perform(get("/api/v2/auth/csrf").cookie(cookie)).andReturn();
         return new Client(cookie,parse(csrf.getResponse().getContentAsString()).at("/data/token").asText());
     }
     JsonNode write(String name,JsonNode value,boolean signed,String runner) throws Exception {

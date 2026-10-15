@@ -24,5 +24,5 @@ server.events.on('request:start', ({ request }) => {
 })
 
 /** 会话与外壳探针之外的请求，即页面发出的数据请求。 */
-export const SHELL_REQUESTS = new Set(['GET /api/v1/auth/me', 'GET /api/v2/auth/me', 'GET /api/v1/health/ready'])
+export const SHELL_REQUESTS = new Set(['GET /api/v2/auth/me', 'GET /health/ready'])
 export const dataRequests = () => requests.filter((r) => !SHELL_REQUESTS.has(r))

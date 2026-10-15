@@ -111,6 +111,6 @@ sh executor/python.sh -B scripts/p8/backup_restore.py --schedule
 
 实际运行沿用 `scripts/p7/lab.md` 的显式 JAR、冻结场景、selection、r5 import plan、r5 subject、platform/final、report trust、克隆/业务库和 rendezvous 参数，另加 `--root-plan <0600 JSON>`。root plan 包含 `launcher`、`launcherSha256`、`stage`、`manifestSha256`、`runId`、`authorizationReference`、`evidenceCopy`；`--stage-manifest` 与 `--authorization-reference` 必须逐字匹配。先核验摘要，再由 macOS 密码框让用户批准 root 暂存启动器；口令不进入脚本。root 的 `g3-executor` 最长 1800 秒，原执行器代码与 r5 冻结证据不变。**B3 只验证 dry-run 和流程替身，真实 root/PF 留待 P1/U5。**
 
-巡检计划含 `root`、`assetId`、`executorId`、`mode`（`alert-only`/`pf`）、`baseUrl`、`backendCA`、`reader`（同 Keychain 身份字段，可用 auditor）；可设 `minFreeBytes`、`maxLogBytes`。巡检五服务、现有 `/api/v1/health/ready`、v2 `ops/status`、最新心跳/健康、本执行器专属 PF anchor（`pfctl -s rules` 只读）及磁盘/日志。机器状态完整读取游标分页（最多 100 页，重复游标拒绝）；按每个传感器查询最新接收的一个健康窗口，历史窗口超过 200 条不影响当前状态，缺失的传感器窗口不能被其他传感器掩盖。无权限读取 PF、缺数据、心跳陈旧、机器分页未覆盖或异常均非零退出；不会把 unknown 或 `replay_healthy` 当现场 healthy。PF 查询需要相应系统权限，B3 未执行该查询。
+巡检计划含 `root`、`assetId`、`executorId`、`mode`（`alert-only`/`pf`）、`baseUrl`、`backendCA`、`reader`（同 Keychain 身份字段，可用 auditor）；可设 `minFreeBytes`、`maxLogBytes`。巡检五服务、现有 `/health/ready`、v2 `ops/status`、最新心跳/健康、本执行器专属 PF anchor（`pfctl -s rules` 只读）及磁盘/日志。机器状态完整读取游标分页（最多 100 页，重复游标拒绝）；按每个传感器查询最新接收的一个健康窗口，历史窗口超过 200 条不影响当前状态，缺失的传感器窗口不能被其他传感器掩盖。无权限读取 PF、缺数据、心跳陈旧、机器分页未覆盖或异常均非零退出；不会把 unknown 或 `replay_healthy` 当现场 healthy。PF 查询需要相应系统权限，B3 未执行该查询。
 
 `backup_restore.py --schedule` 仅显示维护窗口、备份保留和核验建议，不取密、不连库、不安装定时任务。

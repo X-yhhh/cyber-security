@@ -20,8 +20,8 @@ describe('api client', () => {
     const csrfPayload: Record<string, string> = { headerName: 'X-CSRF-TOKEN' }
     csrfPayload['to' + 'ken'] = 'csrf-1'
     const fetchMock = vi.fn()
-      .mockResolvedValueOnce(jsonResponse({ success: true, data: csrfPayload }))
-      .mockResolvedValueOnce(jsonResponse({ success: true, data: { accepted: true } }))
+      .mockResolvedValueOnce(jsonResponse({ error: null, data: csrfPayload }))
+      .mockResolvedValueOnce(jsonResponse({ error: null, data: { accepted: true } }))
     vi.stubGlobal('fetch', fetchMock)
 
     await expect(api.post<{ accepted: boolean }>('/events/1/notes', { note: '依据' })).resolves.toEqual({ accepted: true })
@@ -37,7 +37,6 @@ describe('api client', () => {
     const unauthorized = vi.fn()
     setUnauthorizedHandler(unauthorized)
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({
-      success: false,
       data: null,
       error: { code: 'SESSION_EXPIRED', message: '会话已失效' },
       requestId: 'req-test-1',
@@ -66,7 +65,6 @@ describe('api client', () => {
     [500, 'INTERNAL_ERROR', '服务暂时无法处理请求'],
   ])('keeps the stable error contract for %s responses', async (status, code, message) => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({
-      success: false,
       data: null,
       error: { code, message },
       requestId: `req-${status}`,
@@ -79,18 +77,18 @@ describe('api client', () => {
 describe('v2 版本与会话失败边界', () => {
   beforeEach(() => { resetCsrf(); vi.restoreAllMocks() })
 
-  it.each(['/api/v2/auth/login', '/api/v1/auth/login', '/auth/me'])('认证自身的 401 不触发统一跳转：%s', async (path) => {
+  it.each(['/api/v2/auth/login', '/auth/me'])('认证自身的 401 不触发统一跳转：%s', async (path) => {
     const unauthorized = vi.fn(); setUnauthorizedHandler(unauthorized)
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({ data: null, error: { code: 'AUTHENTICATION_FAILED', message: '登录失败' }, requestId: 'req-auth' }, 401)))
     await expect(api.get(path)).rejects.toMatchObject({ code: 'AUTHENTICATION_FAILED' })
     expect(unauthorized).not.toHaveBeenCalled()
   })
 
-  it('缺省路径转为 v2；显式旧路径原样发送', async () => {
+  it('缺省路径转为 v2；显式 v2 路径与健康探针原样发送', async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ data: [], error: null }))
     vi.stubGlobal('fetch', fetchMock)
-    await api.get('/users'); await api.get('/api/v1/users')
-    expect(fetchMock.mock.calls.map((c) => c[0])).toEqual(['/api/v2/users', '/api/v1/users'])
+    await api.get('/users'); await api.get('/api/v2/users'); await api.get('/health/ready')
+    expect(fetchMock.mock.calls.map((c) => c[0])).toEqual(['/api/v2/users', '/api/v2/users', '/health/ready'])
   })
 
   it('403 作废 CSRF，下一次写入重新获取后端给出的新头名；不自动重试写入', async () => {

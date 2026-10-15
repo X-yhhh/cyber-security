@@ -70,16 +70,16 @@ class GuardIntegrationTest {
     JsonNode human(String path,JsonNode body,IdentityPrincipal actor,String revision)throws Exception{return human(path,body,actor,revision,id());}
     record HumanSession(Cookie cookie,String csrfToken){}
     HumanSession humanSession(IdentityPrincipal actor)throws Exception{
-        var bootstrap=mvc.perform(get("/api/v1/auth/csrf")).andReturn();
+        var bootstrap=mvc.perform(get("/api/v2/auth/csrf")).andReturn();
         assertThat(bootstrap.getResponse().getStatus()).isEqualTo(200);
         Cookie bootstrapCookie=bootstrap.getResponse().getCookie("SESSION");
         String bootstrapToken=parse(bootstrap.getResponse().getContentAsString()).path("data").path("token").asText();
         assertThat(bootstrapCookie).isNotNull();assertThat(bootstrapToken).isNotBlank();
-        var login=mvc.perform(post("/api/v1/auth/login").cookie(bootstrapCookie).header("X-CSRF-TOKEN",bootstrapToken).contentType("application/json").content(canonical(object("username",actor.getUsername(),"password",TEST_PASSWORD)))).andReturn();
+        var login=mvc.perform(post("/api/v2/auth/login").header("Idempotency-Key",id()).cookie(bootstrapCookie).header("X-CSRF-TOKEN",bootstrapToken).contentType("application/json").content(canonical(object("username",actor.getUsername(),"password",TEST_PASSWORD)))).andReturn();
         assertThat(login.getResponse().getStatus()).isEqualTo(200);
         Cookie sessionCookie=login.getResponse().getCookie("SESSION");
         assertThat(sessionCookie).isNotNull();
-        var csrfResult=mvc.perform(get("/api/v1/auth/csrf").cookie(sessionCookie)).andReturn();
+        var csrfResult=mvc.perform(get("/api/v2/auth/csrf").cookie(sessionCookie)).andReturn();
         assertThat(csrfResult.getResponse().getStatus()).isEqualTo(200);
         String csrfToken=parse(csrfResult.getResponse().getContentAsString()).path("data").path("token").asText();
         assertThat(csrfToken).isNotBlank();

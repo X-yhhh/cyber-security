@@ -36,7 +36,6 @@ describe('v2 会话', () => {
     expect(authState.writes.map((r) => r.path)).toEqual(['/api/v2/auth/login', '/api/v2/auth/logout'])
     expect(new Set(authState.writes.map((r) => r.key)).size).toBe(2)
     expect(authState.writes.every((r) => /^[\da-f-]{36}$/.test(r.key))).toBe(true)
-    expect(requests.some((r) => r.includes('/api/v1/auth/'))).toBe(false)
     expect(await loadSession()).toBeNull()
   })
 

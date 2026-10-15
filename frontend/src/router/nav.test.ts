@@ -1,7 +1,7 @@
 /**
  * 菜单快照（任务单 U0.9 验收，取代 F0 的 7 组 18 项断言）：
  * - 全部 ready 置为 true、去掉过渡行后，6 个单角色的可见二级菜单与权限设计第 7.3 节逐格一致；
- * - 当前 ready 配置下的实际菜单（含仍可进入的过渡行）；
+ * - 当前 13 行正式菜单；
  * - 合法组合角色取并集；无可见项的一级组整组隐藏。
  * 之后的页面卡片不得修改 MATRIX 与 expectedGroups，只调整“当前配置”一节。
  */
@@ -59,7 +59,7 @@ const SPEC: Record<string, { path: string; anyOf: string[] }> = {
   审计日志: { path: '/console/system/audit', anyOf: ['audit.read'] },
 }
 
-const target = nav.filter((i) => !i.legacy)
+const target = nav
 const allReady = target.map((i) => ({ ...i, ready: true }))
 const titles = (menu: ReturnType<typeof visibleMenu>) => menu.flatMap((g) => g.items.map((i) => i.title))
 
@@ -84,18 +84,18 @@ describe('菜单配置（权限设计第 7.2 节）', () => {
 
   it('F5 系统管理三行已接线，13 行全部上线', () => {
     expect(target.filter((i) => !i.ready).map((i) => i.title)).toEqual([])
-    expect(nav.some((i) => i.segment)).toBe(false)
+    expect(nav.every((i) => !('segment' in i) && !('legacy' in i))).toBe(true)
   })
 
   it('威胁检测组只剩 3 行且没有过渡行（任务单 F1R）', () => {
-    expect(nav.filter((i) => i.group === 'detect').map((i) => [i.title, i.legacy ?? false])).toEqual([
-      ['事件研判', false], ['检测记录', false], ['误报反馈', false],
+    expect(nav.filter((i) => i.group === 'detect').map((i) => i.title)).toEqual([
+      '事件研判', '检测记录', '误报反馈',
     ])
   })
 
   it('F2、F3、F4 过渡行均已合并', () => {
-    const legacy = nav.filter((i) => i.legacy).map((i) => [i.title, i.group, i.path, i.ready])
-    expect(legacy).toEqual([])
+    expect(nav).toHaveLength(13)
+    expect(nav.every((i) => i.ready && !('legacy' in i))).toBe(true)
   })
 
   it('anyOf 为空表示登录即可，否则需要交集', () => {
@@ -145,12 +145,10 @@ describe('当前 ready 配置下的实际菜单', () => {
   it.each(humanRoles)('%s', (role) => {
     const menu = visibleMenu(singleRoleUsers[role].permissions)
     expect(titles(menu)).toEqual(current[role])
-    // 非过渡项必须是目标矩阵的子集：ready 只会收窄、不会放宽可见性。
-    const legacy = new Set(nav.filter((i) => i.legacy).map((i) => i.title))
-    for (const t of current[role]) if (!legacy.has(t)) expect(expected[role]).toContain(t)
+    for (const t of current[role]) expect(expected[role]).toContain(t)
   })
 
-  it('F0 时期每个角色可进入的页面在切换后一个不少（过渡行仍可进入）', () => {
+  it('F0 的功能入口在最终菜单中均有承接', () => {
     /* F0 的 18 项菜单中当时 ready 的 12 项加工作台 → 现在承载它的行。 */
     const carried: Record<string, string> = {
       工作台: '待办中心', 观测与推理: '检测记录', 判定与来源: '检测记录', 事件研判: '事件研判', 反馈与复核: '误报反馈',

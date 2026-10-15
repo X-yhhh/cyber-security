@@ -3,7 +3,6 @@ package com.xyh.cybersecurity.ingest;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.xyh.cybersecurity.ingest.contract.FeatureContractRegistry;
-import jakarta.servlet.http.Cookie;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -38,7 +37,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class SensorV4IngestIntegrationTest {
     private static final String TEST_SCHEMA = com.xyh.cybersecurity.database.IsolatedDatabaseSchemas.name(SensorV4IngestIntegrationTest.class, "suite");
     private static final String PASSWORD_HASH = new BCryptPasswordEncoder(4).encode("admin");
-    private static final String CSRF_HEADER = "X-CSRF-TOKEN";
     private static final String V4 = "unsw-nb15-flow-v4";
     private static final String V31 = "unsw-nb15-flow-v3.1";
 
@@ -67,6 +65,8 @@ class SensorV4IngestIntegrationTest {
     @Autowired private MockMvc mockMvc;
     @Autowired private JdbcTemplate jdbc;
     @Autowired private ObjectMapper objectMapper;
+    @Autowired private IngestMapper ingestMapper;
+    @Autowired private com.xyh.cybersecurity.ingest.contract.FeatureContractRegistry contracts;
 
     private long assetId;
     private long sourceId;
@@ -187,17 +187,8 @@ class SensorV4IngestIntegrationTest {
     }
 
     private Sensor register(String agentKey, String contract) throws Exception {
-        Cookie admin = login();
-        String token = csrf(admin);
-        MvcResult issued = mockMvc.perform(post("/api/v1/sensors").cookie(admin).header(CSRF_HEADER, token)
-                        .contentType(APPLICATION_JSON).content("{\"agentKey\":\"" + agentKey + "\",\"assetId\":" + assetId
-                                + ",\"dataSourceId\":" + sourceId + ",\"platform\":\"macos\",\"agentVersion\":\"0.1.0\","
-                                + "\"capabilities\":{},\"config\":{\"configVersion\":\"cfg-1\",\"interfaceScope\":{},"
-                                + "\"filterPolicy\":{},\"flowWindowSeconds\":60,\"featureContractVersion\":\"" + contract
-                                + "\",\"samplingPolicy\":{}}}"))
-                .andExpect(status().isCreated()).andReturn();
-        JsonNode body = data(issued);
-        return new Sensor(body.path("sensorId").asLong(), body.path("credential").asText());
+        var fixture = LegacyMachineFixtures.sensor(jdbc, ingestMapper, contracts, agentKey, assetId, sourceId, contract);
+        return new Sensor(fixture.id(), fixture.credential());
     }
 
     private org.springframework.test.web.servlet.ResultActions submit(Sensor sensor, String key, long sequence, String mapping,
@@ -223,20 +214,6 @@ class SensorV4IngestIntegrationTest {
 
     private JsonNode data(MvcResult result) throws Exception {
         return objectMapper.readTree(result.getResponse().getContentAsString()).path("data");
-    }
-
-    private Cookie login() throws Exception {
-        MvcResult csrfResult = mockMvc.perform(get("/api/v1/auth/csrf")).andReturn();
-        Cookie cookie = csrfResult.getResponse().getCookie("SESSION");
-        String token = objectMapper.readTree(csrfResult.getResponse().getContentAsString()).path("data").path("token").asText();
-        return mockMvc.perform(post("/api/v1/auth/login").cookie(cookie).header(CSRF_HEADER, token).contentType(APPLICATION_JSON)
-                        .content("{\"username\":\"sensor-v4-admin\",\"password\":\"admin\"}"))
-                .andExpect(status().isOk()).andReturn().getResponse().getCookie("SESSION");
-    }
-
-    private String csrf(Cookie cookie) throws Exception {
-        var result = mockMvc.perform(get("/api/v1/auth/csrf").cookie(cookie)).andReturn();
-        return objectMapper.readTree(result.getResponse().getContentAsString()).path("data").path("token").asText();
     }
 
     private record Sensor(long id, String credential) { }

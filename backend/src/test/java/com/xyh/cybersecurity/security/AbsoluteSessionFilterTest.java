@@ -23,7 +23,7 @@ class AbsoluteSessionFilterTest {
     void expiresAuthenticatedSessionAfterAbsoluteLifetimeEvenWhenRecentlyUsed() throws Exception {
         Clock clock = Clock.fixed(Instant.parse("2026-09-23T12:00:00Z"), ZoneOffset.UTC);
         AbsoluteSessionFilter filter = new AbsoluteSessionFilter(clock, new ObjectMapper());
-        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/v1/auth/me");
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/v2/auth/me");
         MockHttpServletResponse response = new MockHttpServletResponse();
         MockHttpSession session = new MockHttpSession();
         session.setAttribute(AbsoluteSessionFilter.CREATED_AT_ATTRIBUTE,
@@ -49,7 +49,7 @@ class AbsoluteSessionFilterTest {
     @Test
     void allowsSessionWithinAbsoluteLifetime() throws Exception {
         AbsoluteSessionFilter filter = new AbsoluteSessionFilter(Clock.systemUTC(), new ObjectMapper());
-        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/v1/auth/me");
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/v2/auth/me");
         MockHttpServletResponse response = new MockHttpServletResponse();
         request.getSession().setAttribute(AbsoluteSessionFilter.CREATED_AT_ATTRIBUTE,
                 Clock.systemUTC().instant().minusSeconds(60).toEpochMilli());

@@ -12,9 +12,9 @@ import java.util.Map;
 
 import static com.xyh.cybersecurity.common.web.RequestIdFilter.REQUEST_ID_ATTRIBUTE;
 
-/** 提供不含运行配置或依赖凭据的存活与就绪探针。 */
+/** 公共 /health 探针只返回存活及数据库就绪状态；依赖异常脱敏为 503，不返回运行配置。 */
 @RestController
-@RequestMapping("/api/v1/health")
+@RequestMapping("/health")
 public class HealthController {
 
     private final HealthMapper healthMapper;

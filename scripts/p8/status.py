@@ -58,7 +58,7 @@ def inspect(plan, client, *, execute=command):
             return {'state': 'running' if running else 'not_running', 'pid': int(pid[1]) if pid else None}, running
         check(role, service)
     def ready():
-        data = client.call('GET', '/api/v1/health/ready')['data']
+        data = client.call('GET', '/health/ready')['data']
         return {'status': data['status']}, data['status'] == 'UP'
     check('ready', ready)
     sensors = []

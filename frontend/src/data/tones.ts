@@ -87,3 +87,6 @@ export const validityTone = map({ valid: 'ok', not_yet_valid: 'signal', expired:
 export const configTone = map({ draft: 'mute', pending: 'signal', approved: 'ok', active: 'ok', retired: 'mute', rejected: 'threat' })
 export const bindingTone = map({ active: 'ok', suspended: 'warn', retired: 'mute' })
 export const auditOutcomeTone = map({ success: 'ok', denied: 'threat', failure: 'threat', rejected: 'threat' })
+/** 系统管理（F5）：锁定是异常状态用 threat，停用为可恢复的 warn；角色停用为中性。 */
+export const iamUserTone = map({ active: 'ok', disabled: 'warn', locked: 'threat' })
+export const roleStatusTone = map({ active: 'ok', disabled: 'mute' })

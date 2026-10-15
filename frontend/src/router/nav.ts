@@ -65,7 +65,6 @@ export const groups: readonly NavGroupDef[] = [
 
 const Events = () => import('@/views/detect/EventsView.vue')
 const Feedback = () => import('@/views/detect/FeedbackView.vue')
-const Health = () => import('@/views/console/HealthView.vue')
 
 /*
  * 每项一行，前 13 行逐项照抄权限设计第 7.2 节（6 组 12 项 + 待办中心）；F1R、F2—F6 只改自己负责的行：
@@ -82,9 +81,9 @@ export const nav: readonly NavItem[] = [
   { group: 'release', key: 'bundles', title: '发布管理', en: 'Bundles', path: '/console/release/bundles', anyOf: ['bundle.request', 'bundle.approve', 'policy.draft', 'policy.approve', 'automation.stop', 'evaluation.read'], component: () => import('@/views/release/BundlesView.vue'), ready: true, icon: PackageCheck },
   { group: 'assets', key: 'list', title: '资产', en: 'Assets', path: '/console/assets/list', anyOf: ['asset.manage', 'authorization.request', 'authorization.approve', 'sensor.manage', 'audit.read'], component: () => import('@/views/assets/AssetsView.vue'), ready: true, icon: Server },
   { group: 'assets', key: 'agents', title: '传感器与执行器', en: 'Agents', path: '/console/assets/agents', anyOf: ['sensor.manage', 'authorization.approve', 'ops.read'], component: () => import('@/views/assets/AgentsView.vue'), ready: true, icon: RadioTower },
-  { group: 'system', key: 'users', title: '用户管理', en: 'Users', path: '/console/system/users', anyOf: ['iam.manage'], component: null, ready: false, icon: Users },
-  { group: 'system', key: 'roles', title: '角色管理', en: 'Roles', path: '/console/system/roles', anyOf: ['iam.manage', 'audit.read'], component: null, ready: false, icon: UserCog },
-  { group: 'system', key: 'audit', title: '审计日志', en: 'Audit', path: '/console/system/audit', anyOf: ['audit.read'], component: Health, ready: true, icon: ScrollText, segment: 'audit' },
+  { group: 'system', key: 'users', title: '用户管理', en: 'Users', path: '/console/system/users', anyOf: ['iam.manage'], component: () => import('@/views/system/UsersView.vue'), ready: true, icon: Users },
+  { group: 'system', key: 'roles', title: '角色管理', en: 'Roles', path: '/console/system/roles', anyOf: ['iam.manage', 'audit.read'], component: () => import('@/views/system/RolesView.vue'), ready: true, icon: UserCog },
+  { group: 'system', key: 'audit', title: '审计日志', en: 'Audit', path: '/console/system/audit', anyOf: ['audit.read'], component: () => import('@/views/system/AuditView.vue'), ready: true, icon: ScrollText },
 
   /* 过渡行：路径不变、继续显示，由括号内的卡片删除。 */
 ]

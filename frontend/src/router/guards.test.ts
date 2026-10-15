@@ -121,9 +121,9 @@ describe('404 与重定向', () => {
     expect(dataRequests()).toEqual([])
   })
 
-  it('未上线（ready=false）的二级项不注册路由，显示 404', async () => {
+  it('系统管理未定义的地址显示 404', async () => {
     signIn(singleRoleUsers.platform_admin)
-    const { router } = await open('/console/system/users')
+    const { router } = await open('/console/system/sessions')
     expect(router.currentRoute.value.name).toBe('console-not-found')
   })
 

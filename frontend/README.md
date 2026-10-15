@@ -70,3 +70,50 @@ npm run preview     # 预览生产构建
 ```
 
 API 客户端 `src/api/client.ts` 同时支持两套信封：v1 为 `{ success, data, error, requestId }`，v2 为 `{ requestId, data, error }`；自动携带 CSRF 头与会话 Cookie，写请求注入幂等键，审批类操作注入 `If-Match`。详见[前端设计文档](../docs/前端设计文档.md)。
+
+## 5. F3 非页面交接（2026-10-15）
+
+**已完成**：接口、策略预校验、导航与重定向、合成 msw 状态回写和非页面回归（实现 `e6aad6d`，分支 `Xyhhh/v1-f3`，未合入 main）。**还剩**：模型与数据集、发布管理的页面设计与完整表单/详情交互，筛选与待办 `id` 打开、四态/写权限/本人审批隐藏、危险操作确认、真实后端联调及用户合并。`views/release/ModelsView.vue` 是最小读取载体；`BundlesView.vue` 复用旧 Release/Lab 页面，均不作为正式页面验收结论。lab 详情已迁入 `views/release/LabRunDetailView.vue`；C1 删除旧组件前须先解除桥接层对 `views/console/ReleaseView.vue`、`LabView.vue` 的依赖。
+
+### 接口入口
+
+统一从 `@/api/v2/release` 导入 `releaseApi` 和 DTO；错误沿用 `ApiError` 与 `errText`，写成功后重新读取事实。
+
+| 资源 | 列表 / 详情 | 写入与子资源 |
+|---|---|---|
+| models | `listModels` / `getModel` | `registerModel`、`updateModel`、`retireModel`、`validateModel`、`getModelValidations` |
+| datasets | `listDatasets` / `getDataset` | `registerDataset`、`updateDataset`、`retireDataset` |
+| release-bundles | `listBundles` / `getBundle` | `requestBundle`、`importBundleReport`、`sealBundle`、`decideBundle`、`activateBundle`、`suspendBundle`、`retireBundle`、`listBundleBindings` |
+| decision-policies | `listPolicies` / `getPolicy` | `draftPolicy`、`deletePolicy`、`reviewPolicy` |
+| capabilities | `listCapabilities` / `getCapability` | `registerCapability` |
+| evaluation-plans | `listEvaluationPlans` / `getEvaluationPlan` | `registerEvaluationPlan`（支持冻结原件引用与旧结构化登记） |
+| evaluations | `listEvaluations` / `getEvaluation` | 只读；评价由组合 imports 或 lab reports 登记，无独立 POST 创建路由 |
+| replay-runs | `listReplayRuns` / `getReplayRun` | `createReplayRun`；`startReplayRun` / `completeReplayRun` / `failReplayRun` 供 runner 对接 |
+| lab-validation-runs | `listLabRuns` / `getLabRun` | 资格：`decideLabRun` / `revokeLabRun`；子资源：`getLabEvents` / `getLabReportInput` / `getLabQualifications`；`createLabRun` 及生命周期、事实追加、报告导入方法供 runner 对接 |
+
+- 表单字段键可复用 `RELEASE_FIELDS`；`isSha256` 校验 SHA-256，UUID 可复用 `api/v2/detect.ts` 的 `isUuid`。模型校验不接受任意 profile，固定 `MODEL_VALIDATION_PROFILE_ID = host-guard-onnx-v1`。
+- 修改资料、退役、删除、审批及 lab 操作的方法要求传当前 `revision`。每次提交默认新建 UUID 幂等键；同一次提交重试可保留显式 key 与原 revision，冲突后重读再提交。`guard.patch/remove` 共用原 CSRF 与错误逻辑，DELETE 不发送 JSON 体。
+- `draftPolicy` 接受 JSON 原文或对象；先调用 `validateDecisionPolicy` 可得到 `{valid,issues}`，错误含 JSON Pointer `path`。预校验直接使用仓库 `decision-policy.schema.json` 与 `feature-profile.json`，不复制冻结契约；非法策略同步抛出 `DecisionPolicyValidationError`，不会发送请求。
+- 列表查询按集合白名单传值：模型/数据集/策略/组合可搜索和状态筛选；能力/计划可搜索但无状态筛选；评价/研究回放无 `q`；全局目录无 `assetId`。普通集合时间为 UTC 的 `[from,until)`，排序 `createdAt|updatedAt`；lab 列表只传 `cursor/status/limit`，events 用 `after/limit`。导入报告可返回 `passed`，当前后端不支持按该状态筛选。
+- 策略/组合真实 DTO 隐藏 `createdBy/requestedBy`；后续需确认安全的本人识别契约，不能依赖 mock 内部 `owners` 隐藏审批。服务端仍会拒绝自批，前端隐藏不授予操作权。
+
+### 导航与兼容地址
+
+发布管理参数为 `tab=bundles|policies|capabilities|validation`；验证记录内为 `record=lab|evaluations`，缺省 lab，以承接后端待办 `tab=validation&id=…`。模型页使用 `tab=models|datasets`。`id` 的自动详情打开尚待正式页面实现。
+
+| 旧地址 | 目标 |
+|---|---|
+| `/console/release/evaluations` | `/console/release/bundles?tab=validation&record=evaluations` |
+| `/console/release/policies` | `/console/release/bundles?tab=policies` |
+| `/console/release/lab` | `/console/release/bundles?tab=validation&record=lab` |
+| `/console/release` | `/console/release/bundles?tab=bundles` |
+| `/console/lab` | `/console/release/bundles?tab=validation&record=lab` |
+| `/console/lab/:id` | `/console/release/lab/:id` |
+
+跳转保留有效分段、其他查询参数与锚点，旧路由名保留一个兼容版本；非法或重复分段回退到旧入口对应段。最终路由继续鉴权，lab 详情独立要求 `evaluation.read`，不因归入发布管理而放宽。两个接线载体按分段和权限决定读取，正式页面应保持这一约束。
+
+### 测试与边界
+
+`test/handlers/release.ts` 已加入统一 msw 服务器；测试前调用 `resetReleaseState()`，可用 `releaseRows` / `labRow` 断言写后回读，用 `releaseState.referenced` 模拟 409 引用冲突。夹具和 `owners` 只存在于测试，不含真实制品或执行授权；合成 lab 报告不授予自动资格，也不推断清理成功。
+
+已通过 `npm ci`、`npm run lint`、`npm run typecheck`、`npm test -- --coverage`（27 文件、297 项，原阈值不变）和 `npm run build`。这些是客户端与合成 API 证据；真实后端、签名制品、数据库和浏览器端到端仍待后续验证。状态与接续范围见[初版任务单 F3](../docs/任务/初版落地任务单.md#f3-模型与数据集发布管理)及[实施记录 6.27](../docs/系统实施记录.md#627-初版-f3接口预校验与导航接线2026-10-15)。

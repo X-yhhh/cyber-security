@@ -37,16 +37,20 @@ const detailRoutes: RouteRecordRaw[] = details.flatMap((d) => {
   return [{ path: d.path, name: d.name, component: d.component, meta: { title: d.title, shell, anyOf: parent.anyOf, group: d.group, item: d.item, detail: 'id' } }]
 })
 
-/** 被合并的地址带上原查询参数（如 assetId）进入新页面的对应分段。 */
-const toSegment = (path: string, tab: string) => (to: RouteLocation) => ({ path, query: { ...to.query, tab } })
+/** 旧检测地址保留有效分段、筛选和锚点；无效或重复的分段回落到原页面对应段。 */
+const toRecords = (fallback: 'observations' | 'decisions') => (to: RouteLocation) => {
+  const selected = to.query.tab
+  const tab = typeof selected === 'string' && ['batches', 'observations', 'detections', 'decisions'].includes(selected) ? selected : fallback
+  return { path: '/console/detect/records', query: { ...to.query, tab }, hash: to.hash }
+}
 
 /** 迁入新位置的 09—14 旧地址与 Q10 被合并的地址保留重定向一个版本；保留旧路由名，页面内既有链接无需改动。 */
 const movedRoutes: RouteRecordRaw[] = [
   // F1R：观测与推理、判定与来源合并为检测记录（09—14 旧地址与 U0 过渡行地址）。
-  { path: 'observation', name: 'observation', redirect: toSegment('/console/detect/records', 'observations') },
-  { path: 'decisions', name: 'decisions', redirect: toSegment('/console/detect/records', 'decisions') },
-  { path: 'detect/observations', redirect: toSegment('/console/detect/records', 'observations') },
-  { path: 'detect/decisions', redirect: toSegment('/console/detect/records', 'decisions') },
+  { path: 'observation', name: 'observation', redirect: toRecords('observations') },
+  { path: 'decisions', name: 'decisions', redirect: toRecords('decisions') },
+  { path: 'detect/observations', redirect: toRecords('observations') },
+  { path: 'detect/decisions', redirect: toRecords('decisions') },
   { path: 'release', name: 'release', redirect: '/console/release/bundles' },
   { path: 'execution', name: 'execution', redirect: '/console/response/actions' },
   { path: 'lab', name: 'lab', redirect: '/console/release/lab' },

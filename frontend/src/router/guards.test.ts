@@ -153,6 +153,13 @@ describe('404 与重定向', () => {
     ['/console/detect/decisions', 'decisions'],
     ['/console/observation', 'observations'],
     ['/console/decisions', 'decisions'],
+    ['/console/detect/observations?tab=batches&assetId=a-1', 'batches'],
+    ['/console/observation?tab=detections', 'detections'],
+    ['/console/detect/observations?tab=observations', 'observations'],
+    ['/console/decisions?tab=decisions', 'decisions'],
+    ['/console/observation?tab=episodes', 'observations'],
+    ['/console/detect/decisions?tab=unknown', 'decisions'],
+    ['/console/observation?tab=detections&tab=batches', 'observations'],
   ])('合并进检测记录的旧地址 %s 进入 %s 分段并保留查询参数', async (from, tab) => {
     signIn(singleRoleUsers.security_reviewer)
     const router = createAppRouter(createMemoryHistory())
@@ -160,6 +167,21 @@ describe('404 与重定向', () => {
     expect(router.currentRoute.value.path).toBe('/console/detect/records')
     expect(router.currentRoute.value.query.tab).toBe(tab)
     if (from.includes('assetId')) expect(router.currentRoute.value.query.assetId).toBe('a-1')
+  })
+
+  it('检测旧地址保留时间筛选与锚点，重定向后仍由新页面权限拦截', async () => {
+    signIn(singleRoleUsers.security_reviewer)
+    const router = createAppRouter(createMemoryHistory())
+    await router.push('/console/observation?tab=detections&assetId=a-1&range=24h#record')
+    expect(router.currentRoute.value.fullPath).toBe('/console/detect/records?tab=detections&assetId=a-1&range=24h#record')
+
+    signIn(singleRoleUsers.platform_admin)
+    session.user = null
+    session.checked = false
+    const denied = await open('/console/detect/observations?tab=batches&range=24h')
+    expect(denied.router.currentRoute.value.name).toBe('console-forbidden')
+    expect(denied.router.currentRoute.value.query).toEqual({ tab: 'batches', range: '24h' })
+    expect(dataRequests()).toEqual([])
   })
 
   it('v1 地址暂时保留（C1 删除）', async () => {

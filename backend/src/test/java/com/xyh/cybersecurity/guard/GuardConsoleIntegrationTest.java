@@ -375,6 +375,103 @@ class GuardConsoleIntegrationTest {
         code(send(mvc,get("/api/v2/actions").param("q","unsupported"),analyst,null,null,null),400,"INVALID_QUERY");
     }
 
+    /** F1R 四段通过真实 HTTP 检验筛选先于分页、UTC 半开区间与固定读取上界。 */
+    @ParameterizedTest
+    @ValueSource(strings={"observation-batches","observations","detections","decisions"})
+    void detectionRecordsFilterTimeAndScopeBeforePaging(String collection) throws Exception {
+        Fixture visible=fixture(),hidden=fixture();
+        var account=IamFixtures.account(jdbc,encoder,FIXTURE_LOGIN,List.of());
+        grantAssetRole(account.id(),"security_analyst",visible.asset().key());
+        // 另一资产只有资源管理权限，不能借用该范围扩大 detection.read。
+        grantAssetRole(account.id(),"platform_admin",hidden.asset().key());
+        Session reader=login(mvc,account.username(),FIXTURE_LOGIN),auditor=role("auditor"),admin=role("platform_admin");
+        detectionChain(visible,"2026-01-01T00:00:00Z");
+        var lower=detectionChain(visible,"2026-01-02T00:00:00Z").get(collection);
+        var equal=detectionChain(visible,"2026-01-02T00:00:00Z").get(collection);
+        detectionChain(visible,"2026-01-03T00:00:00Z");
+        var outside=detectionChain(hidden,"2026-01-02T12:00:00Z").get(collection);
+        String path="/api/v2/"+collection;
+        JsonNode first=expect(send(mvc,recordRange(path).param("limit","1"),reader,null,null,null),200);
+        assertThat(first.path("items").findValuesAsText("id")).containsExactly(equal.id());
+        assertThat(first.at("/items/0/createdAt").asText()).isEqualTo("2026-01-02T00:00:00Z");
+        String cursor=first.path("nextCursor").asText();assertThat(cursor).isNotBlank();
+        var appended=detectionChain(visible,"2026-01-02T18:00:00Z").get(collection);
+        JsonNode second=expect(send(mvc,recordRange(path).param("cursor",cursor).param("limit","10"),reader,null,null,null),200);
+        assertThat(second.path("items").findValuesAsText("id")).containsExactly(lower.id()).doesNotContain(appended.id(),outside.id());
+        assertThat(second.path("nextCursor").isNull()).isTrue();
+        assertThat(expect(send(mvc,recordRange(path).param("cursor",cursor).param("limit","10"),reader,null,null,null),200)).isEqualTo(second);
+        code(send(mvc,recordRange(path).param("cursor",cursor),auditor,null,null,null),400,"INVALID_CURSOR");
+        code(send(mvc,get(path).param("from","2026-01-01T00:00:00Z").param("until","2026-01-03T00:00:00Z")
+                .param("sort","updatedAt").param("cursor",cursor),reader,null,null,null),400,"INVALID_CURSOR");
+        code(send(mvc,recordRange(path).param("q","unsupported"),reader,null,null,null),400,"INVALID_QUERY");
+        code(send(mvc,get(path).param("from","2026-01-02T00:00:00+08:00"),reader,null,null,null),400,"INVALID_QUERY");
+        code(send(mvc,get(path).param("assetId",hidden.asset().id()),reader,null,null,null),404,"RESOURCE_NOT_FOUND");
+        code(send(mvc,get(path+"/"+outside.id()),reader,null,null,null),404,"RESOURCE_NOT_FOUND");
+        code(send(mvc,get(path),admin,null,null,null),403,"SCOPE_DENIED");
+        code(send(mvc,get(path),null,null,null,null),401,"UNAUTHENTICATED");
+    }
+
+    /** 反馈本人识别必须来自真实查询；刷新、复核和幂等重试均不能绕过职责分离。 */
+    @Test void feedbackQueriesIdentifyAuthorAndKeepIndependentReviewEnforced() throws Exception {
+        Fixture f=fixture();var observation=detectionChain(f,"2026-01-02T00:00:00Z").get("observations");
+        Session analyst=role("security_analyst"),reviewer=role("evidence_reviewer");
+        JsonNode labelled=expect(send(mvc,post("/api/v2/feedback"),analyst,
+                object("observationId",observation.id(),"label","benign","evidenceRef","fixture://reviewed-sample"),id(),null),201);
+        String feedbackId=labelled.path("id").asText();
+        JsonNode author=expect(send(mvc,get("/api/v2/auth/me"),analyst,null,null,null),200);
+        JsonNode detail=expect(send(mvc,get("/api/v2/feedback/"+feedbackId),reviewer,null,null,null),200);
+        assertThat(detail.path("createdBy").asLong(-1)).isEqualTo(author.path("id").asLong());
+        JsonNode page=expect(send(mvc,get("/api/v2/feedback").param("assetId",f.asset().id()).param("status","pending"),analyst,null,null,null),200);
+        assertThat(page.at("/items/0/createdBy").asLong(-1)).isEqualTo(author.path("id").asLong());
+        assertThat(detail.has("reviewedBy")).isFalse();
+        code(send(mvc,post("/api/v2/feedback/"+feedbackId+"/reviews"),reviewer,
+                object("decision","approve","reason","独立核验"),id(),"9"),409,"REVISION_CONFLICT");
+        String key=id();JsonNode decision=object("decision","approve","reason","独立核验");
+        JsonNode reviewed=expect(send(mvc,post("/api/v2/feedback/"+feedbackId+"/reviews"),reviewer,decision,key,"1"),200);
+        assertThat(reviewed.path("status").asText()).isEqualTo("reviewed");
+        assertThat(reviewed.path("trainingEligible").asBoolean()).isFalse();
+        assertThat(expect(send(mvc,post("/api/v2/feedback/"+feedbackId+"/reviews"),reviewer,decision,key,"1"),200)).isEqualTo(reviewed);
+        assertThat(expect(send(mvc,get("/api/v2/feedback/"+feedbackId),analyst,null,null,null),200).path("createdBy")).isEqualTo(author.path("id"));
+        // 历史标注人转为复核角色后，页面仍可识别本人，服务端仍拒绝自审。
+        Entity own=add("guard_feedback",map("asset_id",f.asset().key(),"observation_id",observation.key(),"label","ambiguous",
+                "evidence_ref","fixture://historical-label","created_by",accounts.get("evidence_reviewer").id()));
+        assertThat(expect(send(mvc,get("/api/v2/feedback/"+own.id()),reviewer,null,null,null),200).path("createdBy").asLong())
+                .isEqualTo(accounts.get("evidence_reviewer").id());
+        code(send(mvc,post("/api/v2/feedback/"+own.id()+"/reviews"),reviewer,decision,id(),"1"),403,"APPROVAL_SEPARATION_REQUIRED");
+        assertThat(jdbc.queryForObject("SELECT revision FROM guard_feedback WHERE id=?",Long.class,own.key())).isEqualTo(1);
+        assertThat(expect(send(mvc,get("/api/v2/models/"+f.model().id()),reviewer,null,null,null),200).has("createdBy")).isFalse();
+    }
+
+    private void grantAssetRole(long user,String role,long asset){
+        jdbc.update("INSERT INTO sys_user_role(user_id,role_id,scope_type,scope_id) SELECT ?,id,'asset',? FROM sys_role WHERE role_key=?",
+                user,Long.toString(asset),role);
+    }
+
+    private static MockHttpServletRequestBuilder recordRange(String path){
+        return get(path).param("from","2026-01-02T00:00:00Z").param("until","2026-01-03T00:00:00Z").param("sort","updatedAt");
+    }
+
+    /** 仅追加隔离库合成事实，业务时间故意早于登记时间，避免把两种时间口径混用。 */
+    private Map<String,Entity> detectionChain(Fixture f,String createdAt){
+        var at=db(java.time.Instant.parse(createdAt));var evidenceAt=at.minusDays(10);String boot=id();
+        Entity scope=add("guard_capture_scope",map("asset_id",f.asset().key(),"sensor_id",f.sensor().key(),"scope_key",id(),"address_family","ipv4","status","pending"));
+        Entity batch=add("guard_observation_batch",map("asset_id",f.asset().key(),"sensor_id",f.sensor().key(),"config_id",f.config().key(),
+                "boot_id",boot,"sequence_no",1,"request_sha256",digest(),"result_json","{\"acceptedCount\":1,\"rejectedCount\":0}","created_at",at));
+        Entity observation=add("guard_observation",map("batch_id",batch.key(),"sensor_id",f.sensor().key(),"asset_id",f.asset().key(),"boot_id",boot,
+                "capture_scope_id",scope.key(),"flow_id",id(),"parent_connection_id",id(),"snapshot_index",1,"profile","final","as_of",evidenceAt,
+                "last_packet_at",evidenceAt,"peer_key",digest(),"key_epoch",1,"direction","inbound","transport","tcp","service_port",22,
+                "environment","lab","payload_json","{}","content_sha256",digest(),"created_at",at));
+        Entity inference=add("guard_inference",map("observation_id",observation.key(),"asset_id",f.asset().key(),"model_id",f.model().key(),
+                "status","succeeded","score",0.96,"family","brute_force","family_scores_json","{\"benign\":0.04,\"brute_force\":0.96}",
+                "applicability","supported","manifest_sha256",digest(),"completed_at",evidenceAt,"created_at",at));
+        Entity episode=add("guard_episode",map("asset_id",f.asset().key(),"sensor_id",f.sensor().key(),"boot_id",boot,"peer_key",digest(),"key_epoch",1,
+                "direction","inbound","transport","tcp","service_port",22,"family","brute_force","bundle_id",f.bundle().key(),"bucket_start",evidenceAt));
+        Entity decision=add("guard_decision",map("episode_id",episode.key(),"asset_id",f.asset().key(),"bundle_id",f.bundle().key(),"decision_revision",1,
+                "decision_contract_version",DECISION,"decision","alert","reason_code","SCORE_BELOW_AUTO","evidence_sha256",digest(),
+                "evidence_json","{\"source\":\"model\",\"family\":\"brute_force\"}","decided_at",evidenceAt,"created_at",at));
+        return Map.of("observation-batches",batch,"observations",observation,"detections",inference,"decisions",decision);
+    }
+
     static String collection(Entity entity){return switch(entity.table()){
         case "asset"->"assets";case "sensor_agent"->"sensors";case "guard_executor"->"executors";case "guard_dataset"->"datasets";
         case "guard_model"->"models";case "guard_release_bundle"->"release-bundles";default->throw new IllegalArgumentException();};}

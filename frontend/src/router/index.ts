@@ -94,7 +94,8 @@ export const routes: RouteRecordRaw[] = [
 ]
 
 export function createAppRouter(history: RouterHistory = createWebHistory()) {
-  const router = createRouter({ history, routes, scrollBehavior: (_to, _from, saved) => saved ?? { top: 0 } })
+  // F0R.2：历史导航优先恢复已保存位置；同页查询串变化保持滚动，不影响跨页回顶。
+  const router = createRouter({ history, routes, scrollBehavior: (to, from, saved) => saved ?? (to.path === from.path ? false : { top: 0 }) })
   installGuards(router)
   return router
 }

@@ -10,7 +10,7 @@
  * - 分段与筛选同步到 URL 查询参数（tab、assetId、range、view、decision、family、source）。
  */
 import { computed, ref, watch } from 'vue'
-import { RouterLink, useRoute, useRouter } from 'vue-router'
+import { RouterLink } from 'vue-router'
 import { Brain, ChevronRight, Eye, FileStack, Grid3x3, History, List, Radio, Scale, ShieldX, Siren, X } from 'lucide-vue-next'
 import PageHead from '@/components/PageHead.vue'
 import ChainNav from '@/components/ChainNav.vue'
@@ -24,6 +24,7 @@ import CursorPager from '@/components/CursorPager.vue'
 import FamilyScores from '@/components/FamilyScores.vue'
 import { countIf } from '@/components/viz'
 import { useCursor } from '@/composables/cursor'
+import { queryString, useQueryState } from '@/composables/query'
 import { errText } from '@/composables/load'
 import { can } from '@/api/session'
 import { detectApi, isRange, RANGES, rangeFrom, type RangeKey } from '@/api/v2/detect'
@@ -43,18 +44,24 @@ const SEGS: readonly Seg[] = ['batches', 'observations', 'detections', 'decision
 const KINDS: readonly DecisionKind[] = ['all', 'alert', 'block_candidate', 'observe']
 const PAGE = 200
 
-const route = useRoute()
-const router = useRouter()
-const str = (v: unknown) => (typeof v === 'string' ? v : '')
 const pick = <T extends string>(v: unknown, list: readonly T[], fallback: T): T => (list.includes(v as T) ? (v as T) : fallback)
 
-const seg = ref<Seg>(pick(route.query.tab, SEGS, 'decisions'))
-const assetFilter = ref(str(route.query.assetId))
-const range = ref<RangeKey | ''>(isRange(route.query.range) ? route.query.range : '')
-const decisionView = ref<DecisionView>(pick(route.query.view, ['matrix', 'list'] as const, 'matrix'))
-const decisionFilter = ref<DecisionKind>(pick(route.query.decision, KINDS, 'all'))
-const familyFilter = ref(str(route.query.family))
-const sourceFilter = ref(str(route.query.source))
+const seg = ref<Seg>('decisions')
+const assetFilter = ref('')
+const range = ref<RangeKey | ''>('')
+const decisionView = ref<DecisionView>('matrix')
+const decisionFilter = ref<DecisionKind>('all')
+const familyFilter = ref('')
+const sourceFilter = ref('')
+useQueryState({
+  tab: { state: seg, default: 'decisions', parse: (v) => pick(v, SEGS, 'decisions') },
+  assetId: { state: assetFilter, default: '' },
+  range: { state: range, default: '', parse: (v) => isRange(v) ? v : '' },
+  view: { state: decisionView, default: 'matrix', parse: (v) => pick(v, ['matrix', 'list'], 'matrix'), serialize: (v) => seg.value === 'decisions' ? v : undefined },
+  decision: { state: decisionFilter, default: 'all', parse: (v) => pick(v, KINDS, 'all'), serialize: (v) => seg.value === 'decisions' ? v : undefined },
+  family: { state: familyFilter, default: '', parse: queryString, serialize: (v) => seg.value === 'decisions' || seg.value === 'detections' ? v : undefined },
+  source: { state: sourceFilter, default: '', parse: queryString, serialize: (v) => seg.value === 'decisions' ? v : undefined },
+})
 
 const { assets, label: assetLabel } = useAssetNames()
 const canLabel = computed(() => can('feedback.label'))
@@ -106,23 +113,14 @@ function ensure(s: Seg) {
   if (s === 'decisions') void loadDecisions()
   else paged[s].reset()
 }
-watch(seg, ensure, { immediate: true })
-watch([assetFilter, range], () => {
-  from = rangeFrom(range.value)
-  fresh.clear()
-  ensure(seg.value)
-})
-
-watch([seg, assetFilter, range, decisionView, decisionFilter, familyFilter, sourceFilter], () => {
-  const q: Record<string, string> = { tab: seg.value }
-  if (assetFilter.value) q.assetId = assetFilter.value
-  if (range.value) q.range = range.value
-  if (seg.value === 'decisions' && decisionView.value === 'list') q.view = 'list'
-  if (seg.value === 'decisions' && decisionFilter.value !== 'all') q.decision = decisionFilter.value
-  if ((seg.value === 'decisions' || seg.value === 'detections') && familyFilter.value) q.family = familyFilter.value
-  if (seg.value === 'decisions' && sourceFilter.value) q.source = sourceFilter.value
-  void router.replace({ query: q })
-})
+// 外部 URL 同时回填分段与筛选时，先统一失效再读取当前段，避免各 watcher 各发一次请求。
+watch([seg, assetFilter, range], ([s, a, r], previous) => {
+  if (a !== previous[1] || r !== previous[2]) {
+    from = rangeFrom(r)
+    fresh.clear()
+  }
+  ensure(s)
+}, { immediate: true })
 
 /* ---------- 分段导航 ---------- */
 

@@ -123,6 +123,27 @@ describe('实时态势：缺口与范围', () => {
 })
 
 describe('实时态势：轮询', () => {
+  it('手动暂停后改范围、外部回填与恢复缺省均保留暂停状态，范围只重读一次', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+    const { router, w } = await open(singleRoleUsers.security_analyst)
+    await w.findAll('button').find((b) => b.text().includes('暂停'))!.trigger('click')
+    const first = statsCalls()
+    await w.findAll('[role="tab"]').find((t) => t.text() === '1 小时')!.trigger('click')
+    await settle()
+    expect(statsCalls()).toBe(first + 1)
+    await router.push('/console/overview/live?range=24h')
+    await settle()
+    expect(w.text()).toContain('已暂停')
+    expect(statsCalls()).toBe(first + 2)
+    await router.push('/console/overview/live')
+    await settle()
+    expect(router.currentRoute.value.query).toEqual({})
+    expect(w.findAll('[role="tab"]').find((t) => t.text() === '15 分钟')!.attributes('aria-selected')).toBe('true')
+    vi.advanceTimersByTime(10000)
+    await settle()
+    expect(statsCalls()).toBe(first + 3)
+  })
+
   it('每 5 秒刷新；暂停或页面不可见时停止，恢复后立即重读', async () => {
     vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
     const { w } = await open(singleRoleUsers.security_analyst)

@@ -10,7 +10,7 @@
  * - 点击行进入整页详情 `/console/detect/events/:id`。
  */
 import { computed, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRouter } from 'vue-router'
 import { Flame, ListOrdered, Search, Shapes, UserX } from 'lucide-vue-next'
 import PageHead from '@/components/PageHead.vue'
 import DistBar from '@/components/DistBar.vue'
@@ -23,6 +23,7 @@ import Tag from '@/components/Tag.vue'
 import LoadState from '@/components/LoadState.vue'
 import CursorPager from '@/components/CursorPager.vue'
 import { useCursor } from '@/composables/cursor'
+import { queryString, useQueryState } from '@/composables/query'
 import { detectApi, isRange, RANGES, rangeFrom, type RangeKey } from '@/api/v2/detect'
 import {
   eventStatusLabel, fmtTime, guardFamilyLabel, severityLabel,
@@ -34,15 +35,20 @@ import { eventTone, severityTone } from '@/data/tones'
 const STATUSES: EventStatus[] = ['open', 'investigating', 'contained', 'resolved', 'false_positive', 'closed']
 const isStatus = (v: unknown): v is EventStatus => typeof v === 'string' && (STATUSES as string[]).includes(v)
 
-const route = useRoute()
 const router = useRouter()
 
-const statusFilter = ref<EventStatus | ''>(isStatus(route.query.status) ? route.query.status : '')
-const assetFilter = ref(typeof route.query.assetId === 'string' ? route.query.assetId : '')
-const range = ref<RangeKey | ''>(isRange(route.query.range) ? route.query.range : '')
+const statusFilter = ref<EventStatus | ''>('')
+const assetFilter = ref('')
+const range = ref<RangeKey | ''>('')
 /** 搜索框输入与生效的查询分开：回车或失焦才提交，避免逐字请求。 */
-const search = ref(typeof route.query.q === 'string' ? route.query.q : '')
-const q = ref(search.value.trim())
+const search = ref('')
+const q = ref('')
+useQueryState({
+  status: { state: statusFilter, default: '', parse: (v) => isStatus(v) ? v : '' },
+  assetId: { state: assetFilter, default: '' },
+  range: { state: range, default: '', parse: (v) => isRange(v) ? v : '' },
+  q: { state: q, default: '', parse: (v) => queryString(v).trim() },
+}, () => { search.value = q.value })
 
 const { assets, label: assetLabel } = useAssetNames()
 
@@ -60,18 +66,7 @@ const events = useCursor<GuardGuardEvent>((cursor) =>
 )
 function submitSearch() { q.value = search.value.trim() }
 
-watch(() => route.query.status, (q) => {
-  const next = isStatus(q) ? q : ''
-  if (next !== statusFilter.value) statusFilter.value = next
-})
-
-watch([statusFilter, assetFilter, range, q], ([s, a, r, text]) => {
-  const query: Record<string, string> = {}
-  if (s) query.status = s
-  if (a) query.assetId = a
-  if (r) query.range = r
-  if (text) query.q = text
-  void router.replace({ query })
+watch([statusFilter, assetFilter, range, q], ([, , r]) => {
   from = rangeFrom(r)
   events.reset()
 })

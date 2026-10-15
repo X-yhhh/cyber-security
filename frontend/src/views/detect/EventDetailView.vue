@@ -31,6 +31,7 @@ import { assetName, detectApi, type NamedAsset } from '@/api/v2/detect'
 import { can, session } from '@/api/session'
 import { errText, optional } from '@/composables/load'
 import { toast } from '@/composables/toast'
+import { useCrumbLabel } from '@/composables/crumb'
 import {
   eventStatusLabel, eventTransitions, fmtTime, guardActionableReasonLabel, guardActionModeLabel, guardActionStateLabel,
   guardFamilyLabel, guardSourceLabel, guardTimelineTypeLabel, severityLabel,
@@ -44,6 +45,7 @@ const route = useRoute()
 const eventId = computed(() => props.id || String(route.params.id ?? ''))
 
 const ev = ref<GuardGuardEvent | null>(null)
+useCrumbLabel(computed(() => ev.value?.title))
 const timeline = ref<GuardTimelineEntry[]>([])
 const episodes = ref<GuardEpisode[]>([])
 const actions = ref<GuardAction[]>([])

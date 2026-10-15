@@ -18,6 +18,7 @@ import IdText from '@/components/IdText.vue'
 import Tag from '@/components/Tag.vue'
 import LoadState from '@/components/LoadState.vue'
 import { errText } from '@/composables/load'
+import { useCrumbLabel } from '@/composables/crumb'
 import { guard, type Cursor } from '@/api/client'
 import {
   fmtTime, GUARD_FAMILIES, guardFamilyLabel, guardLabEligibilityLabel, guardLabEventKindLabel, guardLabRunStatusLabel,
@@ -31,6 +32,8 @@ const route = useRoute()
 const id = String(route.params.id)
 
 const run = ref<GuardLabRun | null>(null)
+// 现有契约的 id 即会话键；用摘要作为标签，完整会话键由外壳悬停展示。
+useCrumbLabel(computed(() => run.value?.id ? `会话 ${run.value.id.slice(0, 8)}${run.value.id.length > 8 ? '…' : ''}` : undefined))
 const quals = ref<GuardLabQualifications | null>(null)
 const report = ref<GuardG3Report | null>(null)
 const evaluation = ref<GuardEvaluation | null>(null)

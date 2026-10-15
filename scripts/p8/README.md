@@ -27,7 +27,31 @@ U5 的自动化开关仅作用于本次隔离后端，保留真实授权/资格�
 
 每轮必须核验 `.cache/t1-e2e/<运行号>/cleanup.json` 全部为 true：停止本次浏览器、预览和 JAR，删除本次 schema/vhost，脱敏日志与失败 trace 后删除凭据/私钥。目录 0700、文件 0600；脱敏失败会清除本次诊断副本并非零退出，不能把失败清理视作验收成功。正常保留 `runtime.json`、`results.json`、`safety.json`、`cleanup.json` 及失败 trace；可用已安装的 Playwright `show-trace` 查看。SIGTERM 会进入清理；强制终止进程/主机掉电不保证 finally 执行，须按 runtime 中准确 schema/vhost/PID 人工核验，不可按前缀批量清理。
 
-最终验收连续执行两次 `npm run test:e2e`，均须 0 失败、0 跳过、0 重试。定位时可追加 `-- --skip-build -- journeys.spec.ts`；不提供业务环境或任意外部 URL 模式，R1 克隆预演由其独立卡片接续。
+最终验收连续执行两次 `npm run test:e2e`，均须 0 失败、0 跳过、0 重试。定位时可追加 `-- --skip-build -- journeys.spec.ts`；不提供业务环境或任意外部 URL 模式。R1 编排器可传入内部 `rehearsal` 上下文：从其独占克隆再建随机子克隆，使用同一不可变 JAR/dist，保留原 T1 合成模式；默认入口仍从空隔离库开始。
+
+## R1 业务库克隆集成预演
+
+入口为 `rehearsal.py`，对应[初版任务单 R1](../../docs/任务/初版落地任务单.md#r1-业务库克隆集成预演)。先安装上述 `requirements-e2e.txt`，在干净提交上用 `launchd.py build` 生成不可变发布目录；Maven 使用 `clean package`，避免接口退役后的旧 class 混入。JDK 必须为 25，业务库必须无人连接且保持 V25，上一版 JAR 的最高迁移必须为 V25，新包为 V27。以下变量只保存路径：
+
+```sh
+sh executor/python.sh -B scripts/p8/rehearsal.py \
+  --release "$RELEASE" --previous-jar "$PREVIOUS_JAR" --java "$JDK25/bin/java" \
+  --artifacts "$ARTIFACTS" --trust "$REPORT_TRUST" --mysql-service "$MYSQL_SERVICE" \
+  --runtime-user xyh --runtime-user g3-operator --runtime-user guard-reviewer \
+  --work "$WORK"
+```
+
+`RELEASE` 为 `program/releases/<完整提交>/`；`WORK` 为不存在的绝对路径，建议使用仓库 `.cache/v1-20261014/rehearsal/<运行号>/`。数据库凭据由现有 MySQL 服务配置读取，RabbitMQ 沿用上表受控环境；不接受任意 JDBC/schema/服务 URL。发布包在前后均检查完整文件集合与 SHA-256。
+
+1. 只读快照业务库，备份到本轮私有 `backup/`，含 `database.sql`、`json-double-fidelity.sql` 与恢复证明。仅写入本次创建的 `cyber_r1_clone_<随机值>`，初次恢复与回退恢复均要求结构、行与 JSON/DOUBLE 精确一致。
+2. 在独立 vhost、回环 TLS/mTLS 端口以严格 deploy profile 启动新包，自动化和引导报告保持关闭。核对 V27、权限设计第 5 节完整矩阵、9 个 builtin、退役角色停用；3 名已有运行账号不丢失保留的 v2 权限，退役 v1 键单列；已有用户 ID、状态和口令哈希不变。验证启动审计、健康、就绪及后端托管的前端字节。
+3. 复用 B3 `enroll.enroll` 完成 r6 的 authorized 测试资产登记与配置，执行范围为空、观察执行器只告警；该步骤不启动抓包。r6 的 authorized 环境禁止文件回放，所以另建 research 资产，绑定克隆内既有 approved research 组合，以同一 Go 制品读取生成的回环 PCAP。真实上传、MQ 消费、模型/规则及实时统计参与；不发包、不打开采集接口、不启动执行器、不调用 claims/PF。
+4. `status.inspect_rehearsal` 检查实际临时 PID、deploy、就绪、页面、回放与观察/告警；采集健康原样保留 `unknown`，launchd 为 `not_installed`、PF 为 `not_applicable`。随后停止 deploy，在两个独立子克隆各运行完整 16 项 T1，均需无失败、跳过或重试；对继承历史命令设定基线，只允许显式无效签名的 `t1-ui-synthetic` 新夹具，其余新增命令为零。
+5. 停止全部新进程，核验备份哈希后只恢复本次拥有的主克隆。恢复摘要必须与原快照一致，再启动上一版 V25 JAR，核对健康、就绪、结构与账号；旧包不支持前端托管，报告明确标注。精确摘要证明发生在旧包启动前，启动后的会话/健康等可变事实不冒充原字节。
+
+最终 `result.json` 必须 `passed=true`，业务库前后摘要相同；主克隆/vhost、两轮 T1 的 schema/vhost/进程清理均成功。主流程保留私有备份、TLS 材料、日志、回放和 `SHA256SUMS`；T1 子克隆的 SQL 和凭据在脱敏后随 `private/` 删除。任一步失败即停止并进入清理；业务库末次快照若不可读，报告失败且不能宣称业务库未变。SIGTERM 会触发清理；强杀或掉电后按本轮准确记录核对，禁止按前缀批量删除。
+
+R1 通过只证明克隆集成与回退。五服务安装/重启、现场采集健康、真实资产与 r6 激活、PF 演示及业务库 V26/V27 迁移仍属于 W4/A23。
 
 ## Broker 验收
 

@@ -215,14 +215,14 @@ def backend_environment():
     return {key: value for key, value in os.environ.items() if key in allowed}
 
 
-def seed_accounts(db, schema):
+def seed_accounts(db, schema, *, prefix='demo-'):
     import bcrypt
     accounts = {}
     # 同一次运行共享随机口令以降低 bcrypt 设置成本；每个账号仍只有一个角色。
     password = secrets.token_urlsafe(24)
     encoded = bcrypt.hashpw(password.encode(), bcrypt.gensalt(rounds=12)).decode()
     for alias, role in ROLES.items():
-        name = 'demo-' + alias
+        name = prefix + alias
         db.query(f"INSERT INTO sys_user(user_key,username,display_name,password_hash,status) VALUES('{uid()}','{name}','T1 {alias}','{encoded}','active');"
                  f"INSERT INTO sys_user_role(user_id,role_id,scope_type,scope_id) SELECT u.id,r.id,'global','*' FROM sys_user u,sys_role r WHERE u.username='{name}' AND r.role_key='{role}';", schema)
         accounts[alias] = dict(username=name, password=password)
@@ -239,7 +239,7 @@ def build(java, work):
         require(result.returncode == 0, 'E2E_BUILD_FAILED_' + name.upper())
 
 
-def run(args):
+def run(args, *, rehearsal=None):
     from e2e_fixtures import catalog
     os.umask(0o077)
     java = Path(os.environ.get('JAVA_HOME', '')) / 'bin/java'
@@ -247,7 +247,7 @@ def run(args):
     version = subprocess.run([str(java), '-version'], capture_output=True, text=True, check=True)
     require('version "25.' in version.stdout + version.stderr, 'JDK_25_REQUIRED')
     db, broker = Database(), Broker()
-    work = ROOT / '.cache/t1-e2e' / uuid.uuid4().hex
+    work = (Path(rehearsal['work']) if rehearsal else ROOT / '.cache/t1-e2e' / uuid.uuid4().hex)
     work.mkdir(parents=True, mode=0o700)
     schema = owned_schema('cyber_it_e2e_' + uuid.uuid4().hex)
     process = server = browser = None
@@ -259,13 +259,28 @@ def run(args):
         artifacts = work / 'private'
         artifacts.mkdir(mode=0o700)
         private_json(artifacts / 'secrets.json', [os.environ['DB_TEST_PASSWORD'], os.environ['RABBITMQ_IT_PASSWORD']])
-        if not args.skip_build:
+        if not args.skip_build and not rehearsal:
             build(java, work)
-        jars = list((ROOT / 'backend/target').glob('*.jar'))
-        require(len(jars) == 1 and (ROOT / 'frontend/dist/index.html').is_file(), 'BUILD_OUTPUT_REQUIRED')
+        jars = [Path(rehearsal['release']) / 'backend.jar'] if rehearsal else list((ROOT / 'backend/target').glob('*.jar'))
+        web = Path(rehearsal['release']) / 'web' if rehearsal else ROOT / 'frontend/dist'
+        require(len(jars) == 1 and jars[0].is_file() and (web / 'index.html').is_file(), 'BUILD_OUTPUT_REQUIRED')
         jar = jars[0]
-        db.query('CREATE DATABASE `' + schema + '` CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin')
+        if rehearsal:
+            # 仅由 R1 编排器传入已证明归属的克隆；仍创建本轮自己的子克隆，拒绝业务库/外部 URL。
+            require(re.fullmatch(r'cyber_r1_clone_[0-9a-f]{32}', rehearsal['schema']), 'R1_CLONE_REQUIRED')
+            from scripts.p8.register_alert_only import Database as SnapshotDatabase
+            source_db = SnapshotDatabase(Path(rehearsal['mysql_service']))
+            backup = artifacts / 'backup'
+            backup.mkdir(mode=0o700)
+            try:
+                source_db.backup_restore(rehearsal['schema'], schema, backup)
+            finally:
+                schema_created = getattr(source_db, 'owned_schema', None) == schema
+            shutil.copytree(rehearsal['artifacts'], artifacts, dirs_exist_ok=True)
+        else:
+            db.query('CREATE DATABASE `' + schema + '` CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin')
         schema_created = True
+        baseline = int(db.query('SELECT COALESCE(MAX(id),0) FROM guard_command', schema)) if rehearsal else 0
         broker_created = True
         broker.create()
         port = free_port()
@@ -283,6 +298,8 @@ def run(args):
                    '--cyber.guard.signing-key-id=', '--cyber.guard.signing-key-file=',
                    '--cyber.guard.artifact-root=' + str(artifacts), '--cyber.guard.report-trust-file=' + str(artifacts / 'trust.json'),
                    '--cyber.guard.protection-file=' + str(artifacts / 'protection.json'), '--cyber.guard.queue-prefix=q.guard.t1.' + uuid.uuid4().hex]
+        if rehearsal:
+            command += ['--cyber.model-artifact.root=' + str(Path.home() / 'Workspace/deliveries'), '--spring.session.jdbc.cleanup-cron=-']
         with (work / 'backend.log').open('wb') as log:
             process = subprocess.Popen(command, env=env, cwd=ROOT, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
         backend = 'http://127.0.0.1:' + str(port)
@@ -303,10 +320,10 @@ def run(args):
         fixtures = catalog(backend, accounts, artifacts)
         ready = True
         Preview.backend_port = port
-        server = PreviewServer(('127.0.0.1', 0), functools.partial(Preview, directory=str(ROOT / 'frontend/dist')))
+        server = PreviewServer(('127.0.0.1', 0), functools.partial(Preview, directory=str(web)))
         threading.Thread(target=server.serve_forever, daemon=True).start()
         base = 'http://127.0.0.1:' + str(server.server_port)
-        private_json(artifacts / 'state.json', dict(baseURL=base, accounts=accounts, fixtures=fixtures))
+        private_json(artifacts / 'state.json', dict(baseURL=base, accounts=accounts, fixtures=fixtures, commandBaseline=baseline))
         private_json(work / 'runtime.json', dict(schema=schema, vhost=broker.name, jarSha256=hashlib.sha256(jar.read_bytes()).hexdigest(),
                                                 commit=subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip(),
                                                 backendPid=process.pid, backendPort=port, previewPort=server.server_port, javaVersion='25', synthetic=True))
@@ -341,7 +358,7 @@ def run(args):
         if ready:
             # 与浏览器结果独立保存零命令证明；即使前半段测试失败也不得漏查。
             try:
-                count = int(db.query("SELECT COUNT(*) FROM guard_command WHERE key_id<>'t1-ui-synthetic'", schema))
+                count = int(db.query("SELECT COUNT(*) FROM guard_command WHERE key_id<>'t1-ui-synthetic' AND id>" + str(baseline), schema))
                 private_json(work / 'safety.json', dict(issuedCommands=count, executorStarted=False, synthetic=True))
                 if count:
                     result_code = 1

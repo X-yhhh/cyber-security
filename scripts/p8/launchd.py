@@ -214,9 +214,10 @@ def build(args):
     versions = {'python': sys.version.split()[0], 'java': version.splitlines()[0], 'maven': run(['mvn', '-v'], env=dict(os.environ, JAVA_HOME=str(java.parent.parent))).splitlines()[0],
                 'node': run(['node', '--version']), 'npm': run(['npm', '--version']), 'go': run(['go', 'version'])}
     if args.dry_run:
-        return {'destination': str(destination), 'commands': ['mvn -q -DskipTests package', 'npm ci', 'npm run build', 'go build guardlive/guardtargets'], 'toolchains': versions}
+        return {'destination': str(destination), 'commands': ['mvn -q -DskipTests clean package', 'npm ci', 'npm run build', 'go build guardlive/guardtargets'], 'toolchains': versions}
     require(not run(['git', 'status', '--porcelain'], cwd=ROOT), 'CLEAN_COMMIT_REQUIRED')
-    run(['mvn', '-q', '-DskipTests', 'package'], cwd=ROOT / 'backend', env=dict(os.environ, JAVA_HOME=str(java.parent.parent)))
+    # 接口退役后必须清掉旧 class，保证发布 JAR 只包含当前提交的实现。
+    run(['mvn', '-q', '-DskipTests', 'clean', 'package'], cwd=ROOT / 'backend', env=dict(os.environ, JAVA_HOME=str(java.parent.parent)))
     run(['npm', 'ci'], cwd=ROOT / 'frontend')
     run(['npm', 'run', 'build'], cwd=ROOT / 'frontend')
     private_dir(destination)

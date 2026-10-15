@@ -21,6 +21,19 @@ def command(argv):
     return result.returncode, result.stdout
 
 
+def inspect_rehearsal(client, process, runtime, replay):
+    """R1 只核对真实临时后端和已结束文件回放；不把未安装五服务、未知采集健康或 PF 写成正常。"""
+    ready = client.call('GET', '/health/ready')['data']['status']
+    checks = dict(backend=process.poll() is None and process.pid == runtime['pid'],
+                  ready=ready == 'UP', deployProfile=runtime['profile'] == 'deploy' and not runtime['automation'],
+                  hostedWeb=runtime.get('webHosted') is True,
+                  fileReplay=replay['passed'] and replay['fileReplay'] and not replay['liveCapture'],
+                  observationAndAlert=replay['observations'] > 0 and replay['alerts'] > 0)
+    return dict(ok=all(checks.values()), mode='clone-rehearsal', checks=checks,
+                captureHealth=replay['healthState'], launchd='not_installed', pf='not_applicable',
+                note='文件回放不证明现场内核丢包计数或五服务重启；这些项目保留在 A23。')
+
+
 def machine_rows(client, endpoint, asset):
     """完整读取资产的机器状态投影；游标重复或超过保护上限时拒绝宣称覆盖完整。"""
     rows, seen = [], set()

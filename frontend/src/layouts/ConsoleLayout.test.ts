@@ -75,9 +75,9 @@ describe('两级侧栏', () => {
 
   it('详情页面包屑为“一级 / 二级 / 详情 ID”，二级可点回列表', async () => {
     const { w } = await open(singleRoleUsers.model_operator, '/console/release/lab/run-42')
-    expect(crumbs(w)).toEqual(['模型与发布', 'lab 验证与 G3', 'run-42'])
-    expect(w.get('nav[aria-label="面包屑"] a').attributes('href')).toBe('/console/release/lab')
-    expect(sidebar(w).get('a[aria-current="page"]').text()).toBe('lab 验证与 G3')
+    expect(crumbs(w)).toEqual(['模型与发布', '发布管理', 'run-42'])
+    expect(w.get('nav[aria-label="面包屑"] a').attributes('href')).toBe('/console/release/bundles')
+    expect(sidebar(w).get('a[aria-current="page"]').text()).toBe('发布管理')
   })
 
   it('待办中心挂在态势组下，面包屑为“态势 / 待办中心”', async () => {

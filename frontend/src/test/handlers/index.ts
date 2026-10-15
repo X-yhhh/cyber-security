@@ -7,10 +7,11 @@ import { authHandlers } from './auth'
 import { detectHandlers } from './detect'
 import { summaryHandlers } from './summary'
 import { statsHandlers } from './stats'
+import { releaseHandlers } from './release'
 import { responseHandlers } from './response'
 import { todoHandlers } from './todos'
 
-export const handlers = [...authHandlers, ...summaryHandlers, ...detectHandlers, ...statsHandlers, ...responseHandlers, ...todoHandlers]
+export const handlers = [...authHandlers, ...summaryHandlers, ...detectHandlers, ...statsHandlers, ...releaseHandlers, ...responseHandlers, ...todoHandlers]
 
 export const server = setupServer(...handlers)
 

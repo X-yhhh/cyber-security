@@ -3,6 +3,7 @@ import { session } from '@/api/session'
 import { createRouter, createWebHistory, type RouteLocation, type RouteRecordRaw, type RouterHistory } from 'vue-router'
 import { installGuards } from './guards'
 import { details, nav, routeName, type GroupKey } from './nav'
+import { toRelease } from './release'
 
 declare module 'vue-router' {
   interface RouteMeta {
@@ -34,7 +35,7 @@ const navRoutes: RouteRecordRaw[] = nav
 const detailRoutes: RouteRecordRaw[] = details.flatMap((d) => {
   const parent = nav.find((i) => i.group === d.group && i.key === d.item)
   if (!parent?.ready || !d.component) return []
-  return [{ path: d.path, name: d.name, component: d.component, meta: { title: d.title, shell, anyOf: parent.anyOf, group: d.group, item: d.item, detail: 'id' } }]
+  return [{ path: d.path, name: d.name, component: d.component, meta: { title: d.title, shell, anyOf: d.anyOf ?? parent.anyOf, group: d.group, item: d.item, detail: 'id' } }]
 })
 
 /** 旧检测地址保留有效分段、筛选和锚点；无效或重复的分段回落到原页面对应段。 */
@@ -51,10 +52,13 @@ const movedRoutes: RouteRecordRaw[] = [
   { path: 'decisions', name: 'decisions', redirect: toRecords('decisions') },
   { path: 'detect/observations', redirect: toRecords('observations') },
   { path: 'detect/decisions', redirect: toRecords('decisions') },
-  { path: 'release', name: 'release', redirect: '/console/release/bundles' },
+  { path: 'release', name: 'release', redirect: toRelease('bundles') },
+  { path: 'release/evaluations', name: 'release-evaluations', redirect: toRelease('validation', 'evaluations') },
+  { path: 'release/policies', name: 'release-policies', redirect: toRelease('policies') },
+  { path: 'release/lab', name: 'release-lab', redirect: toRelease('validation', 'lab') },
   { path: 'execution', name: 'execution', redirect: '/console/response/actions' },
-  { path: 'lab', name: 'lab', redirect: '/console/release/lab' },
-  { path: 'lab/:id', name: 'lab-detail', redirect: (to) => `/console/release/lab/${encodeURIComponent(String(to.params.id))}` },
+  { path: 'lab', name: 'lab', redirect: toRelease('validation', 'lab') },
+  { path: 'lab/:id', name: 'lab-detail', redirect: (to) => ({ path: `/console/release/lab/${encodeURIComponent(String(to.params.id))}`, query: to.query, hash: to.hash }) },
   { path: 'health', name: 'health', redirect: '/console/ops/health' },
   // Q10 菜单骨架（任务单 U0.9）：审计日志移到系统管理组，旧地址重定向一个版本。
   { path: 'ops/audit', redirect: '/console/system/audit' },

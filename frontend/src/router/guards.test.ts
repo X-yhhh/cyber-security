@@ -136,7 +136,7 @@ describe('404 与重定向', () => {
   it.each([
     ['/console/release', '/console/release/bundles'],
     ['/console/execution', '/console/response/actions'],
-    ['/console/lab', '/console/release/lab'],
+    ['/console/lab', '/console/release/bundles'],
     ['/console/lab/run-9', '/console/release/lab/run-9'],
     ['/console/health', '/console/ops/health'],
     ['/console/ops/audit', '/console/system/audit'],
@@ -196,7 +196,7 @@ describe('有权限地址', () => {
   it('组合角色可以进入两个角色各自的页面', async () => {
     signIn(comboUser)
     const { router } = await open('/console/release/lab')
-    expect(router.currentRoute.value.name).toBe('release-lab')
+    expect(router.currentRoute.value.name).toBe('release-bundles')
     await router.push('/console/ops/audit')
     expect(router.currentRoute.value.name).toBe('system-audit')
   })

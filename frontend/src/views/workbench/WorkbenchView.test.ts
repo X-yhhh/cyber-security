@@ -74,9 +74,9 @@ describe('工作台卡片', () => {
     const card = w.get('section[aria-label="待我审批"]')
     const links = (card.findAllComponents(RouterLinkStub) as VueWrapper<any>[]).map((l) => l.props('to'))
     expect(links).toContainEqual({ name: 'release-bundles', query: { status: 'evaluated' } })
-    expect(links).toContainEqual({ name: 'release-policies', query: { status: 'draft' } })
+    expect(links).toContainEqual({ name: 'release-bundles', query: { tab: 'policies', status: 'draft' } })
     expect(links).toContainEqual({ name: 'response-actions', query: { status: 'pending' } })
-    expect(links).toContainEqual({ name: 'release-lab', query: { status: 'pending' } })
+    expect(links).toContainEqual({ name: 'release-bundles', query: { tab: 'validation', record: 'lab', status: 'pending' } })
     // 资产授权、传感器与执行器尚未上线（ready=false），只显示数字，不给链接。
     expect(card.findAll('li')).toHaveLength(6)
     expect(links).toHaveLength(4)
@@ -92,12 +92,12 @@ describe('工作台卡片', () => {
 })
 
 describe('卡片链接', () => {
-  it('全部二级项上线后，每条链接都指向已登记的二级项', () => {
-    const names = new Set(nav.map(routeName))
+  it('每条可用链接都指向已上线的二级项，合并页使用最终路由', () => {
+    const names = new Set(nav.filter((item) => item.ready).map(routeName))
     const all = me(['platform_admin', 'model_operator'])
     const everything = [...new Set(humanRoles.flatMap((r) => singleRoleUsers[r].permissions))]
     for (const c of cards) {
-      for (const line of c.lines({}, (group, key, status) => ({ name: routeName({ group, key }), query: status ? { status } : undefined }))) {
+      for (const line of c.lines({}, linker(everything))) {
         const to = line.to as { name: string } | undefined
         if (to) expect(names.has(to.name)).toBe(true)
       }

@@ -39,6 +39,12 @@ export function ago(v: string | null | undefined, now = Date.now()): string {
 
 export function linker(permissions: readonly string[]): LinkFn {
   return (group, key, status) => {
+    // F3 已移除旧菜单行，保留工作台计数的目标分段；旧路由名也继续作为兼容重定向。
+    if (group === 'release' && (key === 'policies' || key === 'lab' || key === 'evaluations')) {
+      const item = itemOf('release', 'bundles')
+      if (!item?.ready || !allowed(item.anyOf, permissions)) return undefined
+      return { name: 'release-bundles', query: { tab: key === 'policies' ? 'policies' : 'validation', ...(key === 'policies' ? {} : { record: key === 'lab' ? 'lab' : 'evaluations' }), ...(status ? { status } : {}) } }
+    }
     const item = itemOf(group, key)
     if (!item?.ready || !allowed(item.anyOf, permissions)) return undefined
     return { name: routeName(item), query: status ? { status } : undefined }

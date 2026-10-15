@@ -41,14 +41,14 @@ import { toast } from '@/composables/toast'
 
 type View = 'policies' | 'bundles' | 'capabilities' | 'evaluations'
 /** 两级菜单（FE-9）按二级项指定初始分段；F1—F4 拆分本页后删除。 */
-const props = defineProps<{ segment?: View }>()
+const props = defineProps<{ segment?: View; showTabs?: boolean }>()
 const view = ref<View>(props.segment ?? 'policies')
 
 /** v2 列表为游标分页且不返回总数；游标栈支持回退一页。 */
-function useCursor<T>(load: (cursor?: string) => Promise<{ items: T[]; nextCursor: string | null }>) {
+function useCursor<T>(load: (cursor?: string) => Promise<{ items: T[]; nextCursor: string | null }>, enabled = true) {
   const items = ref([]) as { value: T[] }
   const next = ref<string | null>(null)
-  const loading = ref(true)
+  const loading = ref(enabled)
   const error = ref('')
   const stack = ref<string[]>([])
   const turning = ref(false)
@@ -80,14 +80,16 @@ function useCursor<T>(load: (cursor?: string) => Promise<{ items: T[]; nextCurso
     try { stack.value.pop(); await go(stack.value[stack.value.length - 1]) } finally { turning.value = false }
   }
   function refresh() { seq++; stack.value = []; void go() }
-  void go()
+  if (enabled) void go()
   return { items, next, loading, error, stack, turning, forward, back, refresh }
 }
 
-const policies = useCursor<GuardDecisionPolicy>((cursor) => guard.list<GuardDecisionPolicy>('decision-policies', { cursor, limit: 50 }))
-const bundles = useCursor<GuardReleaseBundle>((cursor) => guard.list<GuardReleaseBundle>('release-bundles', { cursor, limit: 50 }))
-const capabilities = useCursor<GuardCapability>((cursor) => guard.list<GuardCapability>('capabilities', { cursor, limit: 50 }))
-const evaluations = useCursor<GuardEvaluation>((cursor) => guard.list<GuardEvaluation>('evaluations', { cursor, limit: 50 }))
+/** F3 接线时只读取当前分段；权限不同的集合不能因复用旧组件而一并请求。 */
+const reads = (segment: View, permission: string) => can(permission) && (props.showTabs !== false || view.value === segment)
+const policies = useCursor<GuardDecisionPolicy>((cursor) => guard.list<GuardDecisionPolicy>('decision-policies', { cursor, limit: 50 }), reads('policies', 'resource.read'))
+const bundles = useCursor<GuardReleaseBundle>((cursor) => guard.list<GuardReleaseBundle>('release-bundles', { cursor, limit: 50 }), reads('bundles', 'resource.read'))
+const capabilities = useCursor<GuardCapability>((cursor) => guard.list<GuardCapability>('capabilities', { cursor, limit: 50 }), reads('capabilities', 'resource.read'))
+const evaluations = useCursor<GuardEvaluation>((cursor) => guard.list<GuardEvaluation>('evaluations', { cursor, limit: 50 }), reads('evaluations', 'evaluation.read'))
 /** 评价计划数量少且需按 id 翻译，一次性读取用于详情引用。 */
 const plans = ref<GuardEvaluationPlan[]>([])
 const models = ref<GuardModel[]>([])
@@ -203,9 +205,9 @@ const pageTitle = usePageTitle('策略与发布')
     <PageHead :title="pageTitle" desc="决策策略、冻结发布组合、平台能力等级与评价运行台账。发布组合是不可变组合，审批与激活分开：仅改阈值也要新组合，不能复用旧权重的历史成绩。只显示在你范围内的对象。">
     </PageHead>
 
-    <PipelineSteps v-if="pipeline" class="mb-4" title="发布流水线" :steps="pipeline" :current="view === 'bundles' ? bundleStage : undefined" @select="pickStage" />
+    <PipelineSteps v-if="pipeline && (props.showTabs !== false || view === 'bundles')" class="mb-4" title="发布流水线" :steps="pipeline" :current="view === 'bundles' ? bundleStage : undefined" @select="pickStage" />
 
-    <Segmented v-model="view" :options="views" />
+    <Segmented v-if="props.showTabs !== false" v-model="view" :options="views" />
 
     <Panel class="mt-5" flush>
       <LoadState :loading="active.loading.value" :error="active.error.value" :empty="!active.items.value.length">

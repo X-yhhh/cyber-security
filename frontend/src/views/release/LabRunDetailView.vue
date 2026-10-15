@@ -160,7 +160,7 @@ const expanded = ref<string | null>(null)
 
 <template>
   <div>
-    <RouterLink :to="{ name: 'lab' }" class="link mb-5 text-[13px] text-ink-3"><ArrowLeft :size="14" :stroke-width="1.5" /> lab 验证与 G3</RouterLink>
+    <RouterLink :to="{ name: 'release-bundles', query: { tab: 'validation', record: 'lab' } }" class="link mb-5 text-[13px] text-ink-3"><ArrowLeft :size="14" :stroke-width="1.5" /> lab 验证与 G3</RouterLink>
     <LoadState :loading="loading" :error="error">
       <div v-if="run" class="space-y-5">
         <!-- 结论页头：G3 结论 + 会话事实 -->

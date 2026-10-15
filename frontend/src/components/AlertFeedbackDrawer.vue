@@ -44,8 +44,8 @@ async function load() {
   error.value = ''
   try {
     const [list, alert] = await Promise.all([
-      api.get<AlertFeedbackView[]>(`/alerts/${id}/feedback`),
-      props.status ? Promise.resolve(null) : api.get<AlertView>(`/alerts/${id}`),
+      api.get<AlertFeedbackView[]>(`/api/v1/alerts/${id}/feedback`),
+      props.status ? Promise.resolve(null) : api.get<AlertView>(`/api/v1/alerts/${id}`),
     ])
     if (mine !== seq) return
     history.value = list ?? []
@@ -84,7 +84,7 @@ async function submit() {
   if (!valid.value || props.alertId == null) return
   busy.value = true
   try {
-    await api.post<AlertFeedbackView>(`/alerts/${props.alertId}/feedback`, { label: choice.value, note: note.value.trim() })
+    await api.post<AlertFeedbackView>(`/api/v1/alerts/${props.alertId}/feedback`, { label: choice.value, note: note.value.trim() })
     toast(`已标注为「${feedbackLabel[choice.value!]}」，等待第二人复核。`)
     choice.value = null
     note.value = ''

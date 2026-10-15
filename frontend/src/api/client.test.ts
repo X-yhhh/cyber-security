@@ -27,7 +27,7 @@ describe('api client', () => {
     await expect(api.post<{ accepted: boolean }>('/events/1/notes', { note: '依据' })).resolves.toEqual({ accepted: true })
 
     expect(fetchMock).toHaveBeenCalledTimes(2)
-    expect(fetchMock.mock.calls[0][0]).toBe('/api/v1/auth/csrf')
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/v2/auth/csrf')
     const [, options] = fetchMock.mock.calls[1]
     expect(options.headers).toMatchObject({ Accept: 'application/json', 'Content-Type': 'application/json', 'X-CSRF-TOKEN': 'csrf-1' })
     expect(options.credentials).toBe('same-origin')
@@ -73,5 +73,38 @@ describe('api client', () => {
     }, status)))
 
     await expect(api.get('/events')).rejects.toMatchObject({ status, code, message, requestId: `req-${status}` })
+  })
+})
+
+describe('v2 版本与会话失败边界', () => {
+  beforeEach(() => { resetCsrf(); vi.restoreAllMocks() })
+
+  it.each(['/api/v2/auth/login', '/api/v1/auth/login', '/auth/me'])('认证自身的 401 不触发统一跳转：%s', async (path) => {
+    const unauthorized = vi.fn(); setUnauthorizedHandler(unauthorized)
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({ data: null, error: { code: 'AUTHENTICATION_FAILED', message: '登录失败' }, requestId: 'req-auth' }, 401)))
+    await expect(api.get(path)).rejects.toMatchObject({ code: 'AUTHENTICATION_FAILED' })
+    expect(unauthorized).not.toHaveBeenCalled()
+  })
+
+  it('缺省路径转为 v2；显式旧路径原样发送', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ data: [], error: null }))
+    vi.stubGlobal('fetch', fetchMock)
+    await api.get('/users'); await api.get('/api/v1/users')
+    expect(fetchMock.mock.calls.map((c) => c[0])).toEqual(['/api/v2/users', '/api/v1/users'])
+  })
+
+  it('403 作废 CSRF，下一次写入重新获取后端给出的新头名；不自动重试写入', async () => {
+    const payload = (headerName: string, value: string) => Object.fromEntries([['headerName', headerName], ['token', value]])
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ data: payload('X-First', 'first'), error: null }))
+      .mockResolvedValueOnce(jsonResponse({ data: null, error: { code: 'CSRF_INVALID', message: '校验失败' } }, 403))
+      .mockResolvedValueOnce(jsonResponse({ data: payload('X-Second', 'second'), error: null }))
+      .mockResolvedValueOnce(jsonResponse({ data: { ok: true }, error: null }))
+    vi.stubGlobal('fetch', fetchMock)
+    await expect(api.post('/api/v2/users', {})).rejects.toMatchObject({ status: 403 })
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    await expect(api.post('/api/v2/users', {})).resolves.toEqual({ ok: true })
+    expect(fetchMock.mock.calls[3][1].headers).toMatchObject({ 'X-Second': 'second' })
+    expect(fetchMock.mock.calls[3][1].headers).not.toHaveProperty('X-First')
   })
 })

@@ -10,8 +10,8 @@
 import type { Component } from 'vue'
 import type { RouteComponent } from 'vue-router'
 import {
-  Activity, BrainCircuit, FlaskConical, ListTodo, MessageSquareWarning, PackageCheck, RadioTower,
-  ScanSearch, ScrollText, Server, ShieldAlert, ShieldBan, TestTubes, UserCog, Users, Workflow,
+  Activity, BrainCircuit, HeartPulse, ListTodo, MessageSquareWarning, PackageCheck, RadioTower,
+  ScanSearch, ScrollText, Server, ShieldAlert, ShieldBan, UserCog, Users,
 } from 'lucide-vue-next'
 
 /** 人工权限键（权限设计第 4.1 节，25 个）。 */
@@ -52,7 +52,7 @@ export interface NavItem {
 }
 
 /** 详情整页（权限设计第 7.2 节）；随所属二级项一起注册，沿用其 `anyOf`。 */
-export interface NavDetail { group: GroupKey; item: string; name: string; path: string; title: string; component: Loader }
+export interface NavDetail { group: GroupKey; item: string; name: string; path: string; title: string; component: Loader; anyOf?: readonly Permission[] }
 
 export const groups: readonly NavGroupDef[] = [
   { key: 'overview', title: '态势', en: 'Overview' },
@@ -65,8 +65,6 @@ export const groups: readonly NavGroupDef[] = [
 
 const Events = () => import('@/views/detect/EventsView.vue')
 const Feedback = () => import('@/views/detect/FeedbackView.vue')
-const Release = () => import('@/views/console/ReleaseView.vue')
-const Lab = () => import('@/views/console/LabView.vue')
 const Health = () => import('@/views/console/HealthView.vue')
 
 /*
@@ -80,8 +78,8 @@ export const nav: readonly NavItem[] = [
   { group: 'detect', key: 'records', title: '检测记录', en: 'Records', path: '/console/detect/records', anyOf: ['detection.read'], component: () => import('@/views/detect/RecordsView.vue'), ready: true, icon: ScanSearch },
   { group: 'detect', key: 'feedback', title: '误报反馈', en: 'Feedback', path: '/console/detect/feedback', anyOf: ['feedback.label', 'feedback.review'], component: Feedback, ready: true, icon: MessageSquareWarning },
   { group: 'response', key: 'actions', title: '处置记录', en: 'Actions', path: '/console/response/actions', anyOf: ['action.read'], component: () => import('@/views/response/ActionsView.vue'), ready: true, icon: ShieldBan },
-  { group: 'release', key: 'models', title: '模型与数据集', en: 'Models', path: '/console/release/models', anyOf: ['model.manage', 'model.validate', 'dataset.manage', 'bundle.request', 'bundle.approve', 'evaluation.read'], component: null, ready: false, icon: BrainCircuit },
-  { group: 'release', key: 'bundles', title: '发布管理', en: 'Bundles', path: '/console/release/bundles', anyOf: ['bundle.request', 'bundle.approve', 'policy.draft', 'policy.approve', 'automation.stop', 'evaluation.read'], component: Release, ready: true, icon: PackageCheck, segment: 'bundles' },
+  { group: 'release', key: 'models', title: '模型与数据集', en: 'Models', path: '/console/release/models', anyOf: ['model.manage', 'model.validate', 'dataset.manage', 'bundle.request', 'bundle.approve', 'evaluation.read'], component: () => import('@/views/release/ModelsView.vue'), ready: true, icon: BrainCircuit },
+  { group: 'release', key: 'bundles', title: '发布管理', en: 'Bundles', path: '/console/release/bundles', anyOf: ['bundle.request', 'bundle.approve', 'policy.draft', 'policy.approve', 'automation.stop', 'evaluation.read'], component: () => import('@/views/release/BundlesView.vue'), ready: true, icon: PackageCheck },
   { group: 'assets', key: 'list', title: '资产', en: 'Assets', path: '/console/assets/list', anyOf: ['asset.manage', 'authorization.request', 'authorization.approve', 'sensor.manage', 'audit.read'], component: () => import('@/views/assets/AssetsView.vue'), ready: true, icon: Server },
   { group: 'assets', key: 'agents', title: '传感器与执行器', en: 'Agents', path: '/console/assets/agents', anyOf: ['sensor.manage', 'authorization.approve', 'ops.read'], component: () => import('@/views/assets/AgentsView.vue'), ready: true, icon: RadioTower },
   { group: 'system', key: 'users', title: '用户管理', en: 'Users', path: '/console/system/users', anyOf: ['iam.manage'], component: null, ready: false, icon: Users },
@@ -89,14 +87,11 @@ export const nav: readonly NavItem[] = [
   { group: 'system', key: 'audit', title: '审计日志', en: 'Audit', path: '/console/system/audit', anyOf: ['audit.read'], component: Health, ready: true, icon: ScrollText, segment: 'audit' },
 
   /* 过渡行：路径不变、继续显示，由括号内的卡片删除。 */
-  { group: 'release', key: 'evaluations', title: '评价与回放', en: 'Evaluations', path: '/console/release/evaluations', anyOf: ['evaluation.read'], component: Release, ready: true, icon: FlaskConical, segment: 'evaluations', legacy: true }, // F3
-  { group: 'release', key: 'policies', title: '决策策略', en: 'Policies', path: '/console/release/policies', anyOf: ['policy.draft', 'policy.approve', 'evaluation.read'], component: Release, ready: true, icon: Workflow, segment: 'policies', legacy: true }, // F3
-  { group: 'release', key: 'lab', title: 'lab 验证与 G3', en: 'Lab', path: '/console/release/lab', anyOf: ['evaluation.read'], component: Lab, ready: true, icon: TestTubes, legacy: true }, // F3
 ]
 
 export const details: readonly NavDetail[] = [
   { group: 'detect', item: 'events', name: 'detect-events-detail', path: '/console/detect/events/:id', title: '事件详情', component: () => import('@/views/detect/EventDetailView.vue') },
-  { group: 'release', item: 'lab', name: 'release-lab-detail', path: '/console/release/lab/:id', title: 'lab 会话详情', component: () => import('@/views/console/LabRunDetailView.vue') },
+  { group: 'release', item: 'bundles', name: 'release-lab-detail', path: '/console/release/lab/:id', title: 'lab 会话详情', component: () => import('@/views/release/LabRunDetailView.vue'), anyOf: ['evaluation.read'] },
   { group: 'assets', item: 'list', name: 'assets-list-detail', path: '/console/assets/list/:id', title: '资产详情', component: () => import('@/views/assets/AssetDetailView.vue') },
 ]
 

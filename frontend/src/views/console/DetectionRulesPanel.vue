@@ -29,7 +29,7 @@ const CONDITION_TEMPLATE = JSON.stringify({
   window: { seconds: 60, aggregate: 'count', threshold: 30, groupBy: 'asset' },
 }, null, 2)
 
-const { data: rules, loading, error, reload } = useLoad(() => api.get<DetectionRuleView[]>('/detection-rules'), [] as DetectionRuleView[])
+const { data: rules, loading, error, reload } = useLoad(() => api.get<DetectionRuleView[]>('/api/v1/detection-rules'), [] as DetectionRuleView[])
 
 interface Clause { field: string; op: string; value: unknown }
 interface Window { seconds: number; aggregate: string; field?: string; threshold: number }
@@ -66,7 +66,7 @@ async function open(r: DetectionRuleView) {
   picked.value = r
   const mine = ++detailSeq
   try {
-    const fresh = await api.get<DetectionRuleView>(`/detection-rules/${r.id}`)
+    const fresh = await api.get<DetectionRuleView>(`/api/v1/detection-rules/${r.id}`)
     if (mine === detailSeq && picked.value?.id === r.id) picked.value = fresh
   } catch (e) {
     if (mine === detailSeq) toast(errText(e), 'threat')
@@ -82,7 +82,7 @@ async function decide(decision: 'approve' | 'reject') {
   if (!picked.value || !reason.value.trim()) return toast('请填写审批理由。', 'warn')
   busy.value = true
   try {
-    await api.post(`/detection-rules/${picked.value.id}/decision`, { decision, reason: reason.value.trim() })
+    await api.post(`/api/v1/detection-rules/${picked.value.id}/decision`, { decision, reason: reason.value.trim() })
     toast(decision === 'approve' ? '规则已启用，同键原生效版本已退役。' : '规则已驳回。')
     picked.value = null
     await reload()
@@ -93,7 +93,7 @@ async function retire() {
   if (!picked.value || !reason.value.trim()) return toast('请填写退役理由。', 'warn')
   busy.value = true
   try {
-    await api.post(`/detection-rules/${picked.value.id}/retire`, { reason: reason.value.trim() })
+    await api.post(`/api/v1/detection-rules/${picked.value.id}/retire`, { reason: reason.value.trim() })
     toast('规则已退役，不再产生告警。')
     picked.value = null
     await reload()
@@ -130,7 +130,7 @@ async function createVersion() {
   if (f.overScope) body.scope = f.contract.trim() ? { featureContractVersion: f.contract.trim() } : {}
   busy.value = true
   try {
-    await api.post(`/detection-rules/${b.id}/versions`, body)
+    await api.post(`/api/v1/detection-rules/${b.id}/versions`, body)
     toast('新版本已登记为待审批，须由其他审批人启用。')
     versioning.value = null
     await reload()
@@ -149,7 +149,7 @@ async function create() {
   if (!f.reason.trim()) return toast('请填写登记理由。', 'warn')
   busy.value = true
   try {
-    await api.post('/detection-rules', {
+    await api.post('/api/v1/detection-rules', {
       ruleKey: f.ruleKey.trim(), version: f.version.trim(), severity: f.severity, condition,
       scope: f.contract.trim() ? { featureContractVersion: f.contract.trim() } : {}, reason: f.reason.trim(),
     })

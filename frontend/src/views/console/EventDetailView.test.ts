@@ -47,7 +47,7 @@ describe('EventDetailView paging', () => {
     await next.trigger('click')
     await flushPromises()
 
-    expect(getMock).toHaveBeenCalledWith('/events/7/timeline?page=1&size=20')
+    expect(getMock).toHaveBeenCalledWith('/api/v1/events/7/timeline?page=1&size=20')
     expect(wrapper.text()).toContain('entry-25')
     expect(wrapper.text()).toContain('第 2 / 3 页')
     wrapper.unmount()
@@ -97,7 +97,7 @@ describe('EventDetailView paging', () => {
 
     drawer.vm.$emit('changed')
     await flushPromises()
-    expect(getMock).toHaveBeenCalledWith('/events/7/alerts?page=0&size=20')
+    expect(getMock).toHaveBeenCalledWith('/api/v1/events/7/alerts?page=0&size=20')
     expect(wrapper.findComponent({ name: 'AlertFeedbackDrawer' }).props('status')).toBe('false_positive')
     expect(wrapper.find('button[aria-label="查看标注 alt-31"]').exists()).toBe(true)
     wrapper.unmount()
@@ -117,7 +117,7 @@ describe('EventDetailView paging', () => {
     await wrapper.get('.drawer textarea').setValue('值班交接')
     await confirm.trigger('click')
     await flushPromises()
-    expect(putMock).toHaveBeenCalledWith('/events/7/assignee', { assigneeId: 12, reason: '值班交接' })
+    expect(putMock).toHaveBeenCalledWith('/api/v1/events/7/assignee', { assigneeId: 12, reason: '值班交接' })
     wrapper.unmount()
   })
 

@@ -32,7 +32,7 @@ const TEMPLATES: Record<DetectionPolicyType, Record<string, unknown>> = {
   },
 }
 
-const { data: policies, loading, error, reload } = useLoad(() => api.get<DetectionPolicyView[]>('/detection-policies'), [] as DetectionPolicyView[])
+const { data: policies, loading, error, reload } = useLoad(() => api.get<DetectionPolicyView[]>('/api/v1/detection-policies'), [] as DetectionPolicyView[])
 
 function parse(text: string | null): Record<string, unknown> {
   if (!text) return {}
@@ -70,7 +70,7 @@ async function act(path: string, body: Record<string, unknown> | null, done: str
   if (body && !reason.value.trim()) return toast('请填写理由。', 'warn')
   busy.value = true
   try {
-    await api.post(`/detection-policies/${p.id}/${path}`, body ? { ...body, reason: reason.value.trim() } : undefined)
+    await api.post(`/api/v1/detection-policies/${p.id}/${path}`, body ? { ...body, reason: reason.value.trim() } : undefined)
     toast(done)
     picked.value = null
     await reload()
@@ -136,8 +136,8 @@ async function saveDraft() {
   if (!form.value.reason.trim()) return toast('请填写起草理由。', 'warn')
   busy.value = true
   try {
-    if (base.value) await api.post(`/detection-policies/${base.value.id}/versions`, { config, reason: form.value.reason.trim() })
-    else await api.post('/detection-policies', { policyType: form.value.policyType, config, reason: form.value.reason.trim() })
+    if (base.value) await api.post(`/api/v1/detection-policies/${base.value.id}/versions`, { config, reason: form.value.reason.trim() })
+    else await api.post('/api/v1/detection-policies', { policyType: form.value.policyType, config, reason: form.value.reason.trim() })
     toast('草稿已登记；提交后须由其他审批人批准才生效。')
     drafting.value = false
     await reload()

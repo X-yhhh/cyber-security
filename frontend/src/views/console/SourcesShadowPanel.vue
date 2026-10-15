@@ -57,7 +57,7 @@ function buildPath(): string | null {
   }
   const q = new URLSearchParams({ from: from.toISOString(), to: to.toISOString() })
   if (form.zone.trim()) q.set('zone', form.zone.trim())
-  return `/data-sources/${form.sourceId}/shadow-report?${q.toString()}`
+  return `/api/v1/data-sources/${form.sourceId}/shadow-report?${q.toString()}`
 }
 
 /** 请求汇总；以请求序号丢弃过期响应。失败时清空旧结果，避免把旧参数的结论当作新结论。 */
@@ -165,7 +165,7 @@ const sampling = ref<ShadowReviewItem | null>(null)
 const reviewPage = ref(0)
 const { data: reviewList, loading: reviewLoading, error: reviewError, reload: reloadReviews } = useLoad(
   () => (can('feedback.review')
-    ? api.get<Page<AlertFeedbackView>>(`/feedback-reviews?page=${reviewPage.value}&size=20`)
+    ? api.get<Page<AlertFeedbackView>>(`/api/v1/feedback-reviews?page=${reviewPage.value}&size=20`)
     : Promise.resolve({ totalElements: 0, page: 0, size: 20, items: [] } as Page<AlertFeedbackView>)),
   { totalElements: 0, page: 0, size: 20, items: [] } as Page<AlertFeedbackView>,
 )
@@ -186,7 +186,7 @@ async function decide(decision: 'approve' | 'reject') {
   if (!reviewing.value || !reviewReason.value.trim()) return
   reviewBusy.value = true
   try {
-    await api.post<AlertFeedbackView>(`/feedback-samples/${reviewing.value.id}/review`, { decision, reason: reviewReason.value.trim() })
+    await api.post<AlertFeedbackView>(`/api/v1/feedback-samples/${reviewing.value.id}/review`, { decision, reason: reviewReason.value.trim() })
     toast(decision === 'approve' ? '已批准：该标注进入离线训练候选，未改动模型或阈值。' : '已驳回：该标注失效，告警可重新标注。')
     reviewing.value = null
     reviewReason.value = ''

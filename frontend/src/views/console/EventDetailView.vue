@@ -28,7 +28,7 @@ import { vReveal } from '@/composables/reveal'
 
 const route = useRoute()
 const id = String(route.params.id)
-const { data, loading, error, reload } = useLoad(() => api.get<EventDetail>(`/events/${encodeURIComponent(id)}`), null as EventDetail | null)
+const { data, loading, error, reload } = useLoad(() => api.get<EventDetail>(`/api/v1/events/${encodeURIComponent(id)}`), null as EventDetail | null)
 const ev = computed(() => data.value?.event)
 const notFound = computed(() => !loading.value && !data.value)
 const busy = ref(false)
@@ -47,7 +47,7 @@ function usePaged<T>(kind: 'timeline' | 'alerts', first: () => Page<T> | undefin
     const mine = ++seq
     turning.value = true
     try {
-      const next = await api.get<Page<T>>(`/events/${encodeURIComponent(id)}/${kind}?page=${page}&size=${size}`)
+      const next = await api.get<Page<T>>(`/api/v1/events/${encodeURIComponent(id)}/${kind}?page=${page}&size=${size}`)
       if (mine === seq) state.value = next
     } catch (e) {
       if (mine === seq) toast(errText(e), 'threat')
@@ -75,7 +75,7 @@ async function transit() {
   if (!pendingTo.value || !reason.value.trim()) return
   busy.value = true
   try {
-    await api.post(`/events/${id}/transitions`, { status: pendingTo.value, reason: reason.value.trim() })
+    await api.post(`/api/v1/events/${id}/transitions`, { status: pendingTo.value, reason: reason.value.trim() })
     toast(`状态已更新为「${eventStatusLabel[pendingTo.value]}」`)
     pendingTo.value = null
     reason.value = ''
@@ -87,7 +87,7 @@ async function addNote() {
   if (!note.value.trim()) return
   busy.value = true
   try {
-    await api.post(`/events/${id}/notes`, { note: note.value.trim() })
+    await api.post(`/api/v1/events/${id}/notes`, { note: note.value.trim() })
     note.value = ''
     await reload()
   } catch (e) { toast(errText(e), 'threat') } finally { busy.value = false }
@@ -109,7 +109,7 @@ async function assign(unassign = false) {
   if (!assignForm.reason.trim()) return toast('请填写指派理由。', 'warn')
   busy.value = true
   try {
-    await api.put(`/events/${id}/assignee`, { assigneeId, reason: assignForm.reason.trim() })
+    await api.put(`/api/v1/events/${id}/assignee`, { assigneeId, reason: assignForm.reason.trim() })
     toast(unassign ? '已取消指派。' : `已指派给 ${who(assigneeId)}。`)
     assigning.value = false
     await reload()
@@ -141,7 +141,7 @@ const checks = computed(() => [
 const allOk = computed(() => checks.value.every((c) => c.ok))
 async function openAsk() {
   try {
-    policies.value = (await optional(api.get<PolicyView[]>('/response-policies'), [])).filter((p) => p.status === 'active')
+    policies.value = (await optional(api.get<PolicyView[]>('/api/v1/response-policies'), [])).filter((p) => p.status === 'active')
   } catch (e) { toast(errText(e), 'threat') }
   form.assetId = data.value?.assets[0]?.assetId ?? 0
   form.policyId = policies.value[0]?.id ?? 0
@@ -153,7 +153,7 @@ async function submitAction() {
   try {
     // 幂等键：同一次提交的重试不会产生重复申请
     const key = `ui-${crypto.randomUUID()}`
-    await api.post(`/events/${id}/actions`, {
+    await api.post(`/api/v1/events/${id}/actions`, {
       assetId: form.assetId, policyId: form.policyId, actionType: 'temporary_block',
       parameters: { targetAddress: form.peer, ttlSeconds: form.ttl * 60 }, reason: form.reason.trim(),
     }, { 'Idempotency-Key': key })

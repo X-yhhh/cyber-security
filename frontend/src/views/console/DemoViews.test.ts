@@ -20,7 +20,7 @@ import { useCursor } from '@/composables/cursor'
 import FamilyScores from '@/components/FamilyScores.vue'
 import DecisionsView from './DecisionsView.vue'
 import LabView from './LabView.vue'
-import LabRunDetailView from './LabRunDetailView.vue'
+import LabRunDetailView from '@/views/release/LabRunDetailView.vue'
 import HealthView from './HealthView.vue'
 
 const global = {

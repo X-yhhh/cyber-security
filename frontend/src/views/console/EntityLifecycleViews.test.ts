@@ -33,7 +33,7 @@ describe('实体详情请求隔离', () => {
     const old = deferred()
     vi.mocked(api.get).mockImplementation((url: string) => {
       if (url.endsWith('/roles')) return Promise.resolve([])
-      if (url === '/users/1') return old.promise
+      if (url === '/api/v1/users/1') return old.promise
       return Promise.resolve({ id: 2, username: 'user2', displayName: '用户2', status: 'active' })
     })
     const w = mount(IamView, { global })
@@ -46,7 +46,7 @@ describe('实体详情请求隔离', () => {
     await w.get('.drawer input[maxlength="128"]').setValue('新名称')
     const save = w.findAll('button').find((b) => b.text() === '保存显示名称')!
     await save.trigger('click')
-    expect(api.put).toHaveBeenCalledWith('/users/2', { displayName: '新名称' })
+    expect(api.put).toHaveBeenCalledWith('/api/v1/users/2', { displayName: '新名称' })
     w.unmount()
   })
 

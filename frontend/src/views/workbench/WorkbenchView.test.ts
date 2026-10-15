@@ -48,6 +48,24 @@ describe('待办中心', () => {
     w.unmount()
   })
 
+  it('F3 合并菜单后，待办仍指向发布分段和模型入口并保留对象 ID', async () => {
+    const reviewer = await render(singleRoleUsers.security_reviewer)
+    for (const [title, tab] of [
+      ['待批 lab 资格', 'validation'],
+      ['待审决策策略', 'policies'],
+      ['待批或待激活发布组合', 'bundles'],
+    ] as const) {
+      const row = reviewer.findAll('[data-todo-group="approve"] li').find((li) => li.text().includes(title))!
+      expect(row.get('a').attributes('href')).toMatch(new RegExp(`^/console/release/bundles\\?tab=${tab}&id=`))
+    }
+    reviewer.unmount()
+
+    const operator = await render(singleRoleUsers.model_operator)
+    const model = operator.findAll('[data-todo-group="other"] li').find((li) => li.text().includes('待校验模型'))!
+    expect(model.get('a').attributes('href')).toMatch(/^\/console\/release\/models\?tab=models&id=/)
+    operator.unmount()
+  })
+
   it('超过 100 条时写明只显示最近 100 条', async () => {
     server.use(http.get('/api/v2/todos', () => HttpResponse.json({ requestId: 'r', error: null, data: {
       groups: [{ kind: 'other', count: 140, items: [{ kind: 'device', id: 'a3000000-0000-4000-8000-000000000001', title: '设备异常', assetId: null, createdAt: '2026-10-15T03:00:00Z', route: '/console/ops/health' }] }],

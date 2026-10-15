@@ -95,7 +95,7 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKey))
 
 const ready = ref<boolean | null>(null)
 onMounted(async () => {
-  try { await api.get('/health/ready'); ready.value = true } catch { ready.value = false }
+  try { await api.get('/api/v1/health/ready'); ready.value = true } catch { ready.value = false }
 })
 </script>
 

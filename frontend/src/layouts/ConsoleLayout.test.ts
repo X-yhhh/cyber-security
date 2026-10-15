@@ -48,7 +48,7 @@ beforeEach(() => {
   requests.length = 0
   localStorage.clear()
   // 迁移期复用的旧页面会读取各自的 v2 数据；外壳测试不关心内容，统一回空列表。
-  server.use(http.get('/api/v2/*', () => HttpResponse.json({ requestId: 'req-x', data: { items: [], nextCursor: null }, error: null })))
+  server.use(http.get(/^\/api\/v2\/(?!auth\/).+/, () => HttpResponse.json({ requestId: 'req-x', data: { items: [], nextCursor: null }, error: null })))
 })
 afterEach(() => {
   wrapper?.unmount()
@@ -75,9 +75,9 @@ describe('两级侧栏', () => {
 
   it('详情页面包屑为“一级 / 二级 / 详情 ID”，二级可点回列表', async () => {
     const { w } = await open(singleRoleUsers.model_operator, '/console/release/lab/run-42')
-    expect(crumbs(w)).toEqual(['模型与发布', 'lab 验证与 G3', 'run-42'])
-    expect(w.get('nav[aria-label="面包屑"] a').attributes('href')).toBe('/console/release/lab')
-    expect(sidebar(w).get('a[aria-current="page"]').text()).toBe('lab 验证与 G3')
+    expect(crumbs(w)).toEqual(['模型与发布', '发布管理', 'run-42'])
+    expect(w.get('nav[aria-label="面包屑"] a').attributes('href')).toBe('/console/release/bundles')
+    expect(sidebar(w).get('a[aria-current="page"]').text()).toBe('发布管理')
   })
 
   it('待办中心挂在态势组下，面包屑为“态势 / 待办中心”', async () => {
@@ -216,7 +216,7 @@ describe('账户菜单', () => {
   })
 
   it('退出后清空会话并回到登录页', async () => {
-    server.use(http.post('/api/v1/auth/logout', () => HttpResponse.json({ success: true, data: null })))
+    server.use(http.post('/api/v2/auth/logout', () => HttpResponse.json({ requestId: 'req-account', data: null, error: null })))
     const { router, w } = await open(singleRoleUsers.auditor, '/console/workbench')
     await w.get('[aria-label="账户"]').findAll('button').find((b) => b.text() === '退出')!.trigger('click')
     await settle()
@@ -227,9 +227,9 @@ describe('账户菜单', () => {
 
   it('修改口令沿用原逻辑：成功后会话失效并回到登录页', async () => {
     let body: unknown = null
-    server.use(http.post('/api/v1/auth/password', async ({ request }) => {
+    server.use(http.post('/api/v2/auth/password', async ({ request }) => {
       body = await request.json()
-      return HttpResponse.json({ success: true, data: null })
+      return HttpResponse.json({ requestId: 'req-account', data: null, error: null })
     }))
     const { router, w } = await open(singleRoleUsers.auditor, '/console/workbench')
     await w.get('[aria-label="账户"]').findAll('button').find((b) => b.text() === '修改口令')!.trigger('click')
@@ -253,7 +253,7 @@ describe('账户菜单', () => {
 
   it('新口令过短时不提交', async () => {
     let called = false
-    server.use(http.post('/api/v1/auth/password', () => { called = true; return HttpResponse.json({ success: true, data: null }) }))
+    server.use(http.post('/api/v2/auth/password', () => { called = true; return HttpResponse.json({ requestId: 'req-account', data: null, error: null }) }))
     const { w } = await open(singleRoleUsers.auditor, '/console/workbench')
     await w.get('[aria-label="账户"]').findAll('button').find((b) => b.text() === '修改口令')!.trigger('click')
     await settle()

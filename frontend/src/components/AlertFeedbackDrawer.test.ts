@@ -32,7 +32,7 @@ describe('AlertFeedbackDrawer', () => {
     const wrapper = mountDrawer({ status: 'acknowledged' })
     await flushPromises()
 
-    expect(getMock).toHaveBeenCalledWith('/alerts/9/feedback')
+    expect(getMock).toHaveBeenCalledWith('/api/v1/alerts/9/feedback')
     expect(wrapper.text()).toContain('复核员乙')
     expect(wrapper.text()).toContain('证据不足')
     const submit = wrapper.get('button[type="submit"]')
@@ -43,7 +43,7 @@ describe('AlertFeedbackDrawer', () => {
     await wrapper.get('form').trigger('submit')
     await flushPromises()
 
-    expect(postMock).toHaveBeenCalledWith('/alerts/9/feedback', { label: 'false_positive', note: '10:00 本机在执行系统更新，HTTPS 下载' })
+    expect(postMock).toHaveBeenCalledWith('/api/v1/alerts/9/feedback', { label: 'false_positive', note: '10:00 本机在执行系统更新，HTTPS 下载' })
     expect(getMock).toHaveBeenCalledTimes(2)
     expect(wrapper.emitted('changed')).toHaveLength(1)
     expect(toastMock).toHaveBeenCalledWith(expect.stringContaining('误报'))
@@ -65,11 +65,11 @@ describe('AlertFeedbackDrawer', () => {
   })
 
   it('reads the alert status when the caller does not provide it', async () => {
-    getMock.mockImplementation((path: string) => Promise.resolve(path === '/alerts/9' ? { id: 9, status: 'false_positive', alertType: 'model' } : []))
+    getMock.mockImplementation((path: string) => Promise.resolve(path === '/api/v1/alerts/9' ? { id: 9, status: 'false_positive', alertType: 'model' } : []))
     const wrapper = mountDrawer({})
     await flushPromises()
 
-    expect(getMock).toHaveBeenCalledWith('/alerts/9')
+    expect(getMock).toHaveBeenCalledWith('/api/v1/alerts/9')
     expect(wrapper.find('form').exists()).toBe(false)
     wrapper.unmount()
   })

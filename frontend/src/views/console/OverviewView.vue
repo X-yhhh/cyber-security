@@ -21,13 +21,13 @@ import { vReveal } from '@/composables/reveal'
 const empty = { events: [] as EventView[], approvals: [] as LedgerView[], sensors: [] as SensorView[], deployments: [] as DeploymentView[], drift: [] as DriftView[], ov: { hourlyAlerts: [], quality24h: { accepted: 0, manualReview: 0, rejected: 0 } } as OverviewView, ops: null as OpsStatusView | null }
 const { data, loading, error } = useLoad(async () => {
   const [events, approvals, sensors, deployments, drift, ov, ops] = await Promise.all([
-    can('event.read') ? api.get<Page<EventView>>('/events?size=100').then((p) => p.items) : [],
-    can('approval.read') ? optional(api.get<LedgerView[]>('/approvals/ledger'), []) : [],
-    can('sensor.read') ? api.get<SensorView[]>('/sensors') : [],
-    can('model.validation.read') ? api.get<DeploymentView[]>('/model-deployments') : [],
-    can('model.validation.read') ? api.get<DriftView[]>('/model-drift-windows') : [],
-    api.get<OverviewView>('/overview'),
-    can('ops.status.read') ? optional(api.get<OpsStatusView>('/ops/status'), null) : null,
+    can('event.read') ? api.get<Page<EventView>>('/api/v1/events?size=100').then((p) => p.items) : [],
+    can('approval.read') ? optional(api.get<LedgerView[]>('/api/v1/approvals/ledger'), []) : [],
+    can('sensor.read') ? api.get<SensorView[]>('/api/v1/sensors') : [],
+    can('model.validation.read') ? api.get<DeploymentView[]>('/api/v1/model-deployments') : [],
+    can('model.validation.read') ? api.get<DriftView[]>('/api/v1/model-drift-windows') : [],
+    api.get<OverviewView>('/api/v1/overview'),
+    can('ops.status.read') ? optional(api.get<OpsStatusView>('/api/v1/ops/status'), null) : null,
   ])
   return { events, approvals, sensors, deployments, drift, ov, ops }
 }, empty)

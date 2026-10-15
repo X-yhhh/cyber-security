@@ -13,7 +13,7 @@ describe('overview operations summary', () => {
     getMock.mockReset()
     canMock.mockImplementation((permission: string) => permission === 'ops.status.read')
     getMock.mockImplementation((path: string) => {
-      if (path === '/ops/status') return Promise.resolve({
+      if (path === '/api/v1/ops/status') return Promise.resolve({
         outboxPending: 3,
         outboxFailed: 1,
         outboxDeadLetter: 0,
@@ -25,7 +25,7 @@ describe('overview operations summary', () => {
         loginThrottleBlocked: 4,
         loginThrottleFailures15m: 6,
       })
-      if (path === '/overview') return Promise.resolve({ hourlyAlerts: [], quality24h: { accepted: 0, manualReview: 0, rejected: 0 } })
+      if (path === '/api/v1/overview') return Promise.resolve({ hourlyAlerts: [], quality24h: { accepted: 0, manualReview: 0, rejected: 0 } })
       return Promise.resolve([])
     })
   })
@@ -39,7 +39,7 @@ describe('overview operations summary', () => {
     })
     await flushPromises()
 
-    expect(getMock).toHaveBeenCalledWith('/ops/status')
+    expect(getMock).toHaveBeenCalledWith('/api/v1/ops/status')
     expect(wrapper.text()).toContain('运行摘要')
     expect(wrapper.text()).toContain('失败 1 · 死信 0')
     expect(wrapper.text()).toContain('12.5%')
@@ -59,7 +59,7 @@ describe('overview operations summary', () => {
     })
     await flushPromises()
 
-    expect(getMock).not.toHaveBeenCalledWith('/ops/status')
+    expect(getMock).not.toHaveBeenCalledWith('/api/v1/ops/status')
     expect(wrapper.text()).not.toContain('运行摘要')
     wrapper.unmount()
   })

@@ -48,7 +48,7 @@ beforeEach(() => {
   requests.length = 0
   localStorage.clear()
   // 迁移期复用的旧页面会读取各自的 v2 数据；外壳测试不关心内容，统一回空列表。
-  server.use(http.get('/api/v2/*', () => HttpResponse.json({ requestId: 'req-x', data: { items: [], nextCursor: null }, error: null })))
+  server.use(http.get(/^\/api\/v2\/(?!auth\/).+/, () => HttpResponse.json({ requestId: 'req-x', data: { items: [], nextCursor: null }, error: null })))
 })
 afterEach(() => {
   wrapper?.unmount()
@@ -216,7 +216,7 @@ describe('账户菜单', () => {
   })
 
   it('退出后清空会话并回到登录页', async () => {
-    server.use(http.post('/api/v1/auth/logout', () => HttpResponse.json({ success: true, data: null })))
+    server.use(http.post('/api/v2/auth/logout', () => HttpResponse.json({ requestId: 'req-account', data: null, error: null })))
     const { router, w } = await open(singleRoleUsers.auditor, '/console/workbench')
     await w.get('[aria-label="账户"]').findAll('button').find((b) => b.text() === '退出')!.trigger('click')
     await settle()
@@ -227,9 +227,9 @@ describe('账户菜单', () => {
 
   it('修改口令沿用原逻辑：成功后会话失效并回到登录页', async () => {
     let body: unknown = null
-    server.use(http.post('/api/v1/auth/password', async ({ request }) => {
+    server.use(http.post('/api/v2/auth/password', async ({ request }) => {
       body = await request.json()
-      return HttpResponse.json({ success: true, data: null })
+      return HttpResponse.json({ requestId: 'req-account', data: null, error: null })
     }))
     const { router, w } = await open(singleRoleUsers.auditor, '/console/workbench')
     await w.get('[aria-label="账户"]').findAll('button').find((b) => b.text() === '修改口令')!.trigger('click')
@@ -253,7 +253,7 @@ describe('账户菜单', () => {
 
   it('新口令过短时不提交', async () => {
     let called = false
-    server.use(http.post('/api/v1/auth/password', () => { called = true; return HttpResponse.json({ success: true, data: null }) }))
+    server.use(http.post('/api/v2/auth/password', () => { called = true; return HttpResponse.json({ requestId: 'req-account', data: null, error: null }) }))
     const { w } = await open(singleRoleUsers.auditor, '/console/workbench')
     await w.get('[aria-label="账户"]').findAll('button').find((b) => b.text() === '修改口令')!.trigger('click')
     await settle()

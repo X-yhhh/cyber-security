@@ -55,7 +55,7 @@ describe('检测策略页签', () => {
     expect(button(w, '批准生效')).toBeUndefined()
     await button(w, '提交审批')!.trigger('click')
     await flushPromises()
-    expect(api.post).toHaveBeenCalledWith('/detection-policies/3/submit', undefined)
+    expect(api.post).toHaveBeenCalledWith('/api/v1/detection-policies/3/submit', undefined)
     expect(reload).toHaveBeenCalled()
     w.unmount()
   })
@@ -71,7 +71,7 @@ describe('检测策略页签', () => {
     await w.get('.drawer textarea').setValue('不再需要')
     await button(w, '撤回')!.trigger('click')
     await flushPromises()
-    expect(api.post).toHaveBeenCalledWith('/detection-policies/3/withdraw', { reason: '不再需要' })
+    expect(api.post).toHaveBeenCalledWith('/api/v1/detection-policies/3/withdraw', { reason: '不再需要' })
     w.unmount()
   })
 
@@ -83,7 +83,7 @@ describe('检测策略页签', () => {
     await w.get('.drawer textarea').setValue('复核通过')
     await button(w, '批准生效')!.trigger('click')
     await flushPromises()
-    expect(api.post).toHaveBeenCalledWith('/detection-policies/4/decision', { decision: 'approve', reason: '复核通过' })
+    expect(api.post).toHaveBeenCalledWith('/api/v1/detection-policies/4/decision', { decision: 'approve', reason: '复核通过' })
     await w.findAll('tr.row-link')[1]!.trigger('click')
     expect(button(w, '批准生效')).toBeUndefined()
     expect(w.get('.drawer').text()).toContain('须由其他审批人决定')
@@ -98,7 +98,7 @@ describe('检测策略页签', () => {
     await w.get('.drawer textarea').setValue('停用')
     await button(w, '退役')!.trigger('click')
     await flushPromises()
-    expect(api.post).toHaveBeenCalledWith('/detection-policies/6/retire', { reason: '停用' })
+    expect(api.post).toHaveBeenCalledWith('/api/v1/detection-policies/6/retire', { reason: '停用' })
     w.unmount()
   })
 
@@ -116,7 +116,7 @@ describe('检测策略页签', () => {
     await count.setValue('5')
     await button(w, '登记草稿')!.trigger('click')
     await flushPromises()
-    expect(api.post).toHaveBeenCalledWith('/detection-policies/1/versions', {
+    expect(api.post).toHaveBeenCalledWith('/api/v1/detection-policies/1/versions', {
       config: { ...SEVERITY, modelSignal: { enabled: true, countThreshold: 5, highScore: 0.99 } }, reason: '收紧阈值',
     })
     w.unmount()

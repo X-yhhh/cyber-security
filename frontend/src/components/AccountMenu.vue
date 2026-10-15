@@ -1,29 +1,26 @@
 <script setup lang="ts">
 /**
  * 侧栏底部账户菜单：用户名、角色中文名、修改口令、退出（权限设计第 8 节“全局”行，登录即可）。
- * 修改口令沿用原逻辑：POST /auth/password 成功后后端撤销本人全部会话，前端清空会话并回到登录页。
+ * 修改口令通过 v2 会话模块提交幂等请求，成功后后端撤销本人全部会话，前端回到登录页。
  * 口令只在抽屉的本地状态中短暂存在，关闭即清空。
  */
 import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { KeyRound, LogOut } from 'lucide-vue-next'
-import { api, resetCsrf } from '@/api/client'
-import { logout, session } from '@/api/session'
+import { changePassword, logout, session } from '@/api/session'
 import { roleName } from '@/api/v2/roles'
 import Drawer from '@/components/Drawer.vue'
 import { toast } from '@/composables/toast'
 import { errText } from '@/composables/load'
 
 const router = useRouter()
-const roles = computed(() => (session.user?.roles ?? []).map(roleName))
+const roles = computed(() => (session.user?.roles ?? []).map((key) => roleName(key)))
 
 async function signOut() {
   await logout()
   router.push({ name: 'login' })
 }
 
-/** 自助改密：请求体字段名集中定义。 */
-const SELF_FIELDS = { current: 'currentPassword', next: 'newPassword' } as const
 const changing = ref(false)
 const secrets = ref({ current: '', next: '', confirm: '' })
 const busy = ref(false)
@@ -34,11 +31,9 @@ async function changeSecret() {
   if (f.next !== f.confirm) return toast('两次输入的新口令不一致。', 'warn')
   busy.value = true
   try {
-    await api.post('/auth/password', { [SELF_FIELDS.current]: f.current, [SELF_FIELDS.next]: f.next })
+    await changePassword(f.current, f.next)
     secrets.value = { current: '', next: '', confirm: '' }
     changing.value = false
-    session.user = null
-    resetCsrf()
     toast('口令已修改，全部会话已失效，请重新登录。')
     router.push({ name: 'login' })
   } catch (e) { toast(errText(e), 'threat') } finally { busy.value = false }

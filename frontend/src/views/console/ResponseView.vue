@@ -22,9 +22,9 @@ import { errText, optional, useLoad } from '@/composables/load'
 
 const { data, loading, error, reload } = useLoad(async () => {
   const [ledger, mine, policies] = await Promise.all([
-    can('approval.read') ? optional(api.get<LedgerView[]>('/approvals/ledger'), []) : [],
-    can('action.request') ? api.get<LedgerView[]>('/actions/mine') : [],
-    can('response.policy.read') ? api.get<PolicyView[]>('/response-policies') : [],
+    can('approval.read') ? optional(api.get<LedgerView[]>('/api/v1/approvals/ledger'), []) : [],
+    can('action.request') ? api.get<LedgerView[]>('/api/v1/actions/mine') : [],
+    can('response.policy.read') ? api.get<PolicyView[]>('/api/v1/response-policies') : [],
   ])
   return { ledger, mine, policies }
 }, { ledger: [] as LedgerView[], mine: [] as LedgerView[], policies: [] as PolicyView[] })
@@ -41,7 +41,7 @@ async function decide(ok: boolean) {
   if (!a || !reason.value.trim()) return toast('请填写决定理由。', 'warn')
   busy.value = true
   try {
-    await api.post(`/approvals/${a.id}/decision`, { decision: ok ? 'approve' : 'reject', reason: reason.value.trim() })
+    await api.post(`/api/v1/approvals/${a.id}/decision`, { decision: ok ? 'approve' : 'reject', reason: reason.value.trim() })
     toast(ok ? '已批准；执行器未开放，不会触发真实阻断。' : '已驳回。')
     picked.value = null
     reason.value = ''
@@ -57,7 +57,7 @@ async function withdraw() {
   if (!a || !withdrawReason.value.trim()) return toast('请填写撤回理由。', 'warn')
   busy.value = true
   try {
-    await api.post(`/actions/${a.id}/withdraw`, { reason: withdrawReason.value.trim() })
+    await api.post(`/api/v1/actions/${a.id}/withdraw`, { reason: withdrawReason.value.trim() })
     toast('申请已撤回，不会进入审批。')
     withdrawing.value = null
     await reload()
@@ -91,7 +91,7 @@ async function policyAction(path: string, body: Record<string, unknown>, done: s
   if (needReason && !policyReason.value.trim()) return toast('请填写理由。', 'warn')
   busy.value = true
   try {
-    await api.post(`/response-policies/${p.id}/${path}`, needReason ? { ...body, reason: policyReason.value.trim() } : body)
+    await api.post(`/api/v1/response-policies/${p.id}/${path}`, needReason ? { ...body, reason: policyReason.value.trim() } : body)
     toast(done)
     policy.value = null
     policyReason.value = ''
@@ -123,7 +123,7 @@ async function saveDraft() {
   }
   busy.value = true
   try {
-    await api.post(baseId.value ? `/response-policies/${baseId.value}/versions` : '/response-policies', body)
+    await api.post(baseId.value ? `/api/v1/response-policies/${baseId.value}/versions` : '/api/v1/response-policies', body)
     toast('草稿已登记；提交后须由其他审批员批准才生效。')
     drafting.value = false
     await reload()

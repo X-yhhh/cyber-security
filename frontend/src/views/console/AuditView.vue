@@ -10,7 +10,7 @@ import { useLoad } from '@/composables/load'
 
 const page = ref(0)
 const size = 50
-const { data, loading, error, reload } = useLoad(() => api.get<Page<AuditView>>(`/audit?page=${page.value}&size=${size}`), { totalElements: 0, page: 0, size, items: [] } as Page<AuditView>)
+const { data, loading, error, reload } = useLoad(() => api.get<Page<AuditView>>(`/api/v1/audit?page=${page.value}&size=${size}`), { totalElements: 0, page: 0, size, items: [] } as Page<AuditView>)
 watch(page, reload)
 const pages = computed(() => Math.max(1, Math.ceil(data.value.totalElements / size)))
 

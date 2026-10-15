@@ -64,13 +64,13 @@ describe('两级侧栏', () => {
     const groupTitles = nav.findAll('button[aria-expanded]').map((b) => b.text())
     expect(groupTitles).toEqual(['态势', '威胁检测', '响应处置'])
     const links = nav.findAll('a').map((a) => a.text())
-    expect(links).toEqual(['实时态势', '待办中心', '事件研判', '检测记录', '误报反馈', '处置记录', '目标预算'])
+    expect(links).toEqual(['实时态势', '待办中心', '事件研判', '检测记录', '误报反馈', '处置记录'])
   })
 
   it('当前二级项高亮，面包屑为“一级 / 二级”', async () => {
-    const { w } = await open(singleRoleUsers.auditor, '/console/response/budgets')
-    expect(sidebar(w).get('a[aria-current="page"]').text()).toBe('目标预算')
-    expect(crumbs(w)).toEqual(['响应处置', '目标预算'])
+    const { w } = await open(singleRoleUsers.auditor, '/console/response/actions')
+    expect(sidebar(w).get('a[aria-current="page"]').text()).toBe('处置记录')
+    expect(crumbs(w)).toEqual(['响应处置', '处置记录'])
   })
 
   it('详情页面包屑为“一级 / 二级 / 详情 ID”，二级可点回列表', async () => {
@@ -190,10 +190,10 @@ describe('移动端抽屉', () => {
     const { router, w } = await open(singleRoleUsers.security_analyst, '/console/workbench')
     await w.get('button[aria-label="打开菜单"]').trigger('click')
     await settle()
-    const link = w.get('#console-drawer').findAll('a').find((a) => a.text() === '目标预算')!
+    const link = w.get('#console-drawer').findAll('a').find((a) => a.text() === '处置记录')!
     await link.trigger('click')
     await settle()
-    expect(router.currentRoute.value.path).toBe('/console/response/budgets')
+    expect(router.currentRoute.value.path).toBe('/console/response/actions')
     expect(w.find('#console-drawer').exists()).toBe(false)
   })
 

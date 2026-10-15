@@ -56,6 +56,8 @@ const movedRoutes: RouteRecordRaw[] = [
   { path: 'lab', name: 'lab', redirect: '/console/release/lab' },
   { path: 'lab/:id', name: 'lab-detail', redirect: (to) => `/console/release/lab/${encodeURIComponent(String(to.params.id))}` },
   { path: 'health', name: 'health', redirect: '/console/ops/health' },
+  // F2：目标预算并入处置记录，预算占用改在动作详情中只读显示。
+  { path: 'response/budgets', redirect: '/console/response/actions' },
   // Q10 菜单骨架（任务单 U0.9）：审计日志移到系统管理组，旧地址重定向一个版本。
   { path: 'ops/audit', redirect: '/console/system/audit' },
 ]

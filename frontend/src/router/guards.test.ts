@@ -201,9 +201,9 @@ describe('有权限地址', () => {
     expect(router.currentRoute.value.name).toBe('system-audit')
   })
 
-  it('工作台按 B2.5 契约读取汇总', async () => {
+  it('待办中心读取待办与汇总（F2）', async () => {
     signIn(singleRoleUsers.security_reviewer)
     await open('/console/workbench')
-    expect(dataRequests()).toEqual(['GET /api/v2/summary'])
+    expect([...dataRequests()].sort()).toEqual(['GET /api/v2/assets', 'GET /api/v2/summary', 'GET /api/v2/todos'])
   })
 })

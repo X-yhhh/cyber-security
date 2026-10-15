@@ -72,19 +72,6 @@ const movedRoutes: RouteRecordRaw[] = [
   { path: 'ops/audit', redirect: '/console/system/audit' },
 ]
 
-/** v1 页面不进菜单，地址暂时保留，到 C1 删除（权限设计第 9.3 节）。 */
-const legacyRoutes: RouteRecordRaw[] = [
-  { path: 'overview', name: 'overview', component: () => import('@/views/console/OverviewView.vue'), meta: { title: '态势', shell } },
-  { path: 'events', name: 'events', component: () => import('@/views/console/EventsView.vue'), meta: { title: '告警与事件', shell } },
-  { path: 'events/:id', name: 'event-detail', component: () => import('@/views/console/EventDetailView.vue'), meta: { title: '事件详情', shell, detail: 'id' } },
-  { path: 'response', name: 'response', component: () => import('@/views/console/ResponseView.vue'), meta: { title: '受控响应', shell } },
-  { path: 'models', name: 'models', component: () => import('@/views/console/ModelsView.vue'), meta: { title: '模型治理', shell } },
-  { path: 'assets', name: 'assets', component: () => import('@/views/console/AssetsView.vue'), meta: { title: '资产与传感器', shell } },
-  { path: 'sources', name: 'sources', component: () => import('@/views/console/SourcesView.vue'), meta: { title: '数据源与回放', shell } },
-  { path: 'audit', name: 'audit', component: () => import('@/views/console/AuditView.vue'), meta: { title: '审计', shell } },
-  { path: 'iam', name: 'iam', component: () => import('@/views/console/IamView.vue'), meta: { title: '身份与角色', shell } },
-]
-
 const NotFound = () => import('@/views/system/NotFoundView.vue')
 
 export const routes: RouteRecordRaw[] = [
@@ -100,7 +87,6 @@ export const routes: RouteRecordRaw[] = [
       ...navRoutes,
       ...detailRoutes,
       ...movedRoutes,
-      ...legacyRoutes,
       // 未知地址 404；守卫把无权限地址按名称改道到 403，两者同模式，按地址匹配时 404 在前。
       { path: ':pathMatch(.*)*', name: 'console-not-found', component: NotFound, meta: { title: '页面不存在', shell } },
       { path: ':pathMatch(.*)*', name: 'console-forbidden', component: () => import('@/views/system/ForbiddenView.vue'), meta: { title: '无权访问', shell } },

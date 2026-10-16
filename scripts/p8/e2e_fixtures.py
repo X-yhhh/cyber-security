@@ -272,7 +272,9 @@ def control():
         elif op=='receipt':
             result=receipt_fixture(db,schema,request)
         else:
-            require(db.query("SELECT COUNT(*) FROM guard_command WHERE key_id<>'t1-ui-synthetic'",schema)=='0','REAL_COMMAND_ISSUED')
+            baseline=data.get('commandBaseline',0)
+            require(type(baseline) is int and baseline>=0,'COMMAND_BASELINE_INVALID')
+            require(db.query("SELECT COUNT(*) FROM guard_command WHERE key_id<>'t1-ui-synthetic' AND id>"+str(baseline),schema)=='0','REAL_COMMAND_ISSUED')
             result=dict(noIssuedCommands=True)
     else:
         raise RuntimeError('UNKNOWN_FIXTURE_OPERATION')

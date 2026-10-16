@@ -172,6 +172,14 @@ sh executor/python.sh -B scripts/p8/backup_restore.py --schedule
 
 实际运行沿用 `scripts/p7/lab.md` 的显式 JAR、冻结场景、selection、r5 import plan、r5 subject、platform/final、report trust、克隆/业务库和 rendezvous 参数，另加 `--root-plan <0600 JSON>`。root plan 包含 `launcher`、`launcherSha256`、`stage`、`manifestSha256`、`runId`、`authorizationReference`、`evidenceCopy`；`--stage-manifest` 与 `--authorization-reference` 必须逐字匹配。先核验摘要，再由 macOS 密码框让用户批准 root 暂存启动器；口令不进入脚本。root 的 `g3-executor` 最长 1800 秒，原执行器代码与 r5 冻结证据不变。**B3 只验证 dry-run 和流程替身，真实 root/PF 留待 P1/U5。**
 
-巡检计划含 `root`、`assetId`、`executorId`、`mode`（`alert-only`/`pf`）、`baseUrl`、`backendCA`、`reader`（同 Keychain 身份字段，可用 auditor）；可设 `minFreeBytes`、`maxLogBytes`。巡检五服务、现有 `/health/ready`、v2 `ops/status`、最新心跳/健康、本执行器专属 PF anchor（`pfctl -s rules` 只读）及磁盘/日志。机器状态完整读取游标分页（最多 100 页，重复游标拒绝）；按每个传感器查询最新接收的一个健康窗口，历史窗口超过 200 条不影响当前状态，缺失的传感器窗口不能被其他传感器掩盖。无权限读取 PF、缺数据、心跳陈旧、机器分页未覆盖或异常均非零退出；不会把 unknown 或 `replay_healthy` 当现场 healthy。PF 查询需要相应系统权限，B3 未执行该查询。
+巡检计划含 `root`、`assetId`、`executorId`、`mode`（`alert-only`/`pf`）、`baseUrl`、`backendCA`、`reader`（同 Keychain 身份字段，可用 auditor）；可设 `minFreeBytes`、`maxLogBytes`。巡检五服务、现有 `/health/ready`、v2 `ops/status`、最新心跳/健康及磁盘/日志。机器状态完整读取游标分页（最多 100 页，重复游标拒绝）；按每个传感器查询最新接收的一个健康窗口，历史窗口超过 200 条不影响当前状态，缺失的传感器窗口不能被其他传感器掩盖。缺数据、心跳陈旧、机器分页未覆盖或异常均非零退出；不会把 unknown 或 `replay_healthy` 当现场 healthy。PF 与零能力 observer 按以下约定分别核验。
+
+### P1R-3 恢复就绪与零能力巡检
+
+- 只告警安装在 bootstrap recovery 后，等待本次启动之后的新鲜 observer 脉冲，再安装 executor；executor 自身启动也最多等待 30 秒。等待使用单调时钟限定时长，持续检查配置有效期，SIGTERM/SIGINT 可结束等待；未就绪前不发执行器心跳，超时拒绝继续，不把 launchctl 接受启动视为恢复就绪。安装失败保留已安装服务与材料，不自动卸载或覆盖。PF 模式仍由管理员按原恢复流程安装，不自动提权。
+- 本地 `ledger/executor/observer/{recovery,run}.json` 只证明 observer 存活，包含角色、执行器 ID、进程 PID、该进程 bootId、时间、`mode=alert_only` 与 `pfInspected=false`。脉冲须小于 5 秒且无未来时间；旧格式缺少身份字段时不能证明新版本就绪，更新时须使用配套的 recovery/run 程序。旧 PF SQLite 账本一律拒绝作为零能力状态使用。
+- `status.py --plan` 的 `alert-only` 模式核对配置中零能力、同资产/执行器、本地脉冲与 launchd PID，以及后端同 bootId 的新鲜心跳。仅允许已配置的唯一 observer，适配器为 `hostguard-observer/1`、空能力集合摘要正确、状态为 pending/active、自报无待恢复/零规则且时钟偏差合格，才报告 `observerLiveness=alive`。后端原始 `healthState`（pending 时为 unknown）和 `serverVerifiedHealthy` 保持原值，不把存活升级为防火墙健康或清理证明。
+- 满足上述条件时，PF 项为 `not_applicable`、`pfInspected=false`、`ruleCount=null`，只告警巡检不调用 pfctl、不要求 root；条件不足时仍失败，不靠 PF 查询补成通过。`pf` 模式继续查询本执行器专属 anchor，查询无权限或失败仍非零退出。
+- 五服务运行、采集心跳及最新现场健康的门槛不变。传感器按授权结束后停止时，完整巡检仍会报告未运行/陈旧并非零退出；此结果不能靠 observer 存活消除，也不授权再次采集或代替 P1R-5 重启验收。
 
 `backup_restore.py --schedule` 仅显示维护窗口、备份保留和核验建议，不取密、不连库、不安装定时任务。

@@ -16,6 +16,7 @@ from urllib.parse import urlsplit
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from scripts.p8.toolkit import ROOT, absolute, load, private_dir, private_file, require, run, safe_main, sha, write
 from executor.services import launchd as executor_launchd
+from scripts.p8.observer_executor import wait_observer_recovery
 
 ORDER = ('backend', 'targets', 'recovery', 'executor', 'sensor')
 PREFIX = 'com.xyh.cyber-security.'
@@ -98,18 +99,19 @@ def render(args):
         'PF 只允许本系统 anchor；清理或核验失败必须保留恢复器和账本。日志轮转配置仅生成，不安装。\n')
     if args.mode == 'alert-only':
         instructions = ('只告警模式：五服务均为当前用户 LaunchAgent；executor/recovery 使用 observer_executor，零能力、无 PF 调用。\n'
-            '启动顺序：backend → targets → recovery → executor；sensor 不随启动运行，批准窗口内显式 kickstart。\n'
+            '启动顺序：backend → targets → recovery；最多等待 30 秒核对本次恢复脉冲，再安装 executor。\n'
+            'executor 自身也等待 recovery 就绪；超时保留现场并停止。sensor 不随启动运行，批准窗口内显式 kickstart。\n'
             '卸载按相反顺序；发现旧 PF 账本则拒绝自动卸载，改用原授权恢复流程。账本、日志与配置永久保留。\n')
     write(root / 'generated/INSTALL.txt', instructions.encode())
     return {'ok': True, 'generated': str(root / 'generated'), 'installed': False}
 
 
 def install(args):
-    """支持登记机器前只安装后端；该阶段不启动其他角色，也不代表五服务就绪。"""
+    """后端与恢复器分别就绪才安装依赖服务；失败保留已安装材料，sensor 始终由授权窗口显式启动。"""
     root, release = paths(args)
     domain = 'gui/' + str(os.getuid())
     agents = Path.home() / 'Library/LaunchAgents'
-    # 全计划可审查；自动阶段止于 targets，root 恢复链就绪后才手动启动 sensor。
+    # PF 恢复链由管理员安装；只告警安装在本次 recovery 脉冲就绪后继续。
     backend_only = getattr(args, 'backend_only', False)
     roles = ('backend',) if backend_only else (('backend', 'targets', 'sensor') if args.mode == 'pf' else ORDER)
     commands = [['launchctl', 'bootstrap', domain, str(agents / (PREFIX + r + '.plist'))] for r in roles]
@@ -133,9 +135,12 @@ def install(args):
         fd = os.open(destination, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(fd, 'wb') as stream:
             stream.write(plistlib.dumps(expected[role]))
+        started_at = time.time()
         run(command)
         if role == 'backend':
             wait_ready(root)
+        elif role == 'recovery':
+            wait_observer_recovery(root / 'config/executor-observer.json', not_before=started_at)
     return {'ok': True, 'installedRoles': list(roles), 'backendOnly': backend_only,
             'manualRootOrder': ['recovery', 'executor'] if args.mode == 'pf' and not backend_only else [], 'sensorStarted': False}
 

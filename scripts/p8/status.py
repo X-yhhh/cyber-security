@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""只读巡检：五服务、就绪、按资产的心跳与健康、专属 PF 规则和磁盘；未知同异常退出。"""
+"""只读巡检五服务、采集健康及磁盘；零能力 observer 只证明存活，PF 模式另查专属规则。"""
 import argparse
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -12,8 +13,10 @@ import uuid
 import urllib.request
 from urllib.parse import urlencode
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from scripts.p8.toolkit import absolute, load, require, safe_main, sessions
+from scripts.p8.toolkit import absolute, load, require, safe_main
 from scripts.p8.launchd import ORDER, PREFIX, DAEMONS, readiness_settings
+from scripts.p8.observer_executor import configuration, observer_state, read_pulse
+from executor.contract import capability_set_sha256
 from executor.platform import PF
 
 
@@ -67,9 +70,12 @@ def machine_rows(client, endpoint, asset):
 
 
 def inspect(plan, client, *, execute=command):
+    """只告警按配置、PID、bootId 与新鲜心跳核验存活；采集健康门槛和 PF 模式检查保持独立。"""
     root = absolute(plan['root'])
     require(root.is_dir(), 'SERVICE_ROOT_MISSING')
     asset = str(uuid.UUID(plan['assetId']))
+    mode = plan.get('mode', 'pf')
+    require(mode in ('pf', 'alert-only'), 'STATUS_MODE_INVALID')
     result = {'ok': True, 'checks': {}, 'assetId': asset}
     def check(name, operation):
         try:
@@ -80,12 +86,24 @@ def inspect(plan, client, *, execute=command):
         result['ok'] = result['ok'] and result['checks'][name]['ok']
     for role in ORDER:
         def service(role=role):
-            domain = 'system' if role in DAEMONS and plan.get('mode', 'pf') == 'pf' else 'gui/' + str(os.getuid())
+            domain = 'system' if role in DAEMONS and mode == 'pf' else 'gui/' + str(os.getuid())
             code, output = execute(['launchctl', 'print', domain + '/' + PREFIX + role])
             running = code == 0 and re.search(r'(?m)^\s*state = running\s*$', output) is not None
             pid = re.search(r'(?m)^\s*pid = (\d+)\s*$', output)
             return {'state': 'running' if running else 'not_running', 'pid': int(pid[1]) if pid else None}, running
         check(role, service)
+    if mode == 'alert-only':
+        def observer():
+            config = configuration(root / 'config/executor-observer.json')
+            require(config['assetId'] == asset and config['executorId'] == str(uuid.UUID(plan['executorId']))
+                    and observer_state(config) == root / 'ledger/executor/observer', 'OBSERVER_CONFIGURATION_MISMATCH')
+            pulses = {}
+            for role, operation in (('recovery', 'recovery'), ('executor', 'run')):
+                pulses[role] = read_pulse(config, operation)
+                service = result['checks'][role]
+                require(service['ok'] and service['pid'] == pulses[role]['pid'], 'OBSERVER_PROCESS_MISMATCH')
+            return {'mode': 'alert_only', 'pfInspected': False, 'pulses': pulses}, True
+        check('observer', observer)
     def ready():
         data = client.call('GET', '/health/ready')['data']
         return {'status': data['status']}, data['status'] == 'UP'
@@ -98,6 +116,25 @@ def inspect(plan, client, *, execute=command):
                 return {'items': rows}, bool(rows) and all(r['status'] == 'active' for r in rows)
             if endpoint == 'sensor-heartbeats':
                 sensors.extend(rows)
+            if endpoint == 'executor-heartbeats' and mode == 'alert-only':
+                # pending 的 unknown 是后端原始健康结论；这里只追加存活结果，不修改或推导 PF 健康。
+                local = result['checks']['observer']
+                alive = local['ok'] and len(rows) == 1
+                if alive:
+                    row = rows[0]
+                    reported = row.get('reported') or {}
+                    skew = reported.get('clockSkewMs')
+                    alive = (row.get('id') == plan['executorId'] and row.get('assetId') == asset
+                             and row.get('status') in ('pending', 'active') and row.get('freshness') == 'fresh'
+                             and row.get('healthState') == ('unknown' if row['status'] == 'pending' else 'healthy')
+                             and row.get('adapterVersion') == 'hostguard-observer/1'
+                             and row.get('capabilityHash') == capability_set_sha256({'capabilityIds': []})
+                             and row.get('bootId') == local['pulses']['executor']['bootId']
+                             and reported.get('pendingRecovery') is False
+                             and type(reported.get('activeRuleCount')) is int and reported['activeRuleCount'] == 0
+                             and type(skew) in (int, float) and math.isfinite(skew) and abs(skew) <= 1000)
+                return {'items': rows, 'observerLiveness': 'alive' if alive else 'unknown',
+                        'healthBasis': 'zero_capability_observer_liveness', 'pfInspected': False}, alive
             return {'items': rows}, bool(rows) and all(r['healthState'] == 'healthy' and r['freshness'] == 'fresh' for r in rows)
         check(endpoint, api)
     def health():
@@ -114,10 +151,14 @@ def inspect(plan, client, *, execute=command):
         return {'items': rows}, bool(rows) and all(r['healthState'] == 'healthy' and r['freshness'] == 'fresh' for r in rows)
     check('health-windows', health)
     def pf():
+        if mode == 'alert-only':
+            applicable = result['checks']['observer']['ok'] and result['checks']['executor-heartbeats']['ok']
+            return {'state': 'not_applicable' if applicable else 'unknown', 'pfInspected': False,
+                    'ruleCount': None, 'readOnly': True}, applicable
         anchor = PF.anchor_root(str(uuid.UUID(plan['executorId'])))
         code, output = execute(['/sbin/pfctl', '-a', anchor + '/*', '-s', 'rules'])
         count = len([line for line in output.splitlines() if line.strip() and not line.lstrip().startswith('#')]) if code == 0 else None
-        return {'anchor': anchor, 'ruleCount': count, 'readOnly': True}, code == 0 and (plan.get('mode') != 'alert-only' or count == 0)
+        return {'anchor': anchor, 'ruleCount': count, 'pfInspected': code == 0, 'readOnly': True}, code == 0
     check('pf', pf)
     def disk():
         usage = shutil.disk_usage(root)
@@ -125,6 +166,15 @@ def inspect(plan, client, *, execute=command):
         return {'freeBytes': usage.free, 'logBytes': size}, usage.free >= plan.get('minFreeBytes', 1024**3) and size <= plan.get('maxLogBytes', 1024**3)
     check('disk', disk)
     return result
+
+
+def check_summary(name, value):
+    """文本巡检也区分存活与 PF 健康，避免把成功的零能力核验显示为防火墙正常。"""
+    if name == 'executor-heartbeats' and 'observerLiveness' in value:
+        return ('observer 存活' if value['ok'] else 'observer 存活未确认') + '（不代表 PF 健康）'
+    if name == 'pf' and value.get('pfInspected') is False:
+        return ('不适用' if value.get('state') == 'not_applicable' else '未知') + '（未检查 PF）'
+    return '正常' if value['ok'] else '异常/未知'
 
 
 def main():
@@ -154,7 +204,7 @@ def main():
     else:
         print('巡检通过' if result['ok'] else '巡检发现异常或未验证项')
         for name, value in result['checks'].items():
-            print(name + ': ' + ('正常' if value['ok'] else '异常/未知'))
+            print(name + ': ' + check_summary(name, value))
     return 0 if result['ok'] else 1
 
 

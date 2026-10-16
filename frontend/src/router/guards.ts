@@ -24,7 +24,7 @@ export function installGuards(router: Router) {
   router.beforeEach(consoleGuard)
   router.afterEach((to) => {
     document.title = `${to.meta.title ?? ''} · Sentinel`
-    // 首屏沿用 v1 视觉，样式表按此属性锁定首屏的主操作与标签样式（前端设计文档第 3 节）。
+    // 首屏沿用 v1 版式，样式表按此属性锁定首屏的主操作形状与标签样式；交互色与控制台同为墨色（前端设计文档第 3 节）。
     document.documentElement.dataset.surface = to.name === 'landing' ? 'landing' : 'console'
   })
 }

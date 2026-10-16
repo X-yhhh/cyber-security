@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""U5 单场景 brute_force 演示：复用正式回放组件，只核验封禁/TTL/清零，不生成资格报告。"""
+"""U5 lab 演示：复用正式回放组件，只核验封禁/TTL/清零，不生成资格报告。
+
+后端 lab 准入要求会话内可自动类别不少于 2 个且含 brute_force，故回放各类首个冻结场景：brute_force + port_scan。
+"""
 import argparse
 import json
 import os
@@ -14,9 +17,13 @@ from scripts.p7 import lab_formal
 from scripts.p7.lab_run import load, write, require
 from scripts.p8.toolkit import safe_main, absolute, private_file, private_dir, sha, Human
 
-STEPS = ['核对 r5 subject、原场景与 root 暂存摘要', '用户通过 G3 密码框启动 root g3-executor（最长 1800 秒）',
-         '新建回环 lab 资产', '申请并独立批准不超过 30 分钟授权', '激活 r5 到本次资产',
-         '只读回放一个冻结 brute_force 场景（1 倍速、不注入报文）', '核验 applied → expired（TTL）及执行器零规则',
+# r5 已在 G3 登记 lab_auto；演示收尾会暂停组合，重演需同一 subject 的新批准组合（如 r5′）。
+R5_SUBJECT = '66b4f341c859c3c445a2a825ca6ea19c1ba167f8da3b65e2b43b20edd745e391'
+DEMO_FAMILIES = ('brute_force', 'port_scan')
+
+STEPS = ['核对 r5 同一 subject 的已批准组合、原场景与 root 暂存摘要', '用户通过 G3 密码框启动 root g3-executor（最长 1800 秒）',
+         '新建回环 lab 资产', '申请并独立批准不超过 30 分钟授权', '激活该组合到本次资产',
+         '只读回放 brute_force、port_scan 各一个冻结场景（1 倍速、不注入报文）', '核验 applied → expired（TTL）及执行器零规则',
          '撤销本次授权、暂停本次组合', '保留演示审计，不导入 G3 报告、不登记来源资格']
 
 
@@ -30,15 +37,15 @@ class Demo(lab_formal.Formal):
 
     def scenario_rows(self):
         rows = super().scenario_rows()
-        row = next((r for r in rows if r['family'] == 'brute_force'), None)
-        require(row is not None, 'DEMO_BRUTE_FORCE_SCENARIO_MISSING')
+        picked = [next((r for r in rows if r['family'] == f and r['trialAutoEligible']), None) for f in DEMO_FAMILIES]
+        require(all(picked), 'DEMO_SCENARIO_MISSING')
         self.state.update(demoOnly=True, formalG3Eligible=False)
-        return [row]
+        return picked
 
     def prepare_bundle(self):
         super().prepare_bundle()
-        # 暂停是组合级动作；拒绝已 active 的组合，避免收尾暂停别人的活动资产。
-        require(self.bundle == '0ec310fc-776e-48f6-8955-1e4f46ad8de8', 'DEMO_R5_BINDING_REQUIRED')
+        # 暂停是组合级动作且不可再激活；只接受 r5 同一 subject 的组合，拒绝仍有活动资产的组合。
+        require(self.subject_sha == R5_SUBJECT, 'DEMO_R5_SUBJECT_REQUIRED')
         active = int(self.db.query("SELECT COUNT(*) FROM guard_asset_binding b JOIN asset_authorization a ON a.id=b.authorization_id WHERE b.bundle_id=(SELECT id FROM guard_release_bundle WHERE public_id='" + self.bundle + "') AND b.status='active' AND a.status='active' AND a.valid_until>UTC_TIMESTAMP(6)", self.schema))
         require(active == 0, 'DEMO_BUNDLE_IN_USE')
 
@@ -135,7 +142,7 @@ def main():
     root_args, remaining = extra.parse_known_args()
     args = lab_formal.parse_args(remaining)
     require(not args.admission_probe and not args.gate_rehearsal, 'DEMO_REQUIRES_REAL_PF_AUTHORIZATION')
-    require(args.final_ref and args.bundle_id == '0ec310fc-776e-48f6-8955-1e4f46ad8de8', 'DEMO_R5_BINDING_REQUIRED')
+    require(args.final_ref and args.subject_sha256 == R5_SUBJECT, 'DEMO_R5_SUBJECT_REQUIRED')
     root_plan = load(root_args.root_plan)
     # 所有纯参数和输入检查先完成，再显示系统密码框。
     root_command(root_plan, args)

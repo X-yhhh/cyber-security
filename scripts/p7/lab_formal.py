@@ -359,6 +359,9 @@ class Formal(lab_run.Runner):
         self.auth = auth['id']
         approved = self.rev.v2('/authorizations/' + self.auth + '/decisions', dict(decision='approve', reason='本机回环 lab 独立批准，窗口不超过 %s 分钟' % self.authorization_minutes), 1)
         self.auth_revision = approved['revision']
+        if self.target == BUSINESS:
+            # 暂停的组合不能再激活：封存报告的组合与 subject 绑定须在激活前核对。
+            lab_run.formal_r4_preflight(self.db, self.bundle, self.args.subject_sha256, ('approved', 'active'))
         view = self.op.v2('/release-bundles/' + self.bundle, method='GET')
         activation = self.rev.v2('/release-bundles/' + self.bundle + '/activations', dict(assetIds=[self.asset], authorizationIds=[self.auth]), view['revision'])
         self.state['activation'] = activation

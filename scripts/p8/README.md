@@ -168,7 +168,7 @@ sh executor/python.sh -B scripts/p8/status.py --plan "$STATUS_PLAN" --format tex
 sh executor/python.sh -B scripts/p8/backup_restore.py --schedule
 ```
 
-`lab_demo.py` 复用 `lab_formal.py` 的正式组件，但只选第一个冻结 brute_force 场景，授权窗口严格 ≤30 分钟；核验同一命令的已投影 `applied` 与 `expired`、执行器零规则与 root 清理结果。无论成功/失败都尝试撤销本次授权、暂停组合并保存收尾结果；不生成/导入 G3 报告、不调用资格登记。r5 有其他仍有效的活动资产绑定时拒绝演示，避免暂停影响其他任务。
+`lab_demo.py` 复用 `lab_formal.py` 的正式组件，选 brute_force、port_scan 各第一个冻结场景（后端 lab 准入要求可自动类别不少于 2 个且含 brute_force），授权窗口严格 ≤30 分钟；只接受 r5 同一 subject 的已批准组合，业务库路径在激活前预检封存报告的组合与 subject 绑定（暂停的组合不能再激活，W4 实测 r5、r5′ 因此各消耗一次）；核验同一命令的已投影 `applied` 与 `expired`、执行器零规则与 root 清理结果。无论成功/失败都尝试撤销本次授权、暂停组合并保存收尾结果；不生成/导入 G3 报告、不调用资格登记。组合有其他仍有效的活动资产绑定时拒绝演示，避免暂停影响其他任务。
 
 实际运行沿用 `scripts/p7/lab.md` 的显式 JAR、冻结场景、selection、r5 import plan、r5 subject、platform/final、report trust、克隆/业务库和 rendezvous 参数，另加 `--root-plan <0600 JSON>`。root plan 包含 `launcher`、`launcherSha256`、`stage`、`manifestSha256`、`runId`、`authorizationReference`、`evidenceCopy`；`--stage-manifest` 与 `--authorization-reference` 必须逐字匹配。先核验摘要，再由 macOS 密码框让用户批准 root 暂存启动器；口令不进入脚本。root 的 `g3-executor` 最长 1800 秒，原执行器代码与 r5 冻结证据不变。**B3 只验证 dry-run 和流程替身，真实 root/PF 留待 P1/U5。**
 

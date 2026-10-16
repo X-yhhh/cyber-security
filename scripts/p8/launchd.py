@@ -12,8 +12,9 @@ import tempfile
 import time
 import ssl
 import urllib.request
+from urllib.parse import urlsplit
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from scripts.p8.toolkit import ROOT, absolute, load, private_dir, require, run, safe_main, sha, write
+from scripts.p8.toolkit import ROOT, absolute, load, private_dir, private_file, require, run, safe_main, sha, write
 from executor.services import launchd as executor_launchd
 
 ORDER = ('backend', 'targets', 'recovery', 'executor', 'sensor')
@@ -104,23 +105,28 @@ def render(args):
 
 
 def install(args):
+    """支持登记机器前只安装后端；该阶段不启动其他角色，也不代表五服务就绪。"""
     root, release = paths(args)
     domain = 'gui/' + str(os.getuid())
     agents = Path.home() / 'Library/LaunchAgents'
     # 全计划可审查；自动阶段止于 targets，root 恢复链就绪后才手动启动 sensor。
-    roles = ('backend', 'targets', 'sensor') if args.mode == 'pf' else ORDER
+    backend_only = getattr(args, 'backend_only', False)
+    roles = ('backend',) if backend_only else (('backend', 'targets', 'sensor') if args.mode == 'pf' else ORDER)
     commands = [['launchctl', 'bootstrap', domain, str(agents / (PREFIX + r + '.plist'))] for r in roles]
     if args.dry_run:
-        return {'commands': commands, 'manualRootOrder': ['recovery', 'executor'] if args.mode == 'pf' else [], 'sensorRunAtLoad': False}
+        return {'commands': commands, 'manualRootOrder': ['recovery', 'executor'] if args.mode == 'pf' and not backend_only else [],
+                'sensorRunAtLoad': False, 'backendOnly': backend_only}
     require(args.authorization_reference, 'INSTALL_AUTHORIZATION_REQUIRED')
     verify_release(release)
     expected = definitions(args)
-    for role in ORDER:
+    for role in ('backend',) if backend_only else ORDER:
         file = root / 'generated' / (PREFIX + role + '.plist')
         require(plistlib.loads(file.read_bytes()) == expected[role], 'PLIST_MISMATCH')
     require(agents.is_dir() and not agents.is_symlink(), 'LAUNCHAGENTS_DIRECTORY_REQUIRED')
     for role in roles:
         require(not (agents / (PREFIX + role + '.plist')).exists(), 'SERVICE_ALREADY_INSTALLED')
+    # 缺少 TLS 探针配置时必须在 bootstrap/Flyway 之前失败，不能先迁移再发现尚未登记传感器。
+    readiness_settings(root)
     for role, command in zip(roles, commands):
         destination = agents / (PREFIX + role + '.plist')
         require(not destination.exists(), 'SERVICE_ALREADY_INSTALLED')
@@ -130,12 +136,25 @@ def install(args):
         run(command)
         if role == 'backend':
             wait_ready(root)
-    return {'ok': True, 'manualRootOrder': ['recovery', 'executor'] if args.mode == 'pf' else [], 'sensorStarted': False}
+    return {'ok': True, 'installedRoles': list(roles), 'backendOnly': backend_only,
+            'manualRootOrder': ['recovery', 'executor'] if args.mode == 'pf' and not backend_only else [], 'sensorStarted': False}
 
 
 def uninstall(args):
     root, release = paths(args)
     domain = 'gui/' + str(os.getuid())
+    if getattr(args, 'backend_only', False):
+        # 仅撤销本阶段安装的后端，不能触碰后来登记的机器服务或 PF 恢复链。
+        command = ['launchctl', 'bootout', domain + '/' + PREFIX + 'backend']
+        if args.dry_run:
+            return {'commands': [command], 'order': ['backend'], 'preserve': ['config', 'ledger', 'logs', 'program']}
+        require(args.authorization_reference, 'UNINSTALL_AUTHORIZATION_REQUIRED')
+        destination = Path.home() / 'Library/LaunchAgents' / (PREFIX + 'backend.plist')
+        require(not destination.is_symlink() and plistlib.loads(destination.read_bytes()) == definitions(args)['backend'], 'PLIST_MISMATCH')
+        run(command)
+        require(not destination.is_symlink() and plistlib.loads(destination.read_bytes()) == definitions(args)['backend'], 'PLIST_MISMATCH')
+        destination.unlink()
+        return {'ok': True, 'removed': ['backend'], 'retained': ['config', 'ledger', 'logs', 'program']}
     commands = [['launchctl', 'bootout', domain + '/' + PREFIX + 'sensor'],
                 [str(program(args.python)), '-m', 'executor', 'cleanup', '--config', str(root / 'config/executor.json')],
                 [str(program(args.python)), '-m', 'executor', 'status', '--config', str(root / 'config/executor.json')]]
@@ -171,15 +190,26 @@ def uninstall(args):
     return {'ok': True, 'removed': ['sensor', 'targets', 'backend'], 'retained': ['config', 'ledger', 'logs', 'program']}
 
 
+def readiness_settings(root):
+    """后端探针独立于机器登记；兼容已有 sensor 配置，始终限制回环 TLS 和私有 CA。"""
+    health = root / 'config/backend-health.json'
+    settings = load(health) if health.exists() else load(root / 'config/sensor.json')['upload']
+    url = urlsplit(settings['baseUrl'])
+    require(url.scheme == 'https' and url.hostname in ('127.0.0.1', '::1') and url.port
+            and not url.username and not url.password and not url.query and not url.fragment
+            and url.path in ('', '/'), 'LOCAL_TLS_ENDPOINT_REQUIRED')
+    context = ssl.create_default_context(cafile=str(private_file(settings['caFile'])))
+    context.minimum_version = ssl.TLSVersion.TLSv1_3
+    return settings['baseUrl'].rstrip('/'), context
+
+
 def wait_ready(root):
     """后端确实就绪才继续安装依赖服务；证书验证失败或超时保留现场并停止。"""
-    sensor = load(root / 'config/sensor.json')
-    context = ssl.create_default_context(cafile=str(absolute(sensor['upload']['caFile'])))
-    context.minimum_version = ssl.TLSVersion.TLSv1_3
+    base, context = readiness_settings(root)
     deadline = time.monotonic() + 60
     while time.monotonic() < deadline:
         try:
-            with urllib.request.urlopen(sensor['upload']['baseUrl'] + '/health/ready', context=context, timeout=2) as response:
+            with urllib.request.urlopen(base + '/health/ready', context=context, timeout=2) as response:
                 if json.load(response)['data']['status'] == 'UP':
                     return
         except (OSError, KeyError, ValueError):
@@ -247,6 +277,7 @@ def parser():
     p.add_argument('--python', default=sys.executable)
     p.add_argument('--mode', choices=('pf', 'alert-only'), default='alert-only')
     p.add_argument('--authorization-reference')
+    p.add_argument('--backend-only', action='store_true', help='只安装/卸载后端；机器服务等待独立登记，不代表五服务验收通过')
     p.add_argument('--dry-run', action='store_true')
     return p
 

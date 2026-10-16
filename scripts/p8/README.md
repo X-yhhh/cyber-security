@@ -118,6 +118,20 @@ sh executor/python.sh -B scripts/p8/launchd.py install --root "$SERVICE_ROOT" --
 - 实际 install/uninstall 要求 `--authorization-reference`，该参数是执行记录，不替代用户对 P1 的明确授权。安装不覆盖同名服务；卸载前核对全部 plist 是否仍为本工具生成的内容，遇到不同文件拒绝。只删除匹配的 LaunchAgent 文件，保留发布、配置、日志、账本。
 - 卸载使用相同参数，把命令改为 `uninstall`；先用 `--dry-run` 审核逆序。PF 模式必须先由管理员停 executor、执行原 `executor cleanup/status` 核验零规则，再停 recovery；用户工具不会自动提权，无法读取/清理 root 账本时显式失败，按生成的管理员说明完成。失败时保留恢复器与账本，不把文件删除等同规则清理。
 
+### P1.2 登记机器前的后端阶段（2026-10-16）
+
+当本轮不包含 P1.5 机器登记时，使用 `launchd.py install --backend-only`，只安装后端 LaunchAgent；其他四个角色只生成配置模板，不启动。卸载同一阶段使用 `uninstall --backend-only`，只停止并移除匹配的后端 plist，保留全部运行材料。它不替代完整五服务安装或 D2 重启验收。
+
+在 `config/backend-health.json` 中配置 `{"baseUrl":"https://127.0.0.1:18082","caFile":"<绝对 CA 文件路径>"}`，文件 0600、目录 0700。探针只允许回环 HTTPS、TLS 1.3 和私有 CA；安装在 bootstrap 前检查探针配置，缺项时不会先启动 Flyway。旧的完整安装仍兼容 `sensor.json` 的 upload 配置。分段状态用以下命令核验，不需要虚构 assetId 或机器凭据：
+
+```sh
+sh executor/python.sh -B scripts/p8/status.py --backend-root "$SERVICE_ROOT" --format json
+```
+
+结果的 `ok` 只表示后端阶段，固定 `mode=backend-only`、`fullDeploymentReady=false`，列明未验收服务、重启和 PF。之后进入完整安装时，先按原参数卸载本阶段后端入口，再用完成登记后的配置执行完整 install；数据库已到 V27，不重新执行旧迁移。传感器仍只能在另行批准窗口显式启动，不开机续采。
+
+本轮运行制品复用 R1 已验证的 `cca4da0` release，完整 SHA 清单保持不变；分段安装和巡检工具从当前仓库运行，版本独立记录，不把已部署应用谎称为本轮工具提交重新构建。
+
 ### 真实主机登记与克隆验收
 
 `enroll.py` 只用 v2 API。所需 plan 为私有 JSON（0600），包含：

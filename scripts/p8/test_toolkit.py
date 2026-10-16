@@ -65,6 +65,59 @@ def test_paths_and_symlinks_rejected(tmp_path):
         launchd.render(a)
 
 
+def test_backend_only_install_needs_no_machine_identity_and_does_not_start_other_roles(tmp_path, monkeypatch):
+    """未登记机器时仅安装后端；缺少探针必须在 launchctl 和数据库迁移前失败。"""
+    a = args(tmp_path, backend_only=True)
+    a.dry_run, a.authorization_reference = False, 'P1-test'
+    home = tmp_path / 'home'
+    agents = home / 'Library/LaunchAgents'
+    agents.mkdir(parents=True)
+    monkeypatch.setattr(Path, 'home', classmethod(lambda cls: home))
+    monkeypatch.setattr(launchd, 'verify_release', lambda _: None)
+    launchd.render(a)
+    calls = []
+    monkeypatch.setattr(launchd, 'run', lambda command: calls.append(command))
+    with pytest.raises(ValueError, match='PRIVATE_FILE_REQUIRED'):
+        launchd.install(a)
+    assert calls == [] and not list(agents.iterdir())
+    from executor import pki
+    root = Path(a.root)
+    pki.create(root / 'config/tls')
+    write(root / 'config/backend-health.json', dict(baseUrl='https://127.0.0.1:18082', caFile=str(root / 'config/tls/ca.pem')))
+    monkeypatch.setattr(launchd, 'wait_ready', lambda _: calls.append(['ready']))
+    result = launchd.install(a)
+    assert result['installedRoles'] == ['backend'] and result['manualRootOrder'] == []
+    assert len(calls) == 2 and calls[0][0:2] == ['launchctl', 'bootstrap'] and calls[1] == ['ready']
+    assert [p.name for p in agents.iterdir()] == [launchd.PREFIX + 'backend.plist']
+    # 阶段卸载也只针对后端，不查询或清理 PF。
+    assert launchd.uninstall(a)['removed'] == ['backend']
+    assert calls[-1] == ['launchctl', 'bootout', 'gui/' + str(os.getuid()) + '/' + launchd.PREFIX + 'backend']
+
+
+@pytest.mark.parametrize('url', ['http://127.0.0.1:18082', 'https://example.com:443',
+    'https://user:secret@127.0.0.1:18082', 'https://127.0.0.1:18082/path', 'https://127.0.0.1:18082?q=1'])
+def test_backend_probe_rejects_nonlocal_or_credential_urls(tmp_path, url):
+    write(tmp_path / 'config/backend-health.json', dict(baseUrl=url, caFile='/missing'))
+    with pytest.raises(ValueError, match='LOCAL_TLS_ENDPOINT_REQUIRED'):
+        launchd.readiness_settings(tmp_path)
+
+
+def test_backend_status_never_claims_five_services_or_pf_ready(tmp_path, monkeypatch):
+    import io
+    monkeypatch.setattr(status, 'readiness_settings', lambda _: ('https://127.0.0.1:18082', None))
+    monkeypatch.setattr(status.urllib.request, 'urlopen', lambda *a, **kw: io.BytesIO(b'{"data":{"status":"UP"}}'))
+    calls = []
+    def execute(command):
+        calls.append(command)
+        return 0, ' state = running\n pid = 42\n'
+    result = status.inspect_backend(tmp_path, execute=execute)
+    assert result['ok'] and not result['fullDeploymentReady']
+    assert 'pf-recovery' in result['deferred'] and 'sensor' in result['deferred']
+    assert len(calls) == 1 and calls[0][-1].endswith('.backend')
+    result = status.inspect_backend(tmp_path, execute=lambda _: (1, ''))
+    assert not result['ok']
+
+
 class Client:
     def __init__(self, identity=1, shared=None):
         self.identity = identity
@@ -269,6 +322,7 @@ def test_alert_only_install_uninstall_order_and_wrong_plist_guard(tmp_path, monk
     calls = []
     monkeypatch.setattr(launchd, 'run', lambda command, **kwargs: calls.append(command) or '')
     monkeypatch.setattr(launchd, 'wait_ready', lambda root: calls.append(['ready']))
+    monkeypatch.setattr(launchd, 'readiness_settings', lambda root: ('https://127.0.0.1:18082', None))
     monkeypatch.setattr(launchd, 'verify_release', lambda root: None)
     launchd.install(a)
     assert calls[1] == ['ready']

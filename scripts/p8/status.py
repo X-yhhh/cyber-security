@@ -9,16 +9,32 @@ import shutil
 import subprocess
 import sys
 import uuid
+import urllib.request
 from urllib.parse import urlencode
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from scripts.p8.toolkit import absolute, load, require, safe_main, sessions
-from scripts.p8.launchd import ORDER, PREFIX, DAEMONS
+from scripts.p8.launchd import ORDER, PREFIX, DAEMONS, readiness_settings
 from executor.platform import PF
 
 
 def command(argv):
     result = subprocess.run(argv, capture_output=True, text=True, timeout=10)
     return result.returncode, result.stdout
+
+
+def inspect_backend(root, *, execute=command):
+    """P1.2 分段巡检只证明后端与 TLS 就绪，显式保留五服务、采集和 PF 的未验证状态。"""
+    root = absolute(root)
+    base, context = readiness_settings(root)
+    code, output = execute(['launchctl', 'print', 'gui/' + str(os.getuid()) + '/' + PREFIX + 'backend'])
+    pid = re.search(r'(?m)^\s*pid = (\d+)\s*$', output)
+    running = code == 0 and bool(pid) and re.search(r'(?m)^\s*state = running\s*$', output) is not None
+    with urllib.request.urlopen(base + '/health/ready', context=context, timeout=5) as response:
+        ready = json.load(response)['data']['status']
+    return dict(ok=running and ready == 'UP', mode='backend-only', fullDeploymentReady=False,
+                checks=dict(backend=dict(ok=running, pid=int(pid[1]) if pid else None), ready=dict(ok=ready == 'UP', status=ready)),
+                deferred=['targets', 'recovery', 'executor', 'sensor', 'host-reboot', 'pf-recovery'],
+                note='仅后端分段巡检；P1.5 机器登记和独立授权完成后才能进行完整五服务与 D2 验收。')
 
 
 def inspect_rehearsal(client, process, runtime, replay):
@@ -113,9 +129,16 @@ def inspect(plan, client, *, execute=command):
 
 def main():
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument('--plan', required=True)
+    source = p.add_mutually_exclusive_group(required=True)
+    source.add_argument('--plan')
+    source.add_argument('--backend-root', help='仅核对登记机器前的后端阶段，不证明五服务或 PF 健康')
     p.add_argument('--format', choices=('json', 'text'), default='json')
     args = p.parse_args()
+    if args.backend_root:
+        result = inspect_backend(args.backend_root)
+        print(json.dumps(result, ensure_ascii=False, indent=2) if args.format == 'json'
+              else ('后端阶段正常；完整部署仍待验收' if result['ok'] else '后端阶段异常'))
+        return 0 if result['ok'] else 1
     plan = load(args.plan)
     # 巡检只需单独的只读人工账号，不要求申请人/审核人登录两次。
     from scripts.p8.toolkit import Human, private_file

@@ -170,11 +170,38 @@ describe('TodoList', () => {
     expect(sections[1].find('a').exists()).toBe(false)
   })
 
-  it('没有任何待办时显示空态；超过上限时写明只显示最近 N 条', () => {
+  it('没有任何待办时显示空态；超过上限时写明只返回最近 N 条', () => {
     const empty = mount(TodoList, { props: { groups: [] }, global: { plugins: [router] } })
     expect(empty.get('[data-todo-empty]').text()).toBe('当前没有需要你处理的事项')
     const full = mount(TodoList, { props: { groups, truncated: true }, global: { plugins: [router] } })
-    expect(full.text()).toContain('仅显示最近 100 条')
+    expect(full.text()).toContain('只返回最近 100 条')
+    // 有计数但没有条目的组（上限被前面组占满）写明未载入，而不是空着。
+    const unloaded = mount(TodoList, { props: { groups: [...groups, { key: 'triage', count: 5, items: [] }], truncated: true }, global: { plugins: [router] } })
+    expect(unloaded.get('[data-todo-group="triage"] [data-todo-unloaded]').text()).toContain('不在本次返回的最近 100 条内')
+    expect(unloaded.get('[data-todo-group="approve"]').find('[data-todo-unloaded]').exists()).toBe(false)
+  })
+
+  it('每组按 pageSize 分页，翻页只换本组条目；不足一页不显示分页条', async () => {
+    const many: TodoGroup[] = [
+      { key: 'triage', count: 23, items: Array.from({ length: 23 }, (_, i) => ({ id: `t${i}`, title: `待研判 ${i}` })) },
+      { key: 'other', count: 2, items: [{ id: 'o1', title: '其他 1' }, { id: 'o2', title: '其他 2' }] },
+    ]
+    const w = mount(TodoList, { props: { groups: many }, global: { plugins: [router] } })
+    const triage = () => w.get('[data-todo-group="triage"]')
+    expect(triage().findAll('li')).toHaveLength(10)
+    expect(triage().get('[data-todo-pager]').text()).toContain('第 1 / 3 页')
+    expect(w.get('[data-todo-group="other"]').find('[data-todo-pager]').exists()).toBe(false)
+    const [prev, next] = triage().findAll('[data-todo-pager] button')
+    expect(prev.attributes('disabled')).toBeDefined()
+    await next.trigger('click')
+    expect(triage().findAll('li')[0].text()).toContain('待研判 10')
+    await next.trigger('click')
+    expect(triage().findAll('li')).toHaveLength(3)
+    expect(triage().findAll('[data-todo-pager] button')[1].attributes('disabled')).toBeDefined()
+    // 刷新后条目变少，当前页收回到最后一个有效页。
+    await w.setProps({ groups: [{ ...many[0], items: many[0].items.slice(0, 12) }] })
+    expect(triage().get('[data-todo-pager]').text()).toContain('第 2 / 2 页')
+    expect(triage().findAll('li')).toHaveLength(2)
   })
 })
 

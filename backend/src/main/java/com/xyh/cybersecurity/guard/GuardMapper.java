@@ -369,7 +369,8 @@ public interface GuardMapper {
             if(!Set.of("createdAt","updatedAt").contains(sort)) throw new IllegalArgumentException("Unknown sort");
             String time=sort.equals("updatedAt")&&COLUMNS.get(t).contains("updated_at")
                     ?"COALESCE(t.updated_at,t.created_at)":"t.created_at";
-            var sql=selection(p,"t.*,"+time+" query_sort_time");
+            // 延迟关联：内层只排序主键与时间，避免大 JSON 行进入 filesort 缓冲区；外层按主键回表并保持同一顺序。
+            var sql=selection(p,"t.id,"+time+" query_sort_time");
             sql.append(" AND t.id<=#{ceiling} AND t.created_at<=#{asOf}");
             if(filter.get("from")!=null)sql.append(" AND t.created_at>=#{filter.from}");
             if(filter.get("until")!=null)sql.append(" AND t.created_at<#{filter.until}");
@@ -385,7 +386,7 @@ public interface GuardMapper {
             if(p.get("beforeId")!=null)sql.append(" AND (").append(time).append("<#{beforeTime} OR (")
                     .append(time).append("=#{beforeTime} AND t.id<#{beforeId}))");
             sql.append(" ORDER BY ").append(time).append(" DESC,t.id DESC LIMIT #{limit}");
-            return sql.toString();
+            return "SELECT t.*,k.query_sort_time FROM ("+sql+") k STRAIGHT_JOIN "+t+" t ON t.id=k.id ORDER BY k.query_sort_time DESC,k.id DESC";
         }
         @SuppressWarnings("unchecked")
         public static String insert(Map<String,Object> p) {

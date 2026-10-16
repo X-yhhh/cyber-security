@@ -391,6 +391,28 @@ class GuardConsoleIntegrationTest {
         code(send(mvc,get("/api/v2/actions").param("q","unsupported"),analyst,null,null,null),400,"INVALID_QUERY");
     }
 
+    /** W4 回归：单行证据远超服务器 sort_buffer_size（256KB）时，全局列表与游标翻页仍按时间和主键稳定返回。 */
+    @Test void globalListsPageRowsLargerThanTheSortBuffer() throws Exception {
+        Fixture f=fixture();Session analyst=role("security_analyst");List<Entity> decisions=new ArrayList<>();
+        String large="{\"source\":\"model\",\"padding\":\""+"x".repeat(600_000)+"\"}";
+        for(int i=0;i<3;i++){
+            Entity episode=add("guard_episode",map("asset_id",f.asset().key(),"sensor_id",f.sensor().key(),"boot_id",id(),"peer_key",digest(),"key_epoch",1,
+                    "direction","inbound","transport","tcp","service_port",22,"family","brute_force","bundle_id",f.bundle().key(),"bucket_start",db(store.now())));
+            decisions.add(add("guard_decision",map("episode_id",episode.key(),"asset_id",f.asset().key(),"bundle_id",f.bundle().key(),"decision_revision",1,
+                    "decision_contract_version",DECISION,"decision","alert","evidence_sha256",digest(),"evidence_json",i==2?"{}":large,
+                    "decided_at",db(store.now()),"created_at",db(java.time.Instant.parse("2025-03-01T0"+(i+1)+":00:00Z")))));
+        }
+        expect(send(mvc,get("/api/v2/decisions").param("limit","1"),analyst,null,null,null),200);
+        List<String> seen=new ArrayList<>();String cursor=null;
+        for(int page=0;page<3;page++){
+            var request=get("/api/v2/decisions").param("from","2025-03-01T00:00:00Z").param("until","2025-03-02T00:00:00Z").param("limit","1");
+            JsonNode body=expect(send(mvc,cursor==null?request:request.param("cursor",cursor),analyst,null,null,null),200);
+            assertThat(body.path("items").size()).isEqualTo(1);seen.add(body.path("items").get(0).path("id").asText());
+            cursor=body.path("nextCursor").isTextual()?body.path("nextCursor").asText():null;assertThat(cursor==null).isEqualTo(page==2);
+        }
+        assertThat(seen).containsExactly(decisions.get(2).id(),decisions.get(1).id(),decisions.get(0).id());
+    }
+
     /** F1R 四段通过真实 HTTP 检验筛选先于分页、UTC 半开区间与固定读取上界。 */
     @ParameterizedTest
     @ValueSource(strings={"observation-batches","observations","detections","decisions"})

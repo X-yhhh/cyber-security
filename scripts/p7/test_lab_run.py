@@ -133,11 +133,24 @@ class LabRunTest(unittest.TestCase):
                 with self.assertRaises(SystemExit):runner.main()
                 constructor.assert_not_called()
 
+    def test_pf_preflight_rejects_same_subject_reports_from_another_bundle(self):
+        expected='a'*64
+        db,bundle_id,bundle,reports=self.formal_db(subject_sha=expected)
+        bundle['status']='approved'
+        context={'bundleId':'0ec310fc-776e-48f6-8955-1e4f46ad8de8','subjectSha256':expected}
+        for row in reports.values():
+            row['payload']['executionContext']=dict(row['payload']['executionContext'],sourceBundle=context,cloneBundle=context)
+        with self.assertRaisesRegex(ValueError,'LAB_PF_R4_NOT_ACTIVE'):
+            runner.formal_r4_preflight(db,bundle_id,expected,('approved','active'))
+
     def test_pf_preflight_accepts_only_active_r4_with_formal_sealed_reports(self):
         db,bundle_id,bundle,reports=self.formal_db()
         self.assertEqual(runner.formal_r4_preflight(db,bundle_id)['formalKinds'],['canary','platform'])
         bundle['status']='approved'
         with self.assertRaisesRegex(ValueError,'LAB_PF_R4_NOT_ACTIVE'):runner.formal_r4_preflight(db,bundle_id)
+        self.assertEqual(runner.formal_r4_preflight(db,bundle_id,statuses=('approved','active'))['formalKinds'],['canary','platform'])
+        bundle['status']='suspended'
+        with self.assertRaisesRegex(ValueError,'LAB_PF_R4_NOT_ACTIVE'):runner.formal_r4_preflight(db,bundle_id,statuses=('approved','active'))
         bundle['status']='active';bundle['sealedSha256']='0'*64
         with self.assertRaisesRegex(ValueError,'LAB_PF_R4_NOT_ACTIVE'):runner.formal_r4_preflight(db,bundle_id)
         bundle['sealedSha256']=runner.digest(bundle['sealed'])

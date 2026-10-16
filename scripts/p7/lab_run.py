@@ -178,8 +178,8 @@ def subject_sha256(value):
     return value
 
 
-def formal_r4_preflight(db, bundle_id, expected_subject=R4_SUBJECT_SHA256):
-    """只读核对业务库指定 subject 的激活状态与封存报告；默认仍为 r4。"""
+def formal_r4_preflight(db, bundle_id, expected_subject=R4_SUBJECT_SHA256, statuses=('active',)):
+    """只读核对业务库指定 subject 的激活状态与封存报告；默认仍为 r4。激活前预检传 approved，避免证据不符时先激活再被收尾暂停。"""
     from scripts.p5.subject_report import REPORT_VERSION, check_execution_context
     try:
         require(str(uuid.UUID(bundle_id)) == bundle_id, 'LAB_PF_R4_NOT_ACTIVE')
@@ -194,7 +194,7 @@ def formal_r4_preflight(db, bundle_id, expected_subject=R4_SUBJECT_SHA256):
         bundle = json.loads(rows[0])
         subject_sha = bundle['subjectSha256']
         sealed = bundle['sealed']
-        require(bundle['status'] == 'active' and bundle['environment'] == 'lab'
+        require(bundle['status'] in statuses and bundle['environment'] == 'lab'
                 and bundle['approvedBy'] is not None and subject_sha == expected_subject
                 and isinstance(sealed, dict) and bundle['sealedSha256'] == digest(sealed)
                 and sealed['subjectSha256'] == subject_sha and isinstance(sealed['reports'], list)

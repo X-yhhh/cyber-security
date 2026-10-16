@@ -245,7 +245,7 @@ def test_status_checks_every_sensor_latest_window_without_loading_history(tmp_pa
     (tmp_path/'logs').mkdir()
     sensor_ids = [str(uuid.uuid4()), str(uuid.uuid4())]
     p = {'root': str(tmp_path), 'assetId': str(uuid.uuid4()), 'executorId': str(uuid.uuid4()),
-         'mode': 'alert-only', 'minFreeBytes': 0}
+         'mode': 'pf', 'minFreeBytes': 0}
     queried = []
     class Reader:
         def call(self, *a): return {'data': {'status': 'UP'}}
@@ -322,6 +322,7 @@ def test_alert_only_install_uninstall_order_and_wrong_plist_guard(tmp_path, monk
     calls = []
     monkeypatch.setattr(launchd, 'run', lambda command, **kwargs: calls.append(command) or '')
     monkeypatch.setattr(launchd, 'wait_ready', lambda root: calls.append(['ready']))
+    monkeypatch.setattr(launchd, 'wait_observer_recovery', lambda path, **kw: calls.append(['recovery-ready']))
     monkeypatch.setattr(launchd, 'readiness_settings', lambda root: ('https://127.0.0.1:18082', None))
     monkeypatch.setattr(launchd, 'verify_release', lambda root: None)
     launchd.install(a)

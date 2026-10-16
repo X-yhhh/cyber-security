@@ -87,6 +87,15 @@ class GuardBulkSqlTest {
             assertThat(plan.sql().chars().filter(c->c=='?').count()).as(changed).isEqualTo(expected.size());
         }
     }
+    @Test void consoleListSortsOnlyKeysBeforeJoiningWideRows(){
+        var sql=GuardMapper.Sql.consoleList(map("table","guard_decision","where",map("decision","alert"),"actor",1L,"permission","detection.read",
+                "filter",map("sort","updatedAt","from",null,"until",null,"prefix",null),"active",false,"beforeId",9L,"beforeTime",LocalDateTime.of(2026,10,1,0,0)));
+        String time="t.created_at";
+        assertThat(sql).startsWith("SELECT t.*,k.query_sort_time FROM (SELECT t.id,"+time+" query_sort_time FROM guard_decision t WHERE 1=1 AND t.`decision`=#{where.decision}")
+                .contains(" AND EXISTS(SELECT 1 FROM sys_user_role ur"," AND ("+time+"<#{beforeTime} OR ("+time+"=#{beforeTime} AND t.id<#{beforeId}))")
+                .endsWith(" ORDER BY "+time+" DESC,t.id DESC LIMIT #{limit}) k STRAIGHT_JOIN guard_decision t ON t.id=k.id ORDER BY k.query_sort_time DESC,k.id DESC");
+        assertThat(sql.indexOf("t.*")).isEqualTo(sql.lastIndexOf("t.*"));
+    }
     @Test void episodePortGroupingFallsBackWhenSharedColumnsDoNotReduceTheQuery(){
         var keys=new ArrayList<Map<String,Object>>();
         for(int i=0;i<20;i++){var key=episodeKey(i);key.put("peer_key","peer-"+i);keys.add(key);}

@@ -61,7 +61,8 @@ export interface MutableCatalog extends ResourceMetadata { revision: number; upd
 export interface ReleaseModel extends GuardModel, MutableCatalog { validationStatus: ModelStatus }
 export interface ReleaseDataset extends GuardDataset, MutableCatalog { status: DatasetStatus }
 export interface ReleasePolicy extends GuardDecisionPolicy, MutableCatalog { status: PolicyStatus; definition: DecisionPolicy }
-export interface ReleaseBundle extends GuardReleaseBundle { status: BundleStatus; updatedAt: string | null }
+/** 组合显示名/备注由 V28 追加（命名规范 R 编号），不参与 subject 或封存证据。 */
+export interface ReleaseBundle extends GuardReleaseBundle, ResourceMetadata { status: BundleStatus; updatedAt: string | null }
 export interface ReleaseCapability extends GuardCapability {
   level: 'research' | 'alert_only' | 'lab_auto' | 'authorized_auto'
   scope: 'peer_service' | 'peer_inbound'
@@ -152,12 +153,16 @@ export const releaseApi = {
     operate<MutationResult & { bindingIds: string[] }>('release-bundles', id, 'activations', body, revision, key),
   suspendBundle: (id: string, revision: number, body: { reason: string; revokeExisting: boolean }, key?: string) => operate<MutationResult>('release-bundles', id, 'suspensions', body, revision, key),
   retireBundle: (id: string, revision: number, reason: string, key?: string) => operate<MutationResult>('release-bundles', id, 'retirements', { reason }, revision, key),
+  /** 只改显示名/备注；需 bundle.request 或 bundle.approve，带 If-Match。 */
+  updateBundle: (id: string, revision: number, body: Partial<ResourceMetadata>, key?: string) => guard.patch<MutationResult>('release-bundles', id, body, revision, key),
   listBundleBindings: (id: string) => guard.child<{ items: AssetBinding[] }>('release-bundles', id, 'bindings'),
 
   // 策略原文先经过同一 Schema 和静态不变量预校验；错误不会发出起草请求。
   listPolicies: (query?: PolicyQuery) => collection<ReleasePolicy>('decision-policies', query),
   getPolicy: (id: string) => guard.get<ReleasePolicy>('decision-policies', id),
   draftPolicy: (input: unknown, key?: string) => guard.create<MutationResult>('decision-policies', requireDecisionPolicy(input), key),
+  /** 只改显示名/备注（policy.draft，带 If-Match）；策略正文冻结不可改。 */
+  updatePolicy: (id: string, revision: number, body: Partial<ResourceMetadata>, key?: string) => guard.patch<MutationResult>('decision-policies', id, body, revision, key),
   deletePolicy: (id: string, revision: number, key?: string) => guard.remove<MutationResult>('decision-policies', id, revision, key),
   reviewPolicy: (id: string, revision: number, body: Review, key?: string) => operate<MutationResult>('decision-policies', id, 'reviews', body, revision, key),
   listCapabilities: (query?: SearchQuery) => collection<ReleaseCapability>('capabilities', query),

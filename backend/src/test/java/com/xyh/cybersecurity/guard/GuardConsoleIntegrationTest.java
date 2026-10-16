@@ -102,9 +102,9 @@ class GuardConsoleIntegrationTest {
 
     @Test void metadataWritesAreRevisionCheckedAuditedAndNeverChangeFrozenFields() throws Exception {
         Fixture f=fixture();Session admin=role("platform_admin"),operator=role("model_operator");
-        for(Entity e:List.of(f.asset(),f.sensor(),f.executor(),f.dataset(),f.model())){
+        for(Entity e:List.of(f.asset(),f.sensor(),f.executor(),f.dataset(),f.model(),f.policy(),f.bundle())){
             String collection=collection(e),path="/api/v2/"+collection+"/"+e.id();
-            Session actor=Set.of("datasets","models").contains(collection)?operator:admin;
+            Session actor=Set.of("datasets","models","decision-policies","release-bundles").contains(collection)?operator:admin;
             var before=snapshot(e);String key=id();JsonNode body=object("displayName","资源显示名称","notes","资料说明");
             JsonNode changed=expect(send(mvc,patch(path),actor,body,key,"1"),200);
             assertThat(changed.path("revision").asLong()).isEqualTo(2);
@@ -121,6 +121,22 @@ class GuardConsoleIntegrationTest {
             JsonNode read=expect(send(mvc,get(path),actor,null,null,null),200);
             assertThat(read.path("displayName").asText()).isEqualTo("资源显示名称");assertThat(read.path("revision").asLong()).isEqualTo(3);
         }
+    }
+
+    /** 命名规范：组合显示名申请与审核两侧都可维护（不构成批准）；策略显示名只由起草侧维护；显示名可搜索。 */
+    @Test void bundleAndPolicyNamingFollowsTheirOwnPermissions() throws Exception {
+        Fixture f=fixture();Session reviewer=role("security_reviewer"),analyst=role("security_analyst");
+        String bundle="/api/v2/release-bundles/"+f.bundle().id(),policy="/api/v2/decision-policies/"+f.policy().id();
+        String name="R9 · lab · 命名验收 "+id().substring(0,8);
+        var before=snapshot(f.bundle());
+        JsonNode named=expect(send(mvc,patch(bundle),reviewer,object("displayName",name),id(),"1"),200);
+        assertThat(named.path("displayName").asText()).isEqualTo(name);
+        code(send(mvc,patch(policy),reviewer,object("displayName","P9 · 越权"),id(),"1"),403,"SCOPE_DENIED");
+        code(send(mvc,patch(bundle),analyst,object("displayName","R9 · 越权"),id(),"2"),403,"SCOPE_DENIED");
+        JsonNode list=expect(send(mvc,get("/api/v2/release-bundles").param("q",name).param("limit","50"),reviewer,null,null,null),200);
+        assertThat(list.path("items").findValuesAsText("id")).contains(f.bundle().id());
+        var after=snapshot(f.bundle());after.keySet().removeAll(Set.of("display_name","notes","revision","updated_at"));
+        before.keySet().removeAll(Set.of("display_name","notes","revision","updated_at"));assertThat(after).isEqualTo(before);
     }
 
     @Test void assetRetirementIsTerminalAndSuspendsActiveBindingsWithoutRemovingFacts() throws Exception {
@@ -304,8 +320,8 @@ class GuardConsoleIntegrationTest {
         Fixture f=fixture();Session auditor=role("auditor"),admin=role("platform_admin"),operator=role("model_operator");
         record Request(String method,String path,JsonNode body,Session actor){ }
         List<Request> requests=new ArrayList<>();
-        for(Entity e:List.of(f.asset(),f.sensor(),f.executor(),f.dataset(),f.model())){
-            String collection=collection(e);Session actor=Set.of("datasets","models").contains(collection)?operator:admin;
+        for(Entity e:List.of(f.asset(),f.sensor(),f.executor(),f.dataset(),f.model(),f.policy(),f.bundle())){
+            String collection=collection(e);Session actor=Set.of("datasets","models","decision-policies","release-bundles").contains(collection)?operator:admin;
             requests.add(new Request("PATCH","/api/v2/"+collection+"/"+e.id(),object("displayName","权限负例"),actor));
         }
         for(Entity e:List.of(f.sensor(),f.executor()))requests.add(new Request("POST","/api/v2/"+collection(e)+"/"+e.id()+"/status-changes",object("status","disabled","reason","负例"),admin));
@@ -512,6 +528,6 @@ class GuardConsoleIntegrationTest {
 
     static String collection(Entity entity){return switch(entity.table()){
         case "asset"->"assets";case "sensor_agent"->"sensors";case "guard_executor"->"executors";case "guard_dataset"->"datasets";
-        case "guard_model"->"models";case "guard_release_bundle"->"release-bundles";default->throw new IllegalArgumentException();};}
+        case "guard_model"->"models";case "guard_release_bundle"->"release-bundles";case "guard_decision_policy"->"decision-policies";default->throw new IllegalArgumentException();};}
     static MockHttpServletRequestBuilder request(String method,String path){return switch(method){case "PATCH"->patch(path);case "POST"->post(path);case "DELETE"->delete(path);default->throw new IllegalArgumentException();};}
 }

@@ -15,6 +15,8 @@ public class GuardAccess {
     public void permission(String permission,Long asset){long actor=human();if(!mapper.permitted(actor,permission,asset==null?"global":"asset",asset==null?"*":asset.toString()))throw error(403,"SCOPE_DENIED");}
     public void feature(String permission){if(!mapper.hasFeature(human(),permission))throw error(403,"SCOPE_DENIED");}
     public void anyFeature(String... permissions){long actor=human();if(Arrays.stream(permissions).noneMatch(p->mapper.hasFeature(actor,p)))throw error(403,"SCOPE_DENIED");}
+    /** 返回当前人工主体持有的第一个功能权限；都没有时 403，供“任一权限即可”的全局资料写入定位可见范围。 */
+    public String firstFeature(String... permissions){long actor=human();return Arrays.stream(permissions).filter(p->mapper.hasFeature(actor,p)).findFirst().orElseThrow(()->error(403,"SCOPE_DENIED"));}
     /** B4 两级写鉴权：功能不足为 403，有功能但对象范围不覆盖为 404。 */
     public void consolePermission(String permission,Long asset){feature(permission);visible(permission,asset);}
     public void visible(String permission,Long asset){try{permission(permission,asset);}catch(com.xyh.cybersecurity.common.api.ApiRequestException e){throw error(404,"RESOURCE_NOT_FOUND");}}

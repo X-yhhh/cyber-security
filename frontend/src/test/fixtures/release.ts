@@ -69,7 +69,7 @@ export function createReleaseFixture(): ReleaseFixtureState {
     id: RELEASE_IDS.bundle, bundleKey: 'fixture-bundle', version: '1', modelId: RELEASE_IDS.model, policyId: RELEASE_IDS.policy,
     contractId: null, planId: RELEASE_IDS.plan, environment: 'lab', subjectSha256: RELEASE_SHA,
     subject: { mode: 'alert_only', capabilityIds: [RELEASE_IDS.capability] }, sealedManifestSha256: null,
-    sealedManifest: null, status: 'candidate', revision: 1, updatedAt: null, createdAt: RELEASE_TIME,
+    sealedManifest: null, status: 'candidate', displayName: null, notes: null, revision: 1, updatedAt: null, createdAt: RELEASE_TIME,
   }
   const capability: ReleaseCapability = {
     id: RELEASE_IDS.capability, capabilityKey: 'fixture-alert-only', version: '1', platform: 'macos', level: 'alert_only',

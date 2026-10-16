@@ -139,6 +139,23 @@ public class GuardCatalog {
                 "notes",values.getOrDefault("notes",row.get("notes")),model?"validationStatus":"status",row.get(model?"validation_status":"status"));
     }
 
+    /**
+     * 策略与发布组合只改控制台显示名/备注（命名规范：策略 P 编号、组合 R 编号）。
+     * 不触及 policy_key、bundle_key、策略正文、subject、封存清单或状态；revision 递增并追加审计。
+     * 权限：策略需 policy.draft；组合需 bundle.request 或 bundle.approve（申请与审核两侧都可维护名称，不构成批准）。
+     */
+    public JsonNode updateNaming(String id,JsonNode body,String revision,boolean bundle) {
+        fields(body,"","displayName notes");var values=GuardMetadata.values(body);
+        if(values.isEmpty())throw error(400,"INVALID_REQUEST");
+        access.consolePermission(bundle?access.firstFeature("bundle.request","bundle.approve"):"policy.draft",null);
+        String table=bundle?"guard_release_bundle":"guard_decision_policy";var row=store.external(table,id,true);access.revision(row,revision);
+        long next=number(row,"revision")+1;values.put("revision",next);values.put("updated_at",db(store.now()));
+        store.update(table,number(row,"id"),values);
+        store.audit(access.human(),bundle?"guard.bundle.updated":"guard.policy.updated",id,null,null,body);
+        return object("id",id,"revision",next,"displayName",values.getOrDefault("display_name",row.get("display_name")),
+                "notes",values.getOrDefault("notes",row.get("notes")),"status",row.get("status"));
+    }
+
     /** 退役保留全部清单与评价；活动组合或活动资产绑定仍引用的模型必须先退出发布。 */
     public JsonNode retireResource(String id,JsonNode body,String revision,boolean model) {
         fields(body,"reason","");GuardMetadata.reason(body);access.consolePermission(model?"model.manage":"dataset.manage",null);

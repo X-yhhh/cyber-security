@@ -37,7 +37,8 @@ public class GuardWriteAuthorization {
             case "sensors/updates","executors/updates","sensors/status-changes","executors/status-changes","sensor-configs/deletes"->"sensor.manage";
             case "datasets/updates","datasets/retirements"->"dataset.manage";
             case "models/updates","models/retirements"->"model.manage";
-            case "decision-policies/deletes"->"policy.draft";
+            case "decision-policies/deletes","decision-policies/updates"->"policy.draft";
+            case "release-bundles/updates"->access.firstFeature("bundle.request","bundle.approve");
             case "authorizations/withdrawals"->"authorization.request";
             case "release-bundles/retirements"->{
                 access.anyFeature("bundle.request","bundle.approve");

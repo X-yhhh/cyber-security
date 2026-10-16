@@ -184,7 +184,7 @@ public interface GuardMapper {
             COLUMNS.put("guard_evaluation_plan",Set.of("id","public_id","created_at","plan_key","version","plan_sha256","payload_json","created_by"));
             COLUMNS.put("guard_capability",Set.of("id","public_id","created_at","capability_key","version","platform","level","payload_json","created_by","scope","protection_set_sha256","exemption_evidence_sha256"));
             COLUMNS.put("guard_decision_policy",Set.of("id","public_id","created_at","policy_key","version","model_id","plan_id","decision_contract_version","definition_json","definition_sha256","status","created_by","reviewed_by","revision","display_name","notes","updated_at"));
-            COLUMNS.put("guard_release_bundle",Set.of("id","public_id","created_at","bundle_key","version","model_id","policy_id","contract_id","plan_id","environment","subject_sha256","subject_json","sealed_manifest_sha256","sealed_manifest_json","status","requested_by","approved_by","revision","updated_at"));
+            COLUMNS.put("guard_release_bundle",Set.of("id","public_id","created_at","bundle_key","version","model_id","policy_id","contract_id","plan_id","environment","subject_sha256","subject_json","sealed_manifest_sha256","sealed_manifest_json","status","requested_by","approved_by","revision","updated_at","display_name","notes"));
             COLUMNS.put("guard_bundle_capability",Set.of("id","public_id","created_at","bundle_id","capability_id"));
             COLUMNS.put("guard_evaluation_run",Set.of("id","public_id","created_at","plan_id","bundle_id","run_kind","runner_identity","status","report_ref","report_sha256","payload_json"));
             COLUMNS.put("guard_replay_run",Set.of("id","public_id","created_at","scenario_id","scenario_sha256","model_id","policy_id","bundle_id","speed","status","requested_by","payload_json","content_sha256"));
@@ -358,7 +358,7 @@ public interface GuardMapper {
                 Map.entry("asset",List.of("display_name","asset_key")),Map.entry("sensor_agent",List.of("display_name","agent_key")),
                 Map.entry("guard_executor",List.of("display_name")),Map.entry("guard_dataset",List.of("display_name","dataset_key")),
                 Map.entry("guard_model",List.of("display_name","model_key")),Map.entry("guard_decision_policy",List.of("display_name","policy_key")),
-                Map.entry("guard_release_bundle",List.of("bundle_key")),Map.entry("security_event",List.of("title")),
+                Map.entry("guard_release_bundle",List.of("display_name","bundle_key")),Map.entry("security_event",List.of("title")),
                 Map.entry("guard_evaluation_plan",List.of("plan_key")),Map.entry("guard_capability",List.of("capability_key")));
         public static boolean searchable(String table) { return SEARCH.containsKey(table); }
         public static String ceiling(Map<String,Object> p) { return "SELECT COALESCE(MAX(id),0) FROM "+table(p); }

@@ -106,7 +106,7 @@ const statusValues: Partial<Record<ReleaseCollection, string[]>> = {
 }
 const searchKeys: Partial<Record<ReleaseCollection, string[]>> = {
   models: ['displayName', 'modelKey'], datasets: ['displayName', 'datasetKey'], 'decision-policies': ['displayName', 'policyKey'],
-  'release-bundles': ['bundleKey'], capabilities: ['capabilityKey'], 'evaluation-plans': ['planKey'],
+  'release-bundles': ['displayName', 'bundleKey'], capabilities: ['capabilityKey'], 'evaluation-plans': ['planKey'],
 }
 function list(collection: ReleaseCollection, request: Request) {
   const user = authorize(readPermission(collection))
@@ -218,11 +218,21 @@ const createHandlers = RELEASE_COLLECTIONS.filter((collection) => registrationPe
   http.post(`/api/v2/${collection}`, ({ request }) => reply(() => write(request, registrationPermissions[collection]!, undefined, (body) => register(collection, body)), collection === 'replay-runs' ? 202 : 201)),
 )
 
-const editHandlers = (['models', 'datasets'] as const).map((collection) =>
+/** 资料编辑权限：组合名称申请与审核两侧都可维护（与后端 GuardCatalog.updateNaming 一致）。 */
+function editPermission(collection: 'models' | 'datasets' | 'decision-policies' | 'release-bundles'): Permission {
+  if (collection === 'release-bundles') {
+    const user = currentUser()
+    check(user, 401, 'UNAUTHENTICATED')
+    return user.permissions.includes('bundle.request') ? 'bundle.request' : 'bundle.approve'
+  }
+  return ({ models: 'model.manage', datasets: 'dataset.manage', 'decision-policies': 'policy.draft' } as const)[collection]
+}
+const editHandlers = (['models', 'datasets', 'decision-policies', 'release-bundles'] as const).map((collection) =>
   http.patch(`/api/v2/${collection}/:id`, ({ request, params }) => reply(() => {
-    authorize(collection === 'models' ? 'model.manage' : 'dataset.manage')
+    const permission = editPermission(collection)
+    authorize(permission)
     const row = find(collection, String(params.id))
-    return write(request, collection === 'models' ? 'model.manage' : 'dataset.manage', row, (body) => {
+    return write(request, permission, row, (body) => {
       fields(body, [], ['displayName', 'notes']); check(Object.keys(body).length, 400, 'INVALID_REQUEST')
       for (const [key, value] of Object.entries(body)) check(value === null || (typeof value === 'string' && value.length <= (key === 'notes' ? 1000 : 128)), 400, 'INVALID_REQUEST')
       Object.assign(row, body); touch(row)

@@ -11,10 +11,11 @@
  * - 批准 / 驳回（bundle.approve，已封存；申请人本人由后端拒绝，组合查询不返回申请人，入口照常显示）；
  * - 激活（bundle.approve，已批准/已激活，按资产与有效授权一一对应）、退役（bundle.approve，已批准/已暂停）；
  * - 暂停（automation.stop，已批准/已激活）：立即停止新命令，现有规则的清理以处置记录为准。
+ * - 改名（bundle.request 或 bundle.approve，任意状态）：只改显示名与备注（命名规范 R 编号），不触及 subject、封存或状态。
  */
 import { computed, reactive, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
-import { Archive, CirclePause, FileInput, Lock, Plus, Rocket, Undo2, X } from 'lucide-vue-next'
+import { Archive, CirclePause, FileInput, Lock, Pencil, Plus, Rocket, Undo2, X } from 'lucide-vue-next'
 import Drawer from '@/components/Drawer.vue'
 import Tag from '@/components/Tag.vue'
 import IdText from '@/components/IdText.vue'
@@ -27,14 +28,14 @@ import { assetsApi, assetTitle, bindingStatusLabel, type Asset, type Authorizati
 import { isSha256, releaseApi, type AssetBinding, type Evaluation, type ReleaseBundle, type ReleasePolicy } from '@/api/v2/release'
 import { bindingTone, bundleTone, capabilityTone, evaluationTone } from '@/data/tones'
 import {
-  bundleStatusLabel, capabilityName, ensureIndex, envLabel, evaluationStatusLabel, isObject, levelLabel, modeLabel, modelName,
+  bundleStatusLabel, bundleTitle, capabilityName, ensureIndex, envLabel, evaluationStatusLabel, isObject, levelLabel, modeLabel, modelName,
   planName, policyTitle, releaseErr, releaseIndex, runKindLabel, short,
 } from './shared'
 
 const props = defineProps<{ id: string }>()
 const emit = defineEmits<{ close: []; changed: [] }>()
 
-type Mode = 'view' | 'import' | 'seal' | 'approve' | 'reject' | 'activate' | 'suspend' | 'withdraw' | 'retire'
+type Mode = 'view' | 'rename' | 'import' | 'seal' | 'approve' | 'reject' | 'activate' | 'suspend' | 'withdraw' | 'retire'
 const mode = ref<Mode>('view')
 const bundle = ref<ReleaseBundle | null>(null)
 const policy = ref<ReleasePolicy | null>(null)
@@ -134,6 +135,8 @@ const canDecide = computed(() => can('bundle.approve') && status.value === 'eval
 const canActivate = computed(() => can('bundle.approve') && ['approved', 'active'].includes(status.value))
 const canSuspend = computed(() => can('automation.stop') && ['approved', 'active'].includes(status.value))
 const canRetire = computed(() => can('bundle.approve') && ['approved', 'suspended'].includes(status.value))
+const canRename = computed(() => can('bundle.request') || can('bundle.approve'))
+const naming = reactive({ displayName: '', notes: '' })
 const anyFoot = computed(() => canImport.value || canSeal.value || canDecide.value || canActivate.value)
 
 const busy = ref(false)
@@ -150,6 +153,7 @@ function enter(m: Mode) {
   mode.value = m
   formError.value = ''
   reason.value = ''
+  if (m === 'rename' && bundle.value) Object.assign(naming, { displayName: bundle.value.displayName ?? '', notes: bundle.value.notes ?? '' })
   if (m === 'import') Object.assign(report, { reportRef: '', sha256: '', runnerIdentity: '' })
   if (m === 'seal') { sealPick.value = sortedReports.value.filter((r) => r.status === 'passed').map((r) => r.id); sealManual.value = '' }
   if (m === 'suspend') revokeExisting.value = true
@@ -189,6 +193,16 @@ function confirm(decision?: 'approve' | 'reject') {
   if (!b) return
   const why = reason.value.trim()
   switch (mode.value) {
+    case 'rename': {
+      const displayName = naming.displayName.trim(), notes = naming.notes.trim()
+      if (displayName.length > 128) { formError.value = '显示名最多 128 个字符。'; return }
+      const body: { displayName?: string | null; notes?: string | null } = {}
+      if (displayName !== (b.displayName ?? '')) body.displayName = displayName || null
+      if (notes !== (b.notes ?? '')) body.notes = notes || null
+      if (!Object.keys(body).length) { formError.value = '没有需要保存的修改。'; return }
+      void run(() => releaseApi.updateBundle(b.id, b.revision, body), '已保存组合名称。')
+      return
+    }
     case 'import': {
       const body = { reportRef: report.reportRef.trim(), sha256: report.sha256.trim().toLowerCase(), runnerIdentity: report.runnerIdentity.trim() }
       if (!body.reportRef || !body.runnerIdentity) { formError.value = '报告引用与签发身份都必填。'; return }
@@ -232,14 +246,14 @@ function confirm(decision?: 'approve' | 'reject') {
 }
 
 const modeTitle: Record<Mode, string> = {
-  view: '', import: '导入评价报告', seal: '封存发布清单', approve: '批准发布组合', reject: '驳回发布组合',
+  view: '', rename: '修改组合名称', import: '导入评价报告', seal: '封存发布清单', approve: '批准发布组合', reject: '驳回发布组合',
   activate: '按资产激活', suspend: '暂停发布组合', withdraw: '撤回候选组合', retire: '退役发布组合',
 }
 const capabilities = computed(() => capabilityIds.value.map((id) => ({ id, name: capabilityName(id), level: releaseIndex.capabilities.get(id)?.level ?? null })))
 </script>
 
 <template>
-  <Drawer :open="!!id" :title="bundle ? (mode === 'view' ? `发布组合 ${short(bundle.bundleKey)}` : modeTitle[mode]) : '发布组合'" :kicker="bundle ? `${modelName(bundle.modelId)} · ${envLabel[bundle.environment] ?? bundle.environment}` : '发布组合'" @close="emit('close')">
+  <Drawer :open="!!id" :title="bundle ? (mode === 'view' ? bundleTitle(bundle) : modeTitle[mode]) : '发布组合'" :kicker="bundle ? `${modelName(bundle.modelId)} · ${envLabel[bundle.environment] ?? bundle.environment}` : '发布组合'" @close="emit('close')">
     <LoadState :loading="loading" :error="error">
       <template v-if="bundle">
         <template v-if="mode === 'view'">
@@ -276,6 +290,11 @@ const capabilities = computed(() => capabilityIds.value.map((id) => ({ id, name:
 
           <h3 class="section-title">组成</h3>
           <dl class="kv">
+            <div><dt>名称</dt><dd>
+              <span :class="bundle.displayName ? 'text-ink' : 'text-ink-4'">{{ bundle.displayName || '未命名' }}</span>
+              <button v-if="canRename" type="button" class="link ml-3 text-[12px]" @click="enter('rename')"><Pencil :size="12" :stroke-width="1.5" />改名</button>
+              <p v-if="bundle.notes" class="mt-1 text-[12px] text-ink-3">{{ bundle.notes }}</p>
+            </dd></div>
             <div><dt>状态</dt><dd><Tag pill :tone="bundleTone[status]" :label="bundleStatusLabel[status] ?? status" /></dd></div>
             <div><dt>模型</dt><dd><RouterLink class="link" :to="{ path: '/console/release/models', query: { tab: 'models', id: bundle.modelId } }">{{ modelName(bundle.modelId) }}</RouterLink></dd></div>
             <div><dt>决策策略</dt><dd>
@@ -339,6 +358,13 @@ const capabilities = computed(() => capabilityIds.value.map((id) => ({ id, name:
             <button v-if="canRetire" type="button" class="link text-[12.5px] text-threat" @click="enter('retire')"><Archive :size="13" :stroke-width="1.5" />退役组合</button>
           </div>
         </template>
+
+        <!-- 改名：只改显示名与备注 -->
+        <form v-else-if="mode === 'rename'" class="form" @submit.prevent="confirm()">
+          <p class="note">按命名规范填写：<span class="num">R编号 · 环境 · 用途</span>，例如「R6 · 真实主机 · 只告警」；同一发布的重做加 a/b。名称只用于界面显示，不改变组合内容、封存清单或状态，修改写入审计。</p>
+          <label class="form-field"><span class="label">显示名</span><input v-model="naming.displayName" class="field" maxlength="128" :placeholder="`留空则显示「组合 ${short(bundle.bundleKey)}」`" /></label>
+          <label class="form-field"><span class="label">备注</span><textarea v-model="naming.notes" class="field min-h-[5rem]" maxlength="1000" placeholder="用途、来源或与其他组合的差异" /></label>
+        </form>
 
         <!-- 导入报告 -->
         <form v-else-if="mode === 'import'" class="form" @submit.prevent="confirm()">
@@ -431,7 +457,7 @@ const capabilities = computed(() => capabilityIds.value.map((id) => ({ id, name:
       <template v-else>
         <button type="button" class="act-ghost" :disabled="busy" @click="enter('view')">返回</button>
         <button type="button" :class="['suspend', 'withdraw', 'retire', 'reject'].includes(mode) ? 'act-danger' : 'act'" :disabled="busy" @click="confirm()">
-          {{ { import: '导入报告', seal: '确认封存', approve: '确认批准', reject: '确认驳回', activate: '确认激活', suspend: '确认暂停', withdraw: '确认撤回', retire: '确认退役', view: '' }[mode] }}
+          {{ { rename: '保存名称', import: '导入报告', seal: '确认封存', approve: '确认批准', reject: '确认驳回', activate: '确认激活', suspend: '确认暂停', withdraw: '确认撤回', retire: '确认退役', view: '' }[mode] }}
         </button>
       </template>
     </template>

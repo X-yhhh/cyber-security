@@ -108,6 +108,21 @@ describe('F3 登记、资料与并发控制', () => {
     await expect(api.updateModel(ids.model, 1, { notes: '不可写' })).rejects.toMatchObject({ status: 403 })
   })
 
+  it('组合与策略只改显示名；组合审核侧也可改名，策略只限起草侧，名称可搜索', async () => {
+    await api.updateBundle(ids.bundle, 1, { displayName: 'R9 · lab · 合成验收', notes: '命名规范示例' })
+    expect(await api.getBundle(ids.bundle)).toMatchObject({ displayName: 'R9 · lab · 合成验收', notes: '命名规范示例', revision: 2, status: 'candidate' })
+    expect(releaseState.writes.at(-1)).toMatchObject({ method: 'PATCH', ifMatch: '1' })
+    await api.updatePolicy(ids.policy, 1, { displayName: 'P9 · 合成只告警' })
+    expect(await api.getPolicy(ids.policy)).toMatchObject({ displayName: 'P9 · 合成只告警', revision: 2 })
+    expect((await api.listBundles({ q: 'R9' })).items.map((b) => b.id)).toContain(ids.bundle)
+    reviewer()
+    await api.updateBundle(ids.bundle, 2, { notes: null })
+    expect(await api.getBundle(ids.bundle)).toMatchObject({ notes: null, revision: 3 })
+    await expect(api.updatePolicy(ids.policy, 2, { displayName: '越权' })).rejects.toMatchObject({ status: 403 })
+    signIn(singleRoleUsers.auditor)
+    await expect(api.updateBundle(ids.bundle, 3, { displayName: '越权' })).rejects.toMatchObject({ status: 403 })
+  })
+
   it('策略起草必须先预校验；本人草稿删除带 If-Match，重试无重复副作用', async () => {
     expect(() => api.draftPolicy('{invalid')).toThrow(DecisionPolicyValidationError)
     expect(requests).toEqual([])

@@ -10,7 +10,7 @@ import { reactive } from 'vue'
 import { ApiError } from '@/api/client'
 import { can } from '@/api/session'
 import { errText } from '@/composables/load'
-import { releaseApi, type EvaluationPlan, type ReleaseCapability, type ReleaseModel, type ReleasePolicy } from '@/api/v2/release'
+import { releaseApi, type EvaluationPlan, type ReleaseBundle, type ReleaseCapability, type ReleaseModel, type ReleasePolicy } from '@/api/v2/release'
 
 export const modelStatusLabel: Record<string, string> = { pending: '待校验', validated: '已校验', failed: '校验失败', retired: '已退役' }
 export const datasetStatusLabel: Record<string, string> = { active: '启用', retired: '已退役' }
@@ -38,6 +38,8 @@ export const DEFAULT_PROTOCOL_VERSIONS = {
 export const short = (id: string | null | undefined) => (id ? id.slice(0, 8) : '—')
 export const modelTitle = (m: Pick<ReleaseModel, 'displayName' | 'modelKey'>) => m.displayName || m.modelKey
 export const policyTitle = (p: Pick<ReleasePolicy, 'displayName' | 'policyKey'>) => p.displayName || p.policyKey
+/** 组合标题：有显示名（命名规范 R 编号）用显示名，否则退回组合键前 8 位。 */
+export const bundleTitle = (b: Pick<ReleaseBundle, 'displayName' | 'bundleKey'>) => b.displayName || `组合 ${b.bundleKey.slice(0, 8)}`
 export const isObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
 
 /** 引用冲突的处理建议按对象给出；其他错误沿用 errText（含 request-id）。 */
@@ -92,7 +94,8 @@ export const modelName = (id: string | null | undefined) => {
 export const policyName = (id: string | null | undefined) => {
   if (!id) return '—'
   const p = index.policies.get(id)
-  return p ? `${policyTitle(p)} · ${p.version}` : `策略 ${short(id)}`
+  // 有显示名时它已包含 P 编号与用途，不再拼技术版本串。
+  return p ? (p.displayName || `${p.policyKey} · ${p.version}`) : `策略 ${short(id)}`
 }
 export const planName = (id: string | null | undefined) => {
   if (!id) return '—'

@@ -8,7 +8,7 @@
  * - 墨色是主操作、选中态、悬停与键盘焦点的颜色；钴蓝只保留给品牌标识的小方点与“进行中”状态语义；
  * - 按钮与输入框 6px 圆角、高 32px；状态胶囊 full；线只用于表内分隔；
  * - 中文标签、按钮与表头用常规字体，等宽只用于数值与标识符（.num）。
- * 首屏 LandingView 保持原样：文件末尾按 html[data-surface='landing'] 锁定其沿用的 v1 样式。
+ * 首屏 LandingView 保持原版式：文件末尾按 html[data-surface='landing'] 只锁定主操作形状与标签样式，交互色同样用墨色。
  */
 
 @layer base {
@@ -172,14 +172,10 @@
 .reveal { opacity: 0; transform: translateY(24px); transition: opacity 1s cubic-bezier(.22,1,.36,1), transform 1s cubic-bezier(.22,1,.36,1); }
 .reveal.in { opacity: 1; transform: none; }
 
-/* 首屏沿用 v1 的主操作与标签样式（Q10：首屏不改）；data-surface 由路由守卫按当前路由写到 <html>。 */
+/* 首屏沿用 v1 的主操作形状与标签样式（Q10：首屏版式不改）；悬停、选中与焦点沿用上方墨色规则，不用钴蓝。data-surface 由路由守卫按当前路由写到 <html>。 */
 html[data-surface='landing'] .act {
   @apply h-9 rounded-none border-0 bg-ink px-4 font-normal;
 }
-html[data-surface='landing'] .act:hover { background: #2438E8; }
-html[data-surface='landing'] .link:hover { color: #2438E8; }
-html[data-surface='landing'] ::selection { background: #2438E8; }
-html[data-surface='landing'] :focus-visible { outline-color: #2438E8; }
 html[data-surface='landing'] .label { @apply font-mono text-[11px] uppercase tracking-label; }
 
 @media (prefers-reduced-motion: reduce) {

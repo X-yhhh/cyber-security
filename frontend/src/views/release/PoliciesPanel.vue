@@ -79,7 +79,7 @@ function drafted(id: string) {
             <tr v-for="p in policies.items.value" :key="p.id" class="row-link" tabindex="0" :aria-current="openId === p.id ? 'true' : undefined" @click="openId = p.id" @keydown.enter="openId = p.id">
               <td class="max-w-[16rem]">
                 <span class="block truncate font-medium text-ink">{{ policyTitle(p) }}</span>
-                <span class="num block truncate text-[11.5px] text-ink-4">{{ p.version }}</span>
+                <span class="num block truncate text-[11.5px] text-ink-4">{{ p.displayName ? `${p.policyKey.slice(0, 8)} · ${p.version}` : p.version }}</span>
               </td>
               <td class="whitespace-nowrap"><Tag v-if="mode(p)" :tone="mode(p) === 'alert_only' ? 'mute' : 'warn'" :label="modeLabel[mode(p)!] ?? mode(p)!" /><span v-else class="text-ink-4">—</span></td>
               <td class="whitespace-nowrap">

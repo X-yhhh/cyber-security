@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * 发布管理 · 发布组合分段：组合台账（`q` 按组合键前缀、状态由后端筛选）+ 侧栏环境构成与发布口径。
+ * 发布管理 · 发布组合分段：组合台账（`q` 按显示名或组合键前缀、状态由后端筛选；第一行显示名，第二行模型与短键）+ 侧栏环境构成与发布口径。
  * 行点击打开组合详情抽屉（`id`）；页头「申请发布组合」经 defineExpose 的 create 打开申请表单。
  * 本分段只读取组合与模型名称，不读取策略与评价集合；策略、报告与绑定在打开详情时再读取。
  */
@@ -19,7 +19,7 @@ import { releaseApi, type BundleStatus, type ReleaseBundle } from '@/api/v2/rele
 import { bundleTone } from '@/data/tones'
 import BundleDrawer from './BundleDrawer.vue'
 import BundleFormDrawer from './BundleFormDrawer.vue'
-import { bundleStatusLabel, ensureIndex, envLabel, isObject, modelName } from './shared'
+import { bundleStatusLabel, bundleTitle, ensureIndex, envLabel, isObject, modelName } from './shared'
 
 const q = defineModel<string>('q', { required: true })
 const status = defineModel<string>('status', { required: true })
@@ -57,7 +57,7 @@ function created(id: string) {
       <template #toolbar>
         <div class="toolbar w-full" role="search">
           <label class="toolbar-field"><Search :size="14" :stroke-width="1.5" aria-hidden="true" />
-            <input v-model="qDraft" type="search" class="field !w-52" maxlength="128" placeholder="按组合键前缀搜索" aria-label="搜索发布组合" />
+            <input v-model="qDraft" type="search" class="field !w-52" maxlength="128" placeholder="按名称或组合键前缀搜索" aria-label="搜索发布组合" />
           </label>
           <label class="toolbar-field"><span>状态</span>
             <select v-model="status" class="field" aria-label="组合状态">
@@ -71,12 +71,12 @@ function created(id: string) {
 
       <LoadState :loading="bundles.loading.value" :error="bundles.error.value" :empty="!bundles.items.value.length" :empty-text="emptyText">
         <table class="table min-w-[780px]">
-          <thead><tr><th>组合（模型）</th><th>环境</th><th>能力</th><th>封存清单</th><th>状态</th><th class="text-right">最近更新</th></tr></thead>
+          <thead><tr><th>组合</th><th>环境</th><th>能力</th><th>封存清单</th><th>状态</th><th class="text-right">最近更新</th></tr></thead>
           <tbody>
             <tr v-for="b in bundles.items.value" :key="b.id" class="row-link" tabindex="0" :aria-current="openId === b.id ? 'true' : undefined" @click="openId = b.id" @keydown.enter="openId = b.id">
               <td class="max-w-[18rem]">
-                <span class="block truncate font-medium text-ink">{{ modelName(b.modelId) }}</span>
-                <span class="flex items-center gap-1.5 text-[11.5px] text-ink-4">组合 <IdText :value="b.bundleKey" :copy="false" /><span class="num">· v{{ b.version }}</span></span>
+                <span class="block truncate font-medium text-ink">{{ bundleTitle(b) }}</span>
+                <span class="flex items-center gap-1.5 text-[11.5px] text-ink-4"><span class="truncate">{{ modelName(b.modelId) }}</span><span aria-hidden="true">·</span><IdText :value="b.bundleKey" :copy="false" /></span>
               </td>
               <td class="whitespace-nowrap text-ink-2">{{ envLabel[b.environment] ?? b.environment }}</td>
               <td class="num whitespace-nowrap text-ink-2">{{ capabilityCount(b) ?? '—' }}</td>

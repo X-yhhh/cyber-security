@@ -17,6 +17,7 @@ import static org.assertj.core.api.Assertions.*;
 class ConsoleMigrationIntegrationTest {
     static final String EMPTY=IsolatedDatabaseSchemas.name(ConsoleMigrationIntegrationTest.class,"console_empty");
     static final String UPGRADE=IsolatedDatabaseSchemas.name(ConsoleMigrationIntegrationTest.class,"console_upgrade");
+    static final String V28=IsolatedDatabaseSchemas.name(ConsoleMigrationIntegrationTest.class,"console_v28");
     static final Map<String,Set<String>> ADDED=Map.of(
             "sys_role",Set.of("builtin","revision"),"asset",Set.of("display_name","notes"),
             "sensor_agent",Set.of("display_name","notes"),"guard_executor",Set.of("display_name","notes","updated_at"),
@@ -29,7 +30,7 @@ class ConsoleMigrationIntegrationTest {
 
     @Test void emptyDatabaseMigratesToLatestWithExactlyTheFrozenBuiltinMatrix(){
         var source=source(EMPTY);var migration=Flyway.configure().dataSource(source).load();
-        assertThat(migration.migrate().migrationsExecuted).isEqualTo(27);migration.validate();
+        assertThat(migration.migrate().migrationsExecuted).isEqualTo(28);migration.validate();
         assertBaseline(new JdbcTemplate(source));
     }
 
@@ -40,7 +41,7 @@ class ConsoleMigrationIntegrationTest {
         Map<String,List<Map<String,Object>>> before=new HashMap<>();
         for(String table:tables)before.put(table,jdbc.queryForList("SELECT * FROM "+table));
         var history=jdbc.queryForList("SELECT * FROM flyway_schema_history ORDER BY installed_rank");
-        var flyway=Flyway.configure().dataSource(source).load();assertThat(flyway.migrate().migrationsExecuted).isEqualTo(1);flyway.validate();
+        var flyway=Flyway.configure().dataSource(source).target("27").load();assertThat(flyway.migrate().migrationsExecuted).isEqualTo(1);flyway.validate();
         for(String table:tables){
             var after=jdbc.queryForList("SELECT * FROM "+table);
             after.forEach(row->ADDED.getOrDefault(table,Set.of()).forEach(row::remove));
@@ -53,6 +54,22 @@ class ConsoleMigrationIntegrationTest {
         }
         assertThat(jdbc.queryForObject("SELECT status FROM guard_dataset",String.class)).isEqualTo("active");
         assertThat(jdbc.queryForObject("SELECT revision FROM guard_model",Long.class)).isEqualTo(1);
+        assertBaseline(jdbc);
+    }
+
+    /** V28 只给发布组合追加可空显示名/备注；组合与策略原字段、subject 与已执行迁移历史不变。 */
+    @Test void v28SingleStepAddsOnlyBundleNamingColumns(){
+        var source=source(V28);Flyway.configure().dataSource(source).target("27").load().migrate();
+        var jdbc=new JdbcTemplate(source);seed(jdbc);
+        var bundles=jdbc.queryForList("SELECT * FROM guard_release_bundle");var policies=jdbc.queryForList("SELECT * FROM guard_decision_policy");
+        var history=jdbc.queryForList("SELECT * FROM flyway_schema_history ORDER BY installed_rank");
+        var flyway=Flyway.configure().dataSource(source).load();assertThat(flyway.migrate().migrationsExecuted).isEqualTo(1);flyway.validate();
+        var after=jdbc.queryForList("SELECT * FROM guard_release_bundle");after.forEach(row->{row.remove("display_name");row.remove("notes");});
+        assertThat(after).isEqualTo(bundles);
+        assertThat(jdbc.queryForList("SELECT * FROM guard_decision_policy")).isEqualTo(policies);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='guard_release_bundle' AND column_name IN ('display_name','notes') AND is_nullable='YES'",Long.class)).isEqualTo(2);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM guard_release_bundle WHERE display_name IS NOT NULL OR notes IS NOT NULL",Long.class)).isZero();
+        assertThat(jdbc.queryForList("SELECT * FROM flyway_schema_history WHERE version<>'28' ORDER BY installed_rank")).isEqualTo(history);
         assertBaseline(jdbc);
     }
 

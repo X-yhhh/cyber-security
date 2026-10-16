@@ -29,6 +29,7 @@ public class GuardController {
         return consoleWrite(collection,id,"updates",body,revision,key,request,()->switch(collection){
             case "sensors","executors"->admin.updateMachine(id,body,revision,collection.equals("executors"));
             case "datasets","models"->catalog.updateResource(id,body,revision,collection.equals("models"));
+            case "decision-policies","release-bundles"->catalog.updateNaming(id,body,revision,collection.equals("release-bundles"));
             default->throw error(404,"RESOURCE_NOT_FOUND");
         });
     }

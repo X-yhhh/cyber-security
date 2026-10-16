@@ -6,9 +6,10 @@
  * - 「策略原文」把定义按 JSON 格式化显示，mode 与各类 autoEligible 所在行标出（允许自动的行着警示色）。
  * - 审核（policy.approve，草稿）：批准记为已审核、驳回记为已退役；起草人本人由后端拒绝（查询不返回起草人，入口照常显示）。
  * - 删除草稿（policy.draft）：只限本人起草、未被引用的草稿，否则 403 / 409 RESOURCE_IN_USE。
+ * - 改名（policy.draft，任意状态）：只改显示名与备注（命名规范 P 编号），策略正文冻结不变。
  */
-import { computed, ref, watch } from 'vue'
-import { Trash2 } from 'lucide-vue-next'
+import { computed, reactive, ref, watch } from 'vue'
+import { Pencil, Trash2 } from 'lucide-vue-next'
 import Drawer from '@/components/Drawer.vue'
 import Tag from '@/components/Tag.vue'
 import IdText from '@/components/IdText.vue'
@@ -24,7 +25,7 @@ import { capabilityName, ensureIndex, familyLabel, modeLabel, modelName, planNam
 const props = defineProps<{ id: string }>()
 const emit = defineEmits<{ close: []; changed: [] }>()
 
-type Mode = 'view' | 'approve' | 'reject' | 'delete'
+type Mode = 'view' | 'rename' | 'approve' | 'reject' | 'delete'
 const mode = ref<Mode>('view')
 const policy = ref<ReleasePolicy | null>(null)
 const loading = ref(false)
@@ -62,10 +63,29 @@ const copy = () => { if (def.value) void navigator.clipboard?.writeText(JSON.str
 const busy = ref(false)
 const reason = ref('')
 const formError = ref('')
-function enter(m: Mode) { mode.value = m; reason.value = ''; formError.value = '' }
+const canRename = computed(() => can('policy.draft'))
+const naming = reactive({ displayName: '', notes: '' })
+function enter(m: Mode) {
+  mode.value = m; reason.value = ''; formError.value = ''
+  if (m === 'rename' && policy.value) Object.assign(naming, { displayName: policy.value.displayName ?? '', notes: policy.value.notes ?? '' })
+}
+function rename(p: ReleasePolicy) {
+  const displayName = naming.displayName.trim(), notes = naming.notes.trim()
+  if (displayName.length > 128) { formError.value = '显示名最多 128 个字符。'; return }
+  const body: { displayName?: string | null; notes?: string | null } = {}
+  if (displayName !== (p.displayName ?? '')) body.displayName = displayName || null
+  if (notes !== (p.notes ?? '')) body.notes = notes || null
+  if (!Object.keys(body).length) { formError.value = '没有需要保存的修改。'; return }
+  busy.value = true
+  formError.value = ''
+  releaseApi.updatePolicy(p.id, p.revision, body)
+    .then(async () => { toast('已保存策略名称。'); emit('changed'); void ensureIndex('policies', true); mode.value = 'view'; await load() })
+    .catch((e: unknown) => { formError.value = releaseErr(e, 'policy') }).finally(() => { busy.value = false })
+}
 function confirm() {
   const p = policy.value
   if (!p) return
+  if (mode.value === 'rename') return rename(p)
   if (mode.value !== 'delete' && !reason.value.trim()) { formError.value = '请填写理由，理由会写入审计。'; return }
   busy.value = true
   formError.value = ''
@@ -82,7 +102,7 @@ function confirm() {
 </script>
 
 <template>
-  <Drawer :open="!!id" :title="policy ? `${policyTitle(policy)} · ${policy.version}` : '决策策略'" kicker="决策策略" @close="emit('close')">
+  <Drawer :open="!!id" :title="policy ? (policy.displayName || `${policy.policyKey} · ${policy.version}`) : '决策策略'" kicker="决策策略" @close="emit('close')">
     <LoadState :loading="loading" :error="error">
       <template v-if="policy && def">
         <template v-if="mode === 'view'">
@@ -94,6 +114,11 @@ function confirm() {
             <template v-else>模式为「只告警」：不会下发阻断命令。</template>
           </p>
           <dl class="kv">
+            <div><dt>名称</dt><dd>
+              <span :class="policy.displayName ? 'text-ink' : 'text-ink-4'">{{ policy.displayName || '未命名' }}</span>
+              <button v-if="canRename" type="button" class="link ml-3 text-[12px]" @click="enter('rename')"><Pencil :size="12" :stroke-width="1.5" />改名</button>
+              <p v-if="policy.notes" class="mt-1 text-[12px] text-ink-3">{{ policy.notes }}</p>
+            </dd></div>
             <div><dt>状态</dt><dd><Tag pill :tone="policyReviewTone[policy.status]" :label="policyStatusLabel[policy.status] ?? policy.status" /></dd></div>
             <div><dt>模式</dt><dd><Tag :tone="def.mode === 'alert_only' ? 'mute' : 'warn'" :label="modeLabel[def.mode] ?? def.mode" /><span class="num ml-2 text-[11.5px] text-ink-4">mode = {{ def.mode }}</span></dd></div>
             <div><dt>模型</dt><dd>{{ modelName(policy.modelId) }}</dd></div>
@@ -154,6 +179,12 @@ function confirm() {
           <button v-if="deletable" type="button" class="link mt-6 text-[12.5px] text-threat" @click="enter('delete')"><Trash2 :size="13" :stroke-width="1.5" />删除草稿</button>
         </template>
 
+        <form v-else-if="mode === 'rename'" class="form" @submit.prevent="confirm()">
+          <p class="note">按命名规范填写：<span class="num">P编号 · 用途</span>，例如「P5 · 真实主机只告警」；策略正文一变就用新编号。名称只用于界面显示，不改变冻结的策略正文、审核状态或引用它的组合，修改写入审计。</p>
+          <label class="form-field"><span class="label">显示名</span><input v-model="naming.displayName" class="field" maxlength="128" :placeholder="`留空则显示策略键 ${policy.policyKey.slice(0, 8)}…`" /></label>
+          <label class="form-field"><span class="label">备注</span><textarea v-model="naming.notes" class="field min-h-[5rem]" maxlength="1000" placeholder="来源、差异或用途" /></label>
+        </form>
+
         <div v-else>
           <p class="note mb-5" :class="mode === 'delete' ? 'note-threat' : mode === 'reject' ? 'note-warn' : ''">
             <template v-if="mode === 'approve'">审核通过后策略记为已审核，可用于申请发布组合；审核不等于激活。起草人本人不能审核，后端会拒绝。</template>
@@ -173,7 +204,7 @@ function confirm() {
       </template>
       <template v-else>
         <button type="button" class="act-ghost" :disabled="busy" @click="enter('view')">返回</button>
-        <button type="button" :class="mode === 'approve' ? 'act' : 'act-danger'" :disabled="busy" @click="confirm">{{ mode === 'approve' ? '确认审核通过' : mode === 'reject' ? '确认驳回' : '确认删除' }}</button>
+        <button type="button" :class="mode === 'approve' || mode === 'rename' ? 'act' : 'act-danger'" :disabled="busy" @click="confirm">{{ mode === 'rename' ? '保存名称' : mode === 'approve' ? '确认审核通过' : mode === 'reject' ? '确认驳回' : '确认删除' }}</button>
       </template>
     </template>
   </Drawer>

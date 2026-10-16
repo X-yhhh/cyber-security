@@ -8,6 +8,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.autoconfigure.web.servlet.MockMvcPrint;
@@ -40,7 +42,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 @SpringBootTest(properties = {"cyber.ingest.consumer.enabled=false", "cyber.ingest.outbox-relay.enabled=false",
         "cyber.drift.enabled=false", "cyber.guard.automation-enabled=false", "cyber.security.local-admin-bootstrap.enabled=false",
         "spring.rabbitmq.listener.simple.auto-startup=false", "spring.rabbitmq.listener.direct.auto-startup=false",
-        "spring.datasource.hikari.maximum-pool-size=3"})
+        "spring.datasource.hikari.maximum-pool-size=3",
+        "spring.datasource.hikari.connection-init-sql=SET SESSION sort_buffer_size=262144"})
 @AutoConfigureMockMvc(print = MockMvcPrint.NONE)
 @EnabledIfEnvironmentVariable(named = "DB_TEST_BASE_URL", matches = ".+")
 @ExtendWith(IsolatedDatabaseSchemas.class)
@@ -144,6 +147,59 @@ class GuardReadIntegrationTest {
         assertThat(next.path("nextCursor").isNull()).isTrue();
         assertThat(next).isEqualTo(data(reader, "authorizations", "limit", "2", "assetId", a.id, "cursor", cursor));
         assertThat(data(reader, "authorizations", "limit", "1", "assetId", a.id).at("/items/0/id").asText()).isEqualTo(appended.id);
+    }
+
+    /** P1R-2：600KB JSON 超过每连接 256KB 排序缓冲；无资产筛选的列表仍须先限定范围，再稳定翻页。 */
+    @ParameterizedTest
+    @ValueSource(strings = {"authorizations", "sensor-configs", "health-windows", "sensor-heartbeats"})
+    void wideReadListsPageInsideScopeWithoutSortingPayloads(String route) throws Exception {
+        assertThat(jdbc.queryForObject("SELECT @@SESSION.sort_buffer_size", Integer.class)).isEqualTo(262144);
+        String large = canonical(object("padding", "x".repeat(600_000), "privateKey", "sentinel-private"));
+        LocalDateTime time = LocalDateTime.parse("2025-03-01T12:00:00");
+        var visible = new ArrayList<Resource>();
+        for (int i = 0; i < 4; i++) {
+            Resource asset = i == 3 ? b : a;
+            Resource sensor = i == 3 ? sb : sa;
+            Resource scope = i == 3 ? scopeB : scopeA;
+            Resource row;
+            String table, payload;
+            switch (route) {
+                case "authorizations" -> { row = authorization(asset); table = "asset_authorization"; payload = "scope_json"; }
+                case "sensor-configs" -> { row = config(sensor); table = "sensor_config"; payload = "guard_definition_json"; }
+                case "health-windows" -> { row = health(asset, sensor, scope, "COUNTER_UNKNOWN"); table = "guard_capture_health_window"; payload = "payload_json"; }
+                default -> { row = sensor(asset); table = "sensor_agent"; payload = null; }
+            }
+            LocalDateTime created = i == 3 ? time.plusSeconds(1) : time;
+            jdbc.update("UPDATE " + table + " SET created_at=? WHERE id=?", created, row.pk);
+            if (route.equals("health-windows")) jdbc.update("UPDATE " + table + " SET received_at=? WHERE id=?", created, row.pk);
+            if (route.equals("sensor-heartbeats")) jdbc.update("UPDATE " + table + " SET last_heartbeat_at=? WHERE id=?", created, row.pk);
+            if (payload != null) jdbc.update("UPDATE " + table + " SET " + payload + "=? WHERE id=?", large, row.pk);
+            if (route.equals("sensor-heartbeats")) {
+                config(row);
+                Resource current = config(row), draft = config(row);
+                jdbc.update("UPDATE sensor_config SET guard_definition_json=? WHERE id=?", large, current.pk);
+                jdbc.update("UPDATE sensor_config SET status='draft' WHERE id=?", draft.pk);
+                assertThat(data(i == 3 ? other : reader, route + "/" + row.id).at("/currentConfig/id").asText()).isEqualTo(current.id);
+            }
+            if (i < 3) visible.add(row);
+        }
+        String from = "2025-03-01T00:00:00Z", until = "2025-03-02T00:00:00Z";
+        IdentityPrincipal global = identity(List.of("resource.read", "ops.read"), "global", "*");
+        assertThat(data(global, route, "from", from, "until", until, "limit", "200").path("items")).hasSize(4);
+        var seen = new ArrayList<String>();
+        String cursor = null;
+        for (int page = 0; page < 3; page++) {
+            String[] params = cursor == null ? new String[]{"from", from, "until", until, "limit", "1"}
+                    : new String[]{"from", from, "until", until, "limit", "1", "cursor", cursor};
+            var result = data(reader, route, params);
+            assertThat(result.path("items")).hasSize(1);
+            seen.add(result.at("/items/0/id").asText());
+            assertThat(result.at("/items/0/assetId").asText()).isEqualTo(a.id);
+            assertThat(result.toString()).doesNotContain("sentinel-private", "padding", "privateKey");
+            cursor = result.path("nextCursor").isTextual() ? result.path("nextCursor").asText() : null;
+            assertThat(cursor == null).isEqualTo(page == 2);
+        }
+        assertThat(seen).containsExactly(visible.get(2).id, visible.get(1).id, visible.get(0).id);
     }
 
     @Test

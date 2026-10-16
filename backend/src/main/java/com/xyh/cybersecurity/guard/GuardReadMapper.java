@@ -173,23 +173,41 @@ public interface GuardReadMapper {
                     + " OR (ur.scope_type=s.scope_type AND ur.scope_id=s.scope_id))))))";
         }
 
-        private static String source(Kind kind) {
+        /** 表名仅由内部集合枚举选择，不能来自请求参数。 */
+        private static String table(Kind kind) {
             return switch (kind) {
-                case AUTHORIZATIONS -> "asset_authorization r JOIN asset a ON a.id=r.asset_id";
-                case CONFIGS -> "sensor_config r JOIN sensor_agent s ON s.id=r.sensor_id JOIN asset a ON a.id=s.asset_id";
-                case MACHINE_CLIENTS -> "api_client r LEFT JOIN sensor_agent s ON s.id=r.sensor_id"
+                case AUTHORIZATIONS -> "asset_authorization";
+                case CONFIGS -> "sensor_config";
+                case MACHINE_CLIENTS -> "api_client";
+                case ASSIGNABLE_USERS -> "sys_user";
+                case AUDIT -> "audit_log";
+                case HEALTH -> "guard_capture_health_window";
+                case SENSORS -> "sensor_agent";
+                case EXECUTORS -> "guard_executor";
+                case OPS -> "asset";
+            };
+        }
+
+        /** 键页仍保留归属与筛选关联；传感器配置只在读取投影时关联，避免大 JSON 进入排序。 */
+        private static String joins(Kind kind,boolean projection) {
+            return switch (kind) {
+                case AUTHORIZATIONS,EXECUTORS -> " JOIN asset a ON a.id=r.asset_id";
+                case CONFIGS -> " JOIN sensor_agent s ON s.id=r.sensor_id JOIN asset a ON a.id=s.asset_id";
+                case MACHINE_CLIENTS -> " LEFT JOIN sensor_agent s ON s.id=r.sensor_id"
                         + " LEFT JOIN guard_executor ex ON ex.api_client_id=r.id"
                         + " JOIN asset a ON a.id=COALESCE(s.asset_id,ex.asset_id)";
-                case ASSIGNABLE_USERS -> "sys_user r JOIN asset a ON a.public_id=#{q.filters.assetId}";
-                case AUDIT -> "audit_log r";
-                case HEALTH -> "guard_capture_health_window r JOIN asset a ON a.id=r.asset_id"
+                case ASSIGNABLE_USERS -> " JOIN asset a ON a.public_id=#{q.filters.assetId}";
+                case AUDIT,OPS -> "";
+                case HEALTH -> " JOIN asset a ON a.id=r.asset_id"
                         + " JOIN sensor_agent s ON s.id=r.sensor_id AND s.asset_id=r.asset_id"
                         + " JOIN guard_capture_scope cs ON cs.id=r.capture_scope_id AND cs.asset_id=r.asset_id AND cs.sensor_id=r.sensor_id";
-                case SENSORS -> "sensor_agent r JOIN asset a ON a.id=r.asset_id LEFT JOIN sensor_config c"
-                        + " ON c.id=(SELECT c2.id FROM sensor_config c2 WHERE c2.sensor_id=r.id AND c2.status='active' ORDER BY c2.id DESC LIMIT 1)";
-                case EXECUTORS -> "guard_executor r JOIN asset a ON a.id=r.asset_id";
-                case OPS -> "asset r";
+                case SENSORS -> " JOIN asset a ON a.id=r.asset_id"+(projection?" LEFT JOIN sensor_config c"
+                        + " ON c.id=(SELECT c2.id FROM sensor_config c2 WHERE c2.sensor_id=r.id AND c2.status='active' ORDER BY c2.id DESC LIMIT 1)":"");
             };
+        }
+
+        private static String source(Kind kind) {
+            return table(kind)+" r"+joins(kind,true);
         }
 
         private static String sort(Kind kind) {
@@ -300,6 +318,15 @@ public interface GuardReadMapper {
 
         public static String list(Map<String, Object> parameters) {
             Query q = (Query) parameters.get("q");
+            // LIMIT 让键页物化；STRAIGHT_JOIN 固定先遍历有界键页，再取完整行。
+            // 权限、范围、筛选、读取上界及游标锚点全部留在内层，不允许取页后再过滤。
+            if(switch(q.kind){case AUTHORIZATIONS,CONFIGS,HEALTH,SENSORS -> true;default -> false;}) {
+                return "SELECT "+columns(q)+" FROM (SELECT r.id,"+sort(q)+" sort_time FROM "
+                        +table(q.kind)+" r"+joins(q.kind,false)+" WHERE "+where(q)
+                        +" ORDER BY "+sort(q)+" DESC,r.id DESC LIMIT #{q.limit}) k STRAIGHT_JOIN "
+                        +table(q.kind)+" r ON r.id=k.id"+joins(q.kind,true)
+                        +" ORDER BY k.sort_time DESC,k.id DESC";
+            }
             return "SELECT " + columns(q) + " FROM " + source(q.kind) + " WHERE " + where(q)
                     + " ORDER BY " + sort(q) + " DESC,r.id DESC LIMIT #{q.limit}";
         }

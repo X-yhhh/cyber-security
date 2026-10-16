@@ -1,6 +1,6 @@
 /**
  * 待办中心（任务单 F2）：逐条待办来自 /todos 并按组显示，顶部计数来自 /summary 且缺省字段不补 0；
- * 未上线或无权访问的目标不给进入按钮；超过 100 条写明只显示最近 100 条；错误附带 request-id。
+ * 未上线或无权访问的目标不给进入按钮；超过 100 条写明只返回最近 100 条；错误附带 request-id。
  */
 import { flushPromises, mount } from '@vue/test-utils'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
@@ -66,13 +66,13 @@ describe('待办中心', () => {
     operator.unmount()
   })
 
-  it('超过 100 条时写明只显示最近 100 条', async () => {
+  it('超过 100 条时写明只返回最近 100 条', async () => {
     server.use(http.get('/api/v2/todos', () => HttpResponse.json({ requestId: 'r', error: null, data: {
       groups: [{ kind: 'other', count: 140, items: [{ kind: 'device', id: 'a3000000-0000-4000-8000-000000000001', title: '设备异常', assetId: null, createdAt: '2026-10-15T03:00:00Z', route: '/console/ops/health' }] }],
       truncated: true,
     } })))
     const w = await render(singleRoleUsers.auditor)
-    expect(w.text()).toContain('仅显示最近 100 条')
+    expect(w.text()).toContain('只返回最近 100 条')
     w.unmount()
   })
 

@@ -10,6 +10,9 @@ import static com.xyh.cybersecurity.guard.GuardJson.*;
 @Service
 public class GuardBudget {
     public static final Set<String> TERMINAL=Set.of("revoked","expired","rejected");
+    /** 新演示策略显式选择独立恢复协议；旧策略与历史发布组合不改变恢复口径。 */
+    public static final String DEMO_POLICY_VERSION=DECISION+"+demo-budget-20261017";
+    public static final String RECOVERY_VERSION="host-guard-budget-recovery/2026-10-17.1";
     private final GuardStore store;private final GuardAccess access;private final GuardHealth health;
     public GuardBudget(GuardStore store,GuardAccess access,GuardHealth health){this.store=store;this.access=access;this.health=health;}
     /** 向所属执行器返回已持久化的预算恢复事实；只读查询不清零、不扩大授权。
@@ -103,9 +106,21 @@ public class GuardBudget {
     public boolean recover(long asset,long target,Instant now){var b=lock(asset,target);if((number(b,"charged_ms")==0&&!revoked(target))||b.get("last_block_end_at")==null)return false;
         for(var a:store.rows("guard_action",map("budget_target_id",target),true,10000))if(!TERMINAL.contains(str(a,"observed_state")))return false;
         Instant end=instant(b.get("last_block_end_at")),last=instant(b.get("last_evidence_at"));Instant anchor=last!=null&&last.isAfter(end)?last:end;if(now.isBefore(anchor.plusSeconds(120)))return false;
-        JsonNode proof;try{proof=health.proof(asset,end,anchor.plusSeconds(120),now);}catch(com.xyh.cybersecurity.common.api.ApiRequestException e){return false;}
+        // 仅已激活的新 lab 策略允许断采后的新完整链；其余组合保持原 lastBlockEnd 起点。
+        var recoveryPolicy=recoveryPolicy(asset);Instant from=end,earliestEnd=anchor.plusSeconds(120);
+        if(recoveryPolicy!=null){from=now.minusSeconds(130);if(from.isBefore(anchor))from=anchor;earliestEnd=from.plusSeconds(120);}
+        JsonNode proof;try{proof=health.proof(asset,from,earliestEnd,now);}catch(com.xyh.cybersecurity.common.api.ApiRequestException e){return false;}
+        if(recoveryPolicy!=null)proof=object("recoveryVersion",RECOVERY_VERSION,"policyId",recoveryPolicy.get("public_id"),"policySha256",recoveryPolicy.get("definition_sha256"),"from",proof.path("from"),"through",proof.path("through"),"healthProof",proof);
         Instant through=time(proof,"through");var next=map("charged_ms",0,"cycle_started_at",db(through),"health_proof_sha256",hash(proof),"revision",number(b,"revision")+1);
         event(b,next,"reset",proof);store.update("guard_target_budget",number(b,"id"),next);store.audit(null,"guard.budget.recovered",str(b,"public_id"),asset,null,proof);return true;}
+    /** 在同一资产锁内读取已激活组合，未登记/未激活/非 lab/旧策略均不能选择新协议。 */
+    private Map<String,Object> recoveryPolicy(long asset){
+        var binding=store.one("guard_asset_binding",map("asset_id",asset,"status","active"),false);if(binding==null)return null;
+        var bundle=store.get("guard_release_bundle",number(binding,"bundle_id"));
+        if(bundle==null||!"active".equals(str(bundle,"status"))||!"lab".equals(str(bundle,"environment")))return null;
+        var policy=store.get("guard_decision_policy",number(bundle,"policy_id"));
+        return policy!=null&&DEMO_POLICY_VERSION.equals(json(policy,"definition_json").path("policyVersion").asText())?policy:null;
+    }
     private void event(Map<String,Object> before,Map<String,Object> after,String kind,JsonNode proof){store.add("guard_budget_event",map("budget_target_id",before.get("budget_target_id"),"event_kind",kind,"old_revision",before.get("revision"),"new_revision",after.get("revision"),"before_json",canonical(snapshot(before)),"after_json",canonical(snapshot(after)),"proof_json",canonical(proof),"proof_sha256",hash(proof)));}
     private JsonNode snapshot(Map<String,Object> row){var o=JSON.createObjectNode();row.forEach((k,v)->o.set(k,node(v instanceof LocalDateTime t?t.toInstant(ZoneOffset.UTC).toString():v)));return o;}
     public record Interval(Instant start,Instant end){}

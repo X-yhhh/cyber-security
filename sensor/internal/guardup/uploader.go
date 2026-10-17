@@ -91,7 +91,8 @@ func New(o Options) (*Uploader, error) {
 		o.MaxDelay = 500 * time.Millisecond
 	}
 	if o.HeartbeatEvery == 0 {
-		o.HeartbeatEvery = 15 * time.Second
+		// v2 控制面按 10 秒判定心跳陈旧；留出一次正常发送和调度的余量。
+		o.HeartbeatEvery = 5 * time.Second
 	}
 	if o.MaxHealthQueue == 0 {
 		o.MaxHealthQueue = 4096
@@ -348,6 +349,13 @@ func (u *Uploader) Run(ctx context.Context) error {
 		if err := u.o.Spool.SealIfOlder(u.o.Now(), u.o.MaxDelay); err != nil {
 			return u.setFatal(err)
 		}
+		if u.o.Now().Sub(lastHeartbeat) >= u.o.HeartbeatEvery {
+			// 健康窗口持续排队时也须按期心跳，避免采集正常却被控制面判为离线。
+			if err := u.heartbeat(ctx); err != nil && !Retryable(err) {
+				return u.setFatal(err)
+			}
+			lastHeartbeat = u.o.Now()
+		}
 		u.mu.Lock()
 		var w *capturehealth.Window
 		if len(u.health) > 0 {
@@ -364,13 +372,6 @@ func (u *Uploader) Run(ctx context.Context) error {
 			}
 			attempt = 0
 			continue
-		}
-		if u.o.Now().Sub(lastHeartbeat) >= u.o.HeartbeatEvery {
-			// 持续发送批次时也按期心跳，偏差测值才不会在长回放中过期；失败不阻塞数据发送。
-			if err := u.heartbeat(ctx); err != nil && !Retryable(err) {
-				return u.setFatal(err)
-			}
-			lastHeartbeat = u.o.Now()
 		}
 		seq, body, batch, ok, err := u.o.Spool.Next()
 		if err != nil {

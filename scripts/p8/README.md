@@ -183,3 +183,6 @@ sh executor/python.sh -B scripts/p8/backup_restore.py --schedule
 - 五服务运行、采集心跳及最新现场健康的门槛不变。传感器按授权结束后停止时，完整巡检仍会报告未运行/陈旧并非零退出；此结果不能靠 observer 存活消除，也不授权再次采集或代替 P1R-5 重启验收。
 
 `backup_restore.py --schedule` 仅显示维护窗口、备份保留和核验建议，不取密、不连库、不安装定时任务。
+## 本机持续监测补充（2026-10-17）
+
+当前 Mac 已按用户明确要求接入[随本项目后端启停的持续传感器](../../docs/传感器持续监测.md)。此模式由 `ManagedSensorLifecycle` 启动 `sensor_service.py --parent-pid`，旧 sensor LaunchAgent 保持不独立启动；原有短窗口部署和验收流程保留。只读完整巡检计划可指定 `sensorLifecycle: backend`，按真实父子进程检查传感器。权限辅助程序源文件为 `capture_permission.sh`，安装到 root 拥有的位置并通过管理员授权加载；不能直接把可写工作区脚本注册成 root 常驻作业。

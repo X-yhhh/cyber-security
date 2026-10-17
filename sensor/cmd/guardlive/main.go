@@ -288,7 +288,8 @@ func run() (runErr error) {
 	report := flag.String("report", "", "可选：不存在的去敏运行摘要")
 	drain := flag.Bool("drain", false, "只续传 upload.spoolDir 中本 bootId 未确认的批次，不采集")
 	drainTimeout := flag.Duration("drain-timeout", 60*time.Second, "结束时等待上传确认的上限")
-	duration := flag.Duration("duration", 180*time.Second, "采集期限 1秒..30分钟")
+	duration := flag.Duration("duration", 180*time.Second, "采集期限 1秒..30分钟；后端托管可为 0")
+	parentPID := flag.Int("parent-pid", 0, "后端托管模式的直接父进程；父进程退出即停止采集")
 	flag.Parse()
 	modes := 0
 	for _, v := range []bool{*trace != "", *replay != "", *pcapPath != "", *drain, *labPlan} {
@@ -306,6 +307,10 @@ func run() (runErr error) {
 	if err != nil {
 		return err
 	}
+	// 无固定采集时长只授予已登记的真实主机观察链路；仍受授权截止、机器凭据和配置审批约束。
+	if err = validateManaged(c, *duration, *parentPID, os.Getppid(), *trace != "" && modes == 1); err != nil {
+		return err
+	}
 	if *labPlan {
 		if c.Lab == nil || len(c.Lab.Inputs) == 0 || c.Lab.Inputs[0].ScenarioID != c.Lab.ScenarioID {
 			return guardlab.ErrAdmission
@@ -319,6 +324,9 @@ func run() (runErr error) {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	if *parentPID != 0 {
+		go watchParent(ctx, stop, *parentPID, os.Getppid)
+	}
 	if c.Lab != nil {
 		if *startAt != "" || *endAt != "" || *captureAt != "" {
 			return guardlab.ErrAdmission
@@ -425,7 +433,7 @@ func run() (runErr error) {
 			}
 		}()
 	}
-	w, err := create(*out)
+	w, err := openOutput(*out, *parentPID != 0)
 	if err != nil {
 		return err
 	}
@@ -605,16 +613,20 @@ func run() (runErr error) {
 		}
 	default:
 		summary["mode"] = "live"
-		if *duration < time.Second || *duration > 30*time.Minute || time.Now().Add(*duration).After(c.AuthorizedUntil) {
+		if *duration != 0 && (*duration < time.Second || *duration > 30*time.Minute || time.Now().Add(*duration).After(c.AuthorizedUntil)) {
 			return fmt.Errorf("采集时限超出授权")
 		}
-		t, err := create(*trace)
+		t, err := openOutput(*trace, *parentPID != 0)
 		if err != nil {
 			return err
 		}
 		defer t.Close()
 		te := json.NewEncoder(t)
-		cctx, cancel := context.WithTimeout(ctx, *duration)
+		deadline := c.AuthorizedUntil
+		if *duration != 0 {
+			deadline = time.Now().Add(*duration)
+		}
+		cctx, cancel := context.WithDeadline(ctx, deadline)
 		defer cancel()
 		var check func() error
 		if upload != nil {
@@ -644,7 +656,9 @@ func run() (runErr error) {
 	if observer != nil {
 		summary["observerSessionId"] = observer.Session()
 	}
-	if h, err := digest(*out); err == nil {
+	if *parentPID != 0 {
+		summary["localFilesRotated"] = true
+	} else if h, err := digest(*out); err == nil {
 		summary["observationsSha256"] = h
 	}
 	if h, err := digest(*cp); err == nil {

@@ -69,6 +69,27 @@ def machine_rows(client, endpoint, asset):
     raise ValueError('MACHINE_PAGE_LIMIT_EXCEEDED')
 
 
+def managed_sensor(root, *, execute=command):
+    """核对持锁后端及其普通用户 guardlive 子进程，不以旧 sensor LaunchAgent 状态代替。"""
+    from scripts.p8.toolkit import private_file
+    parent = private_file(root / 'ledger/sensor.backend.pid').read_text().strip()
+    require(parent.isdecimal() and int(parent) > 1, 'SENSOR_PARENT_INVALID')
+    code, program = execute(['/bin/ps', '-p', parent, '-o', 'uid=,comm='])
+    fields = program.strip().split(None, 1)
+    require(code == 0 and len(fields) == 2 and fields[0] == str(os.getuid())
+            and fields[1].endswith('/bin/java'), 'SENSOR_PARENT_INVALID')
+    code, output = execute(['/bin/ps', '-axo', 'pid=,ppid=,uid=,comm='])
+    children = []
+    for line in output.splitlines():
+        values = line.strip().split(None, 3)
+        if len(values) == 4 and values[1] == parent and values[2] == str(os.getuid()) \
+                and Path(values[3]).name == 'guardlive':
+            children.append(int(values[0]))
+    alive = code == 0 and len(children) == 1
+    return dict(state='running' if alive else 'not_running', lifecycle='backend',
+                parentPid=int(parent), pid=children[0] if alive else None), alive
+
+
 def inspect(plan, client, *, execute=command):
     """只告警按配置、PID、bootId 与新鲜心跳核验存活；采集健康门槛和 PF 模式检查保持独立。"""
     root = absolute(plan['root'])
@@ -86,6 +107,8 @@ def inspect(plan, client, *, execute=command):
         result['ok'] = result['ok'] and result['checks'][name]['ok']
     for role in ORDER:
         def service(role=role):
+            if role == 'sensor' and plan.get('sensorLifecycle') == 'backend':
+                return managed_sensor(root, execute=execute)
             domain = 'system' if role in DAEMONS and mode == 'pf' else 'gui/' + str(os.getuid())
             code, output = execute(['launchctl', 'print', domain + '/' + PREFIX + role])
             running = code == 0 and re.search(r'(?m)^\s*state = running\s*$', output) is not None

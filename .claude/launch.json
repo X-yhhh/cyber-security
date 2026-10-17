@@ -6,10 +6,10 @@
       "runtimeExecutable": "sh",
       "runtimeArgs": [
         "-c",
-        "cd frontend && exec npx vite --port ${PORT:-5190} --strictPort"
+        "cd frontend && exec npm run dev"
       ],
-      "port": 5190,
-      "autoPort": true
+      "port": 5173,
+      "autoPort": false
     },
     {
       "name": "backend-local",
@@ -37,6 +37,14 @@
         "exec node \"$HOME/Workspace/development/services/project-services/cyber-security/instances/preview-20261014/vite.mjs\""
       ],
       "port": 5191
+    },
+    {
+      "name": "console-business",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        ".cache/console-dev-20261016/vite.mjs"
+      ],
+      "port": 5195
     }
   ]
 }

@@ -220,6 +220,41 @@ def test_enrollment_rejects_self_approval_expiry_and_wrong_bundle(tmp_path):
         enroll.validate(p)
 
 
+def test_managed_sensor_requires_direct_parent_and_local_tls(tmp_path, monkeypatch):
+    """持续采集只能作为后端直接子进程运行，上传地址不可扩展到外部主机。"""
+    root = tmp_path / 'service'
+    write(private_dir(root / 'config') / 'sensor.json', dict(
+        authorizedUntil='9999-12-31T00:00:00Z', environment='authorized',
+        captureScope='all_inbound_tcp', interface='en0', allowedInterfaces=['en0'], upload={}))
+    monkeypatch.setattr(sensor_service.os, 'getppid', lambda: 12345)
+    with pytest.raises(ValueError, match='BACKEND_PARENT_INVALID'):
+        sensor_service.prepare(root, tmp_path, parent_pid=12346)
+    for address in ('http://127.0.0.1:18080', 'https://example.com:443',
+                    'https://127.0.0.1:18080/path', 'https://user@127.0.0.1:18080'):
+        with pytest.raises(ValueError, match='LOCAL_TLS_ENDPOINT_REQUIRED'):
+            sensor_service.prepare(root, tmp_path, parent_pid=12345, backend_url=address)
+    command = sensor_service.prepare(root, tmp_path, parent_pid=12345,
+                                     backend_url='https://127.0.0.1:18080')
+    assert command[command.index('-duration') + 1] == '0'
+    assert command[command.index('-parent-pid') + 1] == '12345'
+    config = load(command[command.index('-config') + 1])
+    assert config['upload']['baseUrl'] == 'https://127.0.0.1:18080'
+
+
+def test_managed_status_checks_actual_parent_and_rejects_duplicate_capture(tmp_path):
+    write(private_dir(tmp_path / 'ledger') / 'sensor.backend.pid', b'12345\n')
+    def commands(argv):
+        if '-p' in argv:
+            return 0, str(os.getuid()) + ' /approved/bin/java\n'
+        return 0, f'200 12345 {os.getuid()} /approved/guardlive\n'
+    result, ok = status.managed_sensor(tmp_path, execute=commands)
+    assert ok and result['parentPid'] == 12345 and result['pid'] == 200
+    def duplicate(argv):
+        code, output = commands(argv)
+        return code, output if '-p' in argv else output + output.replace('200 ', '201 ')
+    assert not status.managed_sensor(tmp_path, execute=duplicate)[1]
+
+
 def test_observer_rejects_capabilities_before_network(tmp_path):
     write(tmp_path/'observer.json', {'mode': 'alert_only', 'capabilityIds': ['forbidden']})
     with pytest.raises(ValueError, match='ZERO_CAPABILITIES'):

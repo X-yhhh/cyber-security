@@ -14,9 +14,9 @@ import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
-/** 浏览器可不持证书；deploy 的机器路径必须出示由监听器验证过的证书，并继续原 Bearer 鉴权。 */
+/** 浏览器可不持证书；本机与部署的机器路径必须出示由监听器验证过的证书，并继续原 Bearer 鉴权。 */
 @Component
-@Profile("deploy")
+@Profile({"deploy", "local"})
 @Order(Ordered.HIGHEST_PRECEDENCE + 10)
 public class DeployMachineTlsFilter extends OncePerRequestFilter {
     private final ObjectMapper mapper;

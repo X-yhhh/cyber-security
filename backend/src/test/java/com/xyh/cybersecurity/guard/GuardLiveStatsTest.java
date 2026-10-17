@@ -43,7 +43,7 @@ class GuardLiveStatsTest {
     }
 
     @ParameterizedTest
-    @CsvSource({"15m,10,90", "1h,60,60", "24h,900,96", "7d,3600,168"})
+    @CsvSource({"15m,3,300", "1h,60,60", "24h,900,96", "7d,3600,168"})
     void defaultStepPerRange(String range, int step, int points) {
         var w = GuardLiveStats.window(q("range", range));
         assertThat(w.step()).isEqualTo(step);
@@ -53,13 +53,13 @@ class GuardLiveStatsTest {
     @Test
     void defaultsTo15MinutesAndAcceptsExplicitStep() {
         assertThat(GuardLiveStats.window(q()).range()).isEqualTo("15m");
-        assertThat(GuardLiveStats.window(null).points()).isEqualTo(90);
+        assertThat(GuardLiveStats.window(null).points()).isEqualTo(300);
         assertThat(GuardLiveStats.window(q("range", "1h", "step", "10")).points()).isEqualTo(360);
     }
 
     @ParameterizedTest
     @CsvSource(value = {
-            "range,5m", "range,7D", "range,''", "step,9", "step,3601", "step,7", "step,abc", "step,-10",
+            "range,5m", "range,7D", "range,''", "step,0", "step,3601", "step,7", "step,abc", "step,-10", "step,1.5", "step,10000",
             "window,15m", "assetId,x"}, nullValues = "NULL")
     void invalidParametersFailClosed(String key, String value) {
         assertThatThrownBy(() -> GuardLiveStats.window(q(key, value))).hasMessageContaining("INVALID_QUERY");
@@ -67,9 +67,47 @@ class GuardLiveStatsTest {
 
     @Test
     void tooManyPointsAndDuplicatesAreRejected() {
-        // 7 天按 10 秒 = 60480 点，超过 500 点上限。
+        // 7 天按 10 秒 = 60480 点；1 小时按 3 秒 = 1200 点，均超过 900 点上限。
         assertThatThrownBy(() -> GuardLiveStats.window(q("range", "7d", "step", "10"))).hasMessageContaining("INVALID_QUERY");
+        assertThatThrownBy(() -> GuardLiveStats.window(q("range", "1h", "step", "3"))).hasMessageContaining("INVALID_QUERY");
         assertThatThrownBy(() -> GuardLiveStats.window(q("range", "1h", "range", "15m"))).hasMessageContaining("INVALID_QUERY");
+        assertThatThrownBy(() -> GuardLiveStats.window(q("step", "1", "step", "3"))).hasMessageContaining("INVALID_QUERY");
+    }
+
+    /** 选择的秒数就是响应桶宽，完整保留 15 分钟，末桶包含当前时刻。 */
+    @ParameterizedTest
+    @CsvSource({"1,900", "3,300", "5,180", "10,90"})
+    void realtimeIntervalsRetainFullWindowAndMaskAllCoveredBuckets(int step, int points) {
+        var mapper = mock(GuardReadMapper.class);
+        var access = mock(GuardAccess.class);
+        when(access.human()).thenReturn(7L);
+        var now = java.time.LocalDateTime.parse("2026-10-17T12:00:04.500");
+        when(mapper.now()).thenReturn(now);
+        when(mapper.hasPermission(7, "detection.read")).thenReturn(true);
+        when(mapper.liveCoverage(eq(7L), eq("detection.read"), any(), any(), eq(step)))
+                .thenReturn(List.of(Map.of("s", 0L, "e", 4L)));
+
+        JsonNode out = new GuardLiveStats(mapper, access, java.time.ZoneOffset.UTC)
+                .live(q("range", "15m", "step", Integer.toString(step)));
+        assertThat(out.get("step").asInt()).isEqualTo(step);
+        assertThat(out.get("points").asInt()).isEqualTo(points);
+        var from = java.time.Instant.parse(out.get("from").asText());
+        var to = java.time.Instant.parse(out.get("to").asText());
+        assertThat(java.time.Duration.between(from, to).getSeconds()).isEqualTo(900);
+        assertThat(to).isAfter(now.toInstant(java.time.ZoneOffset.UTC));
+        assertThat(java.time.Duration.between(now.toInstant(java.time.ZoneOffset.UTC), to).toMillis()).isLessThanOrEqualTo(step * 1000L);
+        assertThat(out.get("inbound").size()).isEqualTo(points);
+        for (int i = 0; i < 5; i++) assertThat(out.get("inbound").get(i).isNumber()).isTrue();
+        for (int i = 0; i < 5; i++) assertThat(out.get("inbound").get(i).asInt()).isZero();
+        assertThat(out.get("inbound").get(5).isNull()).isTrue();
+        assertThat(out.has("blocked")).isFalse();
+        assertThat(out.has("devices")).isFalse();
+    }
+
+    @Test
+    void oneHealthWindowCanCoverMoreThanTwoSmallBuckets() {
+        assertThat(GuardLiveStats.coverage(List.of(Map.of("s", 1L, "e", 5L)), 7))
+                .containsExactly(false, true, true, true, true, true, false);
     }
 
     @Test

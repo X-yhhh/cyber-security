@@ -41,10 +41,21 @@ async function open(user: MeFixture, path = '/console/overview/live'): Promise<{
   return { router, w: wrapper }
 }
 const statsCalls = () => requests.filter((r) => r === 'GET /api/v2/stats/live').length
+const statsQueries: URLSearchParams[] = []
+const heartbeatCalls = () => requests.filter((r) => r === 'GET /api/v2/sensor-heartbeats').length
 
-beforeAll(() => server.listen({ onUnhandledRequest: 'bypass' }))
+beforeAll(() => {
+  server.listen({ onUnhandledRequest: 'bypass' })
+  server.events.on('request:start', ({ request }) => {
+    const url = new URL(request.url)
+    if (url.pathname === '/api/v2/stats/live') statsQueries.push(url.searchParams)
+  })
+})
 afterAll(() => server.close())
-beforeEach(() => { requests.length = 0; resetSummaryCache() })
+beforeEach(() => {
+  requests.length = 0; statsQueries.length = 0; resetSummaryCache()
+  Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' })
+})
 afterEach(() => {
   wrapper?.unmount()
   wrapper = null
@@ -66,6 +77,10 @@ describe('实时态势：按权限显示', () => {
     // 采集 1/2 在线（夹具一新一旧），执行 1/1。
     expect(w.text()).toMatch(/1\s*\/ 2 在线/)
     expect(w.findAll('[role="tab"]').map((t) => t.text())).toEqual(['15 分钟', '1 小时', '24 小时', '7 天'])
+    expect(w.text()).toContain('实时 · 每 3 秒刷新')
+    expect(w.text()).toContain('最近 15 分钟 · 每 3 秒一点')
+    expect(w.get('select').element.value).toBe('3')
+    expect(w.findAll('select option').map((o) => o.text())).toEqual(['1 秒', '3 秒', '5 秒', '10 秒'])
   })
 
   it('只有 ops.read 的平台管理员只看到设备在线，不请求统计与判定', async () => {
@@ -123,6 +138,92 @@ describe('实时态势：缺口与范围', () => {
 })
 
 describe('实时态势：轮询', () => {
+  it.each([['1', 900], ['3', 300], ['5', 180], ['10', 90]])('选择 %s 秒后，桶宽、完整点数与轮询频率一致', async (interval, points) => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+    const { router, w } = await open(singleRoleUsers.security_analyst)
+    await w.get('select').setValue(interval)
+    await settle()
+    expect(statsQueries.at(-1)?.get('step')).toBe(interval)
+    expect(router.currentRoute.value.query.interval).toBe(interval === '3' ? undefined : interval)
+    expect(w.text()).toContain(`最近 15 分钟 · 每 ${interval} 秒一点`)
+    expect(w.get('figure[aria-label="入站观察"]').findAll('tbody tr')).toHaveLength(points)
+    const before = statsCalls()
+    vi.advanceTimersByTime(Number(interval) * 1000 - 1)
+    await settle()
+    expect(statsCalls()).toBe(before)
+    vi.advanceTimersByTime(1)
+    await settle()
+    expect(statsCalls()).toBe(before + 1)
+  })
+
+  it('连续改频率清除旧定时器，设备仍每 30 秒读取，卸载后不再请求', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'Date'] })
+    const { w } = await open(singleRoleUsers.auditor)
+    for (const interval of ['10', '1', '5']) { await w.get('select').setValue(interval); await settle() }
+    const before = statsCalls()
+    const devicesBefore = heartbeatCalls()
+    vi.advanceTimersByTime(4999)
+    await settle()
+    expect(statsCalls()).toBe(before)
+    vi.advanceTimersByTime(1)
+    await settle()
+    expect(statsCalls()).toBe(before + 1)
+    expect(heartbeatCalls()).toBe(devicesBefore)
+    vi.advanceTimersByTime(25000)
+    await settle()
+    expect(statsCalls()).toBe(before + 6)
+    expect(heartbeatCalls()).toBe(devicesBefore + 1)
+    w.unmount()
+    wrapper = null
+    vi.advanceTimersByTime(30000)
+    await settle()
+    expect(statsCalls()).toBe(before + 6)
+  })
+
+  it('URL 恢复所选频率，长范围保留聚合且刷新间隔仍生效', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+    const { router, w } = await open(singleRoleUsers.security_analyst, '/console/overview/live?range=1h&interval=1')
+    expect(w.get('select').element.value).toBe('1')
+    expect(statsQueries.at(-1)?.get('step')).toBe('60')
+    expect(w.text()).toContain('最近 1 小时 · 每 1 分钟一点')
+    const before = statsCalls()
+    vi.advanceTimersByTime(1000)
+    await settle()
+    expect(statsCalls()).toBe(before + 1)
+    await router.push('/console/overview/live?interval=5&keep=yes#chart')
+    await settle()
+    expect(statsQueries.at(-1)?.get('step')).toBe('5')
+    await w.get('select').setValue('10')
+    await settle()
+    expect(router.currentRoute.value.query).toEqual({ interval: '10', keep: 'yes' })
+    expect(router.currentRoute.value.hash).toBe('#chart')
+  })
+
+  it.each(['0', '2', 'abc', '1&interval=5'])('非法或重复 interval=%s 回退 3 秒，不请求非法步长', async (value) => {
+    const { w } = await open(singleRoleUsers.security_analyst, `/console/overview/live?interval=${value}`)
+    expect(w.get('select').element.value).toBe('3')
+    expect(statsQueries.at(-1)?.get('step')).toBe('3')
+  })
+
+  it('改频率后慢到的旧响应不能覆盖新桶宽', async () => {
+    let releaseOld!: () => void
+    const gate = new Promise<void>((r) => { releaseOld = r })
+    server.use(http.get('/api/v2/stats/live', async ({ request }) => {
+      const step = Number(new URL(request.url).searchParams.get('step'))
+      if (step === 3) await gate
+      return HttpResponse.json({ requestId: 'r', error: null, data: {
+        range: '15m', step, from: '2026-10-17T12:00:00Z', to: '2026-10-17T12:00:03Z', points: 3, asOf: null, inbound: [0, 0, 0],
+      } })
+    }))
+    const { w } = await open(singleRoleUsers.security_analyst)
+    await w.get('select').setValue('1')
+    await settle()
+    expect(w.text()).toContain('最近 15 分钟 · 每 1 秒一点')
+    releaseOld()
+    await settle()
+    expect(w.text()).toContain('最近 15 分钟 · 每 1 秒一点')
+  })
+
   it('手动暂停后改范围、外部回填与恢复缺省均保留暂停状态，范围只重读一次', async () => {
     vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
     const { router, w } = await open(singleRoleUsers.security_analyst)
@@ -131,24 +232,26 @@ describe('实时态势：轮询', () => {
     await w.findAll('[role="tab"]').find((t) => t.text() === '1 小时')!.trigger('click')
     await settle()
     expect(statsCalls()).toBe(first + 1)
-    await router.push('/console/overview/live?range=24h')
+    await router.push('/console/overview/live?range=24h&interval=1')
     await settle()
     expect(w.text()).toContain('已暂停')
+    expect(w.get('select').element.value).toBe('1')
     expect(statsCalls()).toBe(first + 2)
     await router.push('/console/overview/live')
     await settle()
     expect(router.currentRoute.value.query).toEqual({})
+    expect(w.get('select').element.value).toBe('3')
     expect(w.findAll('[role="tab"]').find((t) => t.text() === '15 分钟')!.attributes('aria-selected')).toBe('true')
     vi.advanceTimersByTime(10000)
     await settle()
     expect(statsCalls()).toBe(first + 3)
   })
 
-  it('每 5 秒刷新；暂停或页面不可见时停止，恢复后立即重读', async () => {
+  it('默认每 3 秒刷新；暂停或页面不可见时停止，恢复后立即重读', async () => {
     vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
     const { w } = await open(singleRoleUsers.security_analyst)
     const first = statsCalls()
-    vi.advanceTimersByTime(5000)
+    vi.advanceTimersByTime(3000)
     await settle()
     expect(statsCalls()).toBe(first + 1)
 

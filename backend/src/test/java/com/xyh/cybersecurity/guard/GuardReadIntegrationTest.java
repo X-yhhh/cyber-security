@@ -635,9 +635,37 @@ class GuardReadIntegrationTest {
 
         JsonNode ops = data(opsOnly, "stats/live");
         assertThat(ops.path("range").asText()).isEqualTo("15m");
-        assertThat(ops.path("points").asInt()).isEqualTo(90);
+        assertThat(ops.path("step").asInt()).isEqualTo(3);
+        assertThat(ops.path("points").asInt()).isEqualTo(300);
         assertThat(ops.fieldNames()).toIterable()
                 .containsExactlyInAnyOrder("range", "step", "from", "to", "points", "asOf", "devices");
+    }
+
+    /** 秒级桶覆盖必须匹配健康窗口的半开区间；范围外资产不能将 null 变为 0。 */
+    @Test
+    void realtimeBucketCoverageKeepsExclusiveEndAndAssetScope() throws Exception {
+        var full = identity(List.of("detection.read"), "asset", Long.toString(a.pk));
+        LocalDateTime end = jdbc.queryForObject("SELECT UTC_TIMESTAMP(6)", LocalDateTime.class)
+                .minusMinutes(5).withNano(0);
+        healthAt(a, sa, scopeA, end);
+        healthAt(b, sb, scopeB, end.minusSeconds(10));
+        Instant start = end.minusSeconds(2).toInstant(ZoneOffset.UTC);
+        Instant until = end.toInstant(ZoneOffset.UTC);
+        for (int step : List.of(1, 3, 5, 10)) {
+            JsonNode live = data(full, "stats/live", "range", "15m", "step", Integer.toString(step));
+            assertThat(live.path("step").asInt()).isEqualTo(step);
+            assertThat(live.path("points").asInt()).isEqualTo(900 / step);
+            Instant from = Instant.parse(live.path("from").asText());
+            for (int i = 0; i < 900 / step; i++) {
+                Instant bucketStart = from.plusSeconds((long) i * step);
+                boolean covered = bucketStart.isBefore(until) && bucketStart.plusSeconds(step).isAfter(start);
+                JsonNode value = live.path("inbound").get(i);
+                assertThat(value.isNull()).as("step=%s bucket=%s", step, i).isEqualTo(!covered);
+                if (covered) assertThat(value.asLong()).isZero();
+            }
+            assertThat(live.has("blocked")).isFalse();
+            assertThat(live.has("devices")).isFalse();
+        }
     }
 
     private void healthAt(Resource asset, Resource sensor, Resource scope, LocalDateTime end) {

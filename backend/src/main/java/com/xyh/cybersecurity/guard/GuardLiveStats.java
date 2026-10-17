@@ -27,8 +27,8 @@ import static com.xyh.cybersecurity.guard.GuardJson.object;
 /**
  * B5.2 实时态势统计 {@code GET /api/v2/stats/live}（权限设计第 10.5 节，前端契约 frontend/src/api/v2/stats.ts）。
  *
- * <p>输入：{@code range}（15m、1h、24h、7d，缺省 15m）与可选 {@code step}（10—3600 秒，须整除范围且点数不超过 500；
- * 缺省按范围取 10、60、900、3600）。其他、重复或空参数一律 400 {@code INVALID_QUERY}。
+ * <p>输入：{@code range}（15m、1h、24h、7d，缺省 15m）与可选 {@code step}（1—3600 秒，须整除范围且点数不超过 900；
+ * 缺省按范围取 3、60、900、3600）。其他、重复或空参数一律 400 {@code INVALID_QUERY}。
  *
  * <p>输出：时间桶 {@code [from+i·step, from+(i+1)·step)}，末桶覆盖当前时刻。各序列按权限裁剪，无权限的字段不返回：
  * {@code inbound}、{@code alerts}、{@code today.inbound/alerts/openEvents} 需 detection.read；
@@ -43,8 +43,8 @@ import static com.xyh.cybersecurity.guard.GuardJson.object;
 @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
 public class GuardLiveStats {
     static final Map<String, Long> SPANS = Map.of("15m", 900L, "1h", 3_600L, "24h", 86_400L, "7d", 604_800L);
-    static final Map<String, Integer> DEFAULT_STEPS = Map.of("15m", 10, "1h", 60, "24h", 900, "7d", 3_600);
-    static final int MAX_POINTS = 500;
+    static final Map<String, Integer> DEFAULT_STEPS = Map.of("15m", 3, "1h", 60, "24h", 900, "7d", 3_600);
+    static final int MAX_POINTS = 900;
     static final int FRESH_HEARTBEAT_SECONDS = 10;
     /** 四类攻击家族固定返回，保证前端按类别稳定分色；其他家族按出现情况追加。 */
     private static final List<String> FAMILIES = List.of("port_scan", "brute_force", "dos_flood", "dos_slow");
@@ -86,7 +86,7 @@ public class GuardLiveStats {
             step = Integer.parseInt(raw);
         }
         long span = SPANS.get(range);
-        if (step < 10 || step > 3_600 || span % step != 0 || span / step > MAX_POINTS) throw error(400, "INVALID_QUERY");
+        if (step < 1 || step > 3_600 || span % step != 0 || span / step > MAX_POINTS) throw error(400, "INVALID_QUERY");
         return new Window(range, step, (int) (span / step));
     }
 
@@ -153,7 +153,7 @@ public class GuardLiveStats {
         return out;
     }
 
-    /** 健康窗口起止所在桶（窗口不超过 5 秒、步长至少 10 秒，因此最多跨两桶）标记为有覆盖。 */
+    /** 将健康窗口与查询范围相交的全部桶标记为覆盖；1 秒桶可被同一窗口连续覆盖，结束边界由 SQL 按半开区间排除。 */
     static boolean[] coverage(List<Map<String, Object>> rows, int points) {
         boolean[] covered = new boolean[points];
         for (var row : rows) {

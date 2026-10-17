@@ -7,7 +7,8 @@
  * - 最新判定：GET /decisions 最近 20 条（detection.read），点击按归并关系进入事件；
  * - 设备在线：GET sensor-heartbeats / executor-heartbeats（ops.read），心跳新鲜（10 秒内）即在线，不代表采集健康。
  *
- * 刷新：默认每 5 秒轮询一次，页面不可见或手动暂停时停止；切换范围立即重读，并用请求序号作废旧响应。
+ * 刷新：默认每 3 秒轮询，可选 1/3/5/10 秒；15 分钟视图按相同间隔出点，历史范围保留聚合并显示实际桶宽。
+ * 页面不可见或手动暂停时停止轮询；切换范围或间隔立即重读一次，保留暂停状态，并用请求序号作废旧响应。
  * 缺口：stats 中 null 表示该时段没有采集覆盖，折线断开、不补 0，并写明“传感器未接入，最后一次数据 <时间>”。
  */
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
@@ -24,7 +25,7 @@ import Tag from '@/components/Tag.vue'
 import { guard } from '@/api/client'
 import { can } from '@/api/session'
 import { detectApi } from '@/api/v2/detect'
-import { RANGE_LABEL, bucketStart, fetchLiveStats, trailingNulls, type LiveRange, type LiveStats } from '@/api/v2/stats'
+import { LIVE_INTERVALS, RANGE_LABEL, bucketStart, fetchLiveStats, liveStep, trailingNulls, type LiveInterval, type LiveRange, type LiveStats } from '@/api/v2/stats'
 import {
   GUARD_FAMILIES, fmtTime, guardDecisionLabel, guardFamilyLabel, guardSourceLabel,
   type GuardAsset, type GuardDecision, type GuardDecisionEvidence, type GuardHeartbeat, type GuardReadPage,
@@ -36,7 +37,7 @@ import { toast } from '@/composables/toast'
 import { useSummary } from '@/composables/summary'
 import { useQueryState } from '@/composables/query'
 
-const POLL_MS = 5000
+const DEVICE_POLL_MS = 30000
 const router = useRouter()
 
 const canDetect = can('detection.read')
@@ -47,7 +48,11 @@ const wantsStats = canDetect || canAction
 const RANGES: LiveRange[] = ['15m', '1h', '24h', '7d']
 const isRange = (v: unknown): v is LiveRange => typeof v === 'string' && (RANGES as string[]).includes(v)
 const range = ref<LiveRange>('15m')
-useQueryState({ range: { state: range, default: '15m', parse: (v) => isRange(v) ? v : '15m' } })
+const interval = ref<LiveInterval>('3')
+useQueryState({
+  range: { state: range, default: '15m', parse: (v) => isRange(v) ? v : '15m' },
+  interval: { state: interval, default: '3', parse: (v) => typeof v === 'string' && (LIVE_INTERVALS as readonly string[]).includes(v) ? v as LiveInterval : '3' },
+})
 const rangeOptions = RANGES.map((r) => ({ value: r, label: RANGE_LABEL[r] }))
 
 /* ---------- 数据 ---------- */
@@ -71,13 +76,14 @@ void (async () => {
 const assetName = (id: string | null | undefined) => (id ? assets.value.find((a) => a.id === id)?.assetKey ?? null : null)
 
 let seq = 0
-let ticks = 0
-/** 读取一轮；`devices` 为 true 时同时读心跳（心跳每 30 秒读一次即可）。旧序号的响应一律丢弃。 */
+let devicesSeq = 0
+let lastDevicesAt = 0
+/** 读取一轮；设备心跳按经过时间每 30 秒读取，恢复时可强制刷新，不随图表频率变快。各类旧响应按各自序号丢弃。 */
 async function refresh(devices = false) {
   const mine = ++seq
   const jobs: Promise<unknown>[] = []
   if (wantsStats) {
-    jobs.push(fetchLiveStats(range.value)
+    jobs.push(fetchLiveStats(range.value, liveStep(range.value, interval.value))
       .then((d) => { if (mine === seq) { stats.value = d; statsError.value = '' } })
       .catch((e) => { if (mine === seq) statsError.value = errText(e) }))
   }
@@ -92,12 +98,16 @@ async function refresh(devices = false) {
       })
       .catch((e) => { if (mine === seq) decisionsError.value = errText(e) }))
   }
-  if (canOps && devices) {
+  if (canOps && (devices || Date.now() - lastDevicesAt >= DEVICE_POLL_MS)) {
+    lastDevicesAt = Date.now()
+    const devicesMine = ++devicesSeq
     jobs.push(Promise.all([
       guard.read<GuardReadPage<GuardHeartbeat>>('sensor-heartbeats', { limit: 50 }),
       guard.read<GuardReadPage<GuardHeartbeat>>('executor-heartbeats', { limit: 50 }),
-    ]).then(([s, e]) => { sensors.value = s.items; executors.value = e.items; devicesLoaded.value = true; devicesError.value = '' })
-      .catch((e) => { devicesError.value = errText(e) }))
+    ]).then(([s, e]) => {
+      if (devicesMine !== devicesSeq) return
+      sensors.value = s.items; executors.value = e.items; devicesLoaded.value = true; devicesError.value = ''
+    }).catch((e) => { if (devicesMine === devicesSeq) devicesError.value = errText(e) }))
   }
   await Promise.allSettled(jobs)
   if (mine === seq) updatedAt.value = Date.now()
@@ -108,30 +118,41 @@ const paused = ref(false)
 const hidden = ref(typeof document !== 'undefined' && document.visibilityState === 'hidden')
 const running = computed(() => !paused.value && !hidden.value)
 let timer: ReturnType<typeof setInterval> | undefined
+let mounted = false
+/** 更换频率只保留一个定时器；离场作废在途响应，避免旧页面继续更新。 */
+function startPolling() {
+  clearInterval(timer)
+  if (!mounted) return
+  timer = setInterval(() => {
+    if (running.value) void refresh()
+  }, Number(interval.value) * 1000)
+}
 function onVisibility() {
   const was = hidden.value
   hidden.value = document.visibilityState === 'hidden'
-  if (was && !hidden.value && !paused.value) void refresh(true)
+  if (was && !hidden.value && !paused.value) { void refresh(true); startPolling() }
 }
 onMounted(() => {
+  mounted = true
   void refresh(true)
-  timer = setInterval(() => {
-    if (!running.value) return
-    ticks++
-    void refresh(ticks % 6 === 0)
-  }, POLL_MS)
+  startPolling()
   document.addEventListener('visibilitychange', onVisibility)
 })
 onBeforeUnmount(() => {
+  mounted = false
+  seq++
+  devicesSeq++
   clearInterval(timer)
   document.removeEventListener('visibilitychange', onVisibility)
 })
 function togglePause() {
   paused.value = !paused.value
-  if (!paused.value) void refresh(true)
+  if (running.value) { void refresh(true); startPolling() }
 }
-watch(range, () => {
+watch([range, interval], () => {
   stats.value = null
+  statsError.value = ''
+  startPolling()
   void refresh()
 })
 
@@ -231,20 +252,32 @@ async function openDecision(d: GuardDecision) {
 
 <template>
   <div>
-    <PageHead title="实时态势" desc="入站观察、告警与拦截的实时趋势，以及最新判定与设备在线情况。各块按你的权限与资产范围显示。">
+    <PageHead title="实时态势" desc="入站观察、告警与拦截的实时趋势，以及最新判定与设备在线情况。各块按你的权限与资产范围显示。" />
+    <div class="mb-4 flex flex-wrap items-center gap-2.5">
       <span class="flex items-center gap-2 text-[12.5px]" :class="running ? 'text-ink-2' : 'text-ink-4'" role="status">
         <span class="relative flex h-2 w-2" aria-hidden="true">
           <span v-if="running" class="absolute inline-flex h-full w-full animate-ping rounded-full bg-ok opacity-60" />
           <span class="relative inline-flex h-2 w-2 rounded-full" :class="running ? 'bg-ok' : 'bg-ink-4'" />
         </span>
-        {{ running ? '实时 · 每 5 秒刷新' : hidden ? '页面不可见，已暂停' : '已暂停' }}
+        {{ running ? `实时 · 每 ${interval} 秒刷新` : hidden ? '页面不可见，已暂停' : '已暂停' }}
         <span v-if="updatedAt" class="num text-ink-4">{{ new Date(updatedAt).toLocaleTimeString('zh-CN', { hour12: false }) }}</span>
       </span>
       <button type="button" class="act-ghost act-sm" :aria-pressed="paused" @click="togglePause">
         <Play v-if="paused" :size="13" :stroke-width="1.5" /><Pause v-else :size="13" :stroke-width="1.5" />{{ paused ? '继续' : '暂停' }}
       </button>
+      <label class="inline-flex items-center gap-2 text-[12.5px] text-ink-3">
+        <span>刷新间隔</span>
+        <select v-model="interval" class="field !h-7 !w-auto" aria-describedby="live-interval-help">
+          <option v-for="seconds in LIVE_INTERVALS" :key="seconds" :value="seconds">{{ seconds }} 秒</option>
+        </select>
+      </label>
       <SectionTabs v-if="wantsStats" v-model="range" :options="rangeOptions" label="时间范围" />
-    </PageHead>
+    </div>
+
+    <p id="live-interval-help" class="mb-4 text-[12px] text-ink-3">
+      <template v-if="wantsStats">15 分钟视图按刷新间隔出点；较长范围按分钟或小时聚合，实际间隔见图表。</template>
+      <template v-else>设备状态每 30 秒更新，恢复监测时立即刷新。</template>
+    </p>
 
     <StatBand v-if="wantsStats" class="mb-5" label="今日计数" :stats="todayStats" />
 

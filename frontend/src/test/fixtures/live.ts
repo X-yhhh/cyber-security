@@ -5,7 +5,7 @@
  * - 每个桶的值只由桶的绝对起点时间决定，因此随时间推移曲线向左滚动，像真实的实时数据；
  * - 不读取任何真实数据，预览时界面上的趋势与今日计数都是演示值。
  */
-import { RANGE_STEP, type LiveRange, type LiveStats, type Series } from '@/api/v2/stats'
+import { MAX_LIVE_POINTS, RANGE_SECONDS, RANGE_STEP, type LiveRange, type LiveStats, type Series } from '@/api/v2/stats'
 
 const FAMILIES = ['port_scan', 'brute_force', 'dos_flood', 'dos_slow'] as const
 
@@ -18,8 +18,8 @@ function rnd(seed: number): number {
 }
 
 export function syntheticLive(range: LiveRange, permissions: readonly string[], now = Date.now(), step = RANGE_STEP[range]): LiveStats {
-  const span = { '15m': 900, '1h': 3600, '24h': 86400, '7d': 604800 }[range]
-  const points = Math.min(500, Math.round(span / step))
+  const points = RANGE_SECONDS[range] / step
+  if (!Number.isInteger(step) || step < 1 || step > 3600 || !Number.isInteger(points) || points > MAX_LIVE_POINTS) throw new Error('INVALID_QUERY')
   const stepMs = step * 1000
   const end = Math.floor(now / stepMs) * stepMs + stepMs
   const from = end - points * stepMs

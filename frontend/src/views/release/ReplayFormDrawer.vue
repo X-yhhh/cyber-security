@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useActionError } from '@/composables/actionError'
 /**
  * 新建研究回放（evaluation.run）：选择已校验模型与其已审核策略，登记固定 1 倍速的研究回放。
  * 后端要求同一模型与策略存在已批准的研究环境组合（否则 REPLAY_BUNDLE_NOT_APPROVED）；请求中不含任何真实目标引用。
@@ -17,7 +18,7 @@ const emit = defineEmits<{ created: [id: string]; close: [] }>()
 const models = ref<ReleaseModel[]>([])
 const policies = ref<ReleasePolicy[]>([])
 const form = reactive({ scenarioId: '', scenarioSha256: '', modelId: '', policyId: '' })
-const error = ref('')
+const error = useActionError()
 const busy = ref(false)
 watch(() => props.open, (v) => {
   if (!v) return

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useActionError } from '@/composables/actionError'
 /**
  * 登记能力（bundle.request）。字段与后端 GuardCatalog.capability 一致：
  * - 研究级不需要平台报告；其余等级须提供签名平台报告引用，报告中的 capability 必须等于去掉证据位置后的请求体。
@@ -21,7 +22,7 @@ const empty = () => ({
   protectionSetSha256: '', exemptionEvidenceRef: '', exemptionEvidenceSha256: '',
 })
 const form = reactive(empty())
-const error = ref('')
+const error = useActionError()
 const busy = ref(false)
 watch(() => props.open, (v) => { if (v) { Object.assign(form, empty()); error.value = '' } })
 const inbound = computed(() => form.scope === 'peer_inbound')

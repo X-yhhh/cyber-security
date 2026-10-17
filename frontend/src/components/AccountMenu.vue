@@ -1,9 +1,10 @@
 <script setup lang="ts">
+import { useActionError } from '@/composables/actionError'
 /**
  * 侧栏底部账户菜单：用户名、角色中文名、修改口令、退出（权限设计第 8 节“全局”行，登录即可）。
  * 修改口令通过 v2 会话模块提交幂等请求，成功后后端撤销本人全部会话，前端回到登录页。
  * 口令只在抽屉的本地状态中短暂存在，关闭即清空。
- * 长度、两次一致与“新旧不同”在抽屉内就地提示，满足前“修改”保持禁用；后端错误也写在抽屉内，不只靠提示条。
+ * 长度、两次一致与“新旧不同”在抽屉内就地提示，满足前“修改”保持禁用；后端错误同时写入抽屉与系统警告弹窗。
  */
 import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
@@ -26,7 +27,7 @@ const changing = ref(false)
 const secrets = ref({ current: '', next: '', confirm: '' })
 const busy = ref(false)
 watch(changing, (open) => { if (!open) secrets.value = { current: '', next: '', confirm: '' } }, { flush: 'sync' })
-const failure = ref('')
+const failure = useActionError()
 watch(changing, () => { failure.value = '' })
 /** 与后端口令规则一致：12—128 个字符且 UTF-8 不超过 72 字节。 */
 const problem = computed(() => {

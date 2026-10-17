@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useActionError } from '@/composables/actionError'
 /**
  * 采集配置详情抽屉（传感器与执行器页 `?tab=configs&id=`，待办中心的配置审批直达这里）。
  *
@@ -49,7 +50,7 @@ const decidable = computed(() => !!cfg.value && ['draft', 'pending'].includes(cf
 const deletable = computed(() => !!cfg.value && cfg.value.status === 'draft' && can('sensor.manage') && (mine.value || unknownAuthor.value))
 
 const reason = ref('')
-const formError = ref('')
+const formError = useActionError()
 const busy = ref(false)
 function enter(m: Mode) { mode.value = m; reason.value = ''; formError.value = '' }
 

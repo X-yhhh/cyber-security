@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useActionError } from '@/composables/actionError'
 /**
  * 发布组合详情抽屉（发布管理 `?tab=bundles&id=`，待办中心的组合封存与批准直达这里）。
  *
@@ -140,7 +141,7 @@ const naming = reactive({ displayName: '', notes: '' })
 const anyFoot = computed(() => canImport.value || canSeal.value || canDecide.value || canActivate.value)
 
 const busy = ref(false)
-const formError = ref('')
+const formError = useActionError()
 const reason = ref('')
 const report = reactive({ reportRef: '', sha256: '', runnerIdentity: '' })
 const sealPick = ref<string[]>([])

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useActionError } from '@/composables/actionError'
 /**
  * 传感器 / 执行器详情抽屉（传感器与执行器页 `?tab=sensors|executors&id=`）。
  *
@@ -72,7 +73,7 @@ const disabled = computed(() => status.value === 'offline' || status.value === '
 /* ---------------- 模式 ---------------- */
 const busy = ref(false)
 const reason = ref('')
-const formError = ref('')
+const formError = useActionError()
 const edit = reactive({ displayName: '', notes: '' })
 const draft = reactive({ interfaceId: '', addressFamily: 'ipv4' as 'ipv4' | 'ipv6', captureScopeId: '', captureHealthVersion: CAPTURE_HEALTH_VERSIONS[0] as string, maxBatchSize: '256', profileSha256: '', buildSha256: '' })
 const prefilled = ref(false)

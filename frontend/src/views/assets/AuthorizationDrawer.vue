@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useActionError } from '@/composables/actionError'
 /**
  * 资产授权申请（authorization.request，接口设计第 2 节 POST /assets/{id}/authorizations）。
  *
@@ -28,7 +29,7 @@ const local = (d: Date) => {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`
 }
 const form = reactive({ interfaces: '', observationAllowed: true, validFrom: '', validUntil: '', evidenceRef: '', rows: [] as Row[] })
-const error = ref('')
+const error = useActionError()
 
 /** 能力目录为全局对象；读取失败（资产范围身份）时退回手填能力 ID。 */
 const capabilities = ref<GuardCapability[]>([])

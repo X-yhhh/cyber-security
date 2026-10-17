@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useActionError } from '@/composables/actionError'
 /**
  * 审计日志（系统管理 / Audit，前端设计文档第 10.8、10.10 节，任务单 F5）。只读，需 audit.read。
  *
@@ -44,7 +45,7 @@ useQueryState({
   range: { state: range, default: '', parse: (v) => (queryString(v) in RANGES ? queryString(v) as Range : '') },
 }, () => { draft.value = { action: action.value, requestId: requestId.value } })
 
-const draftError = ref('')
+const draftError = useActionError()
 function apply() {
   const a = draft.value.action.trim(), r = draft.value.requestId.trim()
   if (a && !ACTION_RE.test(a)) { draftError.value = '动作只含字母、数字与 . _ : -，如 iam.user.create。'; return }

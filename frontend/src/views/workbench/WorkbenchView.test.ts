@@ -79,7 +79,7 @@ describe('待办中心', () => {
   it('待办读取失败时显示错误与 request-id', async () => {
     server.use(http.get('/api/v2/todos', () => HttpResponse.json({ requestId: 'req-boom', data: null, error: { code: 'INTERNAL_ERROR', message: '服务暂时无法处理请求' } }, { status: 500 })))
     const w = await render(singleRoleUsers.auditor)
-    expect(w.get('[role="alert"]').text()).toBe('服务暂时无法处理请求（request-id req-boom）')
+    expect(w.get('[role="alert"]').text()).toBe('数据加载失败服务暂时无法处理请求（request-id req-boom）')
     w.unmount()
   })
 })

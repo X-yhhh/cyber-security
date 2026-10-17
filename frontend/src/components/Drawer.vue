@@ -17,6 +17,8 @@ function restoreFocus() {
   trigger = null
 }
 function onKey(e: KeyboardEvent) {
+  // 原生顶层警告打开时，由它接管键盘，不能连带关闭底下的业务抽屉。
+  if (document.querySelector('dialog[data-system-alert][open]')) return
   if (e.key === 'Escape') {
     e.preventDefault()
     emit('close')

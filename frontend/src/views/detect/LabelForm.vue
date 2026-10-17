@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useActionError } from '@/composables/actionError'
 /**
  * 观察样本标注（POST /api/v2/feedback）：检测记录的观察与推理详情共用。调用方只在持有 `feedback.label` 时渲染。
  * 提交后为待复核（pending），由他人独立复核；复核通过也不进入在线训练。
@@ -13,7 +14,7 @@ import { toast } from '@/composables/toast'
 const props = defineProps<{ observationId: string; evidenceRef: string; title?: string; autoOpen?: boolean }>()
 const emit = defineEmits<{ submitted: [] }>()
 
-const form = reactive({ open: false, label: 'attack', evidenceRef: '', busy: false, error: '', done: '' })
+const form = reactive({ open: false, label: 'attack', evidenceRef: '', busy: false, error: useActionError(), done: '' })
 function reset() {
   form.open = Boolean(props.autoOpen)
   form.label = 'attack'

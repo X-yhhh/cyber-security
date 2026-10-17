@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useActionError } from '@/composables/actionError'
 /**
  * 资产登记与资料编辑（asset.manage，接口设计第 2、3.2 节）。
  *
@@ -6,7 +7,7 @@
  * - 编辑：显示名、说明、关键性、责任人；只提交改动过的字段，清空显示名或说明时显式传 null。
  * 提交与重读由父组件负责，本组件只校验字段并发出请求体。
  */
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, reactive, watch } from 'vue'
 import Drawer from '@/components/Drawer.vue'
 import {
   ASSET_FIELDS, CRITICALITIES, criticalityLabel, platformLabel,
@@ -21,7 +22,7 @@ const editing = computed(() => !!props.asset)
 const ENVS: readonly AssetEnv[] = ['research', 'lab', 'authorized']
 const PLATFORMS: readonly Platform[] = ['macos', 'windows']
 const form = reactive({ assetKey: '', platform: 'macos' as Platform, environment: 'lab' as AssetEnv, owner: '', displayName: '', notes: '', criticality: 'medium' as Criticality })
-const error = ref('')
+const error = useActionError()
 
 watch(() => props.open, (v) => {
   if (!v) return

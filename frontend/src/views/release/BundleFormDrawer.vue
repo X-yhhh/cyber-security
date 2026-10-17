@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useActionError } from '@/composables/actionError'
 /**
  * 申请发布组合（bundle.request）：选择已校验模型、已审核策略与评价计划，组成不可变的候选组合。
  *
@@ -28,7 +29,7 @@ const form = reactive({
   modelId: '', policyId: '', evaluationPlanId: '', environment: 'lab' as BundleRequest['environment'],
   featureProfileSha256: '', extractorSha256: '', versions: { ...DEFAULT_PROTOCOL_VERSIONS },
 })
-const error = ref('')
+const error = useActionError()
 const busy = ref(false)
 
 watch(() => props.open, (v) => {

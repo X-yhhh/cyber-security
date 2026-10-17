@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useActionError } from '@/composables/actionError'
 /**
  * 误报反馈（威胁检测 / Feedback，任务单 F1R，前端设计文档第 10.6 节）：观察样本标注与他人独立复核。
  *
@@ -124,7 +125,7 @@ const canReview = computed(() => can('feedback.review'))
 /* 详情抽屉与关联观察 */
 const picked = ref<GuardFeedback | null>(null)
 const obs = ref<{ loading: boolean; error: string; data: GuardObservation | null }>({ loading: false, error: '', data: null })
-const reviewForm = reactive({ decision: 'approve' as 'approve' | 'reject', reason: '', busy: false, error: '' })
+const reviewForm = reactive({ decision: 'approve' as 'approve' | 'reject', reason: '', busy: false, error: useActionError() })
 
 watch(picked, async (f) => {
   reviewForm.decision = 'approve'
@@ -171,7 +172,7 @@ async function submitReview() {
 
 /* 新建标注抽屉 */
 const creating = ref(false)
-const createForm = reactive({ observationId: '', label: 'attack', evidenceRef: '', busy: false, error: '' })
+const createForm = reactive({ observationId: '', label: 'attack', evidenceRef: '', busy: false, error: useActionError() })
 
 function openCreate() {
   createForm.observationId = ''

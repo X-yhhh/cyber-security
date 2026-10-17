@@ -8,7 +8,7 @@ import { createAppRouter } from '@/router'
 import { resetCsrf } from '@/api/client'
 import { session } from '@/api/session'
 import { resetSummaryCache } from '@/composables/summary'
-import { toasts } from '@/composables/toast'
+import { alerts, toasts } from '@/composables/toast'
 import { server, requests } from '@/test/handlers'
 import { signIn } from '@/test/handlers/auth'
 import { ASSET_1, ASSET_2, detectState, resetDetectState } from '@/test/handlers/detect'
@@ -51,7 +51,7 @@ beforeAll(() => { server.listen({ onUnhandledRequest: 'error' }); window.scrollT
 afterAll(() => server.close())
 beforeEach(() => {
   resetDetectState(); resetAssetsState(); resetReleaseState(); resetCsrf(); resetSummaryCache()
-  session.user = null; session.checked = false; requests.length = 0; toasts.length = 0
+  session.user = null; session.checked = false; requests.length = 0; toasts.length = 0; alerts.length = 0
   localStorage.clear(); sessionStorage.clear()
 })
 afterEach(() => { dispose(); server.resetHandlers() })
@@ -210,7 +210,7 @@ describe('F4 写入、职责分离与凭据', () => {
     server.use(http.patch('/api/v2/assets/:id', () => { calls++; return HttpResponse.json({ requestId: 'req-f4-conflict', data: null, error: { code: 'REVISION_CONFLICT', message: 'stale' } }, { status: 412 }) }))
     const { w } = await open(singleRoleUsers.platform_admin, assetPath)
     await click('编辑资料'); await fill('显示名', '不能保存的名称'); await click('保存资料')
-    expect(toasts.some((t) => t.text.includes('刷新后重试') && t.text.includes('req-f4-conflict'))).toBe(true)
+    expect(alerts.some((t) => t.text.includes('刷新后重试') && t.text.includes('req-f4-conflict'))).toBe(true)
     expect(calls).toBe(1); expect(dialog().exists()).toBe(true)
     expect(w.text()).toContain('靶场主机 01'); expect(toasts.some((t) => t.text.includes('已保存'))).toBe(false)
   })

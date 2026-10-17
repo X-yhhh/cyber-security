@@ -1,9 +1,10 @@
 <script setup lang="ts">
+import { useActionError } from '@/composables/actionError'
 /**
  * 新建用户（iam.manage）：用户名、显示名与初始口令。新账号不带任何角色，绑定在用户抽屉里另行添加。
  * 口令只留在本组件内存中，关闭或重新打开即清空，不写入日志或本地存储。
  */
-import { reactive, ref, watch } from 'vue'
+import { reactive, watch } from 'vue'
 import Drawer from '@/components/Drawer.vue'
 import type { CreateUser } from '@/api/v2/iam'
 import { passwordProblem } from './shared'
@@ -12,7 +13,7 @@ const props = defineProps<{ open: boolean; busy?: boolean }>()
 const emit = defineEmits<{ create: [body: CreateUser]; close: [] }>()
 
 const form = reactive({ username: '', displayName: '', password: '', confirm: '' })
-const error = ref('')
+const error = useActionError()
 watch(() => props.open, () => { Object.assign(form, { username: '', displayName: '', password: '', confirm: '' }); error.value = '' })
 
 function submit() {

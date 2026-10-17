@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useActionError } from '@/composables/actionError'
 /**
  * 角色详情抽屉（角色管理 `?role=`）：职责、按组的中文权限说明与成员；抽屉内切换停用 / 启用 / 删除模式。
  *
@@ -41,7 +42,7 @@ const editable = computed(() => manage && !!role.value && !role.value.builtin)
 const full = computed(() => roleLimitReached(props.roles))
 
 const busy = ref(false)
-const formError = ref('')
+const formError = useActionError()
 const reason = ref('')
 watch(() => props.roleKey, (key) => { mode.value = 'view'; formError.value = ''; if (key && manage) members.reset() }, { immediate: true })
 function enter(m: Mode) { reason.value = ''; formError.value = ''; mode.value = m }

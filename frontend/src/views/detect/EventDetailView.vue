@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useActionError } from '@/composables/actionError'
 /**
  * 事件详情（威胁检测 / Events / :id）：单资产安全事件的证据时间线、关联证据组、关联动作与受控写操作。
  *
@@ -123,7 +124,7 @@ const who = (assigneeId: string | null | undefined) => {
 /* 状态迁移 */
 const pendingTo = ref<EventStatus | null>(null)
 const transitionReason = ref('')
-const opError = ref('')
+const opError = useActionError()
 
 async function submitTransition() {
   if (!ev.value || !pendingTo.value || !transitionReason.value.trim()) return
@@ -149,7 +150,7 @@ async function submitTransition() {
 
 /* 指派负责人 */
 const assigning = ref(false)
-const assignForm = reactive({ userId: '', reason: '', error: '' })
+const assignForm = reactive({ userId: '', reason: '', error: useActionError() })
 
 function openAssign() {
   if (!ev.value) return
@@ -200,7 +201,7 @@ async function submitNote() {
 
 /* 人工处置申请（只读引用绑定目标，不提供 IP/端口/命令输入） */
 const askingAction = ref(false)
-const actionForm = reactive({ reason: '', error: '' })
+const actionForm = reactive({ reason: '', error: useActionError() })
 
 function openActionDrawer() {
   if (!ev.value?.actionable) return

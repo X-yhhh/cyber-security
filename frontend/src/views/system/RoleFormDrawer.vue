@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useActionError } from '@/composables/actionError'
 /**
  * 自定义角色的新建与编辑（iam.manage，权限设计第 3.4 节）。
  *
@@ -6,7 +7,7 @@
  * - 编辑：名称、说明、权限需 If-Match（父页面提交）；只提交改动过的字段。改权限会撤销成员会话，造成成员冲突时后端 409。
  * - 权限编辑器按第 4 节分组勾选，实时标出第 3.3 节冲突权限对（最终以后端 422 PERMISSION_CONFLICT 为准）。
  */
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, reactive, watch } from 'vue'
 import Drawer from '@/components/Drawer.vue'
 import { permissionConflicts, permissionGroups, roleLimitReached, type IamRole, type RoleDefinition } from '@/api/v2/roles'
 import type { Permission } from '@/router/nav'
@@ -18,7 +19,7 @@ const emit = defineEmits<{ create: [body: RoleDefinition]; update: [body: Partia
 const PREFIX = 'custom_'
 const editing = computed(() => !!props.role)
 const form = reactive({ suffix: '', name: '', description: '', permissions: [] as string[] })
-const error = ref('')
+const error = useActionError()
 watch(() => props.open, (v) => {
   if (!v) return
   error.value = ''

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useActionError } from '@/composables/actionError'
 /**
  * 决策策略详情抽屉（发布管理 `?tab=policies&id=`，待办中心的策略审核直达这里）。
  *
@@ -20,7 +21,7 @@ import { can } from '@/api/session'
 import { fmtTime } from '@/api/types'
 import { releaseApi, type ReleasePolicy } from '@/api/v2/release'
 import { policyReviewTone } from '@/data/tones'
-import { capabilityName, ensureIndex, familyLabel, modeLabel, modelName, planName, policyStatusLabel, policyTitle, profileLabel, releaseErr, scopeLabel } from './shared'
+import { capabilityName, ensureIndex, familyLabel, modeLabel, modelName, planName, policyStatusLabel, profileLabel, releaseErr, scopeLabel } from './shared'
 
 const props = defineProps<{ id: string }>()
 const emit = defineEmits<{ close: []; changed: [] }>()
@@ -58,11 +59,18 @@ const lines = computed(() => {
     return { text, mark: !!m, hot }
   })
 })
-const copy = () => { if (def.value) void navigator.clipboard?.writeText(JSON.stringify(def.value, null, 2)).then(() => toast('已复制策略原文。')) }
+async function copy() {
+  if (!def.value) return
+  try {
+    if (!navigator.clipboard) throw new Error('clipboard unavailable')
+    await navigator.clipboard.writeText(JSON.stringify(def.value, null, 2))
+    toast('已复制策略原文。')
+  } catch { toast('无法访问剪贴板，请选中策略原文后手动复制。', 'warn') }
+}
 
 const busy = ref(false)
 const reason = ref('')
-const formError = ref('')
+const formError = useActionError()
 const canRename = computed(() => can('policy.draft'))
 const naming = reactive({ displayName: '', notes: '' })
 function enter(m: Mode) {

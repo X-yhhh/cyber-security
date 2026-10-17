@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useActionError } from '@/composables/actionError'
 /**
  * 登记传感器 / 执行器（sensor.manage，接口设计第 2 节 POST /sensors、/executors）。
  *
@@ -16,7 +17,7 @@ const emit = defineEmits<{ sensor: [body: SensorCreate]; executor: [body: Execut
 
 const kind = ref<'sensors' | 'executors'>('sensors')
 const form = reactive({ assetId: '', manualAsset: '', platform: 'macos' as Platform, captureScopeId: '', capabilityProbeRef: '', displayName: '', notes: '' })
-const error = ref('')
+const error = useActionError()
 /** 退役资产不能接入新设备，下拉中不列出。 */
 const choices = computed(() => props.assets.filter((a) => a.status !== 'retired'))
 

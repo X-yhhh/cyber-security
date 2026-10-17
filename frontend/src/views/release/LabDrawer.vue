@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useActionError } from '@/composables/actionError'
 /**
  * lab 会话资格抽屉（发布管理 `?tab=validation&record=lab&id=`，待办中心的 lab 资格审批直达这里）。
  *
@@ -47,7 +48,7 @@ const cleanupLabel: Record<string, string> = { not_asserted: '会话不断言清
 
 const busy = ref(false)
 const reason = ref('')
-const formError = ref('')
+const formError = useActionError()
 function enter(m: Mode) { mode.value = m; reason.value = ''; formError.value = '' }
 function confirm() {
   const r = run.value

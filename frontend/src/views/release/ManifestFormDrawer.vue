@@ -1,11 +1,12 @@
 <script setup lang="ts">
+import { useActionError } from '@/composables/actionError'
 /**
  * 模型与数据集的登记表单（model.manage / dataset.manage）。
  *
  * 只登记受控制品根内的 manifest 引用与原字节 SHA-256，不接受任意 URL；后端读取并核验 manifest 后写入台账。
  * 显示名与说明可选，登记后可编辑；manifest 内容不可修改，换版本须重新登记。提交与重读由父页面负责。
  */
-import { reactive, ref, watch } from 'vue'
+import { reactive, watch } from 'vue'
 import Drawer from '@/components/Drawer.vue'
 import { isSha256, RELEASE_FIELDS, type ManifestRegistration } from '@/api/v2/release'
 
@@ -13,7 +14,7 @@ const props = defineProps<{ open: boolean; kind: 'models' | 'datasets'; busy?: b
 const emit = defineEmits<{ submit: [body: ManifestRegistration]; close: [] }>()
 
 const form = reactive({ manifestRef: '', manifestSha256: '', displayName: '', notes: '' })
-const error = ref('')
+const error = useActionError()
 watch(() => props.open, (v) => { if (v) { Object.assign(form, { manifestRef: '', manifestSha256: '', displayName: '', notes: '' }); error.value = '' } })
 
 function submit() {

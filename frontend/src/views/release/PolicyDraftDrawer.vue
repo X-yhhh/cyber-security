@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useActionError } from '@/composables/actionError'
 /**
  * 起草决策策略（policy.draft）：上传或粘贴策略 JSON，客户端按仓库 Schema 与静态不变量预校验，逐字段显示错误。
  *
@@ -20,7 +21,7 @@ const MAX_BYTES = 256 * 1024
 const text = ref('')
 const fileName = ref('')
 const check = ref<PolicyCheck | null>(null)
-const error = ref('')
+const error = useActionError()
 const busy = ref(false)
 watch(() => props.open, (v) => { if (v) { text.value = ''; fileName.value = ''; check.value = null; error.value = '' } })
 

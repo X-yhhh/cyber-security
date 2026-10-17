@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useActionError } from '@/composables/actionError'
 /**
  * 建立冻结评价计划（evaluation.run）：登记 P6 在读取测试集前冻结的计划原件。
  * 只提交原件引用与原字节 SHA-256；后端读取原件并核对阶段、评价口径、特征档案摘要与「未提前读取测试集」声明。
@@ -14,7 +15,7 @@ const props = defineProps<{ open: boolean }>()
 const emit = defineEmits<{ created: [id: string]; close: [] }>()
 
 const form = reactive({ planRef: '', planSha256: '' })
-const error = ref('')
+const error = useActionError()
 const busy = ref(false)
 watch(() => props.open, (v) => { if (v) { Object.assign(form, { planRef: '', planSha256: '' }); error.value = '' } })
 

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useActionError } from '@/composables/actionError'
 /**
  * 用户详情抽屉（用户管理 `?id=`）：资料、角色绑定与会话说明；抽屉内切换模式，不叠第二个抽屉。
  *
@@ -56,7 +57,7 @@ const stateNote = computed(() => {
 
 /* ---------------- 模式 ---------------- */
 const busy = ref(false)
-const formError = ref('')
+const formError = useActionError()
 const reason = ref('')
 const edit = reactive({ username: '', displayName: '' })
 const secret = reactive({ password: '', confirm: '' })

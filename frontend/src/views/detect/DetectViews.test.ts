@@ -233,7 +233,7 @@ describe('检测记录（/console/detect/records）', () => {
     wrapper!.unmount()
     server.use(http.get('/api/v2/observation-batches', () => HttpResponse.json({ requestId: 'req-obs-err', data: null, error: { code: 'INTERNAL_ERROR', message: '批次读取失败' } }, { status: 500 })))
     const second = await open(singleRoleUsers.auditor, '/console/detect/records?tab=batches')
-    expect(second.w.get('[role="alert"]').text()).toBe('批次读取失败（request-id req-obs-err）')
+    expect(second.w.get('[role="alert"]').text()).toBe('数据加载失败批次读取失败（request-id req-obs-err）')
   })
 
   it('界面不出现内部编号', async () => {
@@ -293,7 +293,7 @@ describe('事件研判列表与详情（/console/detect/events & /console/detect
   it('事件列表错误态显示 request-id', async () => {
     server.use(http.get('/api/v2/events', () => HttpResponse.json({ requestId: 'req-evt-500', data: null, error: { code: 'INTERNAL_ERROR', message: '事件查询失败' } }, { status: 500 })))
     const { w } = await open(singleRoleUsers.auditor, '/console/detect/events')
-    expect(w.get('[role="alert"]').text()).toBe('事件查询失败（request-id req-evt-500）')
+    expect(w.get('[role="alert"]').text()).toBe('数据加载失败事件查询失败（request-id req-evt-500）')
   })
 
   it('详情页：分析员可执行状态迁移、指派负责人、追加研判记录与人工处置申请（均带幂等键与 If-Match）', async () => {
@@ -554,6 +554,6 @@ describe('误报反馈（/console/detect/feedback）', () => {
     document.body.innerHTML = ''
     server.use(http.get('/api/v2/feedback', () => HttpResponse.json({ requestId: 'req-fb-500', data: null, error: { code: 'INTERNAL_ERROR', message: '反馈读取失败' } }, { status: 500 })))
     const errView = await open(singleRoleUsers.security_analyst, '/console/detect/feedback')
-    expect(errView.w.get('[role="alert"]').text()).toBe('反馈读取失败（request-id req-fb-500）')
+    expect(errView.w.get('[role="alert"]').text()).toBe('数据加载失败反馈读取失败（request-id req-fb-500）')
   })
 })

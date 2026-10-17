@@ -16,11 +16,12 @@ vi.mock('@/api/session', async (importOriginal) => {
 import AccountMenu from './AccountMenu.vue'
 import ToastHost from './ToastHost.vue'
 import { session } from '@/api/session'
+import { alerts, toasts } from '@/composables/toast'
 import { singleRoleUsers } from '@/test/roles'
 
 const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/:p(.*)*', name: 'login', component: { render: () => null } }] })
 
-beforeEach(() => { session.user = singleRoleUsers.auditor as unknown as typeof session.user; changePassword.mockReset() })
+beforeEach(() => { alerts.splice(0); toasts.splice(0); session.user = singleRoleUsers.auditor as unknown as typeof session.user; changePassword.mockReset() })
 afterEach(() => { session.user = null; document.body.innerHTML = '' })
 
 async function open() {
@@ -68,12 +69,13 @@ describe('修改口令', () => {
     submit.click()
     await vi.waitFor(() => expect(document.querySelector('[data-password-failure]')).not.toBeNull())
     expect(changePassword).toHaveBeenCalledWith('old-password-123', 'new-password-456')
+    expect(alerts[0]?.text).toContain('当前口令不正确')
     w.unmount()
   })
 
   it('提示层叠放在抽屉之上', () => {
     const t = mount(ToastHost)
-    expect(t.get('[aria-live]').classes()).toContain('z-[60]')
+    expect(document.querySelector('[aria-live]')?.classList.contains('z-[60]')).toBe(true)
     t.unmount()
   })
 })

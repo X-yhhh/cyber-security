@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useActionError } from '@/composables/actionError'
 /**
  * 登录。左侧复用首屏粒子场景的"边界"形态作为品牌延续，右侧是极简表单。
  * 通过 session.ts 提交到 /api/v2/auth/login 建立服务端会话；失败使用后端稳定且脱敏的消息
@@ -8,6 +9,7 @@ import { onBeforeUnmount, onMounted, ref, shallowRef } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { login } from '@/api/session'
 import { ApiError } from '@/api/client'
+import { errText } from '@/composables/load'
 import { ArrowLeft, ArrowRight } from 'lucide-vue-next'
 import { ThreatScene } from '@/three/ThreatScene'
 
@@ -18,7 +20,7 @@ const canvas = ref<HTMLCanvasElement>()
 const scene = shallowRef<ThreatScene>()
 const username = ref('')
 const password = ref('')
-const error = ref('')
+const error = useActionError()
 const busy = ref(false)
 
 let t = 0
@@ -54,7 +56,7 @@ async function submit() {
     const to = typeof route.query.redirect === 'string' && route.query.redirect.startsWith('/console') ? route.query.redirect : '/console'
     router.push(to)
   } catch (e) {
-    error.value = e instanceof ApiError ? e.message : '登录失败，请稍后重试。'
+    error.value = e instanceof ApiError ? errText(e) : '登录失败，请稍后重试。'
     requestId.value = e instanceof ApiError ? e.requestId ?? '' : ''
   } finally {
     busy.value = false
@@ -91,7 +93,7 @@ async function submit() {
           </label>
         </div>
 
-        <p class="mt-6 h-5 text-[13px] text-threat" role="alert">{{ error }}</p>
+        <p class="mt-6 min-h-5 break-words text-[13px] text-threat" role="alert">{{ error }}</p>
 
         <button type="submit" class="act mt-4 w-full justify-between" :disabled="busy">
           {{ busy ? '正在验证…' : '登录' }}

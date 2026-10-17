@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useActionError } from '@/composables/actionError'
 /**
  * 二次确认抽屉（前端设计文档第 3.5 节第 8 条）：停用、退役、撤销、吊销、删除前写明影响，必要时填写写入审计的理由。
  *
@@ -15,7 +16,7 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{ confirm: [reason: string]; close: [] }>()
 
 const text = ref('')
-const error = ref('')
+const error = useActionError()
 watch(() => props.open, () => { text.value = ''; error.value = '' })
 
 function submit() {

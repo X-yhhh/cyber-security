@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useActionError } from '@/composables/actionError'
 /**
  * 模型 / 数据集详情抽屉（模型与数据集页 `?tab=models|datasets&id=`，待办中心的待校验模型直达这里）。
  *
@@ -112,7 +113,7 @@ const stateNote = computed(() => {
 
 /* ---------------- 写操作 ---------------- */
 const busy = ref(false)
-const formError = ref('')
+const formError = useActionError()
 const edit = reactive({ displayName: '', notes: '' })
 const reason = ref('')
 function enter(m: Mode) {

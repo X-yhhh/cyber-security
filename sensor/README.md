@@ -103,3 +103,9 @@ A7 本轮只完成本机配置与恢复检查：`en0` 活跃、TSO4/TSO6 开启�
 `guardreplaydiff` 对 `lab_pcap_replay` 摘要自动进入 lab 对拍：除已登记差异字段（`emittedAt,environment,peerKey,targetRef,targetExpiresAt,quality.clockSkewMs`，多场景另加 ID 三项）外，与 research 离线提取逐字段比较。健康链补充了回环替身后端端到端测试（窗口连续、缺口、未知计数、断连重连、重复证明拒绝）。这些都是离线合成验证，不是现场长期采集或 G3 证据。
 
 配置、身份分离、初始注册、事件交接、原字节续传、限制及与 lab 线的字段对齐见[完整接入契约](../docs/contracts/sensor-lab.md)。lab 后端新接口仍在其分支待合入，缺少 `runnable=true` 时本入口明确拒绝。research 路径保持原行为；本线不含前端、常驻部署或真实防火墙操作。
+
+## 演示专用 utun 采集
+
+`guardlive` 的 `captureScope=lab_peer_tcp` 仅允许 environment=lab、一个本机/一个不同对端的 Tailscale IPv4、utun 接口、最多128个非重复高位 `servicePorts` 与固定私有 `captureLockDir`。按接口加锁，同接口第二个进程失败；不同接口可共存，仍须实际 BPF 权限。`liveTargets` 仅用于此范围并要求实时上传；向本地 mTLS 解析器取得短期目标，inboundPorts 映射全入站，其他登记服务映射单服务。生成配置和准备流程见 [演示工具](../scripts/demo/README.md)。
+
+现场读取使用 libpcap immediate mode/25ms 超时。排队包不被读取墙钟强行越过，只有真实空闲超时推进墙钟水位；100ms 重排边界与真正 latePacket 语义不变。合成包与过滤器测试通过不等于 utun 现场方向、权限、丢包率或模型效果已经验证。本次未启动采集或修改 en0 部署。

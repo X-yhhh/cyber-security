@@ -206,3 +206,30 @@ func TestMissingVectorAndCapacityBudgets(t *testing.T) {
 		t.Fatal("连接身份表超限未拒绝")
 	}
 }
+
+// 队列中包的读取墙钟远晚于包时间，也不能把正常顺序包标成迟到；真正乱序仍拒绝。
+func TestBufferedPacketsDoNotAdvanceWallClockWatermark(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		ms   []int
+		late bool
+	}{
+		{"buffered", []int{0, 50, 100, 200}, false},
+		{"late", []int{0, 500, 10, 600}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var rows []Observation
+			e, _ := New(config(&rows))
+			s := &liveFixture{}
+			for _, ms := range tc.ms {
+				s.frames = append(s.frames, synth.Build(synth.Spec{TS: epoch.Add(time.Duration(ms) * time.Millisecond), Src: peer, Dst: host, SPort: 40000, DPort: 53, Proto: 17, Payload: 10}, 256))
+			}
+			if err := RunLive(context.Background(), s, e, func() time.Time { return epoch.Add(5 * time.Second) }); err != nil {
+				t.Fatal(err)
+			}
+			if (e.Stats["late_packets"] > 0) != tc.late {
+				t.Fatalf("迟到判定错误: %v", e.Stats)
+			}
+		})
+	}
+}

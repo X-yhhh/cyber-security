@@ -239,3 +239,27 @@ func TestConfigBoundaries(t *testing.T) {
 		t.Fatal("多模式未拒绝")
 	}
 }
+
+// 演示范围不能退回 en0、真实资产或宽泛地址；无需打开任何捕获句柄。
+func TestLabPeerConfigBoundaries(t *testing.T) {
+	valid := map[string]any{"assetId": assetID, "sensorId": sensor, "bootId": "00000000-0000-4000-8000-0000000000b2", "captureScopeId": scope,
+		"environment": "lab", "captureScope": "lab_peer_tcp", "localAddresses": []string{"100.64.0.10"}, "peerAddresses": []string{"100.64.0.20"},
+		"servicePorts": []int{55280, 55300}, "interface": "utun9", "captureLockDir": "/private-demo/locks"}
+	d := t.TempDir()
+	file := filepath.Join(d, "lab.json")
+	writeFile(t, file, valid)
+	if _, err := loadConfig(file); err != nil {
+		t.Fatal(err)
+	}
+	for key, value := range map[string]any{"environment": "authorized", "interface": "en0", "captureLockDir": "", "peerAddresses": []string{"8.8.8.8"}, "servicePorts": []int{22}, "servicePort": 55280} {
+		c := map[string]any{}
+		for k, v := range valid {
+			c[k] = v
+		}
+		c[key] = value
+		writeFile(t, file, c)
+		if _, err := loadConfig(file); err == nil {
+			t.Fatalf("越界 %s 未拒绝", key)
+		}
+	}
+}

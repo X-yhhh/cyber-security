@@ -19,7 +19,7 @@ import sys
 import time
 
 RUNS = "/private/var/root/hostguard-lab"
-TASKS = ("p1-probe", "e1e2-lab", "e3-executor", "g3-executor")
+TASKS = ("p1-probe", "e1e2-lab", "e3-executor", "g3-executor", "demo-executor")
 E3_SECRETS = ("credential", "budget.key", "targetKey.pem")
 
 
@@ -75,7 +75,7 @@ def main():
     args = parser.parse_args()
     if (args.task == "e3-executor") != bool(args.rendezvous and args.scope and args.scenario):
         fail("E3_ROUND_ARGUMENTS_REQUIRED")
-    if args.task == "g3-executor" and not (args.rendezvous and not args.scope and not args.scenario and 60 <= args.max_seconds <= 7200):
+    if args.task in ("g3-executor", "demo-executor") and not (args.rendezvous and not args.scope and not args.scenario and 60 <= args.max_seconds <= 7200):
         fail("G3_ARGUMENTS_REQUIRED")
     if os.geteuid() != 0 or sys.flags.isolated != 1:
         fail("ROOT_ISOLATED_PYTHON_REQUIRED")
@@ -107,6 +107,11 @@ def main():
            "PYTHONDONTWRITEBYTECODE": "1", "HOSTGUARD_LAB_AUTHORIZATION": args.authorization_reference,
            "DYLD_LIBRARY_PATH": os.path.join(bundle, manifest["dyldLibraryPath"]),
            "DYLD_FRAMEWORK_PATH": os.path.join(bundle, manifest["dyldFrameworkPath"])}
+    if args.task == "demo-executor":
+        boundary = os.path.join(bundle, "demo-boundary.json")
+        if not os.path.isfile(boundary):
+            fail("DEMO_FROZEN_BOUNDARY_REQUIRED")
+        env["HOSTGUARD_DEMO_BOUNDARY"] = boundary
     evidence = os.path.join(run, "evidence")
     record = {"runId": args.run_id, "task": args.task, "commit": manifest["commit"],
               "manifestSha256": args.manifest_sha256, "authorizationReference": args.authorization_reference,
@@ -126,7 +131,7 @@ def main():
     elif args.task == "e1e2-lab":
         command = [python, "-B", "-s", "-m", "executor.pf_lab", "--directory", evidence,
                    "--guardtargets", os.path.join(bundle, "guardtargets")]
-    elif args.task == "g3-executor":
+    elif args.task in ("g3-executor", "demo-executor"):
         # 正式 G3：常驻执行器与独立恢复器，只读取 rendezvous 中 owner 所有的数据文件。
         if not os.path.isabs(args.rendezvous) or os.path.realpath(args.rendezvous) != args.rendezvous:
             fail("E3_RENDEZVOUS_INVALID")
@@ -141,7 +146,8 @@ def main():
             os.close(marker)
         os.mkdir(evidence, 0o700)
         record.update(rendezvous=args.rendezvous, maxSeconds=args.max_seconds)
-        command = [python, "-B", "-s", os.path.join(app, "scripts/p5/g3_executor.py"), "--directory", args.rendezvous,
+        script = "scripts/demo/root_executor.py" if args.task == "demo-executor" else "scripts/p5/g3_executor.py"
+        command = [python, "-B", "-s", os.path.join(app, script), "--directory", args.rendezvous,
                    "--work", evidence, "--owner-uid", str(args.owner_uid), "--max-seconds", str(args.max_seconds)]
     else:
         # 单轮 E3：等待用户态中继建好管道；只读其数据文件的副本，root 工作目录即证据目录。
@@ -181,7 +187,7 @@ def main():
         # 子任务输出另存一份随证据交回，便于定位失败；原 launch.log 仍保留在 root 目录。
         with open(os.path.join(run, "task.log"), "xb") as task_log:
             try:
-                exit_code = subprocess.run(command, cwd=app, env=env, timeout=args.max_seconds + 600 if args.task == "g3-executor" else 1800, stdout=task_log,
+                exit_code = subprocess.run(command, cwd=app, env=env, timeout=args.max_seconds + 600 if args.task in ("g3-executor", "demo-executor") else 1800, stdout=task_log,
                                            stderr=subprocess.STDOUT).returncode
             except subprocess.TimeoutExpired:
                 # run() 已终止并回收子任务；照常写启动记录并交回证据，记为失败。

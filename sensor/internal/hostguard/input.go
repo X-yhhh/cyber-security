@@ -154,6 +154,9 @@ type LiveSource interface {
 
 var ErrCaptureTimeout = errors.New("capture timeout")
 
+// ErrCaptureFiltered 只表示丢弃设置过滤器前排队的范围外包，不能作为队列已空的证据。
+var ErrCaptureFiltered = errors.New("capture filtered")
+
 // RunLive 接受已由调用方授权/打开的捕获句柄，不自行选择网卡或申请系统权限。
 func RunLive(ctx context.Context, s LiveSource, e *Engine, now func() time.Time) error {
 	return RunLiveTrace(ctx, s, e, now, nil)
@@ -241,6 +244,7 @@ func RunLiveObserved(ctx context.Context, s LiveSource, e *Engine, now func() ti
 	}
 	for ctx.Err() == nil {
 		b, ci, err := s.Next()
+		timedOut := errors.Is(err, ErrCaptureTimeout)
 		at := now()
 		if err == nil {
 			seq++
@@ -250,7 +254,7 @@ func RunLiveObserved(ctx context.Context, s LiveSource, e *Engine, now func() ti
 			}
 		} else if errors.Is(err, io.EOF) {
 			return apply(LiveEvent{Kind: "close", At: at})
-		} else if !errors.Is(err, ErrCaptureTimeout) {
+		} else if !errors.Is(err, ErrCaptureTimeout) && !errors.Is(err, ErrCaptureFiltered) {
 			if gapErr := apply(LiveEvent{Kind: "gap", At: at}); gapErr != nil {
 				return errors.Join(err, gapErr)
 			}
@@ -262,8 +266,12 @@ func RunLiveObserved(ctx context.Context, s LiveSource, e *Engine, now func() ti
 				return err
 			}
 		}
-		if err = apply(LiveEvent{Kind: "tick", At: at, DropsKnown: known, Drops: drops}); err != nil {
-			return err
+		// 仍在排空内核队列时以包时间推进（Frame 已执行），不能用读取墙钟越过尚未读出的包。
+		// 仅真正空闲超时推进墙钟；不扩大 100ms 重排窗口，不修改捕获时间或质量标记。
+		if timedOut {
+			if err = apply(LiveEvent{Kind: "tick", At: at, DropsKnown: known, Drops: drops}); err != nil {
+				return err
+			}
 		}
 		if err = sample(at, gap); err != nil {
 			return err

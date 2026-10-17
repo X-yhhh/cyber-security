@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-// PCAPLive 仅打开明确白名单中的 Ethernet/RAW/回环接口；非混杂、100ms超时。
+// PCAPLive 仅打开明确白名单中的 Ethernet/RAW/回环接口；非混杂、立即读取、25ms超时。
 // 只输出头部统计；实际采集范围和时限由 live CLI 的显式授权配置限定。
 type PCAPLive struct {
 	h     *pcap.Handle
@@ -29,7 +29,7 @@ func OpenPCAPLive(iface string, allowed []string) (*PCAPLive, error) {
 	}
 	defer in.CleanUp()
 	// 提取只保留头部事件，但必须瞬时读全报文才能区分真实截短与完整载荷。
-	for _, err := range []error{in.SetSnapLen(65535), in.SetPromisc(false), in.SetTimeout(100 * time.Millisecond)} {
+	for _, err := range []error{in.SetSnapLen(65535), in.SetPromisc(false), in.SetTimeout(25 * time.Millisecond), in.SetImmediateMode(true)} {
 		if err != nil {
 			return nil, err
 		}
@@ -113,6 +113,46 @@ func allInboundScopeFilter(local []netip.Addr) (string, error) {
 	return "tcp and ((" + dst + " and not " + src + ") or (" + src + " and not " + dst + "))", nil
 }
 
+// ScopeLabPeer 只在明确的 lab 对端与登记端口间保留双向 TCP；不接受任意 BPF。
+func (s *PCAPLive) ScopeLabPeer(local, peers []netip.Addr, ports []uint16) error {
+	filter, err := labPeerScopeFilter(local, peers, ports)
+	if err != nil {
+		return err
+	}
+	bpf, err := pcap.NewBPF(s.h.LinkType(), 65535, filter)
+	if err != nil {
+		return err
+	}
+	if err = s.h.SetBPFFilter(filter); err != nil {
+		return err
+	}
+	s.scope = bpf
+	return nil
+}
+
+func labPeerScopeFilter(local, peers []netip.Addr, ports []uint16) (string, error) {
+	if len(local) != 1 || len(peers) != 1 || len(ports) == 0 || len(ports) > 128 {
+		return "", fmt.Errorf("lab 必须限定一个本机、一个对端与最多 128 个端口")
+	}
+	if !local[0].Is4() || !peers[0].Is4() {
+		return "", fmt.Errorf("lab 只支持 IPv4")
+	}
+	parts := make([]string, 0, len(ports))
+	seen := map[uint16]bool{}
+	for _, port := range ports {
+		if seen[port] {
+			return "", fmt.Errorf("lab 端口重复")
+		}
+		seen[port] = true
+		f, err := serviceScopeFilter(local, peers, port, "local")
+		if err != nil {
+			return "", err
+		}
+		parts = append(parts, "("+f+")")
+	}
+	return strings.Join(parts, " or "), nil
+}
+
 func scopeFilter(local, peers []netip.Addr, port uint16) (string, error) {
 	return serviceScopeFilter(local, peers, port, "local")
 }
@@ -155,7 +195,7 @@ func (s *PCAPLive) Next() ([]byte, gopacket.CaptureInfo, error) {
 	if err == nil {
 		// 拒绝设置窄过滤前可能已入内核队列的范围外包，不能送入轨迹或特征。
 		if !s.scope.Matches(c, b) {
-			return nil, gopacket.CaptureInfo{}, ErrCaptureTimeout
+			return nil, gopacket.CaptureInfo{}, ErrCaptureFiltered
 		}
 		return normalizeLink(b, c, s.h.LinkType())
 	}

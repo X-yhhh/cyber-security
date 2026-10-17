@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"sync"
 	"syscall"
@@ -29,6 +30,7 @@ import (
 const (
 	scopeService    = "service"
 	scopeAllInbound = "all_inbound_tcp"
+	scopeLabPeer    = "lab_peer_tcp"
 )
 
 // uploadConfig 只含路径与地址；凭据、私钥由文件提供，不经命令行或日志。
@@ -43,23 +45,26 @@ type uploadConfig struct {
 }
 
 type config struct {
-	AssetID           string           `json:"assetId"`
-	SensorID          string           `json:"sensorId"`
-	BootID            string           `json:"bootId"`
-	CaptureScopeID    string           `json:"captureScopeId"`
-	Environment       string           `json:"environment"`
-	CaptureScope      string           `json:"captureScope"`
-	LocalAddresses    []netip.Addr     `json:"localAddresses"`
-	PeerAddresses     []netip.Addr     `json:"peerAddresses"`
-	ServicePort       uint16           `json:"servicePort"`
-	ServiceEndpoint   string           `json:"serviceEndpoint"`
-	SecretFile        string           `json:"secretFile"`
-	KeyEpoch          int              `json:"keyEpoch"`
-	Interface         string           `json:"interface"`
-	AllowedInterfaces []string         `json:"allowedInterfaces"`
-	AuthorizedUntil   time.Time        `json:"authorizedUntil"`
-	Upload            *uploadConfig    `json:"upload"`
-	Lab               *guardlab.Config `json:"lab,omitempty"`
+	AssetID           string            `json:"assetId"`
+	SensorID          string            `json:"sensorId"`
+	BootID            string            `json:"bootId"`
+	CaptureScopeID    string            `json:"captureScopeId"`
+	Environment       string            `json:"environment"`
+	CaptureScope      string            `json:"captureScope"`
+	LocalAddresses    []netip.Addr      `json:"localAddresses"`
+	PeerAddresses     []netip.Addr      `json:"peerAddresses"`
+	ServicePorts      []uint16          `json:"servicePorts,omitempty"`
+	LiveTargets       *liveTargetConfig `json:"liveTargets,omitempty"`
+	ServicePort       uint16            `json:"servicePort"`
+	ServiceEndpoint   string            `json:"serviceEndpoint"`
+	SecretFile        string            `json:"secretFile"`
+	KeyEpoch          int               `json:"keyEpoch"`
+	Interface         string            `json:"interface"`
+	CaptureLockDir    string            `json:"captureLockDir,omitempty"`
+	AllowedInterfaces []string          `json:"allowedInterfaces"`
+	AuthorizedUntil   time.Time         `json:"authorizedUntil"`
+	Upload            *uploadConfig     `json:"upload"`
+	Lab               *guardlab.Config  `json:"lab,omitempty"`
 	labSession        *guardlab.Session
 }
 
@@ -109,6 +114,21 @@ func loadConfig(path string) (config, error) {
 		return c, guardlab.ErrAdmission
 	}
 	switch c.CaptureScope {
+	case scopeLabPeer:
+		if c.Environment != "lab" || len(c.LocalAddresses) != 1 || len(c.PeerAddresses) != 1 || len(c.ServicePorts) == 0 || len(c.ServicePorts) > 128 || c.ServicePort != 0 || c.ServiceEndpoint != "" || c.Lab != nil {
+			return c, fmt.Errorf("lab_peer_tcp 范围无效")
+		}
+		tailnet := netip.MustParsePrefix("100.64.0.0/10")
+		if !tailnet.Contains(c.LocalAddresses[0]) || !tailnet.Contains(c.PeerAddresses[0]) || c.LocalAddresses[0] == c.PeerAddresses[0] || !regexp.MustCompile(`^utun[0-9]+$`).MatchString(c.Interface) || c.CaptureLockDir == "" {
+			return c, fmt.Errorf("lab 必须为独立的 Tailscale IPv4、utun 接口与采集锁目录")
+		}
+		seen := map[uint16]bool{}
+		for _, p := range c.ServicePorts {
+			if p < 1024 || seen[p] {
+				return c, fmt.Errorf("lab 端口无效")
+			}
+			seen[p] = true
+		}
 	case scopeService:
 	case scopeAllInbound:
 		// 全入站范围不接受对端/端口白名单，避免与单服务语义混用。
@@ -116,7 +136,10 @@ func loadConfig(path string) (config, error) {
 			return c, fmt.Errorf("all_inbound_tcp 不能同时登记对端或服务端口")
 		}
 	default:
-		return c, fmt.Errorf("captureScope 必须为 service 或 all_inbound_tcp")
+		return c, fmt.Errorf("captureScope 必须为 service、all_inbound_tcp 或 lab_peer_tcp")
+	}
+	if c.CaptureScope != scopeLabPeer && (len(c.ServicePorts) > 0 || c.LiveTargets != nil) {
+		return c, fmt.Errorf("现场目标配置只适用于 lab_peer_tcp")
 	}
 	for _, addr := range c.LocalAddresses {
 		if !addr.IsValid() || addr.IsUnspecified() || addr.IsMulticast() || addr.Zone() != "" {
@@ -485,6 +508,13 @@ func run() (runErr error) {
 	if c.labSession != nil {
 		engineConfig.Lease = c.labSession.Lease
 		engineConfig.LocalAddresses = []netip.Addr{c.labSession.Local.OriginalLocal}
+	}
+	if c.LiveTargets != nil {
+		lease, err := liveLease(c)
+		if err != nil {
+			return err
+		}
+		engineConfig.Lease = lease
 	}
 	e, err := hostguard.New(engineConfig)
 	if err != nil {

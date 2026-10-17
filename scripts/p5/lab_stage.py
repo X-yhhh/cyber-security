@@ -36,6 +36,7 @@ def main():
     parser.add_argument("--guardtargets", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--subject-binding", type=Path, help="K6：运行前冻结的 bundleId、完整 subject 和 JCS 摘要")
+    parser.add_argument("--demo-boundary", type=Path, help="演示 root 固定身份、地址、端口和保护集；纳入逐文件清单")
     args = parser.parse_args()
     output = args.output.resolve()
     if output.exists():
@@ -46,7 +47,8 @@ def main():
     stage = output / "stage"
     app = stage / "app"
     app.mkdir(parents=True)
-    archive = subprocess.run(["git", "-C", str(ROOT), "archive", "--format=tar", commit, *APP_PATHS],
+    app_paths = (*APP_PATHS, "scripts/demo") if args.demo_boundary else APP_PATHS
+    archive = subprocess.run(["git", "-C", str(ROOT), "archive", "--format=tar", commit, *app_paths],
                              capture_output=True, check=True).stdout
     subprocess.run(["/usr/bin/tar", "-x", "-C", str(app)], input=archive, check=True)
     base = Path(sys.base_prefix)
@@ -71,6 +73,13 @@ def main():
         from executor.common import canonical
         binding=validate(json.loads(args.subject_binding.read_bytes()))
         (stage/'subject-binding.json').write_bytes(canonical(binding))
+    if args.demo_boundary:
+        from scripts.demo.common import load
+        from scripts.demo.root_executor import validate_boundary
+        boundary = validate_boundary(load(args.demo_boundary))
+        if not binding or binding["bundleId"] != boundary["bundleId"] or binding["subjectSha256"] != boundary["subjectSha256"]:
+            raise SystemExit("demo requires matching subject binding")
+        (stage / "demo-boundary.json").write_text(json.dumps(boundary, sort_keys=True))
     files, links = {}, {}
     for path in sorted(stage.rglob("*")):
         relative = str(path.relative_to(stage))
@@ -82,7 +91,7 @@ def main():
             links[relative] = target
         elif path.is_file():
             files[relative] = {"sha256": sha(path), "executable": os.access(path, os.X_OK)}
-    manifest = {"kind": "hostguard-lab-root-stage/1", "commit": commit, "appPaths": list(APP_PATHS),
+    manifest = {"kind": "hostguard-lab-root-stage/1", "commit": commit, "appPaths": list(app_paths),
                 "python": f"python/Python.framework/Versions/{base.name}/bin/{executable}",
                 "pythonVersion": sys.version.split()[0], "files": files, "symlinks": links,
                 "dyldLibraryPath": f"python/Python.framework/Versions/{base.name}/lib",

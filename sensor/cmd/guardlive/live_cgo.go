@@ -13,12 +13,19 @@ import (
 // Windows 的 gopacket 通过系统调用加载 Npcap；只有 Unix libpcap 需要 cgo。
 // all_inbound_tcp 只绑定本机登记地址；service 继续绑定登记对端与服务端口。
 func capture(ctx context.Context, c config, e *hostguard.Engine, emit func(any) error, observer *capturehealth.Observer, check func() error) error {
+	unlock, err := captureLock(c.CaptureLockDir, c.Interface)
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	s, err := hostguard.OpenPCAPLive(c.Interface, c.AllowedInterfaces)
 	if err != nil {
 		return err
 	}
 	defer s.Close()
-	if c.CaptureScope == scopeAllInbound {
+	if c.CaptureScope == scopeLabPeer {
+		err = s.ScopeLabPeer(c.LocalAddresses, c.PeerAddresses, c.ServicePorts)
+	} else if c.CaptureScope == scopeAllInbound {
 		err = s.ScopeAllInbound(c.LocalAddresses)
 	} else {
 		err = s.ScopeService(c.LocalAddresses, c.PeerAddresses, c.ServicePort, c.ServiceEndpoint)

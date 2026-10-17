@@ -1,0 +1,5 @@
+# Mac 总控复用 executor 的固定依赖；不安装到系统 Python。
+-r ../../executor/requirements.txt
+PyMySQL==1.1.1
+# 仅选择 SSH 靶服务/登录场景时需要。Windows 默认 worker 仅需标准库及 Nmap/Npcap。
+paramiko==4.0.0

@@ -54,6 +54,8 @@ CGO_ENABLED=0 go build -o bin/guardextract ./cmd/guardextract
 
 ## v5 有期限的实时采集
 
+已登记的本机还支持[后端生命周期内持续监测](../docs/传感器持续监测.md)：就绪后自动启动、退出时停止；原短窗口模式保留。持续模式与真实接口授权、机器 mTLS 及已批准构建共同校验，不能单独使用 `-duration 0` 绕过准入。
+
 `cmd/guardlive` 复用同一因果引擎，记录同一捕获句柄的头部、Tick、drop/gap及关闭事件，使用 `-replay` 逐字节复算。macOS依赖cgo/libpcap；Windows的gopacket通过系统调用加载已安装Npcap，**不要求cgo或Npcap SDK**。构建标签为 `cgo || windows`，不是把Windows实时请求静默转为离线处理。
 
 ```sh

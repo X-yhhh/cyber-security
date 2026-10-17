@@ -1,8 +1,14 @@
 spring:
+  config:
+    # 仅在本机已完成登记时启用 TLS、真实消费与随服务采集；秘密仍留在受控运行目录。
+    import: optional:file:${CYBER_LOCAL_SENSOR_CONFIG:${user.home}/Workspace/development/services/security/cyber-security/config/local-sensor.properties}
   session:
     jdbc:
       initialize-schema: never
 cyber:
+  model-artifact:
+    # 本机历史 active 模型的恢复仍须校验制品；只为 local 提供约定目录，其他环境必须显式配置。
+    root: ${MODEL_ARTIFACT_ROOT:${user.home}/Workspace/deliveries}
   security:
     local-admin-bootstrap:
       enabled: ${LOCAL_ADMIN_BOOTSTRAP_ENABLED:true}

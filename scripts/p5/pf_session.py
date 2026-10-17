@@ -23,7 +23,7 @@ def owned_rules_remain(text):
 
 
 @contextmanager
-def session(directory, executor_id, authorization):
+def session(directory, executor_id, authorization, *, loopback_alias=True):
     """未知根规则/既有别名拒绝；恢复前核对原始字节，不覆盖并行修改。
 
     调用方须先停执行器与恢复进程并清空其规则。失败证据保留在外部目录，
@@ -54,8 +54,9 @@ def session(directory, executor_id, authorization):
         # 即使工具异常也尝试核对恢复；不把“命令返回失败”当作“没有变更”。
         root_changed = True
         command(["/sbin/pfctl", "-R", "-f", "-"], attached, binary=True)
-        alias = True
-        command(["/sbin/ifconfig", "lo0", "alias", "127.0.0.2", "netmask", "255.255.255.255"])
+        if loopback_alias:
+            alias = True
+            command(["/sbin/ifconfig", "lo0", "alias", "127.0.0.2", "netmask", "255.255.255.255"])
         out, err = command(["/sbin/pfctl", "-E"])
         found = re.search(r"Token\s*:\s*(\d+)", out + err)
         require(found is not None, "LAB_ENABLE_TOKEN_MISSING")

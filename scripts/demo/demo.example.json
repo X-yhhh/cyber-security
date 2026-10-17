@@ -1,0 +1,82 @@
+{
+  "version": "hostguard-demo/1",
+  "macAddress": "100.64.0.10",
+  "peerAddress": "100.64.0.20",
+  "ports": {
+    "http": 55280,
+    "ftp": 55221,
+    "ssh": 55222,
+    "scan": [
+      55300,
+      55301,
+      55302,
+      55303,
+      55304,
+      55305,
+      55306,
+      55307,
+      55308,
+      55309,
+      55310,
+      55311,
+      55312,
+      55313,
+      55314,
+      55315
+    ]
+  },
+  "protection": {
+    "protectedServicePorts": [
+      22,
+      18080,
+      18082,
+      41641
+    ],
+    "protectedBudgetTargetIds": []
+  },
+  "ttlSeconds": 60,
+  "budgetSeconds": 120,
+  "authorizationSeconds": 1800,
+  "root": "/PRIVATE/demo",
+  "guardlive": "/PRIVATE/release/guardlive",
+  "guardtargets": "/PRIVATE/release/guardtargets",
+  "python": "/PRIVATE/runtime/bin/python3",
+  "mysqlService": "/PRIVATE/mysql",
+  "schema": "cyber_security",
+  "baseUrl": "https://127.0.0.1:18082",
+  "backendCA": "/PRIVATE/tls/ca.pem",
+  "backendTls": {
+    "certificateFile": "/PRIVATE/tls/client.pem",
+    "keyFile": "/PRIVATE/tls/client.key"
+  },
+  "applicant": {
+    "username": "demo-requester",
+    "keychainService": "hostguard-demo-requester"
+  },
+  "reviewer": {
+    "username": "demo-reviewer",
+    "keychainService": "hostguard-demo-reviewer"
+  },
+  "bundleId": "00000000-0000-4000-8000-000000000001",
+  "subjectSha256": "REPLACE_WITH_REVIEWED_SUBJECT",
+  "assetKey": "tailscale-demo",
+  "owner": "答辩演示",
+  "profileSha256": "REPLACE_WITH_FEATURE_PROFILE_SHA256",
+  "capabilities": [],
+  "proofFile": "/PRIVATE/demo/prerequisites.json",
+  "baselineFile": "/PRIVATE/demo/accepted-baseline.json",
+  "en0Plan": "/PRIVATE/en0-status-plan.json",
+  "jar": "/PRIVATE/release/application.jar",
+  "executorRelease": "REPLACE_WITH_COMMIT",
+  "tailscale": "/Applications/Tailscale.app/Contents/MacOS/Tailscale",
+  "targetPort": 18443,
+  "rootPlan": "/PRIVATE/demo/root-plan.json",
+  "commandTrust": "/PRIVATE/demo/command-trust.json",
+  "remote": {
+    "host": "win-dev",
+    "root": "E:/Workspace/ai/experiments/cyber-security-demo",
+    "python": "E:/Workspace/development/runtimes/python/python-3.12.10/python.exe",
+    "nmap": "C:/Program Files (x86)/Nmap/nmap.exe"
+  },
+  "protectedPeers": []
+}

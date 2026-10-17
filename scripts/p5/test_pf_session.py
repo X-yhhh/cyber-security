@@ -71,6 +71,13 @@ class SessionCleanupTest(unittest.TestCase):
         self.assertIn(["/sbin/pfctl", "-X", "123"], self.calls)
         self.assertFalse(any("-d" in call or "-F" in call for call in self.calls))
 
+    def test_utun_session_never_adds_loopback_alias(self):
+        with pf_session.session(self.directory, self.executor_id, "demo-test", loopback_alias=False) as (_, check, facts):
+            check()
+        self.assertTrue(facts["passed"])
+        self.assertFalse(any("alias" in call or "-alias" in call for call in self.calls))
+        self.assertFalse(self.alias or self.enabled)
+
     def test_body_failure_still_restores_all_owned_changes(self):
         with self.assertRaises(Rejected):
             with pf_session.session(self.directory, self.executor_id, "A4-test"):

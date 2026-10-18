@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -67,5 +69,57 @@ func TestManagedOutputRotatesCompleteRecords(t *testing.T) {
 		if err != nil || string(b) != "{\"n\":1}\n" || !strings.HasSuffix(string(b), "\n") {
 			t.Fatalf("partial record %s", file)
 		}
+	}
+}
+
+func TestWatchAddressesStopsOnChange(t *testing.T) {
+	want := []netip.Addr{netip.MustParseAddr("192.168.1.20")}
+	var calls atomic.Int32
+	lookup := func(string, bool) ([]netip.Addr, error) {
+		if calls.Add(1) < 3 {
+			return []netip.Addr{netip.MustParseAddr("192.168.1.20")}, nil
+		}
+		return []netip.Addr{netip.MustParseAddr("10.0.0.7")}, nil
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var changed atomic.Bool
+	done := make(chan struct{})
+	go func() { watchAddresses(ctx, cancel, "en0", want, time.Millisecond, lookup, &changed); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("地址变化后应结束")
+	}
+	if !changed.Load() || ctx.Err() == nil || calls.Load() != 3 {
+		t.Fatalf("changed=%v ctx=%v calls=%d", changed.Load(), ctx.Err(), calls.Load())
+	}
+}
+
+func TestWatchAddressesKeepsRunningWhenStable(t *testing.T) {
+	want := []netip.Addr{netip.MustParseAddr("192.168.1.20")}
+	lookup := func(string, bool) ([]netip.Addr, error) { return want, nil }
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	defer cancel()
+	var changed atomic.Bool
+	watchAddresses(ctx, func() {}, "en0", want, time.Millisecond, lookup, &changed)
+	if changed.Load() {
+		t.Fatal("地址未变不应结束")
+	}
+	// 接口消失（断网、关闭 Wi-Fi）同样结束，不能继续空采。
+	gone := func(string, bool) ([]netip.Addr, error) { return nil, nil }
+	ctx2, cancel2 := context.WithCancel(context.Background())
+	defer cancel2()
+	watchAddresses(ctx2, cancel2, "en0", want, time.Millisecond, gone, &changed)
+	if !changed.Load() {
+		t.Fatal("接口无可用地址应结束")
+	}
+}
+
+func TestSameAddressesIgnoresOrder(t *testing.T) {
+	a := []netip.Addr{netip.MustParseAddr("10.0.0.1"), netip.MustParseAddr("10.0.0.2")}
+	b := []netip.Addr{netip.MustParseAddr("10.0.0.2"), netip.MustParseAddr("10.0.0.1")}
+	if !sameAddresses(a, b) || sameAddresses(a, b[:1]) || sameAddresses(a, []netip.Addr{a[0], a[0]}) {
+		t.Fatal("地址集合比较错误")
 	}
 }

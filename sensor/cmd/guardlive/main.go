@@ -18,6 +18,7 @@ import (
 	"regexp"
 	"runtime"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -52,6 +53,7 @@ type config struct {
 	Environment       string            `json:"environment"`
 	CaptureScope      string            `json:"captureScope"`
 	LocalAddresses    []netip.Addr      `json:"localAddresses"`
+	LocalAddressSrc   string            `json:"localAddressSource,omitempty"`
 	PeerAddresses     []netip.Addr      `json:"peerAddresses"`
 	ServicePorts      []uint16          `json:"servicePorts,omitempty"`
 	LiveTargets       *liveTargetConfig `json:"liveTargets,omitempty"`
@@ -140,6 +142,9 @@ func loadConfig(path string) (config, error) {
 	}
 	if c.CaptureScope != scopeLabPeer && (len(c.ServicePorts) > 0 || c.LiveTargets != nil) {
 		return c, fmt.Errorf("现场目标配置只适用于 lab_peer_tcp")
+	}
+	if c.LocalAddressSrc != "" && (c.LocalAddressSrc != addressSourceInterface || c.Environment != "authorized" || c.CaptureScope != scopeAllInbound) {
+		return c, fmt.Errorf("动态本机地址只适用于 authorized 的 all_inbound_tcp")
 	}
 	for _, addr := range c.LocalAddresses {
 		if !addr.IsValid() || addr.IsUnspecified() || addr.IsMulticast() || addr.Zone() != "" {
@@ -349,6 +354,9 @@ func run() (runErr error) {
 	defer stop()
 	if *parentPID != 0 {
 		go watchParent(ctx, stop, *parentPID, os.Getppid)
+		if c.LocalAddressSrc == addressSourceInterface {
+			go watchAddresses(ctx, stop, c.Interface, c.LocalAddresses, 5*time.Second, interfaceAddresses, &addressChanged)
+		}
 	}
 	if c.Lab != nil {
 		if *startAt != "" || *endAt != "" || *captureAt != "" {
@@ -738,8 +746,16 @@ func replayTrace(path string, e *hostguard.Engine) error {
 	return nil
 }
 
+// addressChanged 由地址监视置位；采集正常收尾后以非零状态退出，提示托管方用新地址重启。
+var addressChanged atomic.Bool
+
 func main() {
-	if err := run(); err != nil {
+	err := run()
+	if err == nil && addressChanged.Load() {
+		fmt.Fprintln(os.Stderr, "guardlive: 采集接口地址已变化，本会话结束，等待托管方用新地址重启")
+		os.Exit(3)
+	}
+	if err != nil {
 		fmt.Fprintln(os.Stderr, "guardlive:", err)
 		os.Exit(1)
 	}

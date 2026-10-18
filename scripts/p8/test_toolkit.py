@@ -241,6 +241,24 @@ def test_managed_sensor_requires_direct_parent_and_local_tls(tmp_path, monkeypat
     assert config['upload']['baseUrl'] == 'https://127.0.0.1:18080'
 
 
+def test_managed_sensor_reads_current_interface_address(tmp_path, monkeypatch):
+    """地址经常变化时按接口当前地址生成会话配置；无可用地址则不启动，不静默空采。"""
+    root = tmp_path / 'service'
+    write(private_dir(root / 'config') / 'sensor.json', dict(
+        authorizedUntil='9999-12-31T00:00:00Z', environment='authorized', localAddressSource='interface',
+        localAddresses=['192.168.1.20'], captureScope='all_inbound_tcp', interface='en0', allowedInterfaces=['en0'], upload={}))
+    ifconfig = 'en0: flags=8863<UP>\n\tinet6 fe80::1%en0 prefixlen 64\n\tinet 169.254.3.4 netmask 0xffff0000\n\tinet 10.20.30.40 netmask 0xffffff00 broadcast 10.20.30.255\n'
+    assert sensor_service.interface_addresses('en0', read=lambda _: ifconfig) == ['10.20.30.40']
+    monkeypatch.setattr(sensor_service.os, 'getppid', lambda: 12345)
+    command = sensor_service.prepare(root, tmp_path, parent_pid=12345, backend_url='https://127.0.0.1:18080',
+                                     read_addresses=lambda iface, v6: ['10.20.30.40'])
+    assert load(command[command.index('-config') + 1])['localAddresses'] == ['10.20.30.40']
+    with pytest.raises(ValueError, match='INTERFACE_ADDRESS_UNAVAILABLE'):
+        sensor_service.prepare(root, tmp_path, parent_pid=12345, read_addresses=lambda iface, v6: [])
+    with pytest.raises(ValueError, match='DYNAMIC_ADDRESS_REQUIRES_BACKEND'):
+        sensor_service.prepare(root, tmp_path)
+
+
 def test_managed_status_checks_actual_parent_and_rejects_duplicate_capture(tmp_path):
     write(private_dir(tmp_path / 'ledger') / 'sensor.backend.pid', b'12345\n')
     def commands(argv):

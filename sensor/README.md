@@ -111,3 +111,7 @@ A7 本轮只完成本机配置与恢复检查：`en0` 活跃、TSO4/TSO6 开启�
 `guardlive` 的 `captureScope=lab_peer_tcp` 仅允许 environment=lab、一个本机/一个不同对端的 Tailscale IPv4、utun 接口、最多128个非重复高位 `servicePorts` 与固定私有 `captureLockDir`。按接口加锁，同接口第二个进程失败；不同接口可共存，仍须实际 BPF 权限。`liveTargets` 仅用于此范围并要求实时上传；向本地 mTLS 解析器取得短期目标，inboundPorts 映射全入站，其他登记服务映射单服务。生成配置和准备流程见 [演示工具](../scripts/demo/README.md)。
 
 现场读取使用 libpcap immediate mode/25ms 超时。排队包不被读取墙钟强行越过，只有真实空闲超时推进墙钟水位；100ms 重排边界与真正 latePacket 语义不变。合成包与过滤器测试通过不等于 utun 现场方向、权限、丢包率或模型效果已经验证。本次未启动采集或修改 en0 部署。
+
+## 动态本机地址
+
+后端托管的 `all_inbound_tcp` 可在配置中设置 `localAddressSource: "interface"`：启动入口按采集接口当前地址生成本次配置，`guardlive -parent-pid` 每 5 秒核对，地址变化即收尾并以退出码 3 结束，由托管方用新地址重启。说明见 [传感器持续监测](../docs/传感器持续监测.md)。

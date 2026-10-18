@@ -31,8 +31,9 @@ public final class GuardReplayReference {
             }
             var rules=JSON.createArrayNode();
             for(JsonNode rule:policy.path("rulePolicies")) {
-                var result=GuardRules.evaluate(rule,o);String family=rule.path("family").asText(),ruleId=rule.path("ruleId").asText();
-                rules.add(object("ruleId",ruleId,"family",family,"matched",result.matched(),"applicable",result.applicable(),"value",result.value()));
+                var result=GuardRules.evaluate(policy,rule,o);String family=rule.path("family").asText(),ruleId=rule.path("ruleId").asText();
+                var row=(com.fasterxml.jackson.databind.node.ObjectNode)object("ruleId",ruleId,"family",family,"matched",result.matched(),"applicable",result.applicable(),"value",result.value());
+                if(result.reason()!=null)row.put("reason",result.reason());rules.add(row);
                 project(decisions,o,inference,family,"rule",ruleId,result.matched(),result.matched());
             }
             return object("observationId",o.get("observationId"),"parentConnectionId",parent,"asOf",o.get("asOf"),

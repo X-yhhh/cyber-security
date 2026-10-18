@@ -67,6 +67,10 @@ rc.4 内追加可选字段 `acceptedProfiles`（`flow-prefix-v1`/`flow-final-v1`
 
 恢复协议单独版本化为 `host-guard-budget-recovery/2026-10-17.1`，由新 lab 策略的 `policyVersion=host-guard-decision/2026-10-08.1+demo-budget-20261017` 显式绑定。策略字节、摘要及组合 subject 随之变化，必须重新审查和生成对应报告；不改五个 Schema、不改冻结评价原文、不修改旧组合规则和成绩。只有当前 active lab 绑定可选择新完整健康链恢复；无绑定或旧策略沿用原恢复起点。规则及证明字段见[检测与处置契约](../检测与处置契约.md)第 9.2 节。
 
+## 窗口规则 inbound 前置（2026-10-18，C1a）
+
+规则引擎在 `host-guard-rules/1` 之外增加一个由策略版本显式选用的口径：`policyVersion` 以 `+` 分隔的标记中含 `rule-inbound-20261018` 时，窗口规则只对 `direction=inbound` 的观察适用；`unknown`/`outbound` 观察的规则事实记为 `applicable=false`、`matched=false`，`payload_json.reason=RULE_DIRECTION_NOT_APPLICABLE`，`rule_version=host-guard-rules/1+inbound-20261018`，不形成规则 episode。阈值、字段与比较方式不变；不改五个 Schema，旧策略、旧组合与既有规则事实逐字节不变。依据：现场同对端上下文混入本机发起的连接与下载（系统实施记录 6.59）；冻结评价集按数据方案只含 inbound 快照，新口径在其上不改变任何规则判定。选用该标记的策略须新登记、独立审查，并以新 subject 封存。
+
 ## lab 会话与报告（B4）
 
 [lab v1.1 契约](lab-validation.md)定义独立资格/运行状态、固定期限短租约、场景固定时间平移、事实引用和报告导入，不修改上述五个 Schema 或其集合哈希。最小合成文件为[会话](examples/lab-session.json)、[场景](examples/lab-scenarios.json)、[映射](examples/lab-mapping.json)、[报告输入](examples/lab-report-input.json)与[期望报告](examples/lab-report-expected.json)。样例中的零哈希、固定日期和未签名输入只用于结构说明及 Java/Python 对拍，不构成真实授权。使用方法见 [lab 工具](../../scripts/p7/lab.md)。

@@ -865,6 +865,26 @@ class GuardIntegrationTest {
         var claim=machine("/executors/"+f.executor+"/command-claims",object("bootId",f.executorBoot,"capabilityHash",f.capabilityHash(),"maxItems",10,"waitSeconds",0),f.executorCredential);
         assertThat(claim.path("commands")).isEmpty();assertThat(str(store.get("guard_action",number(action,"id")),"observed_state")).isEqualTo("rejected");assertThat(store.rows("guard_command",map("action_id",action.get("id")),false,10)).isEmpty();
     }
+    /** C1a：策略版本带 inbound 标记时，非 inbound 观察的规则事实为不适用且不形成规则 episode；inbound 照常命中。 */
+    @Test void inboundOnlyPolicyGatesRuleEpisodesByDirection()throws Exception{
+        var rule=object("ruleId","brute-starts","family","dos_slow","field","contexts.30.peerFlowStarts","operator","gte","threshold",3,"autoEligible",false);
+        Fixture f=setup("dos_slow",List.of(rule));jdbc.update("UPDATE guard_model SET validation_status='failed' WHERE public_id=?",f.model);
+        var row=store.external("guard_decision_policy",f.policy,false);var policy=(ObjectNode)json(row,"definition_json");
+        policy.put("policyVersion",policy.path("policyVersion").asText()+"+"+GuardRules.INBOUND_ONLY_TOKEN);
+        jdbc.update("UPDATE guard_decision_policy SET definition_json=? WHERE id=?",canonical(policy),row.get("id"));
+        var asset=store.external("asset",f.asset,false);
+        var unknown=observation(f,Instant.now().truncatedTo(ChronoUnit.MICROS),id(),0);unknown.put("direction","unknown").put("serviceClass","other").putNull("servicePort").putNull("targetRef").putNull("targetExpiresAt");accept(f,List.of(unknown),1,true);
+        var facts=store.rows("guard_rule_evaluation",map("asset_id",asset.get("id")),false,10);assertThat(facts).hasSize(1);
+        assertThat(GuardDetection.flag(facts.getFirst().get("applicable"))).isFalse();assertThat(GuardDetection.flag(facts.getFirst().get("matched"))).isFalse();
+        assertThat(str(facts.getFirst(),"rule_version")).isEqualTo(GuardRules.INBOUND_ONLY_RULE_VERSION);
+        assertThat(json(facts.getFirst(),"payload_json").path("reason").asText()).isEqualTo(GuardRules.DIRECTION_NOT_APPLICABLE);
+        assertThat(store.rows("guard_episode",map("asset_id",asset.get("id"),"source","rule"),false,10)).isEmpty();
+        var inbound=observation(f,Instant.now().truncatedTo(ChronoUnit.MICROS),id(),0);inbound.put("direction","inbound");accept(f,List.of(inbound),2,true);
+        facts=store.rows("guard_rule_evaluation",map("asset_id",asset.get("id")),false,10);
+        assertThat(facts.stream().filter(e->GuardDetection.flag(e.get("matched"))&&GuardDetection.flag(e.get("applicable")))).hasSize(1);
+        var episode=store.one("guard_episode",map("asset_id",asset.get("id"),"source","rule"),false);assertThat(episode).isNotNull();assertThat(str(episode,"direction")).isEqualTo("inbound");
+        assertThat(str(store.one("guard_decision",map("episode_id",episode.get("id")),false),"decision")).isEqualTo("alert");
+    }
     @Test void outboundScanRuleRemainsAlertOnly()throws Exception{
         var rule=object("ruleId","scan-outside-scope","family","port_scan","field","features.elapsedMs","operator","gte","threshold",4000,"autoEligible",true);
         Fixture f=setup("dos_slow",List.of(rule));accept(f,List.of(observation(f,Instant.now().truncatedTo(ChronoUnit.MICROS),id(),0)),1,true);

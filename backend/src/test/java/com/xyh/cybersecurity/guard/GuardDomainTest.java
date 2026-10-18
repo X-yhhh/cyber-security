@@ -96,6 +96,20 @@ class GuardDomainTest {
         ((ObjectNode)o.path("features")).putNull("iatMeanUs");assertThat(GuardRules.evaluate(r,o).applicable()).isFalse();assertThat(GuardRules.evaluate(r,o).matched()).isFalse();
         ((ObjectNode)o.path("features")).put("iatMeanUs",0);assertThat(GuardRules.evaluate(r,o).matched()).isTrue();
     }
+    @Test void inboundOnlyPolicyMakesNonInboundRulesNotApplicableAndKeepsOldPolicies()throws Exception{
+        var o=observation(Instant.EPOCH);var r=object("field","contexts.30.peerFlowStarts","operator","gte","threshold",3);
+        var old=object("policyVersion","host-guard-decision/2026-10-08.1+alert-only-r6-20261014");
+        var inbound=object("policyVersion","host-guard-decision/2026-10-08.1+alert-only-r6-20261014+"+GuardRules.INBOUND_ONLY_TOKEN);
+        assertThat(GuardRules.inboundOnly(old)).isFalse();assertThat(GuardRules.inboundOnly(inbound)).isTrue();
+        assertThat(GuardRules.inboundOnly(object("policyVersion","x+"+GuardRules.INBOUND_ONLY_TOKEN+"-draft"))).isFalse();
+        for(String direction:List.of("outbound","unknown","inbound")){o.put("direction",direction);
+            var before=GuardRules.evaluate(r,o);var legacy=GuardRules.evaluate(old,r,o);var gated=GuardRules.evaluate(inbound,r,o);
+            assertThat(legacy).as("旧口径逐字不变 "+direction).isEqualTo(before);assertThat(before.matched()).isTrue();assertThat(before.reason()).isNull();
+            if(direction.equals("inbound"))assertThat(gated).isEqualTo(before);
+            else{assertThat(gated.applicable()).isFalse();assertThat(gated.matched()).isFalse();assertThat(gated.reason()).isEqualTo(GuardRules.DIRECTION_NOT_APPLICABLE);assertThat(gated.value()).isEqualTo(before.value());}}
+        assertThat(GuardRules.ruleVersion(old)).isEqualTo("host-guard-rules/1");assertThat(GuardRules.ruleVersion(inbound)).isEqualTo("host-guard-rules/1+inbound-20261018");
+        var payload=GuardDetection.rulePayload(r,GuardRules.evaluate(old,r,o),o);assertThat(payload.has("reason")).isFalse();
+    }
     @Test void intervalUnionDoesNotChargeRetriesTwice(){Instant t=Instant.EPOCH;assertThat(GuardBudget.unionMillis(List.of(new GuardBudget.Interval(t,t.plusSeconds(30)),new GuardBudget.Interval(t,t.plusSeconds(30)),new GuardBudget.Interval(t.plusSeconds(20),t.plusSeconds(50)),new GuardBudget.Interval(t.plusSeconds(60),t.plusSeconds(80))))).isEqualTo(70000);}
     static ObjectNode health(Instant end,long sequence,String previous){return object("healthVersion",HEALTH,"healthWindowId",id(),"assetId",id(),"sensorId",id(),"captureScopeId",id(),"observerSessionId",id(),"sequence",sequence,"intervalStart",end.minusSeconds(5).toString(),"intervalEnd",end.toString(),"previousSha256",previous,"counterStart",object("packetsSeen",0,"kernelDrops",0,"capacityDrops",0),"counterEnd",object("packetsSeen",0,"kernelDrops",0,"capacityDrops",0),"captureGap",false,"clockSkewMs",0,"configSha256","a".repeat(64),"buildSha256","b".repeat(64));}
     @Test void unknownDropsDelayedWindowsAndHashGapsNeverProveHealth(){Instant now=Instant.parse("2026-10-05T00:00:00Z");var b=health(now,1,null);assertThat(GuardHealth.verify(b,null,null,now)).isEqualTo("healthy");((ObjectNode)b.get("counterEnd")).putNull("kernelDrops");assertThat(GuardHealth.verify(b,null,null,now)).isEqualTo("COUNTER_UNKNOWN");((ObjectNode)b.get("counterEnd")).put("kernelDrops",0);assertThat(GuardHealth.verify(b,null,null,now.plusMillis(10001))).isEqualTo("HEALTH_DELAY_EXCEEDED");b.put("sequence",2);assertThat(GuardHealth.verify(b,null,null,now)).isEqualTo("HEALTH_CHAIN_INCOMPLETE");}

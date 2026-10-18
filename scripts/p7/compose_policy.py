@@ -293,6 +293,43 @@ def derive_alert_only(source, review, version):
     return derived, record
 
 
+RULE_INBOUND_TOKEN = "rule-inbound-20261018"
+
+
+def validate_rule_inbound_derivation(source, derived):
+    """C1a 只追加策略版本标记以选用“窗口规则仅对 inbound 适用”；阈值、规则、模式与部署字段一律不变。"""
+    validate_policy(source)
+    validate_policy(derived)
+    require(RULE_INBOUND_TOKEN not in source["policyVersion"].split("+"), "来源策略已选用 inbound 规则口径")
+    require(derived["policyVersion"] == source["policyVersion"] + "+" + RULE_INBOUND_TOKEN
+            and derived["policyId"] != source["policyId"], "派生须使用新 ID，版本只能追加 inbound 规则标记")
+    require(frozen_semantics(source) == frozen_semantics(derived), "派生冻结策略语义不一致")
+    changes = policy_diff(source, derived)
+    require({change["path"] for change in changes} == {"/policyId", "/policyVersion"}, "inbound 规则口径派生改动越界")
+    return changes
+
+
+def derive_rule_inbound(source, review):
+    """从已独立审查的策略派生 C1a 候选；新策略仍须登记后由他人独立审查。"""
+    validate_policy(source)
+    fields(review, ("policyId", "status", "definitionSha256", "createdBy", "reviewedBy"), "source-review")
+    require(review["status"] == "reviewed" and review["policyId"] == source["policyId"]
+            and review["createdBy"] is not None and review["reviewedBy"] is not None
+            and review["createdBy"] != review["reviewedBy"], "来源不是独立审查通过的策略")
+    source_sha = digest(canonical(source))
+    require(review["definitionSha256"] == source_sha, "已审查策略哈希不符")
+    version = source["policyVersion"] + "+" + RULE_INBOUND_TOKEN
+    derived = copy.deepcopy(source)
+    derived.update(policyId=str(uuid.uuid5(uuid.UUID(source["policyId"]), "rule-inbound:" + version)), policyVersion=version)
+    changes = validate_rule_inbound_derivation(source, derived)
+    record = dict(sourcePolicyId=source["policyId"], sourceJcsSha256=source_sha,
+                  derivedPolicyId=derived["policyId"], derivedJcsSha256=digest(canonical(derived)),
+                  sourceReview=copy.deepcopy(review), changes=changes, frozenSemanticsEqual=True,
+                  frozenSemanticsSha256=digest(canonical(frozen_semantics(source))), ruleSemantics=RULE_INBOUND_TOKEN,
+                  testRead=False, newFits=0, thresholdsChanged=False, requiresIndependentReview=True)
+    return derived, record
+
+
 def checked_protection(protection):
     """保护集须是 P4 可加载的结构：两个字段、整数端口 1—65535，并入 22/53/3389 后不超过 128 个。"""
     fields(protection, ("protectedBudgetTargetIds", "protectedServicePorts"), "protection-set")
@@ -388,14 +425,20 @@ def main():
     for name in ("source", "source-review", "output", "record"):
         alert_parser.add_argument("--" + name, type=Path, required=True)
     alert_parser.add_argument("--version", required=True)
+    inbound_parser = commands.add_parser("derive-rule-inbound", help="派生窗口规则仅对 inbound 适用的候选（C1a），不登记或批准")
+    for name in ("source", "source-review", "output", "record"):
+        inbound_parser.add_argument("--" + name, type=Path, required=True)
     args = parser.parse_args()
     try:
         if args.command == "inspect":
             print(json.dumps(inspect(args.policy, args.schema), ensure_ascii=False, indent=2))
             return
-        if args.command == "derive-alert-only":
+        if args.command in ("derive-alert-only", "derive-rule-inbound"):
             source_raw, review_raw = args.source.read_bytes(), args.source_review.read_bytes()
-            policy, record = derive_alert_only(decode(source_raw), decode(review_raw), args.version)
+            if args.command == "derive-alert-only":
+                policy, record = derive_alert_only(decode(source_raw), decode(review_raw), args.version)
+            else:
+                policy, record = derive_rule_inbound(decode(source_raw), decode(review_raw))
             record.update(sourceFileSha256=digest(source_raw), sourceReviewFileSha256=digest(review_raw))
             require(args.output.resolve() != args.record.resolve(), "策略与派生记录必须使用不同文件")
             require(not any(path.exists() or path.is_symlink() for path in (args.output, args.record)),

@@ -79,6 +79,12 @@ public class GuardDetection {
     JsonNode rehearse(List<Scored> batch,Map<String,Object> bundle,JsonNode frozenPolicy){
         return correlate(batch,bundle,null,frozenPolicy,true);
     }
+    /** 旧口径事实保持原字段；仅新口径方向前置拒绝时追加 reason，便于审计区分“缺值”与“方向不适用”。 */
+    static JsonNode rulePayload(JsonNode rule,GuardRules.Result evaluation,JsonNode o){
+        var payload=(com.fasterxml.jackson.databind.node.ObjectNode)object("rule",rule,"value",evaluation.value(),"asOf",o.get("asOf"),"matched",evaluation.matched(),"applicable",evaluation.applicable());
+        if(evaluation.reason()!=null)payload.put("reason",evaluation.reason());
+        return payload;
+    }
     private JsonNode correlate(List<Scored> batch,Map<String,Object> bundle,Map<String,Object> binding,JsonNode hypotheticalPolicy,boolean labRehearsal){
         var p=store.get("guard_decision_policy",number(bundle,"policy_id"));JsonNode policy=json(p,"definition_json");JsonNode result=object("decision","observe");
         if(batch.isEmpty())return result;
@@ -97,8 +103,8 @@ public class GuardDetection {
                 String family=fp.path("family").asText();if(current)stages.add(path(observation,o,inference,bundle,policy,family,"model","",false,family.equals(str(inference,"family"))));
             }
             for(JsonNode rule:policy.path("rulePolicies")){
-                var evaluation=GuardRules.evaluate(rule,o);String ruleId=rule.path("ruleId").asText(),family=rule.path("family").asText();
-                ruleFacts.add(map("asset_id",observation.get("asset_id"),"observation_id",observation.get("id"),"policy_id",bundle.get("policy_id"),"rule_version","host-guard-rules/1","rule_id",ruleId,"family",family,"matched",evaluation.matched(),"applicable",evaluation.applicable(),"payload_json",canonical(object("rule",rule,"value",evaluation.value(),"asOf",o.get("asOf"),"matched",evaluation.matched(),"applicable",evaluation.applicable()))));
+                var evaluation=GuardRules.evaluate(policy,rule,o);String ruleId=rule.path("ruleId").asText(),family=rule.path("family").asText();
+                ruleFacts.add(map("asset_id",observation.get("asset_id"),"observation_id",observation.get("id"),"policy_id",bundle.get("policy_id"),"rule_version",GuardRules.ruleVersion(policy),"rule_id",ruleId,"family",family,"matched",evaluation.matched(),"applicable",evaluation.applicable(),"payload_json",canonical(rulePayload(rule,evaluation,o))));
                 if(current)stages.add(path(observation,o,inference,bundle,policy,family,"rule",ruleId,evaluation.matched(),evaluation.matched()));
             }
         }

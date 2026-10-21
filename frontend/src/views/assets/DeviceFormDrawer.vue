@@ -30,7 +30,7 @@ watch(() => props.open, (v) => {
 }, { immediate: true })
 watch(() => form.assetId, (id) => {
   const p = choices.value.find((a) => a.id === id)?.labels?.platform
-  if (p === 'macos' || p === 'windows') form.platform = p
+  if (p === 'macos' || p === 'windows' || p === 'linux') form.platform = p
 })
 const regen = () => { form.captureScopeId = crypto.randomUUID() }
 

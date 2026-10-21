@@ -124,7 +124,7 @@ export const assetsHandlers = [
   ]),
   http.post('/api/v2/assets', ({ request }) => reply(() => write(request, 'asset.manage', null, 201, (b) => {
     fields(b, ['assetKey', 'platform', 'environment', 'owner'], ['displayName', 'notes'])
-    check(typeof b.assetKey === 'string' && b.assetKey && typeof b.owner === 'string' && b.owner && ['macos', 'windows'].includes(String(b.platform)) && ['research', 'lab', 'authorized'].includes(String(b.environment)), 400, 'INVALID_ASSET_SCOPE')
+    check(typeof b.assetKey === 'string' && b.assetKey && typeof b.owner === 'string' && b.owner && ['macos', 'windows', 'linux'].includes(String(b.platform)) && ['research', 'lab', 'authorized'].includes(String(b.environment)), 400, 'INVALID_ASSET_SCOPE')
     check(!assetRows().some((a) => a.assetKey === b.assetKey), 409, 'CONFLICT')
     const id = crypto.randomUUID(), now = new Date().toISOString()
     assetRows().push({ id, assetKey: String(b.assetKey), assetType: 'host', environment: String(b.environment), criticality: 'medium', owner: String(b.owner), status: 'active', labels: { platform: b.platform as string }, revision: 1, createdAt: now, updatedAt: now, displayName: b.displayName as string ?? null, notes: b.notes as string ?? null })
@@ -170,7 +170,7 @@ export const assetsHandlers = [
       const a = asset(body.assetId)
       return write(request, 'sensor.manage', a.id, 201, (b) => {
         fields(b, ['assetId', 'platform', kind === 'sensors' ? 'captureScopeId' : 'capabilityProbeRef'], ['displayName', 'notes'])
-        check(['macos', 'windows'].includes(String(b.platform)), 400, 'CAPABILITY_NOT_SUPPORTED')
+        check(['macos', 'windows', 'linux'].includes(String(b.platform)), 400, 'CAPABILITY_NOT_SUPPORTED')
         const id = crypto.randomUUID(), clientId = crypto.randomUUID(), status = kind === 'sensors' ? 'active' : 'pending', now = new Date().toISOString()
         const common = { id, assetId: a.id, platform: String(b.platform), status, revision: 1, displayName: b.displayName as string ?? null, notes: b.notes as string ?? null, createdAt: now }
         if (kind === 'sensors') assetsState.sensors.push({ ...common, agentKey: id, agentVersion: 'v5-pending', capabilities: [], registeredAt: now, lastHeartbeatAt: null, guardBootId: null })

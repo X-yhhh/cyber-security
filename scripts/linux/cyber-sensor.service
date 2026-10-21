@@ -1,0 +1,34 @@
+# 仅模板；替换绝对路径并经 B1 审核后安装，C0 前不启动、C1 前不启用。
+[Unit]
+Description=Cyber Security Linux sensor supervisor (alert only)
+After=network-online.target
+
+[Service]
+Type=simple
+User=cybersensor
+WorkingDirectory=@RELEASE@
+ExecStart=@VENV@/bin/python @RELEASE@/scripts/linux/supervisor.py --root @ROOT@ --release @RELEASE@
+Environment=PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+UMask=0077
+AmbientCapabilities=CAP_NET_RAW
+CapabilityBoundingSet=CAP_NET_RAW
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=@ROOT@/ledger @ROOT@/logs
+MemoryHigh=256M
+MemoryMax=320M
+MemorySwapMax=0
+CPUQuota=30%
+Nice=10
+IOSchedulingClass=idle
+OOMScoreAdjust=900
+Restart=on-failure
+RestartSec=30
+RestartPreventExitStatus=2 3 4 5
+# SIGTERM 先交给 supervisor；其子进程最多等 8 秒，整个单元最终由 systemd 回收。
+KillMode=mixed
+TimeoutStopSec=15
+
+[Install]
+WantedBy=multi-user.target

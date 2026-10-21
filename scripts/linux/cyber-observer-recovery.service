@@ -1,0 +1,30 @@
+# 仅写零能力 observer recovery 脉冲，不执行恢复动作或操作防火墙。
+[Unit]
+Description=Cyber Security zero capability observer recovery pulse
+After=network-online.target
+
+[Service]
+Type=simple
+User=cybersensor
+WorkingDirectory=@RELEASE@
+ExecStart=@VENV@/bin/python @RELEASE@/scripts/p8/observer_executor.py recovery --config @ROOT@/config/executor-observer.json
+Environment=PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+UMask=0077
+AmbientCapabilities=
+CapabilityBoundingSet=
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=@ROOT@/ledger @ROOT@/logs
+MemoryMax=96M
+MemorySwapMax=0
+CPUQuota=10%
+Nice=10
+IOSchedulingClass=idle
+OOMScoreAdjust=900
+Restart=on-failure
+RestartSec=30
+TimeoutStopSec=15
+
+[Install]
+WantedBy=multi-user.target

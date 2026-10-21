@@ -49,11 +49,13 @@ public class GuardCatalog {
         var r=store.add("guard_evaluation_plan",map("plan_key",key,"version",text(m,"evaluationVersion"),"plan_sha256",sha,"payload_json",canonical(payload),"created_by",access.human()));
         store.audit(access.human(),"guard.plan.frozen_registered",str(r,"public_id"),null,null,b);return object("id",r.get("public_id"),"planSha256",sha);}
     /**
-     * 登记平台能力。scope 缺省为 peer_service，且不得携带保护集或豁免字段；peer_inbound 只接受 macOS（PF）入站能力，
+     * 登记平台能力仅接受 macOS/Windows；Linux 只告警（BE-23）。scope 缺省为 peer_service，且不得携带保护集或豁免字段；peer_inbound 只接受 macOS（PF）入站能力，
      * 须带保护集摘要和签名的 E1—E3 豁免报告：报告 passed、scope=peer_inbound、platform=macos-pf 且保护集摘要一致。
      * 平台报告的 capability 须等于去掉证据位置后的请求体，因此范围、保护集与豁免摘要同样受平台报告签名约束。
      */
     public JsonNode capability(JsonNode b){access.permission("bundle.request",null);fields(b,"capabilityKey version platform adapterVersion addressFamily transport direction family profile behaviorScope latencyLimits level evidenceRef evidenceSha256 runnerIdentity","scope protectionSetSha256 exemptionEvidenceRef exemptionEvidenceSha256");
+        // Linux 只告警（BE-23），读取证据前拒绝未支持平台的能力登记。
+        require(Set.of("macos","windows").contains(text(b,"platform")),"CAPABILITY_NOT_SUPPORTED");
         require(Set.of("research","alert_only","lab_auto","authorized_auto").contains(text(b,"level")),"CAPABILITY_NOT_SUPPORTED");
         String scope=b.has("scope")?text(b,"scope"):"peer_service",protectionSet=null,exemption=null;
         if("peer_inbound".equals(scope)){require("macos".equals(text(b,"platform"))&&"inbound".equals(text(b,"direction")),"CAPABILITY_NOT_SUPPORTED");protectionSet=digest(b,"protectionSetSha256");exemption=digest(b,"exemptionEvidenceSha256");
@@ -119,6 +121,8 @@ public class GuardCatalog {
         var ids=new ArrayList<String>();for(var pair:pairs.entrySet()){long aid=pair.getKey();access.permission("bundle.approve",aid);var a=store.lockAsset(aid);var auth=store.external("asset_authorization",pair.getValue(),true);var now=store.now();
             require("active".equals(str(a,"status"))&&number(auth,"asset_id")==aid&&"active".equals(str(auth,"status"))&&!now.isBefore(instant(auth.get("valid_from")))&&now.isBefore(instant(auth.get("valid_until")))&&str(bundle,"environment").equals(str(a,"environment")),"AUTHORIZATION_INACTIVE");
             var policy=store.get("guard_decision_policy",number(bundle,"policy_id"));require("reviewed".equals(str(policy,"status")),"STATE_CONFLICT");
+            // Linux 只告警（BE-23），非只告警组合必须在挂起旧绑定前拒绝。
+            if("linux".equals(json(a,"labels_json").path("platform").asText()))require("alert_only".equals(json(policy,"definition_json").path("mode").asText()),"CAPABILITY_NOT_SUPPORTED");
             for(var c:store.rows("guard_bundle_capability",map("bundle_id",bundle.get("id")),false,100)){var cap=store.get("guard_capability",number(c,"capability_id"));String env=str(a,"environment");String mode=json(policy,"definition_json").path("mode").asText();
                 if(!"alert_only".equals(mode))require(("lab".equals(env)&&Set.of("lab_auto","authorized_auto").contains(str(cap,"level")))||("authorized".equals(env)&&"authorized_auto".equals(str(cap,"level"))),"CAPABILITY_NOT_SUPPORTED");}
             for(var old:store.rows("guard_asset_binding",map("asset_id",aid,"status","active"),true,100))store.update("guard_asset_binding",number(old,"id"),map("status","suspended","revision",number(old,"revision")+1));

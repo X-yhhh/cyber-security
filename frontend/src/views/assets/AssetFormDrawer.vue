@@ -20,7 +20,7 @@ const emit = defineEmits<{ create: [body: AssetCreate]; update: [body: AssetUpda
 
 const editing = computed(() => !!props.asset)
 const ENVS: readonly AssetEnv[] = ['research', 'lab', 'authorized']
-const PLATFORMS: readonly Platform[] = ['macos', 'windows']
+const PLATFORMS: readonly Platform[] = ['macos', 'windows', 'linux']
 const form = reactive({ assetKey: '', platform: 'macos' as Platform, environment: 'lab' as AssetEnv, owner: '', displayName: '', notes: '', criticality: 'medium' as Criticality })
 const error = useActionError()
 

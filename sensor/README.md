@@ -115,3 +115,15 @@ A7 本轮只完成本机配置与恢复检查：`en0` 活跃、TSO4/TSO6 开启�
 ## 动态本机地址
 
 后端托管的 `all_inbound_tcp` 可在配置中设置 `localAddressSource: "interface"`：启动入口按采集接口当前地址生成本次配置，`guardlive -parent-pid` 每 5 秒核对，地址变化即收尾并以退出码 3 结束，由托管方用新地址重启。说明见 [传感器持续监测](../docs/传感器持续监测.md)。
+
+## Linux 持续采集（RS，BE-23）
+
+Linux 的实时 `guardlive` 必须用 `CGO_ENABLED=1` 构建；实时源的构建标签为 `cgo || windows`，Linux 不能用纯 Go 构建替代实时采集。构建环境需要 C 编译器、libc 开发文件与 `libpcap-dev`；Ubuntu 24.04 运行环境只需 `libpcap0.8t64` 及其传递库，不在远端安装编译工具或运行测试。
+
+`golang.org/x/net v0.55.0` 是间接依赖：gopacket 的 `pcapgo` 在仅 Linux 编译的文件中导入 `x/net/bpf`，因此 `go.mod`/`go.sum` 必须包含它。A0 只补依赖，`x/sys` 仍为 v0.45.0，没有修改 Go 源码或执行 `go mod tidy`；同一 Go 版本下补丁前后的 Mac `guardlive` SHA-256 一致。
+
+容器构建入口是 [`scripts/linux/builder/build_guardlive.sh`](../scripts/linux/builder/build_guardlive.sh)。在 Mac 上准备并校验官方 Linux amd64 Go 包及模块缓存，以 GA 合入 SHA 归档源码；Ubuntu 24.04 amd64 构建镜像内通过 `docker run --network none` 运行全部 Go 测试，再执行 cgo 构建，输出 `guardlive` 与含提交、依赖、测试、二进制摘要和 `ldd` 结果的 `build.json`。参数及两步构建流程见 [Linux 模板说明](../scripts/linux/README.md#3-b2两步构建模板仅-mac)；既有 B2 预演不代替 GA 版本的正式构建。
+
+远端由 systemd 拉起 [`scripts/linux/supervisor.py`](../scripts/linux/supervisor.py) 托管，原样调用 `scripts/p8/sensor_service.py --parent-pid <托管进程 PID>`，再 exec 同源 Linux `guardlive`。它负责静态地址自检、单实例、退避、资源保护，以及无采集子进程时的旧 boot 补传；运行中每 5 分钟只清理已确认且过期的旧 boot。采集范围为已授权主机的 `all_inbound_tcp`，仅采集、仅告警，不提供 Linux 防火墙执行能力。
+
+A 阶段代码与模板已完成，待 GA；正式构建、远端安装、真实采集与故障演练仍按[远端传感器任务单](../docs/任务/远端传感器任务单.md)的 B/C 阶段逐项执行与验收，不表示已部署。

@@ -12,7 +12,7 @@ public class GuardAdministration {
     private final GuardStore store;private final GuardMapper mapper;private final GuardAccess access;private final GuardContracts contracts;
     public GuardAdministration(GuardStore store,GuardMapper mapper,GuardAccess access,GuardContracts contracts){this.store=store;this.mapper=mapper;this.access=access;this.contracts=contracts;}
     public JsonNode asset(JsonNode b){access.permission("asset.manage",null);fields(b,"assetKey platform environment owner","displayName notes");
-        require(Set.of("macos","windows").contains(text(b,"platform"))&&Set.of("research","lab","authorized").contains(text(b,"environment")),"INVALID_ASSET_SCOPE");
+        require(Set.of("macos","windows","linux").contains(text(b,"platform"))&&Set.of("research","lab","authorized").contains(text(b,"environment")),"INVALID_ASSET_SCOPE");
         var values=map("asset_key",text(b,"assetKey"),"asset_type","host","environment",text(b,"environment"),"criticality","medium","owner",text(b,"owner"),"status","active","labels_json",canonical(object("platform",text(b,"platform"))));values.putAll(GuardMetadata.values(b));
         var row=store.add("asset",values);
         store.audit(access.human(),"guard.asset.created",str(row,"public_id"),number(row,"id"),null,b);return object("id",row.get("public_id"),"revision",1);}
@@ -60,7 +60,7 @@ public class GuardAdministration {
         store.audit(access.human(),"guard.authorization."+status,id,aid,null,b);return object("id",id,"status",status,"revision",number(r,"revision")+1);}
     public JsonNode machine(JsonNode b,boolean executor){fields(b,executor?"assetId platform capabilityProbeRef":"assetId platform captureScopeId","displayName notes");
         var a=store.external("asset",uuid(b,"assetId"),false);long aid=number(a,"id");access.permission("sensor.manage",aid);store.lockAsset(aid);String publicId=id();
-        require(Set.of("macos","windows").contains(text(b,"platform")),"CAPABILITY_NOT_SUPPORTED");
+        require(Set.of("macos","windows","linux").contains(text(b,"platform")),"CAPABILITY_NOT_SUPPORTED");
         var secret=new byte[32];new SecureRandom().nextBytes(secret);String token=Base64.getUrlEncoder().withoutPadding().encodeToString(secret);
         Map<String,Object> sensor=null;
         if(!executor){var values=map("public_id",publicId,"agent_key",publicId,"asset_id",aid,"platform",text(b,"platform"),"agent_version","v5-pending","capabilities_json","[]","credential_ref","database-sha256-verifier","status","active","registered_at",db(store.now()));values.putAll(GuardMetadata.values(b));sensor=store.insert("sensor_agent",values);}

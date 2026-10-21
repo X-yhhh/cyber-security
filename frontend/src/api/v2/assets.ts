@@ -17,7 +17,7 @@ type WriteKey = ReturnType<typeof idempotencyKey>
 export type AssetStatus = 'active' | 'disabled' | 'retired'
 export type Criticality = 'low' | 'medium' | 'high' | 'critical'
 export type AssetEnv = 'research' | 'lab' | 'authorized'
-export type Platform = 'macos' | 'windows'
+export type Platform = 'macos' | 'windows' | 'linux'
 
 /** 资产（GET /assets）：B4 起带可编辑显示名与说明；平台记录在 labels.platform。 */
 export interface Asset {
@@ -183,7 +183,7 @@ export const assetsApi = {
 export const assetStatusLabel: Record<string, string> = { active: '运行中', disabled: '已停用', retired: '已退役' }
 export const criticalityLabel: Record<string, string> = { low: '低', medium: '中', high: '高', critical: '关键' }
 export const CRITICALITIES: readonly Criticality[] = ['low', 'medium', 'high', 'critical']
-export const platformLabel: Record<string, string> = { macos: 'macOS', windows: 'Windows' }
+export const platformLabel: Record<string, string> = { macos: 'macOS', windows: 'Windows', linux: 'Linux' }
 export const authorizationStatusLabel: Record<string, string> = { pending: '待批准', active: '已批准', expired: '已到期', revoked: '已撤销' }
 export const validityLabel: Record<string, string> = { valid: '有效期内', not_yet_valid: '未到生效时间', expired: '已过有效期' }
 export const configStatusLabel: Record<string, string> = { draft: '草稿', pending: '待批准', approved: '已批准', active: '生效中', retired: '已替换', rejected: '已驳回' }

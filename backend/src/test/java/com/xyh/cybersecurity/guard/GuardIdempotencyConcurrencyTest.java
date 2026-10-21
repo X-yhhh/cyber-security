@@ -26,7 +26,7 @@ import static org.mockito.Mockito.*;
 
 /** 隔离 MySQL 确定性并发回归：同时读到缺失键后再插入，验证独立键不死锁、同键只执行一次。 */
 @SpringBootTest(properties = {"cyber.ingest.consumer.enabled=false", "cyber.ingest.outbox-relay.enabled=false",
-        "cyber.drift.enabled=false", "cyber.guard.automation-enabled=false", "cyber.security.local-admin-bootstrap.enabled=false",
+        "cyber.guard.automation-enabled=false", "cyber.security.local-admin-bootstrap.enabled=false",
         "spring.rabbitmq.listener.simple.auto-startup=false", "spring.rabbitmq.listener.direct.auto-startup=false"})
 @EnabledIfEnvironmentVariable(named = "DB_TEST_BASE_URL", matches = ".+")
 @ExtendWith(IsolatedDatabaseSchemas.class)

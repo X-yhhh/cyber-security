@@ -6,9 +6,6 @@ spring:
     jdbc:
       initialize-schema: never
 cyber:
-  model-artifact:
-    # 本机历史 active 模型的恢复仍须校验制品；只为 local 提供约定目录，其他环境必须显式配置。
-    root: ${MODEL_ARTIFACT_ROOT:${user.home}/Workspace/deliveries}
   security:
     local-admin-bootstrap:
       enabled: ${LOCAL_ADMIN_BOOTSTRAP_ENABLED:true}

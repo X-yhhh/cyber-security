@@ -29,7 +29,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 
 /** B4 的资源 HTTP 与并发验收；仅登记隔离库合成事实，不加载权重、不接入真实主机或执行防火墙。 */
 @SpringBootTest(properties={"cyber.security.local-admin-bootstrap.enabled=false","cyber.ingest.consumer.enabled=false",
-        "cyber.ingest.outbox-relay.enabled=false","cyber.drift.enabled=false"})
+        "cyber.ingest.outbox-relay.enabled=false"})
 @AutoConfigureMockMvc(print=MockMvcPrint.NONE)
 @EnabledIfEnvironmentVariable(named="DB_TEST_BASE_URL",matches=".+")
 @org.junit.jupiter.api.extension.ExtendWith(IsolatedDatabaseSchemas.class)

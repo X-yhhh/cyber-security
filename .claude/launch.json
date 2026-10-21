@@ -16,7 +16,7 @@
       "runtimeExecutable": "zsh",
       "runtimeArgs": [
         "-lc",
-        "export JAVA_HOME=$HOME/Workspace/development/runtimes/java/temurin-25.0.2/Contents/Home; export PATH=$JAVA_HOME/bin:$PATH; cd backend && exec mvn -B -o spring-boot:run -Dspring-boot.run.profiles=local -Dspring-boot.run.arguments=--cyber.model-artifact.root=$HOME/Workspace/deliveries"
+        "export JAVA_HOME=$HOME/Workspace/development/runtimes/java/temurin-25.0.2/Contents/Home; export PATH=$JAVA_HOME/bin:$PATH; cd backend && exec mvn -B -o spring-boot:run -Dspring-boot.run.profiles=local"
       ],
       "port": 18080
     },
@@ -25,7 +25,7 @@
       "runtimeExecutable": "zsh",
       "runtimeArgs": [
         "-lc",
-        "export JAVA_HOME=$HOME/Workspace/development/runtimes/java/temurin-25.0.2/Contents/Home; export PATH=$JAVA_HOME/bin:$PATH; export OUTBOX_RELAY_ENABLED=true; export RABBITMQ_VHOST=cyber-security-dev; cd backend && exec mvn -B -o spring-boot:run -Dspring-boot.run.profiles=local -Dspring-boot.run.arguments=--cyber.model-artifact.root=$HOME/Workspace/deliveries"
+        "export JAVA_HOME=$HOME/Workspace/development/runtimes/java/temurin-25.0.2/Contents/Home; export PATH=$JAVA_HOME/bin:$PATH; export OUTBOX_RELAY_ENABLED=true; export RABBITMQ_VHOST=cyber-security-dev; cd backend && exec mvn -B -o spring-boot:run -Dspring-boot.run.profiles=local"
       ],
       "port": 18080
     },

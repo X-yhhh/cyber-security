@@ -23,7 +23,7 @@ public class DeployMachineTlsFilter extends OncePerRequestFilter {
     public DeployMachineTlsFilter(ObjectMapper mapper) { this.mapper = mapper; }
     @Override protected boolean shouldNotFilter(HttpServletRequest request) {
         String path = request.getRequestURI().substring(request.getContextPath().length());
-        return !(path.startsWith("/api/v1/machine/") || path.startsWith("/api/v2/machine/"));
+        return !path.startsWith("/api/v2/machine/");
     }
     @Override protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
             throws ServletException, IOException {

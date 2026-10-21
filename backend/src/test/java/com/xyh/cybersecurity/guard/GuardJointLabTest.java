@@ -25,7 +25,7 @@ import static org.assertj.core.api.Assertions.*;
  * 合成模型与签名报告只用于协议验证，不构成发布资格；PF 模式必须由外层每轮 A4 授权。
  */
 @SpringBootTest(webEnvironment=SpringBootTest.WebEnvironment.RANDOM_PORT,properties={
-        "cyber.ingest.consumer.enabled=false","cyber.ingest.outbox-relay.enabled=false","cyber.drift.enabled=false",
+        "cyber.ingest.consumer.enabled=false","cyber.ingest.outbox-relay.enabled=false",
         "cyber.guard.automation-enabled=true","cyber.security.local-admin-bootstrap.enabled=false",
         "server.address=127.0.0.1","server.ssl.enabled=true","server.ssl.enabled-protocols=TLSv1.3"})
 @EnabledIfEnvironmentVariable(named="P5_JOINT_LAB",matches="true")

@@ -30,7 +30,7 @@ import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.doAnswer;
 
 /** Go S4 合成窗口→真实机器接口/MySQL→实态替身→预算恢复；绝不接触真实 PF 或业务 schema。 */
-@SpringBootTest(properties={"cyber.ingest.consumer.enabled=false","cyber.ingest.outbox-relay.enabled=false","cyber.drift.enabled=false","cyber.guard.automation-enabled=true","cyber.security.local-admin-bootstrap.enabled=false"})
+@SpringBootTest(properties={"cyber.ingest.consumer.enabled=false","cyber.ingest.outbox-relay.enabled=false","cyber.guard.automation-enabled=true","cyber.security.local-admin-bootstrap.enabled=false"})
 @AutoConfigureMockMvc(print=MockMvcPrint.NONE)
 @EnabledIfEnvironmentVariable(named="DB_TEST_BASE_URL",matches=".+")
 class GuardSensorHealthIntegrationTest {

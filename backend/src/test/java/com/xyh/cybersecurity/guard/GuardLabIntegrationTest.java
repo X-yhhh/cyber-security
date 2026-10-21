@@ -29,7 +29,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.*;
 
 /** 随机隔离 MySQL + 真实签名 + MVC/IAM/事务；时钟可控，合成事实不连接防火墙或模型。 */
-@SpringBootTest(properties={"cyber.ingest.consumer.enabled=false","cyber.ingest.outbox-relay.enabled=false","cyber.drift.enabled=false",
+@SpringBootTest(properties={"cyber.ingest.consumer.enabled=false","cyber.ingest.outbox-relay.enabled=false",
         "cyber.guard.automation-enabled=false","cyber.security.local-admin-bootstrap.enabled=false"})
 @AutoConfigureMockMvc(print=MockMvcPrint.NONE)
 @EnabledIfEnvironmentVariable(named="DB_TEST_BASE_URL",matches=".+")

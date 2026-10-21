@@ -26,8 +26,6 @@ management:
     rabbit:
       enabled: ${DEPLOY_OUTBOX_RELAY_ENABLED:false}
 cyber:
-  drift:
-    enabled: false
   security:
     login-throttle:
       hmac-key: ${DEPLOY_LOGIN_THROTTLE_HMAC_KEY}
@@ -52,9 +50,6 @@ cyber:
       enabled: ${DEPLOY_OUTBOX_RELAY_ENABLED:false}
     consumer:
       enabled: ${DEPLOY_CONSUMER_ENABLED:${DEPLOY_OUTBOX_RELAY_ENABLED:false}}
-      queue: ${DEPLOY_INGEST_QUEUE}
-      dead-letter-queue: ${DEPLOY_INGEST_DEAD_LETTER_QUEUE}
-      retry-queue-prefix: ${DEPLOY_INGEST_RETRY_QUEUE_PREFIX}
     rabbitmq:
       host: ${DEPLOY_RABBITMQ_HOST:127.0.0.1}
       port: ${DEPLOY_RABBITMQ_PORT:5672}
@@ -62,5 +57,4 @@ cyber:
       username: ${DEPLOY_RABBITMQ_USERNAME}
       password: ${DEPLOY_RABBITMQ_PASSWORD}
       exchange: ${DEPLOY_RABBITMQ_EXCHANGE}
-      dead-letter-exchange: ${DEPLOY_RABBITMQ_DEAD_LETTER_EXCHANGE}
       confirm-timeout-ms: ${DEPLOY_RABBITMQ_CONFIRM_TIMEOUT_MS:5000}

@@ -4,7 +4,6 @@
     <option name="ALTERNATIVE_JRE_PATH" value="temurin-25" />
     <option name="ALTERNATIVE_JRE_PATH_ENABLED" value="true" />
     <envs>
-      <env name="CYBER_DRIFT_ENABLED" value="false" />
       <env name="INGEST_CONSUMER_ENABLED" value="false" />
       <env name="LOCAL_ADMIN_BOOTSTRAP_ENABLED" value="false" />
       <env name="OUTBOX_RELAY_ENABLED" value="false" />

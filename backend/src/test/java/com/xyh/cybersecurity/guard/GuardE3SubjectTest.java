@@ -23,7 +23,7 @@ import static org.assertj.core.api.Assertions.*;
  * 对端键和目标引用映射到回环 canary 租约（与 lab 映射相同的字段集合）。引导报告只在克隆内由开关放行。
  */
 @SpringBootTest(webEnvironment=SpringBootTest.WebEnvironment.RANDOM_PORT,properties={
-        "cyber.ingest.consumer.enabled=false","cyber.ingest.outbox-relay.enabled=false","cyber.drift.enabled=false",
+        "cyber.ingest.consumer.enabled=false","cyber.ingest.outbox-relay.enabled=false",
         "cyber.guard.automation-enabled=true","cyber.security.local-admin-bootstrap.enabled=false","cyber.guard.bootstrap-reports-enabled=true",
         "server.address=127.0.0.1","server.ssl.enabled=true","server.ssl.enabled-protocols=TLSv1.3"})
 @EnabledIfEnvironmentVariable(named="P5_SUBJECT_SCHEMA",matches="cyber_guard_k9_[0-9a-f]{32}")

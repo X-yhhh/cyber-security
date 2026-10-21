@@ -71,9 +71,7 @@ public final class DeployStartupCheck implements BeanFactoryPostProcessor, Prior
             expect(env, "cyber.ingest.rabbitmq.host", "127.0.0.1");
             setting(env, "cyber.ingest.rabbitmq.username");
             setting(env, "cyber.ingest.rabbitmq.password");
-            for (String property : List.of("cyber.guard.queue-prefix", "cyber.ingest.consumer.queue",
-                    "cyber.ingest.consumer.dead-letter-queue", "cyber.ingest.consumer.retry-queue-prefix",
-                    "cyber.ingest.rabbitmq.exchange", "cyber.ingest.rabbitmq.dead-letter-exchange"))
+            for (String property : List.of("cyber.guard.queue-prefix", "cyber.ingest.rabbitmq.exchange"))
                 if (!setting(env, property).matches("[A-Za-z0-9][A-Za-z0-9_.-]{0,180}"))
                     throw failure("QUEUE_REFERENCE_INVALID");
 

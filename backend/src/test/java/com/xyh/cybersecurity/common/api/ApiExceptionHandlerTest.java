@@ -1,6 +1,5 @@
 package com.xyh.cybersecurity.common.api;
 
-import com.xyh.cybersecurity.model.validation.ModelContractException;
 import com.xyh.cybersecurity.security.SecurityAuditWriter;
 import jakarta.servlet.http.HttpServletRequest;
 import org.junit.jupiter.api.Test;
@@ -30,20 +29,6 @@ class ApiExceptionHandlerTest {
         assertThat(response.getBody().error().message()).isEqualTo("服务暂时无法处理请求");
         assertThat(response.getBody().error().message()).doesNotContain("jdbc", "credential", "masked-host");
         assertThat(response.getBody().requestId()).isEqualTo("req-o9-internal");
-    }
-
-    @Test
-    void modelContractErrorUsesStableCodeWithoutReturningCause() {
-        MockHttpServletRequest request = request("req-o9-model");
-        ResponseEntity<ApiEnvelope<Void>> response = handler.modelContract(
-                new ModelContractException("MODEL_ARTIFACT_UNAVAILABLE", new RuntimeException("/tmp/model.onnx")),
-                request);
-
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY);
-        assertThat(response.getBody()).isNotNull();
-        assertThat(response.getBody().error().code()).isEqualTo("MODEL_ARTIFACT_UNAVAILABLE");
-        assertThat(response.getBody().error().message()).isEqualTo("模型制品或输入契约校验失败");
-        assertThat(response.getBody().error().message()).doesNotContain("model.onnx", "RuntimeException");
     }
 
     private static MockHttpServletRequest request(String requestId) {

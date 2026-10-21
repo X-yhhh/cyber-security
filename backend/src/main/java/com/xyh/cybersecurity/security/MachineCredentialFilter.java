@@ -25,8 +25,7 @@ import java.util.regex.Pattern;
 @Component
 public final class MachineCredentialFilter extends OncePerRequestFilter {
 
-    private static final Pattern V2_CREDENTIAL = Pattern.compile("Bearer mch_([1-9][0-9]*)\\.([A-Za-z0-9_-]{40,64})");
-    private static final Pattern CREDENTIAL = Pattern.compile("Machine mch_([1-9][0-9]*)\\.([A-Za-z0-9_-]{40,64})");
+    private static final Pattern CREDENTIAL = Pattern.compile("Bearer mch_([1-9][0-9]*)\\.([A-Za-z0-9_-]{40,64})");
     private final IdentityMapper identityMapper;
 
     public MachineCredentialFilter(IdentityMapper identityMapper) {
@@ -35,15 +34,14 @@ public final class MachineCredentialFilter extends OncePerRequestFilter {
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
-        return !request.getRequestURI().startsWith(request.getContextPath() + "/api/v1/machine/")
-                && !request.getRequestURI().startsWith(request.getContextPath() + "/api/v2/machine/");
+        return !request.getRequestURI().startsWith(request.getContextPath() + "/api/v2/machine/");
     }
 
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
             throws ServletException, IOException {
         SecurityContextHolder.clearContext();
-        Matcher matcher = (request.getRequestURI().startsWith(request.getContextPath() + "/api/v2/") ? V2_CREDENTIAL : CREDENTIAL).matcher(request.getHeader("Authorization") == null
+        Matcher matcher = CREDENTIAL.matcher(request.getHeader("Authorization") == null
                 ? "" : request.getHeader("Authorization"));
         if (matcher.matches()) {
             try {

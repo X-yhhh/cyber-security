@@ -33,7 +33,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 
 /** 随机 MySQL schema + 完整安全链验证只读查询；不连接 broker、回放、模型或防火墙。 */
 @SpringBootTest(properties = {"cyber.ingest.consumer.enabled=false", "cyber.ingest.outbox-relay.enabled=false",
-        "cyber.drift.enabled=false", "cyber.guard.automation-enabled=false", "cyber.security.local-admin-bootstrap.enabled=false",
+        "cyber.guard.automation-enabled=false", "cyber.security.local-admin-bootstrap.enabled=false",
         "spring.rabbitmq.listener.simple.auto-startup=false", "spring.rabbitmq.listener.direct.auto-startup=false",
         "spring.datasource.hikari.maximum-pool-size=3"})
 @AutoConfigureMockMvc(print = MockMvcPrint.NONE)

@@ -13,30 +13,6 @@
         VALUES (#{auditId}, #{scopeType}, #{scopeId})
     </insert>
 
-    <insert id="insertEventAssetScopes">
-        INSERT IGNORE INTO audit_resource_scope (audit_id, scope_type, scope_id)
-        SELECT #{auditId}, 'asset', CAST(asset_id AS CHAR)
-        FROM event_asset_link WHERE event_id=#{eventId}
-    </insert>
-
-    <insert id="insertEventAlertAssetScopes">
-        INSERT IGNORE INTO audit_resource_scope (audit_id, scope_type, scope_id)
-        SELECT #{auditId}, 'asset', CAST(ir.asset_id AS CHAR)
-        FROM event_alert_link eal
-        JOIN detection_alert da ON da.id=eal.alert_id
-        JOIN ingest_record ir ON ir.id=da.ingest_record_id
-        WHERE eal.event_id=#{eventId} AND ir.asset_id IS NOT NULL
-    </insert>
-
-    <insert id="insertEventAlertSourceScopes">
-        INSERT IGNORE INTO audit_resource_scope (audit_id, scope_type, scope_id)
-        SELECT #{auditId}, 'data_source', CAST(ib.data_source_id AS CHAR)
-        FROM event_alert_link eal
-        JOIN detection_alert da ON da.id=eal.alert_id
-        JOIN ingest_record ir ON ir.id=da.ingest_record_id
-        JOIN ingest_batch ib ON ib.id=ir.batch_id
-        WHERE eal.event_id=#{eventId}
-    </insert>
     <resultMap id="auditView" type="com.xyh.cybersecurity.audit.AuditMapper$AuditView">
         <constructor>
             <idArg column="id" javaType="_long"/>

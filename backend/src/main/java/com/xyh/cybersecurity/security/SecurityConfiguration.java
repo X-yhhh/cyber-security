@@ -123,7 +123,7 @@ public class SecurityConfiguration {
                                                    AuthenticationEntryPoint entryPoint, AccessDeniedHandler deniedHandler,
                                                    MachineCredentialFilter machineCredentialFilter,
                                                    MachineRequestSizeFilter machineRequestSizeFilter) throws Exception {
-        http.securityMatcher("/api/v1/machine/**", "/api/v2/machine/**")
+        http.securityMatcher("/api/v2/machine/**")
                 .csrf(csrf -> csrf.disable())
                 .securityContext(context -> context.securityContextRepository(new NullSecurityContextRepository()))
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
@@ -147,7 +147,6 @@ public class SecurityConfiguration {
                                             MachineCredentialFilter machineCredentialFilter,
                                             MachineRequestSizeFilter machineRequestSizeFilter) throws Exception {
         http
-                .csrf(csrf -> csrf.ignoringRequestMatchers("/api/v1/machine/**"))
                 .securityContext(context -> context.securityContextRepository(contextRepository))
                 .sessionManagement(session -> session
                         .sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED)

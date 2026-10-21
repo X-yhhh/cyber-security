@@ -26,7 +26,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 
 /** B4 身份验收只写入本次随机 schema：角色、用户、冲突、撤会话、幂等和审计均走真实 HTTP。 */
 @SpringBootTest(properties={"cyber.security.local-admin-bootstrap.enabled=false","cyber.ingest.consumer.enabled=false",
-        "cyber.ingest.outbox-relay.enabled=false","cyber.drift.enabled=false"})
+        "cyber.ingest.outbox-relay.enabled=false"})
 @AutoConfigureMockMvc(print=MockMvcPrint.NONE)
 @EnabledIfEnvironmentVariable(named="DB_TEST_BASE_URL",matches=".+")
 @org.junit.jupiter.api.extension.ExtendWith(IsolatedDatabaseSchemas.class)

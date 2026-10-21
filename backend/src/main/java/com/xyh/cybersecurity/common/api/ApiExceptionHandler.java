@@ -15,7 +15,6 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import com.xyh.cybersecurity.security.SecurityAuditWriter;
-import com.xyh.cybersecurity.model.validation.ModelContractException;
 import org.springframework.beans.factory.ObjectProvider;
 
 import static com.xyh.cybersecurity.common.web.RequestIdFilter.REQUEST_ID_ATTRIBUTE;
@@ -47,13 +46,6 @@ public class ApiExceptionHandler {
     public ResponseEntity<ApiEnvelope<Void>> requestError(ApiRequestException exception, HttpServletRequest request) {
         return ResponseEntity.status(exception.status()).body(ApiEnvelope.failure(
                 exception.code(), exception.getMessage(), requestId(request)));
-    }
-
-    @ExceptionHandler(ModelContractException.class)
-    public ResponseEntity<ApiEnvelope<Void>> modelContract(ModelContractException exception,
-                                                            HttpServletRequest request) {
-        return ResponseEntity.unprocessableEntity().body(ApiEnvelope.failure(
-                exception.code(), "模型制品或输入契约校验失败", requestId(request)));
     }
 
     /**

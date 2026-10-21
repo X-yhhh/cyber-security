@@ -24,7 +24,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 
 /** 在随机 MySQL schema 通过真实 session/CSRF 覆盖 B1；不启动业务库或防火墙。 */
 @SpringBootTest(properties={"cyber.security.local-admin-bootstrap.enabled=false","cyber.ingest.consumer.enabled=false",
-        "cyber.ingest.outbox-relay.enabled=false","cyber.drift.enabled=false"})
+        "cyber.ingest.outbox-relay.enabled=false"})
 @AutoConfigureMockMvc(print=MockMvcPrint.NONE)
 @EnabledIfEnvironmentVariable(named="DB_TEST_BASE_URL",matches=".+")
 @org.junit.jupiter.api.extension.ExtendWith(IsolatedDatabaseSchemas.class)

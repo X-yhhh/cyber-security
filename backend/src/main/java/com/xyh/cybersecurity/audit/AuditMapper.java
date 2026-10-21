@@ -35,12 +35,6 @@ public interface AuditMapper {
     int insertResourceScope(@Param("auditId") long auditId, @Param("scopeType") String scopeType,
                             @Param("scopeId") String scopeId);
 
-    int insertEventAssetScopes(@Param("auditId") long auditId, @Param("eventId") long eventId);
-
-    int insertEventAlertAssetScopes(@Param("auditId") long auditId, @Param("eventId") long eventId);
-
-    int insertEventAlertSourceScopes(@Param("auditId") long auditId, @Param("eventId") long eventId);
-
     long countVisible(@Param("userId") long userId);
 
     List<AuditView> listVisible(@Param("userId") long userId,

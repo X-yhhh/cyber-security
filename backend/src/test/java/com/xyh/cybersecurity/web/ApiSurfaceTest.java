@@ -12,10 +12,10 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-/** C1 接口退役回归：扫描真实控制器映射，防止共享权限意外重新暴露旧人工端点。 */
+/** 接口退役回归：扫描真实控制器映射，v1 人工与机器端点均已删除，防止旧端点被重新暴露。 */
 class ApiSurfaceTest {
     @Test
-    void onlyLegacyMachineControllersRemainAndProbesUseHealthRoot() throws Exception {
+    void noV1EndpointsRemainAndProbesUseHealthRoot() throws Exception {
         var scanner = new ClassPathScanningCandidateComponentProvider(false);
         scanner.addIncludeFilter(new AnnotationTypeFilter(RestController.class));
         List<String> legacy = new ArrayList<>();
@@ -31,15 +31,11 @@ class ApiSurfaceTest {
                 String[] suffixes = endpoint.path().length == 0 ? new String[]{""} : endpoint.path();
                 for (String prefix : prefixes) for (String suffix : suffixes) {
                     String path = prefix + suffix;
-                    if (path.startsWith("/api/v1")) {
-                        assertThat(path).startsWith("/api/v1/machine/");
-                        legacy.add(prefix);
-                    }
+                    if (path.startsWith("/api/v1")) legacy.add(path);
                 }
             }
         }
-        assertThat(legacy).containsOnly("/api/v1/machine/ingest", "/api/v1/machine/sensors");
-        assertThat(legacy).contains("/api/v1/machine/ingest", "/api/v1/machine/sensors");
+        assertThat(legacy).isEmpty();
         assertThat(health).containsExactly("/health");
     }
 }

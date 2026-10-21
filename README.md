@@ -96,6 +96,8 @@ F3 已完成非页面部分（`e6aad6d`）与正式页面（[PR #71](https://git
 | [部署与回退](docs/部署与回退.md) | deploy 配置、整库备份/恢复、启动切换、暂停回退与 A8 申请材料；实际 P8 操作另按授权 |
 | [前端设计文档](docs/前端设计文档.md) | 界面设计基线：视觉基线 v2、信息架构、组件库与页面清单 |
 
+每一版模型的 ONNX 与 manifest 长期保存在本机 [models/](models/README.md)（只追加，退役不删除；ONNX 不进 Git，索引与 manifest 进 Git）。
+
 观测、特征 profile 和回执使用 `host-guard/5.0.0-rc.2`；manifest 和命令为 rc.3；策略为 rc.4（按来源开关自动，可选 `acceptedProfiles`）。决策 `host-guard-decision/2026-10-08.1`、第二轮评价 `host-guard-evaluation/2026-10-08.1` 分别版本化，见契约正文。旧 P2 冻结包与 candidate-v2 原包只读保留，不改写其哈希。
 
 ## 实施与交付边界

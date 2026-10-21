@@ -17,11 +17,11 @@ __pycache__/
 /reports/generated/
 /artifacts/
 /checkpoints/
-/models/
 *.ckpt
 *.pt
 *.pth
 *.onnx
+# models/ 版本库的 ONNX 只在本机长期保存（GitHub LFS 额度不足），索引与 manifest 等元数据进 Git，见 models/README.md。
 *.pkl
 *.joblib
 *.safetensors

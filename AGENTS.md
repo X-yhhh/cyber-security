@@ -18,7 +18,7 @@
 - `main` 承载本地应用、接口和系统设计；`training/windows-cuda` 承载 Windows CUDA 数据准备、训练、实验、评估和模型导出。训练资产与业务实现不得混放。
 - 长期分支只有这两条。临时分支验证后经 PR 以 merge commit 合并并删除，不长期滞留；旧路线代码确认无用后直接删除，不另开分支保存。
 - 不得把 `main` 整分支合并进 `training/windows-cuda`（会带入后端、前端和数据库副本）。共享文件按路径同步：`git checkout <main提交> -- <路径>`，提交说明写明来源提交。训练分支保留 `sensor/` 作为特征提取器，冻结清单绑定其源码，只在正式采用新提取器版本时同步。
-- 仓库根的 `data/`、`.cache/`、`artifacts/` 为忽略的本地数据与冻结证据，脚本和证据按仓库相对路径引用，不得移动或改名；模型交付包放在仓库外（Mac `~/Workspace/deliveries`，Windows `E:/Workspace/ai/deliveries/cyber-security`）。
+- 仓库根的 `data/`、`.cache/`、`artifacts/` 为忽略的本地数据与冻结证据，脚本和证据按仓库相对路径引用，不得移动或改名。每一版模型的导出文件（ONNX、manifest、预处理、校准）长期保存在仓库根的 [models/](models/README.md) 版本库（ONNX 只存本机、被 Git 忽略，索引与 manifest 等元数据进 Git），只能经 `scripts/models/model_store.py` 入库、退役与核验，退役不删除；冻结过程证据仍留在 `.cache/`。含策略与报告的发布包仍放在仓库外（Mac `~/Workspace/deliveries`，Windows `E:/Workspace/ai/deliveries/cyber-security`），后端只从 `cyber.guard.artifact-root` 读取。
 - 后端目标为 JDK 25、Spring Boot 模块化单体和 MyBatis；数据组件为 MySQL 8、RabbitMQ；Redis 为可选优化，不是实施前提。除非用户批准架构演进，不提前引入 Spring Cloud 或拆分微服务。
 - 前端当前使用 Vue 3 稳定版；只有在 Vue 4 正式发布、依赖生态兼容且项目明确决定升级后，才调整技术基线。
 - Java 命令必须使用/验证 JDK 25，而不能只依据当前 shell 的 `java -version` 推断主机安装状态。构建工具链、IDE、服务启动脚本和 CI 的 Java 版本应一致。
@@ -36,7 +36,7 @@
 
 ## 4. 数据与模型资产
 
-- 原始数据、凭据、虚拟环境、缓存、日志、模型权重、检查点及大型生成物不得提交到 Git。检查 `.gitignore` 是否覆盖实际新增产物。
+- 原始数据、凭据、虚拟环境、缓存、日志、模型权重、检查点及大型生成物不得提交到 Git；`models/` 版本库只提交索引、manifest、预处理与校准等元数据，ONNX 权重留在本机（2026-10-21 用户决定，GitHub LFS 额度不足）。检查 `.gitignore` 是否覆盖实际新增产物。
 - 数据集来源、许可/引用、文件哈希、字段布局、标签映射、行数、缺失/重复和切分规则必须有可追溯记录；遵守数据源适用许可。
 - 按 [数据与模型方案](docs/数据与模型方案.md) 审查公开 PCAP、修正标签和授权良性任务。区分 publisher_documented、controlled_task、analyst_reviewed、ambiguous；不一概要求公开基准提供额外主机日志，也不把无攻击标记直接当正常。UNSW 仅为历史对照，其子集角色仍须按实际内容核实。
 - 模型与现场使用同一因果提取器；正在进行的流快照不得读取未来包/最终时长。同一 parentConnection 的快照不得拆到不同集合，切分边界按上下文窗口留出隔离；ID、原始地址、标签辅助字段不得进入模型。

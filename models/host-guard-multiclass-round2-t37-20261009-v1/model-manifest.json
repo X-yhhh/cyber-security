@@ -1,0 +1,129 @@
+{
+  "algorithm": "lightgbm",
+  "algorithmVersion": "4.7.0",
+  "artifactSha256": "46d2b997ec0a6e674f7bad4127bda8866cbe259adc7287722371cee238ff5b89",
+  "calibrationSha256": "9dad187e7f8503e52831d648eb3f36ef3fbfce59e4ce09d2b97ae7aa4a6cceb3",
+  "candidateOnly": true,
+  "categoricalFeatures": [
+    "transport",
+    "direction",
+    "serviceClass"
+  ],
+  "contractVersion": "host-guard/5.0.0-rc.3",
+  "createdAt": "2026-10-09T12:09:40Z",
+  "datasetManifestSha256": "1f061d0955423351981001d6e4cabfd11a03e7f952560eb335fc23a3eecf7004",
+  "evaluationPlanSha256": "88071e771e8bb6bb0fa4121c1edb06fb2cab79d16ac54dcce9425ad81b8d38cc",
+  "extractorSha256": "f29656c837d4aeb64b69366aa57d0caa60fc7a1998842b6deb81bb79e1fce264",
+  "featureProfileSha256": "3bdeb637e46a9fde6192a20e58eacbe56563a9d21339860c54db4907fb8853b5",
+  "finalEvaluationReportSha256": null,
+  "modelId": "f7734c7c-1c9a-52dd-8e89-79f36b2f3815",
+  "modelVersion": "host-guard-multiclass-round2-t37-20261009-v1",
+  "numericFeatures": [
+    "features.elapsedMs",
+    "features.bytesOutbound",
+    "features.bytesInbound",
+    "features.packetsOutbound",
+    "features.packetsInbound",
+    "features.lengthMin",
+    "features.lengthMax",
+    "features.lengthMean",
+    "features.lengthStd",
+    "features.iatMeanUs",
+    "features.iatStdUs",
+    "features.synCount",
+    "features.synAckCount",
+    "features.rstCount",
+    "features.finCount",
+    "features.handshakeSeen",
+    "contexts.1.coverageMs",
+    "contexts.1.peerFlowStarts",
+    "contexts.1.peerSynCount",
+    "contexts.1.peerRstCount",
+    "contexts.1.peerDistinctServicePorts",
+    "contexts.1.hostFlowStarts",
+    "contexts.1.hostDistinctPeers",
+    "contexts.1.peerBytesOutbound",
+    "contexts.1.peerBytesInbound",
+    "contexts.5.coverageMs",
+    "contexts.5.peerFlowStarts",
+    "contexts.5.peerSynCount",
+    "contexts.5.peerRstCount",
+    "contexts.5.peerDistinctServicePorts",
+    "contexts.5.hostFlowStarts",
+    "contexts.5.hostDistinctPeers",
+    "contexts.5.peerBytesOutbound",
+    "contexts.5.peerBytesInbound",
+    "contexts.30.coverageMs",
+    "contexts.30.peerFlowStarts",
+    "contexts.30.peerSynCount",
+    "contexts.30.peerRstCount",
+    "contexts.30.peerDistinctServicePorts",
+    "contexts.30.hostFlowStarts",
+    "contexts.30.hostDistinctPeers",
+    "contexts.30.peerBytesOutbound",
+    "contexts.30.peerBytesInbound"
+  ],
+  "outputContract": {
+    "attackScoreName": "attack_score",
+    "binaryLabels": {
+      "attack": 1,
+      "benign": 0
+    },
+    "familyScoreOrder": [
+      "port_scan",
+      "brute_force",
+      "dos_flood",
+      "dos_slow"
+    ]
+  },
+  "preprocessingSha256": "bd3ed55979357f9389bb45f6566580dbb48c662f8ee79f3c44ae596d845cc341",
+  "profiles": [
+    "flow-prefix-v1",
+    "flow-final-v1"
+  ],
+  "runtime": {
+    "format": "onnx",
+    "maxProbabilityAbsError": 0.0001,
+    "opset": 17,
+    "runtimeVersion": "1.27.0"
+  },
+  "scoreCalibration": "none",
+  "splitManifestSha256": "1f061d0955423351981001d6e4cabfd11a03e7f952560eb335fc23a3eecf7004",
+  "supportedScope": [
+    {
+      "addressFamily": "ipv4",
+      "coverageWindowSeconds": 1,
+      "direction": "inbound",
+      "family": "port_scan",
+      "minimumCoverageMs": 0,
+      "transport": "tcp"
+    },
+    {
+      "addressFamily": "ipv4",
+      "coverageWindowSeconds": 1,
+      "direction": "inbound",
+      "family": "brute_force",
+      "minimumCoverageMs": 0,
+      "transport": "tcp"
+    },
+    {
+      "addressFamily": "ipv4",
+      "coverageWindowSeconds": 1,
+      "direction": "inbound",
+      "family": "dos_flood",
+      "minimumCoverageMs": 0,
+      "transport": "tcp"
+    },
+    {
+      "addressFamily": "ipv4",
+      "coverageWindowSeconds": 1,
+      "direction": "inbound",
+      "family": "dos_slow",
+      "minimumCoverageMs": 0,
+      "transport": "tcp"
+    }
+  ],
+  "trainingCodeSha256": "7ef44802f750985eaabc41ec500fca648f5c268571a77443cba92c960616a386",
+  "trainingRunId": "2460e89b-959d-5c01-9256-454745aef202",
+  "validationReportSha256": "219a65b7a72679deffcb7c765c64a3d635cb40bd28deee285412947296fc0603"
+}

@@ -1,0 +1,31 @@
+# run 依赖本项目 recovery 的存活脉冲；两者均无防火墙能力。
+[Unit]
+Description=Cyber Security zero capability observer
+After=network-online.target cyber-observer-recovery.service
+Wants=cyber-observer-recovery.service
+
+[Service]
+Type=simple
+User=cybersensor
+WorkingDirectory=@RELEASE@
+ExecStart=@VENV@/bin/python @RELEASE@/scripts/p8/observer_executor.py run --config @ROOT@/config/executor-observer.json
+Environment=PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+UMask=0077
+AmbientCapabilities=
+CapabilityBoundingSet=
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=@ROOT@/ledger @ROOT@/logs
+MemoryMax=96M
+MemorySwapMax=0
+CPUQuota=10%
+Nice=10
+IOSchedulingClass=idle
+OOMScoreAdjust=900
+Restart=on-failure
+RestartSec=30
+TimeoutStopSec=15
+
+[Install]
+WantedBy=multi-user.target

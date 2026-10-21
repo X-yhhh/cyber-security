@@ -1,0 +1,129 @@
+{
+  "algorithm": "lightgbm",
+  "algorithmVersion": "4.7.0",
+  "artifactSha256": "5fa8cd1721bc5762aa4adae3befd678562469b37b30eea6c650311ea94255a79",
+  "calibrationSha256": "9dad187e7f8503e52831d648eb3f36ef3fbfce59e4ce09d2b97ae7aa4a6cceb3",
+  "candidateOnly": true,
+  "categoricalFeatures": [
+    "transport",
+    "direction",
+    "serviceClass"
+  ],
+  "contractVersion": "host-guard/5.0.0-rc.2",
+  "createdAt": "2026-10-07T08:37:48Z",
+  "datasetManifestSha256": "1f061d0955423351981001d6e4cabfd11a03e7f952560eb335fc23a3eecf7004",
+  "evaluationPlanSha256": "d6b0c67bb518c4c2f98b8cf31af63d158d784477bc5d43ad7ee24b52392c68e5",
+  "extractorSha256": "f29656c837d4aeb64b69366aa57d0caa60fc7a1998842b6deb81bb79e1fce264",
+  "featureProfileSha256": "3bdeb637e46a9fde6192a20e58eacbe56563a9d21339860c54db4907fb8853b5",
+  "finalEvaluationReportSha256": null,
+  "modelId": "45c8a170-1be0-548d-a80e-999cd744693f",
+  "modelVersion": "p3-multiclass-20261007-candidate-2",
+  "numericFeatures": [
+    "features.elapsedMs",
+    "features.bytesOutbound",
+    "features.bytesInbound",
+    "features.packetsOutbound",
+    "features.packetsInbound",
+    "features.lengthMin",
+    "features.lengthMax",
+    "features.lengthMean",
+    "features.lengthStd",
+    "features.iatMeanUs",
+    "features.iatStdUs",
+    "features.synCount",
+    "features.synAckCount",
+    "features.rstCount",
+    "features.finCount",
+    "features.handshakeSeen",
+    "contexts.1.coverageMs",
+    "contexts.1.peerFlowStarts",
+    "contexts.1.peerSynCount",
+    "contexts.1.peerRstCount",
+    "contexts.1.peerDistinctServicePorts",
+    "contexts.1.hostFlowStarts",
+    "contexts.1.hostDistinctPeers",
+    "contexts.1.peerBytesOutbound",
+    "contexts.1.peerBytesInbound",
+    "contexts.5.coverageMs",
+    "contexts.5.peerFlowStarts",
+    "contexts.5.peerSynCount",
+    "contexts.5.peerRstCount",
+    "contexts.5.peerDistinctServicePorts",
+    "contexts.5.hostFlowStarts",
+    "contexts.5.hostDistinctPeers",
+    "contexts.5.peerBytesOutbound",
+    "contexts.5.peerBytesInbound",
+    "contexts.30.coverageMs",
+    "contexts.30.peerFlowStarts",
+    "contexts.30.peerSynCount",
+    "contexts.30.peerRstCount",
+    "contexts.30.peerDistinctServicePorts",
+    "contexts.30.hostFlowStarts",
+    "contexts.30.hostDistinctPeers",
+    "contexts.30.peerBytesOutbound",
+    "contexts.30.peerBytesInbound"
+  ],
+  "outputContract": {
+    "attackScoreName": "attack_score",
+    "binaryLabels": {
+      "attack": 1,
+      "benign": 0
+    },
+    "familyScoreOrder": [
+      "port_scan",
+      "brute_force",
+      "dos_flood",
+      "dos_slow"
+    ]
+  },
+  "preprocessingSha256": "feb1e8ccb1b5170c986e8200b17c683407d94dab9940a8124385b1b2b899ba5b",
+  "profiles": [
+    "flow-prefix-v1",
+    "flow-final-v1"
+  ],
+  "runtime": {
+    "format": "onnx",
+    "maxProbabilityAbsError": 0.0001,
+    "opset": 17,
+    "runtimeVersion": "1.27.0"
+  },
+  "scoreCalibration": "none",
+  "splitManifestSha256": "1f061d0955423351981001d6e4cabfd11a03e7f952560eb335fc23a3eecf7004",
+  "supportedScope": [
+    {
+      "addressFamily": "ipv4",
+      "coverageWindowSeconds": 1,
+      "direction": "inbound",
+      "family": "port_scan",
+      "minimumCoverageMs": 0,
+      "transport": "tcp"
+    },
+    {
+      "addressFamily": "ipv4",
+      "coverageWindowSeconds": 1,
+      "direction": "inbound",
+      "family": "brute_force",
+      "minimumCoverageMs": 0,
+      "transport": "tcp"
+    },
+    {
+      "addressFamily": "ipv4",
+      "coverageWindowSeconds": 1,
+      "direction": "inbound",
+      "family": "dos_flood",
+      "minimumCoverageMs": 0,
+      "transport": "tcp"
+    },
+    {
+      "addressFamily": "ipv4",
+      "coverageWindowSeconds": 1,
+      "direction": "inbound",
+      "family": "dos_slow",
+      "minimumCoverageMs": 0,
+      "transport": "tcp"
+    }
+  ],
+  "trainingCodeSha256": "b27a0dd83b7def07eb2d422dab09e9954592138d9a7a620560ee7af00de5d9e1",
+  "trainingRunId": "49e333eb-8887-54e6-81b0-f13fffdb936b",
+  "validationReportSha256": "59eff7005139aa7e89fdd61eea29d7029307e3d9aa5ef8e651732374ff4bdeeb"
+}

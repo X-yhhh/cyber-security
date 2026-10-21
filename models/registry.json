@@ -1,0 +1,186 @@
+{
+  "version": "model-store/1",
+  "models": [
+    {
+      "modelVersion": "p3-multiclass-20261007-candidate-1",
+      "contractVersion": "host-guard/5.0.0-rc.2",
+      "algorithm": "lightgbm",
+      "manifestFile": "model-manifest.json",
+      "manifestSha256": "d00d006bf0ed1cbfcef6ce81098987c6b344ffa54f338bc0ccfcabe567d4728c",
+      "artifactSha256": "5fa8cd1721bc5762aa4adae3befd678562469b37b30eea6c650311ea94255a79",
+      "files": {
+        "model-manifest.json": "d00d006bf0ed1cbfcef6ce81098987c6b344ffa54f338bc0ccfcabe567d4728c",
+        "model.onnx": "5fa8cd1721bc5762aa4adae3befd678562469b37b30eea6c650311ea94255a79",
+        "preprocessing.json": "feb1e8ccb1b5170c986e8200b17c683407d94dab9940a8124385b1b2b899ba5b",
+        "calibration.json": "9dad187e7f8503e52831d648eb3f36ef3fbfce59e4ce09d2b97ae7aa4a6cceb3",
+        "source-model.onnx": "5a5f8ab34366ce2e70c3e6ad32bdc9b4e3aeb3937d32efea387b6d1310c2d613"
+      },
+      "source": ".cache/p3c-20261007/candidate-v1",
+      "archivedAt": "2026-10-21T01:35:49Z",
+      "status": "retired",
+      "retiredAt": "2026-10-21T01:35:49Z",
+      "retiredReason": "被 candidate-2 取代（补齐评估计划绑定）",
+      "note": "P3-C 首次冻结（rc.2），原样留存"
+    },
+    {
+      "modelVersion": "p3-multiclass-20261007-candidate-2",
+      "contractVersion": "host-guard/5.0.0-rc.2",
+      "algorithm": "lightgbm",
+      "manifestFile": "model-manifest.json",
+      "manifestSha256": "1b31bdfedec969a66e604072e625ada6569806f558b2f2837f89f2c95bc9f582",
+      "artifactSha256": "5fa8cd1721bc5762aa4adae3befd678562469b37b30eea6c650311ea94255a79",
+      "files": {
+        "model-manifest.json": "1b31bdfedec969a66e604072e625ada6569806f558b2f2837f89f2c95bc9f582",
+        "model.onnx": "5fa8cd1721bc5762aa4adae3befd678562469b37b30eea6c650311ea94255a79",
+        "preprocessing.json": "feb1e8ccb1b5170c986e8200b17c683407d94dab9940a8124385b1b2b899ba5b",
+        "calibration.json": "9dad187e7f8503e52831d648eb3f36ef3fbfce59e4ce09d2b97ae7aa4a6cceb3",
+        "source-model.onnx": "5a5f8ab34366ce2e70c3e6ad32bdc9b4e3aeb3937d32efea387b6d1310c2d613"
+      },
+      "source": ".cache/p3c-20261007/candidate-v2",
+      "archivedAt": "2026-10-21T01:35:49Z",
+      "status": "retired",
+      "retiredAt": "2026-10-21T01:35:49Z",
+      "retiredReason": "依赖主机侧上下文，不作 G3 候选，由第二轮候选取代（模型训练与评估记录第 6 节诊断）",
+      "note": "P3-C 补齐评估计划绑定后的冻结包（rc.2），p6-l1-01 评价对象；与 candidate-1 权重相同"
+    },
+    {
+      "modelVersion": "host-guard-multiclass-round2-t34-20261008-v1",
+      "contractVersion": "host-guard/5.0.0-rc.3",
+      "algorithm": "lightgbm",
+      "manifestFile": "model-manifest.json",
+      "manifestSha256": "90049c39cea9963a15caa7fe83f9a5f782e22d30ad58148b17b4e35ce38b174f",
+      "artifactSha256": "46d2b997ec0a6e674f7bad4127bda8866cbe259adc7287722371cee238ff5b89",
+      "files": {
+        "model-manifest.json": "90049c39cea9963a15caa7fe83f9a5f782e22d30ad58148b17b4e35ce38b174f",
+        "model.onnx": "46d2b997ec0a6e674f7bad4127bda8866cbe259adc7287722371cee238ff5b89",
+        "preprocessing.json": "bd3ed55979357f9389bb45f6566580dbb48c662f8ee79f3c44ae596d845cc341",
+        "calibration.json": "9dad187e7f8503e52831d648eb3f36ef3fbfce59e4ce09d2b97ae7aa4a6cceb3",
+        "source-model.onnx": "6642134ef5059c016ed981c63c117d17e0979efdb12819834ae94825c916bbd5"
+      },
+      "source": ".cache/t33-t34-20261008/prepared-v1",
+      "archivedAt": "2026-10-21T01:35:49Z",
+      "status": "retired",
+      "retiredAt": "2026-10-21T01:35:49Z",
+      "retiredReason": "T3.6 登记新评价版本后重新准备，被 t36 取代",
+      "note": "第二轮 T3.4 准备包（rc.3）"
+    },
+    {
+      "modelVersion": "host-guard-multiclass-round2-t36-20261008-v1",
+      "contractVersion": "host-guard/5.0.0-rc.3",
+      "algorithm": "lightgbm",
+      "manifestFile": "model-manifest.json",
+      "manifestSha256": "cd2b756cc0451186e09b95601560bb55048218cb7467b6748cd7a74e99016669",
+      "artifactSha256": "46d2b997ec0a6e674f7bad4127bda8866cbe259adc7287722371cee238ff5b89",
+      "files": {
+        "model-manifest.json": "cd2b756cc0451186e09b95601560bb55048218cb7467b6748cd7a74e99016669",
+        "model.onnx": "46d2b997ec0a6e674f7bad4127bda8866cbe259adc7287722371cee238ff5b89",
+        "preprocessing.json": "bd3ed55979357f9389bb45f6566580dbb48c662f8ee79f3c44ae596d845cc341",
+        "calibration.json": "9dad187e7f8503e52831d648eb3f36ef3fbfce59e4ce09d2b97ae7aa4a6cceb3",
+        "source-model.onnx": "6642134ef5059c016ed981c63c117d17e0979efdb12819834ae94825c916bbd5"
+      },
+      "source": ".cache/t35-t36-20261008/prepared-v1",
+      "archivedAt": "2026-10-21T01:35:49Z",
+      "status": "retired",
+      "retiredAt": "2026-10-21T01:35:49Z",
+      "retiredReason": "T3.7/T3.8a 封口时重新准备，被 t37 取代",
+      "note": "第二轮 T3.6 重新准备（绑定评价版本 2026-10-08.1）；与 t34 权重相同"
+    },
+    {
+      "modelVersion": "host-guard-multiclass-round2-t37-20261009-v1",
+      "contractVersion": "host-guard/5.0.0-rc.3",
+      "algorithm": "lightgbm",
+      "manifestFile": "model-manifest.json",
+      "manifestSha256": "5e4b193d0b94c528c425db5f37b86f0e88d31721535a795fa4d63d9dfd0db8b8",
+      "artifactSha256": "46d2b997ec0a6e674f7bad4127bda8866cbe259adc7287722371cee238ff5b89",
+      "files": {
+        "model-manifest.json": "5e4b193d0b94c528c425db5f37b86f0e88d31721535a795fa4d63d9dfd0db8b8",
+        "model.onnx": "46d2b997ec0a6e674f7bad4127bda8866cbe259adc7287722371cee238ff5b89",
+        "preprocessing.json": "bd3ed55979357f9389bb45f6566580dbb48c662f8ee79f3c44ae596d845cc341",
+        "calibration.json": "9dad187e7f8503e52831d648eb3f36ef3fbfce59e4ce09d2b97ae7aa4a6cceb3",
+        "source-model.onnx": "6642134ef5059c016ed981c63c117d17e0979efdb12819834ae94825c916bbd5"
+      },
+      "source": ".cache/r8-t37-t38-20261009/prepared-v1",
+      "archivedAt": "2026-10-21T01:35:49Z",
+      "status": "available",
+      "retiredAt": null,
+      "retiredReason": null,
+      "note": "第二轮 T3.7 封口版本；r2—r4 发布包及 r5、r6、r6′ 组合使用的模型；与 t34/t36 权重相同"
+    },
+    {
+      "modelVersion": "unsw-binary-2026.09.0",
+      "contractVersion": "1.0",
+      "algorithm": "XGBoost",
+      "manifestFile": "model_manifest.json",
+      "manifestSha256": "bdd307f7d8c29d92b620661a456f05c58bcaa0e85ccec9787567bfd6d0a6d87f",
+      "artifactSha256": "ce1b3831e58963bcd10ee1aa88ce51d1c0bf8579e34b58871e124955dd3e882b",
+      "files": {
+        "model_manifest.json": "bdd307f7d8c29d92b620661a456f05c58bcaa0e85ccec9787567bfd6d0a6d87f",
+        "model.onnx": "ce1b3831e58963bcd10ee1aa88ce51d1c0bf8579e34b58871e124955dd3e882b",
+        "preprocessing.json": "9f626a23caa8645e9384c4f1be76f015254fe97ff839afeaab2238c9ced264f1"
+      },
+      "source": "~/Workspace/deliveries/unsw-binary-2026.09.0",
+      "archivedAt": "2026-10-21T01:35:49Z",
+      "status": "retired",
+      "retiredAt": "2026-10-21T01:35:49Z",
+      "retiredReason": "旧 v4 二分类路线，已由 v5 多分类路线取代（2026-10-06）；后端 v4 链路已于 2026-10-21 删除（系统实施记录 6.63）",
+      "note": "旧 v4 UNSW 二分类交付包（只存模型文件，评估证据仍在原交付包）"
+    },
+    {
+      "modelVersion": "unsw-binary-2026.10.0",
+      "contractVersion": "1.0",
+      "algorithm": "XGBoost",
+      "manifestFile": "model_manifest.json",
+      "manifestSha256": "d2a54814d276d58d88a26ae0e749d65c0b1f68c444e67fa8747b6d153a8196bf",
+      "artifactSha256": "c87b883d0ac32b0a827441eb5d97164acaa46e67653fb79cd369b9c794949358",
+      "files": {
+        "model_manifest.json": "d2a54814d276d58d88a26ae0e749d65c0b1f68c444e67fa8747b6d153a8196bf",
+        "model.onnx": "c87b883d0ac32b0a827441eb5d97164acaa46e67653fb79cd369b9c794949358",
+        "preprocessing.json": "67522f568f0a2864c26843e0de9424b9333cafff989dacd65bbae0de440fe30a"
+      },
+      "source": "~/Workspace/deliveries/unsw-binary-2026.10.0",
+      "archivedAt": "2026-10-21T01:35:49Z",
+      "status": "retired",
+      "retiredAt": "2026-10-21T01:35:49Z",
+      "retiredReason": "旧 v4 二分类路线，已由 v5 多分类路线取代（2026-10-06）；后端 v4 链路已于 2026-10-21 删除（系统实施记录 6.63）",
+      "note": "旧 v4 UNSW 二分类交付包（只存模型文件，评估证据仍在原交付包）"
+    },
+    {
+      "modelVersion": "unsw-binary-2026.10.1",
+      "contractVersion": "1.0",
+      "algorithm": "XGBoost",
+      "manifestFile": "model_manifest.json",
+      "manifestSha256": "8c278343551f45efe92df0ab2ee4151ec7a35be37a42dd63c36d72c81e4526fb",
+      "artifactSha256": "c87b883d0ac32b0a827441eb5d97164acaa46e67653fb79cd369b9c794949358",
+      "files": {
+        "model_manifest.json": "8c278343551f45efe92df0ab2ee4151ec7a35be37a42dd63c36d72c81e4526fb",
+        "model.onnx": "c87b883d0ac32b0a827441eb5d97164acaa46e67653fb79cd369b9c794949358",
+        "preprocessing.json": "67522f568f0a2864c26843e0de9424b9333cafff989dacd65bbae0de440fe30a"
+      },
+      "source": "~/Workspace/deliveries/unsw-binary-2026.10.1",
+      "archivedAt": "2026-10-21T01:35:49Z",
+      "status": "retired",
+      "retiredAt": "2026-10-21T01:35:49Z",
+      "retiredReason": "旧 v4 二分类路线，已由 v5 多分类路线取代（2026-10-06）；后端 v4 链路已于 2026-10-21 删除（系统实施记录 6.63）",
+      "note": "旧 v4 UNSW 二分类交付包（只存模型文件，评估证据仍在原交付包）"
+    },
+    {
+      "modelVersion": "unsw-binary-2026.10.2",
+      "contractVersion": "1.0",
+      "algorithm": "XGBoost",
+      "manifestFile": "model_manifest.json",
+      "manifestSha256": "f2f3464b7af3218b75246454483eb490757b85b306f7ab8fa3b31ba685b2d52d",
+      "artifactSha256": "c87b883d0ac32b0a827441eb5d97164acaa46e67653fb79cd369b9c794949358",
+      "files": {
+        "model_manifest.json": "f2f3464b7af3218b75246454483eb490757b85b306f7ab8fa3b31ba685b2d52d",
+        "model.onnx": "c87b883d0ac32b0a827441eb5d97164acaa46e67653fb79cd369b9c794949358",
+        "preprocessing.json": "67522f568f0a2864c26843e0de9424b9333cafff989dacd65bbae0de440fe30a"
+      },
+      "source": "~/Workspace/deliveries/unsw-binary-2026.10.2",
+      "archivedAt": "2026-10-21T01:35:49Z",
+      "status": "retired",
+      "retiredAt": "2026-10-21T01:35:49Z",
+      "retiredReason": "旧 v4 二分类路线，已由 v5 多分类路线取代（2026-10-06）；后端 v4 链路已于 2026-10-21 删除（系统实施记录 6.63）",
+      "note": "旧 v4 UNSW 二分类交付包（只存模型文件，评估证据仍在原交付包）"
+    }
+  ]
+}

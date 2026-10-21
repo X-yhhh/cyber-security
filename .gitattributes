@@ -6,3 +6,5 @@ docs/phase2-evidence/scope-v2/completion.json -text whitespace=trailing-space,sp
 # 阶段 1 收口记录绑定这些文件的 SHA-256，跨平台检出必须保留原始字节。
 docs/phase1/README.md -text
 docs/phase1/evidence/*-v[0-9]*.json -text
+# 模型版本库：每版文件被 manifest 与 SHA256SUMS 绑定，按字节原样保存（旧 v4 manifest 为 CRLF，跳过空白检查）。
+models/*/** -text -whitespace

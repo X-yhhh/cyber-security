@@ -1,0 +1,6 @@
+{
+  "fitRole": null,
+  "method": "none",
+  "modelOutput": "raw_lightgbm_softmax",
+  "version": "p3-calibration/none"
+}

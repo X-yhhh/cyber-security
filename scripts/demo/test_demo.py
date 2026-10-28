@@ -356,7 +356,7 @@ def test_abnormal_teardown_revokes_first_and_continues_after_stop_failure(tmp_pa
     def record(name,value=True):
         def op(*a):events.append(name);return value
         return op
-    control=SimpleNamespace(revoke=record('revoke'),reset_state=lambda:dict(bindingSuspended=True,bundleActive=True,authorizationRevoked=True),recovered=lambda:False,facts=lambda *a:{k:[] for k in ('decisions','commands','receipts','budgetEvents')},applicant=None)
+    control=SimpleNamespace(revoke=record('revoke'),reset_state=lambda *_:dict(bindingSuspended=True,bundleActive=True,authorizationRevoked=True),recovered=lambda:False,facts=lambda *a:{k:[] for k in ('decisions','commands','receipts','budgetEvents')},applicant=None)
     rem=SimpleNamespace(marker=record('STOP'),stopped=lambda _:True,state=lambda _:None,close=record('close'))
     def stop(name):
         events.append(name)
@@ -389,7 +389,7 @@ def test_teardown_only_closes_control_master_and_records_cleanup(tmp_path, monke
     class Control:
         def __init__(self,*_):self.applicant=None
         def revoke(self):events.append('revoke');return True
-        def reset_state(self):return dict(bindingSuspended=True,bundleActive=True,authorizationRevoked=True)
+        def reset_state(self,*_):return dict(bindingSuspended=True,bundleActive=True,authorizationRevoked=True)
         def recovered(self):return True
         def facts(self,*_):return {key:[] for key in ('decisions','commands','receipts','budgetEvents')}
 
@@ -417,8 +417,8 @@ def test_teardown_only_closes_control_master_and_records_cleanup(tmp_path, monke
 
 def test_cooling_requires_continuous_healthy_before_stopping_capture(tmp_path):
     clock=[0];seen=[]
-    control=SimpleNamespace(healthy=lambda:clock[0]!=60,reset_state=lambda:{'noActiveActions':True},recovered=lambda:True)
-    s=dict(grant={'validUntil':ts(9999999999)},cleanup={})
+    control=SimpleNamespace(healthy=lambda:clock[0]!=60,reset_state=lambda *_:{'noActiveActions':True},recovered=lambda:True)
+    s=dict(grant={'validUntil':ts(9999999999)},cleanup={},mode='pf')
     proc=SimpleNamespace(alive=lambda:True)
     runner=run.Runner({},tmp_path,s,control,None,proc,clock=lambda:clock[0],sleep=lambda n:clock.__setitem__(0,clock[0]+n))
     runner.cool(240)
@@ -549,6 +549,7 @@ def test_generated_runtime_configs_retain_stable_identity_and_real_schemas(tmp_p
 
 def test_execute_orders_preflight_backup_authorization_capture_then_traffic(tmp_path):
     events=[];c=config();g=approval(c,[rows()[0]],__import__('time').time());state=dict(runId=g['runId'],enrollment={},grant=g,mode='alert-only',scenes=[rows()[0]],cleanup={})
+    mode_calls={}
     (tmp_path/'root').mkdir(mode=0o700);common.write(tmp_path/'scenes.json',{'test':True})
     def call(name,result):
         def op(*args):events.append(name);return result
@@ -560,15 +561,22 @@ def test_execute_orders_preflight_backup_authorization_capture_then_traffic(tmp_
         def alive(self):return True
     def start_root(*a):
         events.append('root');common.write(tmp_path/'root/ready.json',{'passed':True});return Mock(poll=lambda:None)
-    control=SimpleNamespace(backup=call('backup',{'passed':True}),authorize=call('authorize',{'id':'test'}),bundle=lambda:{},healthy=lambda:True,recovered=lambda:True)
+    def bundle(mode):
+        mode_calls['bundle']=mode
+        return {}
+    def inspect(*args):
+        mode_calls['inspect']=args[-1]
+        return call('preflight',{'interface':'utun9','allowlistSha256':'a'})()
+    control=SimpleNamespace(backup=call('backup',{'passed':True}),authorize=call('authorize',{'id':'test'}),bundle=bundle,healthy=lambda:True,recovered=lambda:True)
     w=dict(scenes=[dict(id='S0',finished=True,endedAt=ts(1000))],finished=True,stopped=True)
     rem=SimpleNamespace(open=call('open',ts(999)),start=call('traffic',{}),state=lambda _:w)
     runner=run.Runner(c,tmp_path,state,control,rem,Processes());runner.cool=call('cool',True)
-    with patch('scripts.demo.preflight.inspect',side_effect=call('preflight',{'interface':'utun9','allowlistSha256':'a'})),patch('scripts.demo.runtime.start_root',side_effect=start_root),patch('scripts.demo.runtime.configurations',return_value=({},{})):
+    with patch('scripts.demo.preflight.inspect',side_effect=inspect),patch('scripts.demo.runtime.start_root',side_effect=start_root),patch('scripts.demo.runtime.configurations',return_value=({},{})):
         runner.execute()
     assert events==['open','preflight','root','backup','authorize','targets','observer-recovery','observer-run','sensor','traffic','cool']
     assert state['controlMaster']['openedAt']==ts(999)
     assert state['completed']
+    assert mode_calls=={'inspect':'alert-only','bundle':'alert-only'}
 
 
 def test_revoke_reuses_exact_journal_without_suspending_bundle(tmp_path):
@@ -596,9 +604,130 @@ def test_bundle_requires_explicit_versioned_demo_recovery(version):
                        'familyPolicies':[{'family':'dos_flood','autoEligible':False,'modelAutoEligible':False}]}}]
     with patch('scripts.p7.import_bundle.verify_capability'):
         if version.endswith('+demo-budget-20261017'):
-            assert control.bundle()['subject']==subject
+            assert control.bundle('pf')['subject']==subject
         else:
-            with pytest.raises(ValueError,match='DEMO_RECOVERY_POLICY_REQUIRED'):control.bundle()
+            with pytest.raises(ValueError,match='DEMO_RECOVERY_POLICY_REQUIRED'):control.bundle('pf')
+
+
+def _bundle_fixture(policy_definition):
+    from scripts.demo.control import Control
+    from executor.common import digest
+    control=Control.__new__(Control);control.c=config()
+    subject={'policyId':control.c['bundleId'],'capabilityIds':[cap['id'] for cap in control.c['capabilities']]}
+    control.c['subjectSha256']=digest(subject);control.rows=Mock(return_value=[subject])
+    control.applicant=Mock();control.applicant.request.side_effect=[
+        {'subjectSha256':digest(subject),'environment':'lab','status':'approved'},
+        {'definition':policy_definition}]
+    return control,subject
+
+
+def _auto_bundle_policy():
+    return {'policyVersion':'host-guard-decision/2026-10-08.1+demo-budget-20261017','mode':'auto',
+            'maxTtlSeconds':60,'maxContinuousBlockSeconds':120,
+            'familyPolicies':[{'family':'dos_flood','autoEligible':False,'modelAutoEligible':False}]}
+
+
+def test_bundle_rejects_alert_only_combination_for_pf_mode():
+    control,_=_bundle_fixture({'policyVersion':'host-guard-decision/2026-10-08.1+rule-inbound-20261018',
+                               'mode':'alert_only'})
+    with patch('scripts.p7.import_bundle.verify_capability'),pytest.raises(ValueError,match='DEMO_ALERT_ONLY_BUNDLE_PF_FORBIDDEN'):
+        control.bundle('pf')
+
+
+def test_bundle_rejects_alert_only_policy_without_rule_marker():
+    control,_=_bundle_fixture({'policyVersion':'host-guard-decision/2026-10-08.1+demo-budget-20261017',
+                               'mode':'alert_only'})
+    with patch('scripts.p7.import_bundle.verify_capability'),pytest.raises(ValueError,match='DEMO_RULE_POLICY_REQUIRED'):
+        control.bundle('alert-only')
+
+
+def test_bundle_accepts_rule_inbound_alert_only_policy_without_auto_fields():
+    control,subject=_bundle_fixture({'policyVersion':'host-guard-decision/2026-10-08.1+rule-inbound-20261018',
+                                     'mode':'alert_only'})
+    with patch('scripts.p7.import_bundle.verify_capability') as verify:
+        assert control.bundle('alert-only')['subject']==subject
+    assert verify.call_count==len(control.c['capabilities'])
+
+
+def test_bundle_allows_auto_combination_in_alert_only_mode():
+    control,subject=_bundle_fixture(_auto_bundle_policy())
+    with patch('scripts.p7.import_bundle.verify_capability') as verify:
+        assert control.bundle('alert-only')['subject']==subject
+    assert verify.call_count==len(control.c['capabilities'])
+
+
+def test_bundle_allows_auto_combination_in_pf_mode():
+    control,subject=_bundle_fixture(_auto_bundle_policy())
+    with patch('scripts.p7.import_bundle.verify_capability') as verify:
+        assert control.bundle('pf')['subject']==subject
+    assert verify.call_count==len(control.c['capabilities'])
+
+
+def test_bundle_rejects_unknown_policy_mode():
+    control,_=_bundle_fixture({'policyVersion':'host-guard-decision/2026-10-08.1','mode':'observe_only'})
+    with pytest.raises(ValueError,match='DEMO_BUNDLE_MODE_UNSUPPORTED'):
+        control.bundle('alert-only')
+
+
+def test_bundle_rejects_unknown_run_mode():
+    control,_=_bundle_fixture(_auto_bundle_policy())
+    with pytest.raises(ValueError,match='DEMO_MODE_INVALID'):
+        control.bundle('observe-only')
+
+
+def test_reset_state_passes_run_mode_to_bundle():
+    from scripts.demo.control import Control
+    control=Control.__new__(Control);control.c={'bundleId':'bundle'};control.asset='asset'
+    control.aid='asset-id';control.applicant=Mock();control.applicant.request.return_value={'items':[]}
+    control.rows=Mock(side_effect=[[{'count':0}],[{'count':0}]])
+    control.bundle=Mock(return_value={'status':'active'})
+    result=control.reset_state('alert-only')
+    control.bundle.assert_called_once_with('alert-only')
+    assert result['bundleActive'] is True
+
+
+def _preflight_proof_fixture(tmp_path,evidence_names):
+    c=config();ids={'assetId':'asset-id','sensorId':'sensor-id'}
+    evidence={}
+    for name in sorted(evidence_names):
+        proof_path=tmp_path/(name+'.proof')
+        common.write(proof_path,name.encode())
+        evidence[name]=dict(reviewer='independent-reviewer',operator='operator',approvalReference='approval-'+name,
+                            file=str(proof_path),sha256=common.sha(proof_path))
+    proof=dict(subjectSha256=c['subjectSha256'],macAddress=c['macAddress'],peerAddress=c['peerAddress'],
+               ports=c['ports'],assetId=ids['assetId'],sensorId=ids['sensorId'],evidence=evidence)
+    c['proofFile']=str(tmp_path/'proof.json');common.write(c['proofFile'],proof)
+    return c,ids,proof
+
+
+def test_preflight_alert_only_accepts_exact_three_evidence_items(tmp_path):
+    from scripts.demo import preflight
+    names={'networkIsolation','capturePermission','coexistence'}
+    c,ids,proof=_preflight_proof_fixture(tmp_path,names)
+    assert preflight.evidence(c,ids,'alert-only')==common.digest(proof)
+
+
+def test_preflight_alert_only_rejects_four_evidence_items(tmp_path):
+    from scripts.demo import preflight
+    names={'networkIsolation','capturePermission','coexistence','utunDirection'}
+    c,ids,_=_preflight_proof_fixture(tmp_path,names)
+    with pytest.raises(ValueError,match='PREREQUISITES_INCOMPLETE'):
+        preflight.evidence(c,ids,'alert-only')
+
+
+def test_preflight_alert_only_rejects_two_evidence_items(tmp_path):
+    from scripts.demo import preflight
+    names={'networkIsolation','capturePermission'}
+    c,ids,_=_preflight_proof_fixture(tmp_path,names)
+    with pytest.raises(ValueError,match='PREREQUISITES_INCOMPLETE'):
+        preflight.evidence(c,ids,'alert-only')
+
+
+def test_preflight_pf_keeps_exact_five_evidence_items(tmp_path):
+    from scripts.demo import preflight
+    names={'networkIsolation','utunDirection','platformCanary','capturePermission','coexistence'}
+    c,ids,proof=_preflight_proof_fixture(tmp_path,names)
+    assert preflight.evidence(c,ids,'pf')==common.digest(proof)
 
 
 def test_backup_float_uses_exact_wkb_instead_of_rounded_decimal():

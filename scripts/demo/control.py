@@ -25,7 +25,8 @@ class Control:
             data = data.decode()
         return [json.loads(s) for s in data.strip().splitlines() if s]
 
-    def bundle(self):
+    def bundle(self, mode):
+        require(mode in ('pf', 'alert-only'), 'DEMO_MODE_INVALID')
         b = self.applicant.request('GET', '/release-bundles/' + uid(self.c['bundleId']))
         require(b['subjectSha256'] == self.c['subjectSha256'] and b['environment'] == 'lab' and b['status'] in ('approved', 'active'), 'DEMO_BUNDLE_NOT_REUSABLE')
         subject = self.rows("SELECT subject_json FROM guard_release_bundle WHERE public_id='" + uid(self.c['bundleId']) + "'")[0]
@@ -33,17 +34,28 @@ class Control:
         require(digest(subject) == self.c['subjectSha256'], 'DEMO_SUBJECT_CHANGED')
         b['subject'] = subject
         policy = self.applicant.request('GET', '/decision-policies/' + subject['policyId'])
-        require(policy['definition']['policyVersion'] == 'host-guard-decision/2026-10-08.1+demo-budget-20261017', 'DEMO_RECOVERY_POLICY_REQUIRED')
-        require(policy['definition']['mode'] == 'auto' and policy['definition']['maxTtlSeconds'] == 60 and policy['definition']['maxContinuousBlockSeconds'] == 120, 'DEMO_FROZEN_POLICY_REQUIRED')
-        families = {p['family']: p for p in policy['definition'].get('familyPolicies', [])}
-        require(families.get('dos_flood', {}).get('autoEligible') is False and families['dos_flood'].get('modelAutoEligible') is False, 'FLOOD_MUST_BE_ALERT_ONLY')
-        require(set(subject['capabilityIds']) == {x['id'] for x in self.c['capabilities']}, 'DEMO_CAPABILITIES_CHANGED')
-        from scripts.p7.import_bundle import verify_capability
-        for cap in self.c['capabilities']:
-            verify_capability(self.applicant, cap)
+        policy_mode = policy['definition'].get('mode')
+        if policy_mode == 'alert_only':
+            require(mode == 'alert-only', 'DEMO_ALERT_ONLY_BUNDLE_PF_FORBIDDEN')
+            require('rule-inbound-20261018' in policy['definition']['policyVersion'].split('+'), 'DEMO_RULE_POLICY_REQUIRED')
+            require(set(subject['capabilityIds']) == {x['id'] for x in self.c['capabilities']}, 'DEMO_CAPABILITIES_CHANGED')
+            from scripts.p7.import_bundle import verify_capability
+            for cap in self.c['capabilities']:
+                verify_capability(self.applicant, cap)
+        elif policy_mode == 'auto':
+            require(policy['definition']['policyVersion'] == 'host-guard-decision/2026-10-08.1+demo-budget-20261017', 'DEMO_RECOVERY_POLICY_REQUIRED')
+            require(policy['definition']['mode'] == 'auto' and policy['definition']['maxTtlSeconds'] == 60 and policy['definition']['maxContinuousBlockSeconds'] == 120, 'DEMO_FROZEN_POLICY_REQUIRED')
+            families = {p['family']: p for p in policy['definition'].get('familyPolicies', [])}
+            require(families.get('dos_flood', {}).get('autoEligible') is False and families['dos_flood'].get('modelAutoEligible') is False, 'FLOOD_MUST_BE_ALERT_ONLY')
+            require(set(subject['capabilityIds']) == {x['id'] for x in self.c['capabilities']}, 'DEMO_CAPABILITIES_CHANGED')
+            from scripts.p7.import_bundle import verify_capability
+            for cap in self.c['capabilities']:
+                verify_capability(self.applicant, cap)
+        else:
+            require(False, 'DEMO_BUNDLE_MODE_UNSUPPORTED')
         return b
 
-    def reset_state(self):
+    def reset_state(self, mode):
         bindings = self.applicant.request('GET', '/release-bundles/' + self.c['bundleId'] + '/bindings')['items']
         require(len(bindings) < 200, 'BINDING_VIEW_TRUNCATED')
         own = [b for b in bindings if b['assetId'] == self.asset]
@@ -51,7 +63,7 @@ class Control:
         commands = self.rows("SELECT JSON_OBJECT('count',COUNT(*)) FROM guard_action WHERE asset_id=" + self.aid + " AND observed_state NOT IN ('revoked','expired','rejected')")
         return {'bindingSuspended': all(b['status'] == 'suspended' for b in own),
                 'authorizationRevoked': active[0]['count'] == 0, 'noActiveActions': commands[0]['count'] == 0,
-                'bundleActive': self.bundle()['status'] == 'active'}
+                'bundleActive': self.bundle(mode)['status'] == 'active'}
 
     def backup(self):
         """同一只读快照导出并完整恢复核验后才允许演示业务写入；不暂停持续监测。"""
@@ -82,7 +94,7 @@ class Control:
                                      validFrom=g['validFrom'], validUntil=g['validUntil'], evidenceRef=g['reference']))
         approved = self.journal.step('approval', self.reviewer, '/authorizations/' + auth['id'] + '/decisions',
                                     {'decision': 'approve', 'reason': '限本次演示运行 ' + g['runId']}, auth['revision'])
-        bundle = self.bundle()
+        bundle = self.bundle(mode)
         previous = self.journal.data['steps'].get('activation')
         revision = previous['request']['revision'] if previous else bundle['revision']
         self.journal.step('activation', self.reviewer, '/release-bundles/' + bundle['id'] + '/activations',

@@ -63,7 +63,7 @@ class Runner:
                 healthy_since = None
             elif healthy_since is None:
                 healthy_since = self.clock()
-            reset = self.control.reset_state()
+            reset = self.control.reset_state(self.s['mode'])
             return healthy_since is not None and self.clock() - healthy_since >= 120 and reset['noActiveActions'] and self.control.recovered()
         self.wait(ready, seconds, 'DEMO_COOLDOWN_NOT_PROVEN')
         self.s['cleanup']['budgetRecovered'] = True
@@ -77,7 +77,7 @@ class Runner:
         # 场景期间的 state/marker 轮询都复用同一 ControlPath。
         self.s['controlMaster'] = {'openedAt': self.remote.open()}
         self.save()
-        checks = preflight.inspect(self.c, ids, self.remote, self.control, self.d / 'scenes.json')
+        checks = preflight.inspect(self.c, ids, self.remote, self.control, self.d / 'scenes.json', self.s['mode'])
         self.s.update(checks)
         self.save()
         # root 第一阶段只有只读核验；备份/业务授权发生在 ready 之后。
@@ -91,7 +91,8 @@ class Runner:
         auth = self.control.authorize(g, checks['interface'], self.s['mode'])
         self.s['authorization'] = auth
         self.save()
-        data, resolver = configurations(self.c, ids, g, auth, checks['interface'], self.d, self.control.bundle(), self.s['scenes'])
+        data, resolver = configurations(self.c, ids, g, auth, checks['interface'], self.d,
+                                        self.control.bundle(self.s['mode']), self.s['scenes'])
         self.processes.start('targets', [self.c['python'], '-B', ROOT / 'scripts/demo/targets.py', '--config', self.d / 'target-service.json'])
         self.wait(lambda: (self.d / 'targets-ready.json').exists(), 20, 'TARGET_SERVICES_NOT_READY')
         if self.s['mode'] == 'pf':
@@ -180,7 +181,7 @@ class Runner:
             except BaseException as e:
                 errors[name] = type(e).__name__
         try:
-            reset = self.control.reset_state()
+            reset = self.control.reset_state(self.s['mode'])
             for k in ('bindingSuspended', 'bundleActive'):
                 self.s['cleanup'][k] = reset[k]
             self.s['cleanup']['authorizationRevoked'] = self.s['cleanup']['authorizationRevoked'] and reset['authorizationRevoked']

@@ -73,6 +73,10 @@ class Runner:
         from scripts.demo import preflight
         from scripts.demo.runtime import configurations, start_root
         ids, g = self.s['enrollment'], self.s['grant']
+        # 先建立并记录唯一远端控制连接，再做预检和后续采集；这样预检及
+        # 场景期间的 state/marker 轮询都复用同一 ControlPath。
+        self.s['controlMaster'] = {'openedAt': self.remote.open()}
+        self.save()
         checks = preflight.inspect(self.c, ids, self.remote, self.control, self.d / 'scenes.json')
         self.s.update(checks)
         self.save()
@@ -150,6 +154,9 @@ class Runner:
             return True
         attempt('attackStopped', attack_stop)
         attempt('captureStopped', lambda: self.processes.stop('sensor'))
+        # 控制连接必须在采集停止后关闭；失败只写入 cleanupErrors，继续执行
+        # 靶服务、执行器和观察器的其余精确收尾。
+        attempt('controlMasterClosed', self.remote.close)
         attempt('targetsStopped', lambda: self.processes.stop('targets'))
         if not abnormal:
             attempt('authorizationRevoked', self.control.revoke)
@@ -261,7 +268,7 @@ def main():
         def save():
             write(d / 'state.json', state, replace=True)
         control = Control(c, state['enrollment'], d)
-        runner = Runner(c, d, state, control, Remote(c['remote']), Processes(d, state, save))
+        runner = Runner(c, d, state, control, Remote(c['remote'], root=c['root']), Processes(d, state, save))
         for sig in (signal.SIGTERM, signal.SIGINT):
             signal.signal(sig, lambda *_: setattr(runner, 'stopped', True))
         if a.teardown_only:

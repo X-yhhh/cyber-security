@@ -12,7 +12,7 @@ import uuid
 ROOT = Path(__file__).resolve().parents[2]
 VERSION = 'hostguard-demo/1'
 FAMILIES = {'S0': 'normal', 'S1': 'port_scan', 'S2': 'brute_force', 'S3': 'dos_slow', 'S4': 'dos_flood'}
-CLEANUP = ('attackStopped', 'captureStopped', 'targetsStopped', 'pfEmpty', 'aliasesUnchanged',
+CLEANUP = ('attackStopped', 'captureStopped', 'controlMasterClosed', 'targetsStopped', 'pfEmpty', 'aliasesUnchanged',
            'rootVerified', 'authorizationRevoked', 'bindingSuspended', 'bundleActive', 'budgetRecovered', 'en0Unchanged')
 
 

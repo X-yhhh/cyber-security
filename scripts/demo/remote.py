@@ -1,9 +1,10 @@
 """只操作预先登记的 win-dev 演示目录；不接受 shell 模板或按进程名终止的命令。"""
 import base64
 import json
+import os
 from pathlib import Path
 import subprocess
-from scripts.demo.common import ROOT, digest, require
+from scripts.demo.common import ROOT, digest, path, private, require, stamp
 
 
 def ps_literal(value):
@@ -11,15 +12,89 @@ def ps_literal(value):
 
 
 class Remote:
-    def __init__(self, config, execute=subprocess.run):
+    """通过单个 SSH 控制主连接读取和控制 win-dev 演示 worker。
+
+    ``control_root`` 必须是本机演示私有根；控制 socket 只放在其
+    ``locks`` 子目录中。每个 SSH 调用都显式带相同的 ControlPath，避免
+    运行期间的状态轮询为攻击对端创建新的 TCP 连接。
+    """
+
+    CONTROL_PATH_LIMIT = 100
+
+    def __init__(self, config, execute=subprocess.run, *, root=None):
         self.c, self.execute = config, execute
         require(config['host'] == 'win-dev', 'REMOTE_HOST_NOT_ALLOWED')
         self.root = config['root'].rstrip('/')
+        self.control_path = None
+        if root is not None:
+            self._configure_control_root(root)
+        self._closed = False
+
+    def _configure_control_root(self, root):
+        """校验本机私有根与 socket 字节上限；不修正已有目录的权限。"""
+        root = private(root, True)
+        # 避免用户目录名被 OpenSSH 当作额外 token 或环境变量展开。
+        require('%' not in str(root) and '${' not in str(root), 'CONTROL_ROOT_INVALID')
+        locks = path(root / 'locks')
+        control_path = str(locks / 'ssh-%C')
+        # %C 是 40 位 SHA-1 十六进制摘要，限制按文件系统编码的字节计算。
+        require(len(os.fsencode(control_path.replace('%C', '0' * 40))) <= self.CONTROL_PATH_LIMIT,
+                'CONTROL_PATH_TOO_LONG')
+        require(self.control_path in (None, control_path), 'CONTROL_ROOT_CHANGED')
+        locks.mkdir(mode=0o700, exist_ok=True)
+        private(locks, True)
+        self.control_path = control_path
+
+    def _ssh(self, *arguments):
+        """生成带固定控制主连接参数的 SSH argv。"""
+        require(self.control_path is not None, 'CONTROL_ROOT_REQUIRED')
+        return [
+            'ssh',
+            '-o', 'BatchMode=yes',
+            '-o', 'ConnectTimeout=5',
+            '-o', 'ControlMaster=auto',
+            '-o', 'ControlPath=' + self.control_path,
+            '-o', 'ControlPersist=yes',
+            '-o', 'ServerAliveInterval=5',
+            '-o', 'ServerAliveCountMax=3',
+            *arguments,
+        ]
+
+    def _control(self, operation):
+        return self.execute(self._ssh('-O', operation, self.c['host']),
+                            capture_output=True, timeout=20,
+                            env={**os.environ, 'LC_ALL': 'C'})
+
+    def open(self):
+        """确认或建立控制主连接，并返回本次确认时间。
+
+        ``-O check`` 已成功时不创建新连接；否则执行一次远端 ``utc``，
+        由带 ``ControlMaster=auto`` 的普通请求建立并保持主连接。
+        """
+        checked = self._control('check')
+        if checked.returncode != 0:
+            self.utc()
+        self._closed = False
+        return stamp()
+
+    def close(self):
+        """关闭本实例使用的控制主连接；已不存在时按幂等成功处理。"""
+        if self._closed:
+            return True
+        result = self._control('exit')
+        if result.returncode == 0:
+            self._closed = True
+            return True
+        # 控制操作只访问本机 socket；仅明确的不存在视为已关闭，权限错误、
+        # 超时或仍在运行的主连接均不得伪报成功。LC_ALL 固定诊断语言。
+        if b'No such file or directory' in (result.stderr or b''):
+            self._closed = True
+            return True
+        raise ValueError('REMOTE_CONTROL_CLOSE_FAILED')
 
     def ps(self, script):
         command = base64.b64encode(('$ErrorActionPreference="Stop"; [Console]::OutputEncoding=[Text.Encoding]::UTF8; ' + script).encode('utf-16-le')).decode()
-        r = self.execute(['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=5', self.c['host'],
-                          'powershell.exe', '-NoProfile', '-NonInteractive', '-EncodedCommand', command],
+        r = self.execute(self._ssh(self.c['host'], 'powershell.exe', '-NoProfile', '-NonInteractive', '-EncodedCommand', command),
                          capture_output=True, timeout=20)
         require(r.returncode == 0, 'REMOTE_OPERATION_FAILED')
         return r.stdout.decode('utf-8-sig').strip()
@@ -57,6 +132,13 @@ class Remote:
 
     def install(self, c):
         """一次性准备才调用；不安装 Npcap/nmap、不改远端 PATH，已有文件拒绝覆盖。"""
+        self._configure_control_root(c['root'])
+        try:
+            return self._install(c)
+        finally:
+            self.close()
+
+    def _install(self, c):
         # 仅首次创建的演示目录设置 ACL；已有目录须已符合私有条件，不能顺便改用户已有数据权限。
         self.ps('$p=' + ps_literal(self.root) + '; $walk=$p; while($walk){if(Test-Path -LiteralPath $walk){if((Get-Item -LiteralPath $walk).Attributes -band [IO.FileAttributes]::ReparsePoint){throw "REPARSE"}}; $walk=[IO.Path]::GetDirectoryName($walk)}; if(!(Test-Path -LiteralPath $p)){'
                 '[IO.Directory]::CreateDirectory($p)|Out-Null; $me=[Security.Principal.WindowsIdentity]::GetCurrent().User; '

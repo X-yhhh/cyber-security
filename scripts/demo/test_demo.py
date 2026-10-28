@@ -150,7 +150,7 @@ def test_abnormal_teardown_revokes_first_and_continues_after_stop_failure(tmp_pa
         def op(*a):events.append(name);return value
         return op
     control=SimpleNamespace(revoke=record('revoke'),reset_state=lambda:dict(bindingSuspended=True,bundleActive=True,authorizationRevoked=True),recovered=lambda:False,facts=lambda *a:{k:[] for k in ('decisions','commands','receipts','budgetEvents')},applicant=None)
-    rem=SimpleNamespace(marker=record('STOP'),stopped=lambda _:True,state=lambda _:None)
+    rem=SimpleNamespace(marker=record('STOP'),stopped=lambda _:True,state=lambda _:None,close=record('close'))
     def stop(name):
         events.append(name)
         if name=='sensor':raise OSError('synthetic failure')
@@ -158,11 +158,54 @@ def test_abnormal_teardown_revokes_first_and_continues_after_stop_failure(tmp_pa
     runner=run.Runner({},tmp_path,state,control,rem,SimpleNamespace(stop=stop))
     with patch('scripts.demo.preflight.en0',return_value={'same':True}):result=runner.teardown(True)
     assert events[:3]==['revoke','STOP','sensor'] and 'targets' in events and 'observer-run' in events
+    assert events.index('sensor') < events.index('close')
     assert result['cleanup']['captureStopped'] is False and not result['passed']
     assert 'bundle' not in events
     # 同一目录第二次清理，不覆盖事实，不跳过失败项。
     with patch('scripts.demo.preflight.en0',return_value={'same':True}):runner.teardown(True)
     assert events.count('revoke')==2
+
+
+def test_teardown_only_closes_control_master_and_records_cleanup(tmp_path, monkeypatch, capsys):
+    c=config();root=tmp_path/'demo-root';root.mkdir(mode=0o700);root.chmod(0o700)
+    c['root']=str(root.resolve())
+    common.write(tmp_path/'config.json',c)
+    run_id='demo-20261028-1200-01';runs=root/'runs';runs.mkdir(mode=0o700)
+    run_dir=runs/run_id;run_dir.mkdir(mode=0o700)
+    locks=root/'locks';locks.mkdir(mode=0o700)
+    common.write(root/'enrollment.json',{})
+    state=dict(runId=run_id,config=c,enrollment={},mode='alert-only',scenes=[rows()[0]],
+               cleanup={name:False for name in common.CLEANUP},completed=False,startedAt=ts(1000),en0={'same':True})
+    common.write(run_dir/'state.json',state)
+    events=[]
+
+    class Control:
+        def __init__(self,*_):self.applicant=None
+        def revoke(self):events.append('revoke');return True
+        def reset_state(self):return dict(bindingSuspended=True,bundleActive=True,authorizationRevoked=True)
+        def recovered(self):return True
+        def facts(self,*_):return {key:[] for key in ('decisions','commands','receipts','budgetEvents')}
+
+    class Remote:
+        def __init__(self,config,*,root):assert config==c['remote'] and root==c['root']
+        def close(self):events.append('close');return True
+
+    class Processes:
+        def __init__(self,*_):pass
+        def stop(self,name):events.append(name);return True
+
+    monkeypatch.setattr(sys,'argv',['run','--config',str(tmp_path/'config.json'),'--teardown-only',run_id])
+    monkeypatch.setattr(run.signal,'signal',lambda *_:None)
+    with patch('scripts.demo.control.Control',Control),patch('scripts.demo.remote.Remote',Remote),\
+         patch('scripts.demo.runtime.Processes',Processes),patch('scripts.demo.preflight.en0',return_value={'same':True}),\
+         patch('scripts.demo.report.generate',return_value={'passed':True}):
+        assert run.main()==0
+
+    saved=common.load(run_dir/'state.json')
+    assert events.index('sensor') < events.index('close')
+    assert events.count('close')==1
+    assert saved['cleanup']['controlMasterClosed'] is True
+    assert json.loads(capsys.readouterr().out)['runId']==run_id
 
 
 def test_cooling_requires_continuous_healthy_before_stopping_capture(tmp_path):
@@ -175,17 +218,88 @@ def test_cooling_requires_continuous_healthy_before_stopping_capture(tmp_path):
     assert clock[0]==181 and s['cleanup']['budgetRecovered']
 
 
-def test_remote_transport_is_encoded_and_stop_uses_exact_identity():
-    calls=[]
+def test_remote_transport_uses_private_control_master_options_for_every_ssh_call(tmp_path, monkeypatch):
+    calls=[];control_envs=[]
     def execute(argv,**kwargs):
-        calls.append(argv);return SimpleNamespace(returncode=0,stdout=b'true')
-    r=remote.Remote(config()['remote'],execute=execute)
+        calls.append(argv)
+        if '-O' in argv:
+            control_envs.append(kwargs.get('env'))
+            return SimpleNamespace(returncode=1 if argv[argv.index('-O')+1]=='check' else 0,
+                                   stdout=b'',stderr=b'')
+        code=__import__('base64').b64decode(argv[-1]).decode('utf-16-le')
+        return SimpleNamespace(returncode=0,stdout=b'1234567' if 'ToUnixTimeMilliseconds' in code else b'true')
+    # 只放宽此测试中的路径长度约束，以便测试系统临时目录本身较长时仍能
+    # 检查传输参数；独立测试覆盖生产限制。
+    monkeypatch.setattr(remote.Remote,'CONTROL_PATH_LIMIT',512)
+    r=remote.Remote(config()['remote'],execute=execute,root=tmp_path)
+    opened_at=r.open()
     assert r.stopped('demo-20261017-1200-01')
-    import base64
-    code=base64.b64decode(calls[0][-1]).decode('utf-16-le')
+    assert isinstance(opened_at,str) and opened_at.endswith('Z')
+    lock_dir=tmp_path/'locks'
+    assert lock_dir.stat().st_mode & 0o777 == 0o700
+    code=__import__('base64').b64decode(calls[-1][-1]).decode('utf-16-le')
     assert '/runs/demo-20261017-1200-01/plan.json' in code and 'StartTime' in code and 'Stop-Process' not in code
+    assert r.close() is True
+    closed_calls=len(calls)
+    assert r.close() is True and len(calls)==closed_calls
+    required={'BatchMode=yes','ConnectTimeout=5','ControlMaster=auto','ControlPath='+r.control_path,
+              'ControlPersist=yes','ServerAliveInterval=5','ServerAliveCountMax=3'}
+    for argv in calls:
+        options={argv[i+1] for i,value in enumerate(argv[:-1]) if value=='-o'}
+        assert required <= options
+    expected_env={**remote.os.environ,'LC_ALL':'C'}
+    assert control_envs and all(env==expected_env for env in control_envs)
     with pytest.raises(ValueError):r.directory('../other')
     with pytest.raises(ValueError):r.marker('demo-20261017-1200-01','GO-UNKNOWN')
+
+
+def test_remote_control_path_longer_than_one_hundred_bytes_is_rejected(tmp_path):
+    long_root=tmp_path/('r'*80);long_root.mkdir(mode=0o700)
+    calls=[]
+    def execute(argv,**kwargs):
+        calls.append(argv);return SimpleNamespace(returncode=0,stdout=b'1')
+    with pytest.raises(ValueError,match='CONTROL_PATH_TOO_LONG'):
+        remote.Remote(config()['remote'],execute=execute,root=long_root)
+    assert calls==[]
+
+
+@pytest.mark.parametrize('fail', [False,True], ids=['success','failure'])
+def test_prepare_install_worker_configures_control_path_and_closes(tmp_path, monkeypatch, capsys, fail):
+    from scripts.demo import prepare
+
+    c=config();root=tmp_path/'private-root';root.mkdir(mode=0o700);root.chmod(0o700);c['root']=str(root.resolve())
+    actual_remote=remote.Remote;constructed=[];installed=[];calls=[]
+    def execute(argv,**kwargs):
+        calls.append((argv,kwargs))
+        return SimpleNamespace(returncode=0,stdout=b'',stderr=b'')
+    def construct(remote_config,*args,**kwargs):
+        constructed.append((remote_config,args,kwargs))
+        return actual_remote(remote_config,execute=execute,*args,**kwargs)
+    def install(self,config):
+        installed.append((self.control_path,config['root']))
+        if fail:raise RuntimeError('synthetic install failure')
+        return 'allowlist-sha256'
+
+    monkeypatch.setattr(actual_remote,'CONTROL_PATH_LIMIT',512)
+    monkeypatch.setattr(actual_remote,'_install',install)
+    monkeypatch.setattr(remote,'Remote',construct)
+    monkeypatch.setattr(prepare,'validate',lambda value,_:value)
+    monkeypatch.setattr(prepare,'load',Mock(side_effect=[c,{}]))
+    monkeypatch.setattr(prepare,'approve',lambda *_:None)
+    monkeypatch.setattr(sys,'argv',['prepare','--config',str(tmp_path/'config.json'),'--operation','install-worker',
+                                   '--approval',str(tmp_path/'approval.json'),'--execute'])
+
+    if fail:
+        with pytest.raises(RuntimeError,match='synthetic install failure'):
+            prepare.main()
+    else:
+        prepare.main()
+        assert json.loads(capsys.readouterr().out)['allowlistSha256']=='allowlist-sha256'
+
+    assert constructed==[(c['remote'],(),{})]
+    assert installed==[(str(root/'locks'/'ssh-%C'),c['root'])]
+    exits=[(argv,kwargs) for argv,kwargs in calls if '-O' in argv and argv[argv.index('-O')+1]=='exit']
+    assert len(exits)==1 and exits[0][1]['env']=={**remote.os.environ,'LC_ALL':'C'}
 
 
 def test_root_boundary_rejects_management_ports_and_changed_identity():
@@ -238,11 +352,12 @@ def test_execute_orders_preflight_backup_authorization_capture_then_traffic(tmp_
         events.append('root');common.write(tmp_path/'root/ready.json',{'passed':True});return Mock(poll=lambda:None)
     control=SimpleNamespace(backup=call('backup',{'passed':True}),authorize=call('authorize',{'id':'test'}),bundle=lambda:{},healthy=lambda:True,recovered=lambda:True)
     w=dict(scenes=[dict(id='S0',finished=True,endedAt=ts(1000))],finished=True,stopped=True)
-    rem=SimpleNamespace(start=call('traffic',{}),state=lambda _:w)
+    rem=SimpleNamespace(open=call('open',ts(999)),start=call('traffic',{}),state=lambda _:w)
     runner=run.Runner(c,tmp_path,state,control,rem,Processes());runner.cool=call('cool',True)
     with patch('scripts.demo.preflight.inspect',side_effect=call('preflight',{'interface':'utun9','allowlistSha256':'a'})),patch('scripts.demo.runtime.start_root',side_effect=start_root),patch('scripts.demo.runtime.configurations',return_value=({},{})):
         runner.execute()
-    assert events==['preflight','root','backup','authorize','targets','observer-recovery','observer-run','sensor','traffic','cool']
+    assert events==['open','preflight','root','backup','authorize','targets','observer-recovery','observer-run','sensor','traffic','cool']
+    assert state['controlMaster']['openedAt']==ts(999)
     assert state['completed']
 
 

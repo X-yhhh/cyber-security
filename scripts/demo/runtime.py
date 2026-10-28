@@ -75,6 +75,12 @@ class Processes:
         return r['stopped']
 
 
+def peer_key(c, ids):
+    """按稳定 enrollment 身份和 peer.key 生成观察用对端键；只读取密钥文件。"""
+    secret = private(Path(c['root']) / 'config/peer.key').read_bytes()
+    return hmac.new(secret, json.dumps(['host-guard-peer-v1', ids['assetId'], ids['sensorId'], 1, c['peerAddress']], separators=(',', ':')).encode(), hashlib.sha256).hexdigest()
+
+
 def configurations(c, ids, g, auth, interface, directory, bundle, rows):
     """所有路径由本次私有目录和长期 enrollment 推出；不接收任意命令或环境变量。"""
     from executor.common import digest
@@ -101,7 +107,7 @@ def configurations(c, ids, g, auth, interface, directory, bundle, rows):
     target = dict(listen='127.0.0.1:' + str(c['targetPort']), certificateFile=str(ipc / 'server.pem'), keyFile=str(ipc / 'server.key'), caFile=str(ipc / 'ca.pem'), authorizedUntil=g['validUntil'],
                   scope=dict(AssetID=ids['assetId'], SensorID=ids['sensorId'], BootID=boot, CaptureScopeID=ids['captureScopeId'], Environment='lab', KeyEpoch=1,
                              LocalAddresses=[c['macAddress']], CollectorCertSHA256=fps['collector'], ExecutorCertSHA256=fps['executor'], MaxReferences=10000))
-    key = hmac.new(private(stable / 'peer.key').read_bytes(), json.dumps(['host-guard-peer-v1', ids['assetId'], ids['sensorId'], 1, c['peerAddress']], separators=(',', ':')).encode(), hashlib.sha256).hexdigest()
+    key = peer_key(c, ids)
     allowed = [dict(local=c['macAddress'], peer=c['peerAddress'], peerKey=key, direction='inbound', scope='peer_inbound', servicePort=0)]
     allowed += [dict(local=c['macAddress'], peer=c['peerAddress'], peerKey=key, direction='inbound', scope='peer_service', servicePort=c['ports'][k]) for k in ('http', 'ftp', 'ssh')]
     target['registration'] = dict(backend=dict(baseUrl=c['baseUrl'], caFile=c['backendCA'], **c['backendTls']),

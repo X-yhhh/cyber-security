@@ -189,13 +189,166 @@ def test_report_requires_per_command_ttl_projected_receipts_and_reset():
     assert not report.summarize(s,bad,w)['passed']
 
 
+def rule_demo_fixture():
+    selected=rows()[:3]
+    state=dict(runId='demo-rule-test',mode='alert-only',scenes=selected,completed=True,cleanup={k:True for k in common.CLEANUP},
+               endedAt=ts(1200),baseline={'commit':'test'})
+    facts=dict(decisions=[dict(id='d1',at=ts(1051),source='model',family='port_scan',decision='alert'),
+                          dict(id='d2',at=ts(1101),source='model',family='brute_force',decision='alert')],
+        commands=[],receipts=[],budgetEvents=[],directionCounts={'inbound':4,'unknown':3,'outbound':4},
+        sceneObservations={scene_id:dict(directionCounts={'inbound':0,'unknown':1,'outbound':0},controlConnections=1,newControlConnections=0)
+                           for scene_id in ('S0','S1','S2')},
+        ruleEvaluations=[
+            dict(sceneId='S1',ruleId='scan-ports',family='port_scan',applicable=True,matched=True,direction='inbound',count=2,firstAt=ts(1051)),
+            dict(sceneId='*',ruleId='scan-ports',family='port_scan',applicable=True,matched=True,direction='inbound',count=2,firstAt=ts(1051)),
+            dict(sceneId='S2',ruleId='brute-starts',family='brute_force',applicable=True,matched=True,direction='inbound',count=1,firstAt=ts(1101)),
+            dict(sceneId='*',ruleId='brute-starts',family='brute_force',applicable=True,matched=True,direction='inbound',count=1,firstAt=ts(1101))])
+    worker=dict(scenes=[dict(id='S0',startedAt=ts(1000),endedAt=ts(1010),finished=True),
+                        dict(id='S1',startedAt=ts(1050),endedAt=ts(1065),finished=True),
+                        dict(id='S2',startedAt=ts(1100),endedAt=ts(1115),finished=True)],finished=True,stopped=True)
+    return state,facts,worker
+
+
+def test_control_facts_uses_runtime_peer_key_and_grouped_snapshot(tmp_path):
+    from scripts.demo.control import Control
+    c=config();root=tmp_path/'demo-root';stable=root/'config';stable.mkdir(parents=True,mode=0o700)
+    common.write(stable/'peer.key',b'p'*32);c['root']=str(root)
+    ids={'assetId':'asset','sensorId':'sensor'};peer=runtime.peer_key(c,ids)
+    s1=rows()[1];directory=tmp_path/'run';directory.mkdir(mode=0o700)
+    common.write(directory/'state.json',dict(grant={'runId':'test'},authorization={'id':'auth'},interface='utun9',scenes=[s1]))
+    common.write(directory/'worker.json',dict(scenes=[dict(id='S1',startedAt=ts(1000),endedAt=ts(1010),finished=True)]))
+    observations=[
+        dict(emittedAt=ts(1002),direction='unknown',parentConnectionId='p1',peerKey=peer),
+        dict(emittedAt=ts(1003),direction='outbound',parentConnectionId='p1',peerKey=peer),
+        dict(emittedAt=ts(1004),direction='outbound',parentConnectionId='p2',peerKey=peer),
+        dict(emittedAt=ts(1005),direction='outbound',parentConnectionId='other',peerKey='unrelated')]
+    (directory/'observations.jsonl').write_text(''.join(json.dumps(o)+'\n' for o in observations))
+    queries=[]
+    control=object.__new__(Control);control.c=c;control.ids=ids;control.directory=directory
+    control.aid="(SELECT id FROM asset WHERE public_id='asset')";control.schema='schema'
+    control.db=SimpleNamespace(query=lambda sql,schema:queries.append((sql,schema)) or b'')
+    facts=control.facts(ts(999),ts(1010))
+    assert len(queries)==1 and queries[0][1]=='schema'
+    query=queries[0][0]
+    assert 'WITH CONSISTENT SNAPSHOT' in query
+    assert "'ruleId',d.evidence_json->>'$.ruleId'" in query and "'direction',e.direction" in query
+    assert 'GROUP BY r.rule_id,r.family,r.applicable,r.matched,o.direction' in query
+    assert facts['sceneObservations']['S1']['controlConnections']==2
+    assert facts['sceneObservations']['S1']['newControlConnections']==2
+    assert facts['directionCounts']=={'inbound':0,'unknown':1,'outbound':3}
+    assert facts['observationFactsError'] is None
+
+
+def _facts_after_observation_failure(tmp_path, *, peer_key_exists, observations_exists):
+    from scripts.demo.control import Control
+    state,_,worker=rule_demo_fixture()
+    c=config();root=tmp_path/'demo-root';stable=root/'config';stable.mkdir(parents=True,mode=0o700);c['root']=str(root)
+    if peer_key_exists:
+        common.write(stable/'peer.key',b'p'*32)
+    directory=tmp_path/'run';directory.mkdir(mode=0o700)
+    common.write(directory/'state.json',state);common.write(directory/'worker.json',worker)
+    if observations_exists:
+        (directory/'observations.jsonl').write_text('')
+    db_rows=[
+        dict(kind='decision',value=dict(id='decision-1',at=ts(1051),decision='alert',family='port_scan',source='model',ruleId='scan-ports',direction='inbound')),
+        dict(kind='command',value=dict(id='orphan-command',decisionId='missing-decision',at=ts(1051),scope='peer_inbound',
+                                       blockUntil=ts(1111),state='issued',budgetTargetId='budget-1',source='model'))]
+    payload=''.join(json.dumps(row)+'\n' for row in db_rows).encode()
+    control=object.__new__(Control);control.c=c;control.ids={'assetId':'asset','sensorId':'sensor'};control.directory=directory
+    control.aid="(SELECT id FROM asset WHERE public_id='asset')";control.schema='schema'
+    control.db=SimpleNamespace(query=lambda *_:payload)
+    facts=control.facts(ts(999),ts(1200))
+    record=report.summarize(state,facts,worker)
+    assert [row['id'] for row in facts['decisions']]==['decision-1']
+    assert [row['id'] for row in facts['commands']]==['orphan-command']
+    assert record['unattributedCommandIds']==['orphan-command']
+    assert record['ruleDemo']['passed'] is False
+    assert facts['directionCounts']=={'inbound':0,'unknown':0,'outbound':0}
+    for observation in facts['sceneObservations'].values():
+        assert observation['directionCounts']=={'inbound':0,'unknown':0,'outbound':0}
+        assert observation['controlConnections'] is None
+        assert observation['newControlConnections'] is None
+    return facts
+
+
+def test_facts_preserve_database_facts_when_observations_file_is_missing(tmp_path):
+    facts=_facts_after_observation_failure(tmp_path,peer_key_exists=True,observations_exists=False)
+    assert facts['observationFactsError']=='REPORT_OBSERVATIONS_MISSING'
+
+
+def test_facts_preserve_database_facts_when_peer_key_is_missing(tmp_path):
+    facts=_facts_after_observation_failure(tmp_path,peer_key_exists=False,observations_exists=True)
+    assert facts['observationFactsError']=='PRIVATE_PATH_MISSING'
+
+
+def test_rule_demo_accepts_expected_inbound_hits_and_one_unknown_control_connection():
+    s,f,w=rule_demo_fixture();record=report.summarize(s,f,w)
+    assert record['ruleDemo']['passed'] is True
+    assert record['passed'] is True
+    assert {row['id']:row['ruleConclusion'] for row in record['scenes']}=={'S0':'符合','S1':'符合','S2':'符合'}
+    assert record['scenes'][1]['ruleHits']==[dict(ruleId='scan-ports',family='port_scan',direction='inbound',count=2,firstAt=ts(1051),latencyMs=1000.0)]
+    assert '规则命中只作为演示事实，不是模型成绩或误报率' in report.render(record).decode()
+
+
+def test_rule_demo_rejects_s1_without_expected_scan_ports():
+    s,f,w=rule_demo_fixture()
+    f['ruleEvaluations']=[r for r in f['ruleEvaluations'] if not (r['ruleId']=='scan-ports' and r['sceneId'] in {'S1','*'})]
+    f['ruleEvaluations'] += [dict(sceneId='S1',ruleId='brute-starts',family='brute_force',applicable=True,matched=True,direction='inbound',count=1,firstAt=ts(1052)),
+                             dict(sceneId='*',ruleId='brute-starts',family='brute_force',applicable=True,matched=True,direction='inbound',count=1,firstAt=ts(1052))]
+    record=report.summarize(s,f,w)
+    assert record['scenes'][1]['ruleConclusion']=='不符合' and not record['ruleDemo']['passed']
+
+
+def test_rule_demo_rejects_non_inbound_rule_hits():
+    s,f,w=rule_demo_fixture()
+    f['ruleEvaluations'] += [dict(sceneId='S1',ruleId='slow-starts',family='dos_slow',applicable=True,matched=1,direction='unknown',count=1,firstAt=ts(1053)),
+                             dict(sceneId='*',ruleId='slow-starts',family='dos_slow',applicable=True,matched=1,direction='unknown',count=1,firstAt=ts(1053))]
+    record=report.summarize(s,f,w)
+    assert record['scenes'][1]['ruleConclusion']=='不符合' and not record['ruleDemo']['passed']
+
+
+def test_rule_demo_rejects_s0_rule_alert():
+    s,f,w=rule_demo_fixture()
+    f['decisions'].append(dict(id='dr',at=ts(1005),source='rule',family='port_scan',decision='alert',ruleId='scan-ports',direction='inbound'))
+    f['ruleEvaluations'] += [dict(sceneId='S0',ruleId='scan-ports',family='port_scan',applicable=True,matched=True,direction='inbound',count=1,firstAt=ts(1005)),
+                             dict(sceneId='*',ruleId='scan-ports',family='port_scan',applicable=True,matched=True,direction='inbound',count=1,firstAt=ts(1005))]
+    record=report.summarize(s,f,w)
+    assert record['scenes'][0]['ruleConclusion']=='不符合' and not record['ruleDemo']['passed']
+
+
+def test_rule_demo_rejects_three_control_connections():
+    s,f,w=rule_demo_fixture();f['sceneObservations']['S1'].update(controlConnections=3,newControlConnections=0)
+    record=report.summarize(s,f,w)
+    assert record['scenes'][1]['ruleConclusion']=='不符合' and not record['ruleDemo']['passed']
+
+
+def test_rule_demo_rejects_one_new_outbound_control_connection():
+    s,f,w=rule_demo_fixture();f['sceneObservations']['S1'].update(controlConnections=1,newControlConnections=1)
+    record=report.summarize(s,f,w)
+    assert record['scenes'][1]['ruleConclusion']=='不符合' and not record['ruleDemo']['passed']
+
+
+def test_rule_demo_rejects_rule_source_command():
+    s,f,w=rule_demo_fixture()
+    f['commands'].append(dict(id='rule-command',decisionId='rule-decision',source='rule'))
+    record=report.summarize(s,f,w)
+    assert record['ruleDemo']['ruleSourceCommandIds']==['rule-command'] and not record['ruleDemo']['passed']
+
+
+def test_compare_rejects_different_rule_id_sets():
+    s,f,w=rule_demo_fixture();a=report.summarize(s,f,w);b=deepcopy(a);b['runId']='demo-rule-other'
+    b['scenes'][1]['ruleHits'][0]['ruleId']='different-rule'
+    compared=report.compare(a,b)
+    assert not compared['scenes']['S1'] and not compared['consistent']
+
+
 def test_s4_never_issues_commands_s3_degrades_and_compare_is_strict():
     s,f,w=fixture_record();a=report.summarize(s,f,w);b=deepcopy(a);b['runId']='demo-other'
     assert report.compare(a,b)['consistent'];b['baseline']={'commit':'changed'};assert not report.compare(a,b)['consistent']
     s['scenes']=[rows()[4]];w['scenes'][0]['id']='S4';f['decisions'][0]['family']='dos_flood'
     assert not report.summarize(s,f,w)['passed']
     s['scenes']=[rows()[3]];w['scenes'][0]['id']='S3';f={k:[] for k in f}
-    assert report.summarize(s,f,w)['scenes'][0]['conclusion']=='降级'
+    assert report.summarize(s,f,w)['scenes'][0]['modelConclusion']=='降级'
 
 
 def test_abnormal_teardown_revokes_first_and_continues_after_stop_failure(tmp_path):
@@ -387,6 +540,9 @@ def test_generated_runtime_configs_retain_stable_identity_and_real_schemas(tmp_p
         assert resolver['scope']['ExecutorCertSHA256']!=resolver['scope']['CollectorCertSHA256']
         generated.append((data,resolver,common.load(d/'sensor.json')))
     assert generated[0][1]['registration']['allowed']==generated[1][1]['registration']['allowed']
+    expected_peer_key=runtime.peer_key(c,ids)
+    assert all(entry['peerKey']==expected_peer_key for _,resolver,_ in generated
+               for entry in resolver['registration']['allowed'])
     assert generated[0][2]['bootId']!=generated[1][2]['bootId']
     assert generated[0][2]['secretFile']==generated[1][2]['secretFile']
 

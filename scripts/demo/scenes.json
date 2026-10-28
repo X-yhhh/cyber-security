@@ -2,7 +2,7 @@
   "version": "hostguard-demo/1",
   "scenes": [
     {"id":"S0","family":"normal","tool":"normal","ports":[55280,55221],"rate":1,"concurrency":1,"durationSeconds":10,"cooldownSeconds":180,"expected":"none","latencyLimitMs":10000},
-    {"id":"S1","family":"port_scan","tool":"nmap","ports":[55300,55301,55302,55303,55304,55305,55306,55307,55308,55309,55310,55311,55312,55313,55314,55315],"rate":10,"concurrency":2,"durationSeconds":15,"cooldownSeconds":180,"expected":"peer_inbound","latencyLimitMs":10000},
+    {"id":"S1","family":"port_scan","tool":"nmap","ports":[55300,55301,55302,55303,55304,55305,55306,55307,55308,55309,55310,55311,55312,55313,55314,55315,55316,55317,55318,55319,55320,55321,55322,55323,55324,55325,55326,55327,55328,55329,55330,55331,55332,55333,55334,55335,55336,55337,55338,55339,55340,55341,55342,55343,55344,55345,55346,55347,55348,55349,55350,55351,55352,55353,55354,55355,55356,55357,55358,55359,55360,55361,55362,55363],"rate":25,"concurrency":4,"durationSeconds":15,"cooldownSeconds":180,"expected":"peer_inbound","latencyLimitMs":10000},
     {"id":"S2","family":"brute_force","tool":"ftp_login","ports":[55221],"rate":4,"concurrency":2,"durationSeconds":15,"cooldownSeconds":180,"expected":"peer_service","latencyLimitMs":10000},
     {"id":"S3","family":"dos_slow","tool":"slow_http","ports":[55280],"rate":2,"concurrency":8,"durationSeconds":30,"cooldownSeconds":180,"expected":"optional","latencyLimitMs":30000},
     {"id":"S4","family":"dos_flood","tool":"http_burst","ports":[55280],"rate":20,"concurrency":4,"durationSeconds":15,"cooldownSeconds":180,"expected":"alert_only","latencyLimitMs":10000}

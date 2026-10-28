@@ -55,12 +55,14 @@ def en0(c, client):
     return dict(pid=pids[0], identity=process_identity(pids[0]), configSha256=sha(plan['configFile']), bootId=sensor['bootId'])
 
 
-def evidence(c, ids):
+def evidence(c, ids, mode):
+    require(mode in ('pf', 'alert-only'), 'DEMO_MODE_INVALID')
     proof = load(c['proofFile'])
     require(proof['subjectSha256'] == c['subjectSha256'] and proof['macAddress'] == c['macAddress'] and proof['peerAddress'] == c['peerAddress'] and proof['ports'] == c['ports'], 'PREREQUISITE_SCOPE_CHANGED')
     require(proof['assetId'] == ids['assetId'] and proof['sensorId'] == ids['sensorId'], 'PREREQUISITE_IDENTITY_CHANGED')
     # 每项引用真实外部文件及摘要、独立审核记录；不接受只有 passed=true 的空证明。
-    expected = {'networkIsolation', 'utunDirection', 'platformCanary', 'capturePermission', 'coexistence'}
+    expected = ({'networkIsolation', 'capturePermission', 'coexistence'} if mode == 'alert-only' else
+                {'networkIsolation', 'utunDirection', 'platformCanary', 'capturePermission', 'coexistence'})
     require(set(proof['evidence']) == expected, 'PREREQUISITES_INCOMPLETE')
     for k, row in proof['evidence'].items():
         require(row['reviewer'] and row['approvalReference'] and row['reviewer'] != row.get('operator'), 'PREREQUISITE_REVIEW_REQUIRED')
@@ -68,7 +70,7 @@ def evidence(c, ids):
     return digest(proof)
 
 
-def inspect(c, ids, remote, control, scene_path):
+def inspect(c, ids, remote, control, scene_path, mode):
     import sys
     require(sys.platform == 'darwin' and os.geteuid() != 0, 'DEMO_MAC_USER_REQUIRED')
     iface = interface_for(command(['/sbin/ifconfig']), c['macAddress'])
@@ -93,9 +95,9 @@ def inspect(c, ids, remote, control, scene_path):
     # BPF 只检查可读写的设备数量；真正打开所选 utun 失败会在发包前停止。
     bpf = [p for p in Path('/dev').glob('bpf[0-9]*') if os.access(p, os.R_OK | os.W_OK)]
     require(len(bpf) >= 2, 'SECOND_BPF_PERMISSION_REQUIRED')
-    reset = control.reset_state()
+    reset = control.reset_state(mode)
     require(all(reset[k] for k in ('bindingSuspended', 'authorizationRevoked', 'noActiveActions')), 'PREVIOUS_RUN_NOT_RESET')
-    bundle = control.bundle()
+    bundle = control.bundle(mode)
     enrollment = load(Path(c['root']) / 'enrollment.json')
     require(enrollment == ids and enrollment['guardliveSha256'] == sha(c['guardlive']), 'SENSOR_BUILD_NOT_ENROLLED')
     require(enrollment['interface'] == iface, 'INTERFACE_CONFIG_REAPPROVAL_REQUIRED')
@@ -108,7 +110,7 @@ def inspect(c, ids, remote, control, scene_path):
     baseline = {'commit': command(['git', '-C', ROOT, 'rev-parse', 'HEAD']), 'jarSha256': sha(c['jar']),
                 'sensorSha256': sha(c['guardlive']), 'resolverSha256': sha(c['guardtargets']),
                 'executorRelease': c['executorRelease'], 'bundleId': c['bundleId'], 'subjectSha256': c['subjectSha256'],
-                'subject': bundle['subject'], 'sceneSha256': sha(scene_path), 'prerequisitesSha256': evidence(c, ids),
+                'subject': bundle['subject'], 'sceneSha256': sha(scene_path), 'prerequisitesSha256': evidence(c, ids, mode),
                 'remotePython': remote_state['python'], 'remoteNmap': remote_state['nmap'],
                 'workerSha256': remote_state['workerSha256'], 'macOS': command(['/usr/bin/sw_vers', '-productVersion']),
                 'tailscale': command([c['tailscale'], 'version']).splitlines()[0]}

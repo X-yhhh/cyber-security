@@ -4,8 +4,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 import asyncio
+import getpass
 import json
+import os
+import plistlib
+import subprocess
 import sys
+import time
 from unittest.mock import Mock, patch
 import pytest
 from scripts.demo import common, run, report, worker, remote, targets, backup, runtime, root_executor
@@ -37,6 +42,30 @@ def test_dry_run_cannot_touch_network_secrets_or_files(monkeypatch, capsys):
     result=json.loads(capsys.readouterr().out)
     assert result['scenes']==['S0','S1','S2','S3','S4']
     assert result['writes'] is result['network'] is result['rootStarted'] is False
+
+
+def test_canonical_invocation_accepts_absolute_run_config_and_grant_paths(monkeypatch, tmp_path):
+    root=tmp_path/'private-root';(root/'grants').mkdir(parents=True)
+    run_path=(BASE/'run.py').resolve()
+    monkeypatch.setattr(sys,'argv',[str(run_path)])
+    run.require_canonical_invocation(str(root/'config.json'),str(root/'grants'/'demo-run.json'),str(root))
+
+
+@pytest.mark.parametrize('invalid', ['run-path','config-path','grant-path','grant-traversal'])
+def test_canonical_invocation_rejects_paths_helper_cannot_match(monkeypatch, tmp_path, invalid):
+    root=tmp_path/'private-root';(root/'grants').mkdir(parents=True)
+    run_path=(BASE/'run.py').resolve()
+    invoked=str(run_path) if invalid!='run-path' else 'run.py'
+    config_path=str(root/'config.json') if invalid!='config-path' else str(tmp_path/'config.json')
+    if invalid=='grant-path':
+        grant_path=str(tmp_path/'grant.json')
+    elif invalid=='grant-traversal':
+        grant_path=str(root/'grants'/'..'/'grant.json')
+    else:
+        grant_path=str(root/'grants'/'demo-run.json')
+    monkeypatch.setattr(sys,'argv',[invoked])
+    with pytest.raises(ValueError,match='DEMO_INVOCATION_NOT_CANONICAL'):
+        run.require_canonical_invocation(config_path,grant_path,str(root))
 
 
 @pytest.mark.parametrize('mutate', [lambda c: c.update(peerAddress='8.8.8.8'),lambda c: c.update(peerAddress=c['macAddress']),
@@ -71,19 +100,47 @@ def test_private_json_rejects_duplicates_and_does_not_overwrite(tmp_path):
     with pytest.raises(ValueError,match='PRIVATE_MODE'):common.load(f)
 
 
-def test_s0_has_exactly_one_synthetic_login_then_http():
+def test_s0_reuses_one_http_connection_after_one_ftp_login():
     ftp=Mock();ftp.__enter__=Mock(return_value=ftp);ftp.__exit__=Mock(return_value=False)
     sock=Mock();sock.__enter__=Mock(return_value=sock);sock.__exit__=Mock(return_value=False)
-    with patch.object(worker.Limiter,'acquire',side_effect=[True,True,False]),patch.object(worker.ftplib,'FTP',return_value=ftp):
-        counts=worker.traffic('100.64.0.10',rows()[0],lambda:False,connector=Mock(return_value=sock))
+    response=b'HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nOK'
+    sock.recv.side_effect=[response,response]
+    connector=Mock(return_value=sock)
+    with patch.object(worker.Limiter,'acquire',side_effect=[True,True,True,False]),patch.object(worker.ftplib,'FTP',return_value=ftp):
+        counts=worker.traffic('100.64.0.10',rows()[0],lambda:False,connector=connector)
     ftp.login.assert_called_once_with('demo','demo-test-only');ftp.connect.assert_called_once_with('100.64.0.10',55221,timeout=1)
-    assert counts['completed']==2;sock.sendall.assert_called_once()
+    connector.assert_called_once_with(('100.64.0.10',55280),timeout=1)
+    assert ftp.connect.call_count+connector.call_count==2
+    assert counts['attempts']==3 and counts['completed']==3 and counts['httpReconnectRefused'] is False
+    assert sock.sendall.call_count==2
+    assert all(b'Connection: keep-alive' in call.args[0] for call in sock.sendall.call_args_list)
+
+
+def test_s0_http_disconnect_refuses_reconnect_and_ends_segment():
+    ftp=Mock();ftp.__enter__=Mock(return_value=ftp);ftp.__exit__=Mock(return_value=False)
+    sock=Mock();sock.__enter__=Mock(return_value=sock);sock.__exit__=Mock(return_value=False)
+    sock.recv.return_value=b'HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nOK'
+    sock.sendall.side_effect=[None,BrokenPipeError('synthetic disconnect')]
+    connector=Mock(return_value=sock)
+    with patch.object(worker.Limiter,'acquire',side_effect=[True,True,True]),patch.object(worker.ftplib,'FTP',return_value=ftp):
+        counts=worker.traffic('100.64.0.10',rows()[0],lambda:False,connector=connector)
+    assert ftp.login.call_count==1 and connector.call_count==1
+    assert counts['httpReconnectRefused'] is True
+    assert counts['completed']==2 and counts['refusedOrBlocked']==1
 
 
 def test_nmap_has_fixed_bounded_arguments():
-    command=worker.nmap_command('/approved/nmap','100.64.0.10',rows()[1])
-    assert command[1:4]==['-sS','-n','-Pn'] and command[-1]=='100.64.0.10'
-    assert '--max-rate' in command and '--host-timeout' in command and '--script' not in command
+    c=config();selected=rows();row=selected[1]
+    ports=c['ports']['scan']
+    assert ports==row['ports'] and len(ports)==64 and ports[0]==55300 and ports[-1]==55363
+    assert all(right==left+1 for left,right in zip(ports,ports[1:]))
+    assert row['rate']==25 and row['concurrency']==4 and row['durationSeconds']==15
+    assert common.validate(c,selected)==c
+    command=worker.nmap_command('/approved/nmap','100.64.0.10',row)
+    assert command[1:7]==['-sS','-n','-Pn','--disable-arp-ping','--max-retries','0']
+    assert command[command.index('--max-rate')+1]=='25'
+    assert command[command.index('-p')+1]==','.join(map(str,ports))
+    assert command[-1]=='100.64.0.10' and '--script' not in command
 
 
 class Writer:
@@ -101,6 +158,32 @@ def test_target_ftp_denies_file_access_and_http_bounds():
         assert b'230 ' in w.output and b'502 ' in w.output and w.closed
         r=asyncio.StreamReader();r.feed_data(b'POST / HTTP/1.1\r\n\r\n');r.feed_eof()
         w=Writer();await targets.http(r,w);assert w.output==b'' and w.closed
+    asyncio.run(exercise())
+
+
+def test_target_http_serves_at_most_64_keepalive_requests():
+    async def exercise():
+        request=b'GET / HTTP/1.1\r\nHost: demo.invalid\r\nConnection: keep-alive\r\n\r\n'
+        reader=asyncio.StreamReader();reader.feed_data(request*65);reader.feed_eof()
+        writer=Writer();await targets.http(reader,writer)
+        assert writer.output.count(b'HTTP/1.1 200 OK')==64
+        assert writer.output.count(b'Connection: keep-alive')==63
+        assert writer.output.count(b'Connection: close')==1
+        assert writer.closed
+    asyncio.run(exercise())
+
+
+def test_target_http_closes_idle_keepalive_connection_after_five_seconds():
+    async def exercise():
+        reader=asyncio.StreamReader();reader.feed_data(b'GET / HTTP/1.1\r\nHost: demo.invalid\r\n\r\n')
+        writer=Writer();timeouts=[];real_wait_for=asyncio.wait_for
+        async def short_idle_wait(awaitable,timeout):
+            timeouts.append(timeout)
+            return await real_wait_for(awaitable,0.001 if timeout==5 else timeout)
+        with patch.object(targets.asyncio,'wait_for',new=short_idle_wait):
+            await targets.http(reader,writer)
+        assert timeouts==[40,5]
+        assert writer.output.count(b'HTTP/1.1 200 OK')==1 and writer.closed
     asyncio.run(exercise())
 
 
@@ -135,13 +218,166 @@ def test_report_requires_per_command_ttl_projected_receipts_and_reset():
     assert not report.summarize(s,bad,w)['passed']
 
 
+def rule_demo_fixture():
+    selected=rows()[:3]
+    state=dict(runId='demo-rule-test',mode='alert-only',scenes=selected,completed=True,cleanup={k:True for k in common.CLEANUP},
+               endedAt=ts(1200),baseline={'commit':'test'})
+    facts=dict(decisions=[dict(id='d1',at=ts(1051),source='model',family='port_scan',decision='alert'),
+                          dict(id='d2',at=ts(1101),source='model',family='brute_force',decision='alert')],
+        commands=[],receipts=[],budgetEvents=[],directionCounts={'inbound':4,'unknown':3,'outbound':4},
+        sceneObservations={scene_id:dict(directionCounts={'inbound':0,'unknown':1,'outbound':0},controlConnections=1,newControlConnections=0)
+                           for scene_id in ('S0','S1','S2')},
+        ruleEvaluations=[
+            dict(sceneId='S1',ruleId='scan-ports',family='port_scan',applicable=True,matched=True,direction='inbound',count=2,firstAt=ts(1051)),
+            dict(sceneId='*',ruleId='scan-ports',family='port_scan',applicable=True,matched=True,direction='inbound',count=2,firstAt=ts(1051)),
+            dict(sceneId='S2',ruleId='brute-starts',family='brute_force',applicable=True,matched=True,direction='inbound',count=1,firstAt=ts(1101)),
+            dict(sceneId='*',ruleId='brute-starts',family='brute_force',applicable=True,matched=True,direction='inbound',count=1,firstAt=ts(1101))])
+    worker=dict(scenes=[dict(id='S0',startedAt=ts(1000),endedAt=ts(1010),finished=True),
+                        dict(id='S1',startedAt=ts(1050),endedAt=ts(1065),finished=True),
+                        dict(id='S2',startedAt=ts(1100),endedAt=ts(1115),finished=True)],finished=True,stopped=True)
+    return state,facts,worker
+
+
+def test_control_facts_uses_runtime_peer_key_and_grouped_snapshot(tmp_path):
+    from scripts.demo.control import Control
+    c=config();root=tmp_path/'demo-root';stable=root/'config';stable.mkdir(parents=True,mode=0o700)
+    common.write(stable/'peer.key',b'p'*32);c['root']=str(root)
+    ids={'assetId':'asset','sensorId':'sensor'};peer=runtime.peer_key(c,ids)
+    s1=rows()[1];directory=tmp_path/'run';directory.mkdir(mode=0o700)
+    common.write(directory/'state.json',dict(grant={'runId':'test'},authorization={'id':'auth'},interface='utun9',scenes=[s1]))
+    common.write(directory/'worker.json',dict(scenes=[dict(id='S1',startedAt=ts(1000),endedAt=ts(1010),finished=True)]))
+    observations=[
+        dict(emittedAt=ts(1002),direction='unknown',parentConnectionId='p1',peerKey=peer),
+        dict(emittedAt=ts(1003),direction='outbound',parentConnectionId='p1',peerKey=peer),
+        dict(emittedAt=ts(1004),direction='outbound',parentConnectionId='p2',peerKey=peer),
+        dict(emittedAt=ts(1005),direction='outbound',parentConnectionId='other',peerKey='unrelated')]
+    (directory/'observations.jsonl').write_text(''.join(json.dumps(o)+'\n' for o in observations))
+    queries=[]
+    control=object.__new__(Control);control.c=c;control.ids=ids;control.directory=directory
+    control.aid="(SELECT id FROM asset WHERE public_id='asset')";control.schema='schema'
+    control.db=SimpleNamespace(query=lambda sql,schema:queries.append((sql,schema)) or b'')
+    facts=control.facts(ts(999),ts(1010))
+    assert len(queries)==1 and queries[0][1]=='schema'
+    query=queries[0][0]
+    assert 'WITH CONSISTENT SNAPSHOT' in query
+    assert "'ruleId',d.evidence_json->>'$.ruleId'" in query and "'direction',e.direction" in query
+    assert 'GROUP BY r.rule_id,r.family,r.applicable,r.matched,o.direction' in query
+    assert facts['sceneObservations']['S1']['controlConnections']==2
+    assert facts['sceneObservations']['S1']['newControlConnections']==2
+    assert facts['directionCounts']=={'inbound':0,'unknown':1,'outbound':3}
+    assert facts['observationFactsError'] is None
+
+
+def _facts_after_observation_failure(tmp_path, *, peer_key_exists, observations_exists):
+    from scripts.demo.control import Control
+    state,_,worker=rule_demo_fixture()
+    c=config();root=tmp_path/'demo-root';stable=root/'config';stable.mkdir(parents=True,mode=0o700);c['root']=str(root)
+    if peer_key_exists:
+        common.write(stable/'peer.key',b'p'*32)
+    directory=tmp_path/'run';directory.mkdir(mode=0o700)
+    common.write(directory/'state.json',state);common.write(directory/'worker.json',worker)
+    if observations_exists:
+        (directory/'observations.jsonl').write_text('')
+    db_rows=[
+        dict(kind='decision',value=dict(id='decision-1',at=ts(1051),decision='alert',family='port_scan',source='model',ruleId='scan-ports',direction='inbound')),
+        dict(kind='command',value=dict(id='orphan-command',decisionId='missing-decision',at=ts(1051),scope='peer_inbound',
+                                       blockUntil=ts(1111),state='issued',budgetTargetId='budget-1',source='model'))]
+    payload=''.join(json.dumps(row)+'\n' for row in db_rows).encode()
+    control=object.__new__(Control);control.c=c;control.ids={'assetId':'asset','sensorId':'sensor'};control.directory=directory
+    control.aid="(SELECT id FROM asset WHERE public_id='asset')";control.schema='schema'
+    control.db=SimpleNamespace(query=lambda *_:payload)
+    facts=control.facts(ts(999),ts(1200))
+    record=report.summarize(state,facts,worker)
+    assert [row['id'] for row in facts['decisions']]==['decision-1']
+    assert [row['id'] for row in facts['commands']]==['orphan-command']
+    assert record['unattributedCommandIds']==['orphan-command']
+    assert record['ruleDemo']['passed'] is False
+    assert facts['directionCounts']=={'inbound':0,'unknown':0,'outbound':0}
+    for observation in facts['sceneObservations'].values():
+        assert observation['directionCounts']=={'inbound':0,'unknown':0,'outbound':0}
+        assert observation['controlConnections'] is None
+        assert observation['newControlConnections'] is None
+    return facts
+
+
+def test_facts_preserve_database_facts_when_observations_file_is_missing(tmp_path):
+    facts=_facts_after_observation_failure(tmp_path,peer_key_exists=True,observations_exists=False)
+    assert facts['observationFactsError']=='REPORT_OBSERVATIONS_MISSING'
+
+
+def test_facts_preserve_database_facts_when_peer_key_is_missing(tmp_path):
+    facts=_facts_after_observation_failure(tmp_path,peer_key_exists=False,observations_exists=True)
+    assert facts['observationFactsError']=='PRIVATE_PATH_MISSING'
+
+
+def test_rule_demo_accepts_expected_inbound_hits_and_one_unknown_control_connection():
+    s,f,w=rule_demo_fixture();record=report.summarize(s,f,w)
+    assert record['ruleDemo']['passed'] is True
+    assert record['passed'] is True
+    assert {row['id']:row['ruleConclusion'] for row in record['scenes']}=={'S0':'符合','S1':'符合','S2':'符合'}
+    assert record['scenes'][1]['ruleHits']==[dict(ruleId='scan-ports',family='port_scan',direction='inbound',count=2,firstAt=ts(1051),latencyMs=1000.0)]
+    assert '规则命中只作为演示事实，不是模型成绩或误报率' in report.render(record).decode()
+
+
+def test_rule_demo_rejects_s1_without_expected_scan_ports():
+    s,f,w=rule_demo_fixture()
+    f['ruleEvaluations']=[r for r in f['ruleEvaluations'] if not (r['ruleId']=='scan-ports' and r['sceneId'] in {'S1','*'})]
+    f['ruleEvaluations'] += [dict(sceneId='S1',ruleId='brute-starts',family='brute_force',applicable=True,matched=True,direction='inbound',count=1,firstAt=ts(1052)),
+                             dict(sceneId='*',ruleId='brute-starts',family='brute_force',applicable=True,matched=True,direction='inbound',count=1,firstAt=ts(1052))]
+    record=report.summarize(s,f,w)
+    assert record['scenes'][1]['ruleConclusion']=='不符合' and not record['ruleDemo']['passed']
+
+
+def test_rule_demo_rejects_non_inbound_rule_hits():
+    s,f,w=rule_demo_fixture()
+    f['ruleEvaluations'] += [dict(sceneId='S1',ruleId='slow-starts',family='dos_slow',applicable=True,matched=1,direction='unknown',count=1,firstAt=ts(1053)),
+                             dict(sceneId='*',ruleId='slow-starts',family='dos_slow',applicable=True,matched=1,direction='unknown',count=1,firstAt=ts(1053))]
+    record=report.summarize(s,f,w)
+    assert record['scenes'][1]['ruleConclusion']=='不符合' and not record['ruleDemo']['passed']
+
+
+def test_rule_demo_rejects_s0_rule_alert():
+    s,f,w=rule_demo_fixture()
+    f['decisions'].append(dict(id='dr',at=ts(1005),source='rule',family='port_scan',decision='alert',ruleId='scan-ports',direction='inbound'))
+    f['ruleEvaluations'] += [dict(sceneId='S0',ruleId='scan-ports',family='port_scan',applicable=True,matched=True,direction='inbound',count=1,firstAt=ts(1005)),
+                             dict(sceneId='*',ruleId='scan-ports',family='port_scan',applicable=True,matched=True,direction='inbound',count=1,firstAt=ts(1005))]
+    record=report.summarize(s,f,w)
+    assert record['scenes'][0]['ruleConclusion']=='不符合' and not record['ruleDemo']['passed']
+
+
+def test_rule_demo_rejects_three_control_connections():
+    s,f,w=rule_demo_fixture();f['sceneObservations']['S1'].update(controlConnections=3,newControlConnections=0)
+    record=report.summarize(s,f,w)
+    assert record['scenes'][1]['ruleConclusion']=='不符合' and not record['ruleDemo']['passed']
+
+
+def test_rule_demo_rejects_one_new_outbound_control_connection():
+    s,f,w=rule_demo_fixture();f['sceneObservations']['S1'].update(controlConnections=1,newControlConnections=1)
+    record=report.summarize(s,f,w)
+    assert record['scenes'][1]['ruleConclusion']=='不符合' and not record['ruleDemo']['passed']
+
+
+def test_rule_demo_rejects_rule_source_command():
+    s,f,w=rule_demo_fixture()
+    f['commands'].append(dict(id='rule-command',decisionId='rule-decision',source='rule'))
+    record=report.summarize(s,f,w)
+    assert record['ruleDemo']['ruleSourceCommandIds']==['rule-command'] and not record['ruleDemo']['passed']
+
+
+def test_compare_rejects_different_rule_id_sets():
+    s,f,w=rule_demo_fixture();a=report.summarize(s,f,w);b=deepcopy(a);b['runId']='demo-rule-other'
+    b['scenes'][1]['ruleHits'][0]['ruleId']='different-rule'
+    compared=report.compare(a,b)
+    assert not compared['scenes']['S1'] and not compared['consistent']
+
+
 def test_s4_never_issues_commands_s3_degrades_and_compare_is_strict():
     s,f,w=fixture_record();a=report.summarize(s,f,w);b=deepcopy(a);b['runId']='demo-other'
     assert report.compare(a,b)['consistent'];b['baseline']={'commit':'changed'};assert not report.compare(a,b)['consistent']
     s['scenes']=[rows()[4]];w['scenes'][0]['id']='S4';f['decisions'][0]['family']='dos_flood'
     assert not report.summarize(s,f,w)['passed']
     s['scenes']=[rows()[3]];w['scenes'][0]['id']='S3';f={k:[] for k in f}
-    assert report.summarize(s,f,w)['scenes'][0]['conclusion']=='降级'
+    assert report.summarize(s,f,w)['scenes'][0]['modelConclusion']=='降级'
 
 
 def test_abnormal_teardown_revokes_first_and_continues_after_stop_failure(tmp_path):
@@ -149,8 +385,8 @@ def test_abnormal_teardown_revokes_first_and_continues_after_stop_failure(tmp_pa
     def record(name,value=True):
         def op(*a):events.append(name);return value
         return op
-    control=SimpleNamespace(revoke=record('revoke'),reset_state=lambda:dict(bindingSuspended=True,bundleActive=True,authorizationRevoked=True),recovered=lambda:False,facts=lambda *a:{k:[] for k in ('decisions','commands','receipts','budgetEvents')},applicant=None)
-    rem=SimpleNamespace(marker=record('STOP'),stopped=lambda _:True,state=lambda _:None)
+    control=SimpleNamespace(revoke=record('revoke'),reset_state=lambda *_:dict(bindingSuspended=True,bundleActive=True,authorizationRevoked=True),recovered=lambda:False,facts=lambda *a:{k:[] for k in ('decisions','commands','receipts','budgetEvents')},applicant=None)
+    rem=SimpleNamespace(marker=record('STOP'),stopped=lambda _:True,state=lambda _:None,close=record('close'))
     def stop(name):
         events.append(name)
         if name=='sensor':raise OSError('synthetic failure')
@@ -158,6 +394,7 @@ def test_abnormal_teardown_revokes_first_and_continues_after_stop_failure(tmp_pa
     runner=run.Runner({},tmp_path,state,control,rem,SimpleNamespace(stop=stop))
     with patch('scripts.demo.preflight.en0',return_value={'same':True}):result=runner.teardown(True)
     assert events[:3]==['revoke','STOP','sensor'] and 'targets' in events and 'observer-run' in events
+    assert events.index('sensor') < events.index('close')
     assert result['cleanup']['captureStopped'] is False and not result['passed']
     assert 'bundle' not in events
     # 同一目录第二次清理，不覆盖事实，不跳过失败项。
@@ -165,27 +402,211 @@ def test_abnormal_teardown_revokes_first_and_continues_after_stop_failure(tmp_pa
     assert events.count('revoke')==2
 
 
+@pytest.mark.parametrize('replaced', [False,True], ids=['removed-last','replacement-preserved'])
+def test_teardown_removes_only_its_capture_pid_and_reports_failure(tmp_path,replaced):
+    root=tmp_path/'private-root';locks=root/'locks';locks.mkdir(parents=True,mode=0o700)
+    root.chmod(0o700);locks.chmod(0o700)
+    pid_file=locks/'demo-run.pid';pid_file.write_text(f'{os.getpid()}\n',encoding='ascii');pid_file.chmod(0o600)
+    state=dict(runId='demo-test',startedAt=ts(1000),scenes=[],mode='pf',cleanup={k:False for k in common.CLEANUP},
+               remoteRequested=False,en0={'same':True},capturePid={'pid':os.getpid(),
+               'dev':pid_file.stat().st_dev,'ino':pid_file.stat().st_ino+(1 if replaced else 0)})
+    events=[]
+    control=SimpleNamespace(revoke=lambda:True,
+                            reset_state=lambda *_:dict(bindingSuspended=True,bundleActive=True,authorizationRevoked=True),
+                            recovered=lambda:True,
+                            facts=lambda *a:{k:[] for k in ('decisions','commands','receipts','budgetEvents')},
+                            applicant=None)
+    remote_client=SimpleNamespace(close=lambda:events.append('control-close') or True)
+    processes=SimpleNamespace(stop=lambda name:events.append(name) or True)
+    runner=run.Runner({'root':str(root.resolve())},tmp_path,state,control,remote_client,processes)
+    metadata=pid_file.stat();runner.capture_pid_path=pid_file
+    runner.capture_pid_identity=(metadata.st_dev,metadata.st_ino+(1 if replaced else 0))
+    remove=runner.remove_capture_pid
+    def record_remove():
+        events.append('capture-pid-remove')
+        return remove()
+    runner.remove_capture_pid=record_remove
+    with patch('scripts.demo.preflight.en0',return_value={'same':True}),\
+         patch('scripts.demo.report.generate',return_value={'passed':not replaced}):
+        result=runner.teardown(False)
+    assert events[-1]=='capture-pid-remove'
+    assert ('capturePidRemoved' not in state['cleanup'])
+    if replaced:
+        assert pid_file.exists()
+        assert state['cleanupErrors']['capturePidRemoved']=='OSError'
+        assert not result['passed']
+    else:
+        assert not pid_file.exists()
+        assert 'capturePidRemoved' not in state['cleanupErrors']
+        assert result['passed']
+
+
+def test_teardown_preserves_capture_pid_while_recorded_process_runs(tmp_path):
+    root=tmp_path/'private-root';locks=root/'locks';locks.mkdir(parents=True,mode=0o700)
+    root.chmod(0o700);locks.chmod(0o700)
+    process=subprocess.Popen(['/bin/sleep','30'])
+    try:
+        pid_file=locks/'demo-run.pid';pid_file.write_text(f'{process.pid}\n',encoding='ascii');pid_file.chmod(0o600)
+        state=dict(runId='demo-test',startedAt=ts(1000),scenes=[],mode='pf',cleanup={k:False for k in common.CLEANUP},
+                   remoteRequested=False,en0={'same':True},capturePid={'pid':process.pid,
+                   'dev':pid_file.stat().st_dev,'ino':pid_file.stat().st_ino})
+        control=SimpleNamespace(revoke=lambda:True,
+                                reset_state=lambda *_:dict(bindingSuspended=True,bundleActive=True,authorizationRevoked=True),
+                                recovered=lambda:True,
+                                facts=lambda *a:{k:[] for k in ('decisions','commands','receipts','budgetEvents')},
+                                applicant=None)
+        remote_client=SimpleNamespace(close=lambda:True)
+        processes=SimpleNamespace(stop=lambda _name:True)
+        runner=run.Runner({'root':str(root.resolve())},tmp_path,state,control,remote_client,processes)
+        with patch('scripts.demo.preflight.en0',return_value={'same':True}),\
+             patch('scripts.demo.report.generate',return_value={'passed':False}):
+            runner.teardown(False)
+        assert pid_file.exists()
+        assert state['cleanupErrors']['capturePidRemoved']=='OSError'
+    finally:
+        process.terminate();process.wait(timeout=5)
+
+
+def test_teardown_only_closes_control_master_and_records_cleanup(tmp_path, monkeypatch, capsys):
+    c=config();root=tmp_path/'demo-root';root.mkdir(mode=0o700);root.chmod(0o700)
+    c['root']=str(root.resolve())
+    common.write(tmp_path/'config.json',c)
+    run_id='demo-20261028-1200-01';runs=root/'runs';runs.mkdir(mode=0o700)
+    run_dir=runs/run_id;run_dir.mkdir(mode=0o700)
+    locks=root/'locks';locks.mkdir(mode=0o700)
+    common.write(root/'enrollment.json',{})
+    state=dict(runId=run_id,config=c,enrollment={},mode='alert-only',scenes=[rows()[0]],
+               cleanup={name:False for name in common.CLEANUP},completed=False,startedAt=ts(1000),en0={'same':True})
+    common.write(run_dir/'state.json',state)
+    stale_pid=99999999
+    pid_file=locks/'demo-run.pid';pid_file.write_text(f'{stale_pid}\n',encoding='ascii');pid_file.chmod(0o600)
+    state['capturePid']={'pid':stale_pid,'dev':pid_file.stat().st_dev,'ino':pid_file.stat().st_ino}
+    common.write(run_dir/'state.json',state,replace=True)
+    events=[]
+
+    class Control:
+        def __init__(self,*_):self.applicant=None
+        def revoke(self):events.append('revoke');return True
+        def reset_state(self,*_):return dict(bindingSuspended=True,bundleActive=True,authorizationRevoked=True)
+        def recovered(self):return True
+        def facts(self,*_):return {key:[] for key in ('decisions','commands','receipts','budgetEvents')}
+
+    class Remote:
+        def __init__(self,config,*,root):assert config==c['remote'] and root==c['root']
+        def close(self):events.append('close');return True
+
+    class Processes:
+        def __init__(self,*_):pass
+        def stop(self,name):events.append(name);return True
+
+    monkeypatch.setattr(sys,'argv',['run','--config',str(tmp_path/'config.json'),'--teardown-only',run_id])
+    monkeypatch.setattr(run.signal,'signal',lambda *_:None)
+    with patch('scripts.demo.control.Control',Control),patch('scripts.demo.remote.Remote',Remote),\
+         patch('scripts.demo.runtime.Processes',Processes),patch('scripts.demo.preflight.en0',return_value={'same':True}),\
+         patch('scripts.demo.report.generate',return_value={'passed':True}):
+        assert run.main()==0
+
+    saved=common.load(run_dir/'state.json')
+    assert events.index('sensor') < events.index('close')
+    assert events.count('close')==1
+    assert not pid_file.exists()
+    assert 'capturePidRemoved' not in saved['cleanup']
+    assert saved['cleanup']['controlMasterClosed'] is True
+    assert json.loads(capsys.readouterr().out)['runId']==run_id
+
+
 def test_cooling_requires_continuous_healthy_before_stopping_capture(tmp_path):
     clock=[0];seen=[]
-    control=SimpleNamespace(healthy=lambda:clock[0]!=60,reset_state=lambda:{'noActiveActions':True},recovered=lambda:True)
-    s=dict(grant={'validUntil':ts(9999999999)},cleanup={})
+    control=SimpleNamespace(healthy=lambda:clock[0]!=60,reset_state=lambda *_:{'noActiveActions':True},recovered=lambda:True)
+    s=dict(grant={'validUntil':ts(9999999999)},cleanup={},mode='pf')
     proc=SimpleNamespace(alive=lambda:True)
     runner=run.Runner({},tmp_path,s,control,None,proc,clock=lambda:clock[0],sleep=lambda n:clock.__setitem__(0,clock[0]+n))
     runner.cool(240)
     assert clock[0]==181 and s['cleanup']['budgetRecovered']
 
 
-def test_remote_transport_is_encoded_and_stop_uses_exact_identity():
-    calls=[]
+def test_remote_transport_uses_private_control_master_options_for_every_ssh_call(tmp_path, monkeypatch):
+    calls=[];control_envs=[]
     def execute(argv,**kwargs):
-        calls.append(argv);return SimpleNamespace(returncode=0,stdout=b'true')
-    r=remote.Remote(config()['remote'],execute=execute)
+        calls.append(argv)
+        if '-O' in argv:
+            control_envs.append(kwargs.get('env'))
+            return SimpleNamespace(returncode=1 if argv[argv.index('-O')+1]=='check' else 0,
+                                   stdout=b'',stderr=b'')
+        code=__import__('base64').b64decode(argv[-1]).decode('utf-16-le')
+        return SimpleNamespace(returncode=0,stdout=b'1234567' if 'ToUnixTimeMilliseconds' in code else b'true')
+    # 只放宽此测试中的路径长度约束，以便测试系统临时目录本身较长时仍能
+    # 检查传输参数；独立测试覆盖生产限制。
+    monkeypatch.setattr(remote.Remote,'CONTROL_PATH_LIMIT',512)
+    r=remote.Remote(config()['remote'],execute=execute,root=tmp_path)
+    opened_at=r.open()
     assert r.stopped('demo-20261017-1200-01')
-    import base64
-    code=base64.b64decode(calls[0][-1]).decode('utf-16-le')
+    assert isinstance(opened_at,str) and opened_at.endswith('Z')
+    lock_dir=tmp_path/'locks'
+    assert lock_dir.stat().st_mode & 0o777 == 0o700
+    code=__import__('base64').b64decode(calls[-1][-1]).decode('utf-16-le')
     assert '/runs/demo-20261017-1200-01/plan.json' in code and 'StartTime' in code and 'Stop-Process' not in code
+    assert r.close() is True
+    closed_calls=len(calls)
+    assert r.close() is True and len(calls)==closed_calls
+    required={'BatchMode=yes','ConnectTimeout=5','ControlMaster=auto','ControlPath='+r.control_path,
+              'ControlPersist=yes','ServerAliveInterval=5','ServerAliveCountMax=3'}
+    for argv in calls:
+        options={argv[i+1] for i,value in enumerate(argv[:-1]) if value=='-o'}
+        assert required <= options
+    expected_env={**remote.os.environ,'LC_ALL':'C'}
+    assert control_envs and all(env==expected_env for env in control_envs)
     with pytest.raises(ValueError):r.directory('../other')
     with pytest.raises(ValueError):r.marker('demo-20261017-1200-01','GO-UNKNOWN')
+
+
+def test_remote_control_path_longer_than_one_hundred_bytes_is_rejected(tmp_path):
+    long_root=tmp_path/('r'*80);long_root.mkdir(mode=0o700)
+    calls=[]
+    def execute(argv,**kwargs):
+        calls.append(argv);return SimpleNamespace(returncode=0,stdout=b'1')
+    with pytest.raises(ValueError,match='CONTROL_PATH_TOO_LONG'):
+        remote.Remote(config()['remote'],execute=execute,root=long_root)
+    assert calls==[]
+
+
+@pytest.mark.parametrize('fail', [False,True], ids=['success','failure'])
+def test_prepare_install_worker_configures_control_path_and_closes(tmp_path, monkeypatch, capsys, fail):
+    from scripts.demo import prepare
+
+    c=config();root=tmp_path/'private-root';root.mkdir(mode=0o700);root.chmod(0o700);c['root']=str(root.resolve())
+    actual_remote=remote.Remote;constructed=[];installed=[];calls=[]
+    def execute(argv,**kwargs):
+        calls.append((argv,kwargs))
+        return SimpleNamespace(returncode=0,stdout=b'',stderr=b'')
+    def construct(remote_config,*args,**kwargs):
+        constructed.append((remote_config,args,kwargs))
+        return actual_remote(remote_config,execute=execute,*args,**kwargs)
+    def install(self,config):
+        installed.append((self.control_path,config['root']))
+        if fail:raise RuntimeError('synthetic install failure')
+        return 'allowlist-sha256'
+
+    monkeypatch.setattr(actual_remote,'CONTROL_PATH_LIMIT',512)
+    monkeypatch.setattr(actual_remote,'_install',install)
+    monkeypatch.setattr(remote,'Remote',construct)
+    monkeypatch.setattr(prepare,'validate',lambda value,_:value)
+    monkeypatch.setattr(prepare,'load',Mock(side_effect=[c,{}]))
+    monkeypatch.setattr(prepare,'approve',lambda *_:None)
+    monkeypatch.setattr(sys,'argv',['prepare','--config',str(tmp_path/'config.json'),'--operation','install-worker',
+                                   '--approval',str(tmp_path/'approval.json'),'--execute'])
+
+    if fail:
+        with pytest.raises(RuntimeError,match='synthetic install failure'):
+            prepare.main()
+    else:
+        prepare.main()
+        assert json.loads(capsys.readouterr().out)['allowlistSha256']=='allowlist-sha256'
+
+    assert constructed==[(c['remote'],(),{})]
+    assert installed==[(str(root/'locks'/'ssh-%C'),c['root'])]
+    exits=[(argv,kwargs) for argv,kwargs in calls if '-O' in argv and argv[argv.index('-O')+1]=='exit']
+    assert len(exits)==1 and exits[0][1]['env']=={**remote.os.environ,'LC_ALL':'C'}
 
 
 def test_root_boundary_rejects_management_ports_and_changed_identity():
@@ -219,12 +640,16 @@ def test_generated_runtime_configs_retain_stable_identity_and_real_schemas(tmp_p
         assert resolver['scope']['ExecutorCertSHA256']!=resolver['scope']['CollectorCertSHA256']
         generated.append((data,resolver,common.load(d/'sensor.json')))
     assert generated[0][1]['registration']['allowed']==generated[1][1]['registration']['allowed']
+    expected_peer_key=runtime.peer_key(c,ids)
+    assert all(entry['peerKey']==expected_peer_key for _,resolver,_ in generated
+               for entry in resolver['registration']['allowed'])
     assert generated[0][2]['bootId']!=generated[1][2]['bootId']
     assert generated[0][2]['secretFile']==generated[1][2]['secretFile']
 
 
 def test_execute_orders_preflight_backup_authorization_capture_then_traffic(tmp_path):
     events=[];c=config();g=approval(c,[rows()[0]],__import__('time').time());state=dict(runId=g['runId'],enrollment={},grant=g,mode='alert-only',scenes=[rows()[0]],cleanup={})
+    mode_calls={}
     (tmp_path/'root').mkdir(mode=0o700);common.write(tmp_path/'scenes.json',{'test':True})
     def call(name,result):
         def op(*args):events.append(name);return result
@@ -236,14 +661,159 @@ def test_execute_orders_preflight_backup_authorization_capture_then_traffic(tmp_
         def alive(self):return True
     def start_root(*a):
         events.append('root');common.write(tmp_path/'root/ready.json',{'passed':True});return Mock(poll=lambda:None)
-    control=SimpleNamespace(backup=call('backup',{'passed':True}),authorize=call('authorize',{'id':'test'}),bundle=lambda:{},healthy=lambda:True,recovered=lambda:True)
+    def bundle(mode):
+        mode_calls['bundle']=mode
+        return {}
+    def inspect(*args):
+        mode_calls['inspect']=args[-1]
+        return call('preflight',{'interface':'utun9','allowlistSha256':'a'})()
+    control=SimpleNamespace(backup=call('backup',{'passed':True}),authorize=call('authorize',{'id':'test'}),bundle=bundle,healthy=lambda:True,recovered=lambda:True)
     w=dict(scenes=[dict(id='S0',finished=True,endedAt=ts(1000))],finished=True,stopped=True)
-    rem=SimpleNamespace(start=call('traffic',{}),state=lambda _:w)
+    rem=SimpleNamespace(open=call('open',ts(999)),start=call('traffic',{}),state=lambda _:w)
     runner=run.Runner(c,tmp_path,state,control,rem,Processes());runner.cool=call('cool',True)
-    with patch('scripts.demo.preflight.inspect',side_effect=call('preflight',{'interface':'utun9','allowlistSha256':'a'})),patch('scripts.demo.runtime.start_root',side_effect=start_root),patch('scripts.demo.runtime.configurations',return_value=({},{})):
+    runner.begin_capture_permission=lambda:events.append('bpf1-ready')
+    with patch('scripts.demo.preflight.inspect',side_effect=inspect),patch('scripts.demo.runtime.start_root',side_effect=start_root),patch('scripts.demo.runtime.configurations',return_value=({},{})):
         runner.execute()
-    assert events==['preflight','root','backup','authorize','targets','observer-recovery','observer-run','sensor','traffic','cool']
+    assert events==['bpf1-ready','open','preflight','root','backup','authorize','targets','observer-recovery','observer-run','sensor','traffic','cool']
+    assert state['controlMaster']['openedAt']==ts(999)
     assert state['completed']
+    assert mode_calls=={'inspect':'alert-only','bundle':'alert-only'}
+
+
+def test_begin_capture_permission_publishes_private_pid_and_waits_for_bpf1(tmp_path):
+    c=config();root=tmp_path/'private-root';locks=root/'locks';locks.mkdir(parents=True,mode=0o700)
+    root.chmod(0o700);locks.chmod(0o700);c['root']=str(root.resolve())
+    selected=[rows()[0]];g=approval(c,selected,time.time())
+    state={'grant':g}
+    ready=iter([False,True]);clock=[0]
+    runner=run.Runner(c,tmp_path,state,None,None,SimpleNamespace(alive=lambda:True),
+                      clock=lambda:clock[0],sleep=lambda seconds:clock.__setitem__(0,clock[0]+seconds))
+    runner._bpf1_accessible=lambda:next(ready)
+    runner.begin_capture_permission()
+    pid_file=locks/'demo-run.pid'
+    assert pid_file.read_text(encoding='ascii')==f'{os.getpid()}\n'
+    assert pid_file.stat().st_mode & 0o777==0o600
+    assert runner.capture_pid_identity==(pid_file.stat().st_dev,pid_file.stat().st_ino)
+    assert state['capturePid']=={'pid':os.getpid(),'dev':pid_file.stat().st_dev,'ino':pid_file.stat().st_ino}
+    assert clock[0]==1
+    assert runner.remove_capture_pid() and not pid_file.exists()
+
+
+def test_begin_capture_permission_times_out_with_second_bpf_error(tmp_path):
+    c=config();root=tmp_path/'private-root';locks=root/'locks';locks.mkdir(parents=True,mode=0o700)
+    root.chmod(0o700);locks.chmod(0o700);c['root']=str(root.resolve())
+    g=approval(c,[rows()[0]],time.time());clock=[0]
+    runner=run.Runner(c,tmp_path,{'grant':g},None,None,SimpleNamespace(alive=lambda:True),
+                      clock=lambda:clock[0],sleep=lambda seconds:clock.__setitem__(0,clock[0]+seconds))
+    runner._bpf1_accessible=lambda:False
+    with pytest.raises(ValueError,match='SECOND_BPF_PERMISSION_REQUIRED'):
+        runner.begin_capture_permission()
+    assert clock[0]==5 and (locks/'demo-run.pid').exists()
+    runner.remove_capture_pid()
+
+
+def _capture_permission_test_environment(tmp_path, username, mode='valid', *, once=True):
+    root=tmp_path/'private-root';locks=root/'locks';locks.mkdir(parents=True,mode=0o700)
+    (root/'grants').mkdir(mode=0o700);root.chmod(0o700);locks.chmod(0o700)
+    pid_file=locks/'demo-run.pid'
+    pid_file.write_text('12345\n',encoding='ascii');pid_file.chmod(0o600)
+    framework_python='/Library/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python'
+    if mode=='venv-symlink':
+        venv_python=tmp_path/'demo-venv'/'executor'/'.venv'/'bin'/'python'
+        venv_python.parent.mkdir(parents=True)
+        venv_python.symlink_to(sys.executable)
+        ps_python=str(venv_python)
+    else:
+        ps_python=framework_python
+    fake_ps=tmp_path/'ps';fake_ps.write_text('''#!/bin/sh
+if [ "$DEMO_CAPTURE_FAKE_PS_MODE" = exited ]; then exit 1; fi
+run_path="$DEMO_CAPTURE_RUN_PY"
+config_path="$DEMO_CAPTURE_ROOT/config.json"
+if [ "$DEMO_CAPTURE_FAKE_PS_MODE" = command-mismatch ]; then run_path=/other/run.py; fi
+if [ "$DEMO_CAPTURE_FAKE_PS_MODE" = config-mismatch ]; then config_path=/other/config.json; fi
+grant_path="$DEMO_CAPTURE_ROOT/grants/run.json"
+if [ "$DEMO_CAPTURE_FAKE_PS_MODE" = grant-traversal ]; then grant_path="$DEMO_CAPTURE_ROOT/grants/../outside.json"; fi
+python_flags=''
+if [ "$DEMO_CAPTURE_FAKE_PS_MODE" = framework-path ]; then python_flags=' -B'; fi
+if [ "$DEMO_CAPTURE_FAKE_PS_MODE" = double-B ]; then python_flags=' -B -B'; fi
+printf '%s %s%s %s --config %s --grant %s --alert-only --scenes S0\\n' \\
+  "$DEMO_CAPTURE_USER" "$DEMO_CAPTURE_PS_PYTHON" "$python_flags" "$run_path" "$config_path" "$grant_path"
+''',encoding='utf-8');fake_ps.chmod(0o700)
+    actions=tmp_path/'actions.log'
+    env={**os.environ,'DEMO_CAPTURE_PERMISSION_TEST_MODE':'1','DEMO_CAPTURE_PERMISSION_TEST_PS':str(fake_ps),
+         'DEMO_CAPTURE_PERMISSION_TEST_ACTIONS':str(actions),'DEMO_CAPTURE_FAKE_PS_MODE':mode,
+         'DEMO_CAPTURE_USER':username,'DEMO_CAPTURE_ROOT':str(root.resolve()),
+         'DEMO_CAPTURE_PS_PYTHON':ps_python,'DEMO_CAPTURE_RUN_PY':str((BASE/'run.py').resolve()),
+         'DEMO_CAPTURE_PERMISSION_TEST_INTERPRETER':sys.executable}
+    if once:
+        env['DEMO_CAPTURE_PERMISSION_TEST_ONCE']='1'
+    command=['/bin/sh',str(BASE/'capture_permission_demo.sh'),username,str(root.resolve()),
+             framework_python,str((BASE/'run.py').resolve())]
+    return root,pid_file,actions,env,command
+
+
+def test_capture_permission_launchd_template_fixes_helper_arguments():
+    template=plistlib.loads((BASE/'com.xyh.cyber-security.demo-capture-permission.plist').read_bytes())
+    assert template['ProgramArguments']==[
+        '/Library/PrivilegedHelperTools/com.xyh.cyber-security.demo-capture-permission',
+        '__CAPTURE_USER__','__PRIVATE_ROOT__','__PYTHON_PS_PATH__','__RUN_PY_ABSOLUTE_PATH__']
+    assert template['UserName']=='root'
+    assert template['KeepAlive'] is True
+
+
+@pytest.mark.parametrize('case,mode,username,linked,allowed',[
+    ('valid','valid',None,False,True),
+    ('framework-path','framework-path',None,False,True),
+    ('duplicate-B','double-B',None,False,False),
+    ('grant-traversal','grant-traversal',None,False,False),
+    ('venv-symlink','venv-symlink',None,False,False),
+    ('missing','valid',None,False,False),
+    ('symlink','valid',None,True,False),
+    ('wrong-owner','valid',None,False,False),
+    ('wrong-command','command-mismatch',None,False,False),
+    ('wrong-config','config-mismatch',None,False,False),
+    ('process-exited','exited',None,False,False),
+])
+def test_capture_permission_helper_checks_pid_file_and_exact_run_command(tmp_path,case,mode,username,linked,allowed):
+    if os.geteuid()==0:
+        pytest.skip('测试 helper 的无特权隔离模式需要非 root 用户')
+    capture_user=username or getpass.getuser()
+    root,pid_file,actions,env,command=_capture_permission_test_environment(tmp_path,capture_user,mode)
+    if case=='wrong-owner':
+        env['DEMO_CAPTURE_PERMISSION_TEST_UID']=str(os.getuid()+1)
+    if case=='missing':
+        pid_file.unlink()
+    elif linked:
+        target=tmp_path/'pid-target';target.write_text('12345\n',encoding='ascii');target.chmod(0o600)
+        pid_file.unlink();pid_file.symlink_to(target)
+    result=subprocess.run(command,env=env,capture_output=True,text=True,timeout=10)
+    assert result.returncode==0,result.stderr
+    rows=actions.read_text(encoding='utf-8').splitlines()
+    assert (f'{capture_user}:wheel:600' in rows)==allowed
+    if not allowed:
+        assert rows and all(row=='root:wheel:600' for row in rows)
+    assert str(root/'config.json') not in result.stdout
+
+
+def test_capture_permission_helper_restores_bpf1_on_signal(tmp_path):
+    if os.geteuid()==0:
+        pytest.skip('测试 helper 的无特权隔离模式需要非 root 用户')
+    username=getpass.getuser()
+    _,_,actions,env,command=_capture_permission_test_environment(tmp_path,username,once=False)
+    helper=subprocess.Popen(command,env=env,stdout=subprocess.DEVNULL,stderr=subprocess.PIPE,text=True)
+    deadline=time.monotonic()+5
+    while time.monotonic()<deadline:
+        if actions.exists() and f'{username}:wheel:600' in actions.read_text(encoding='utf-8'):
+            break
+        if helper.poll() is not None:
+            pytest.fail(helper.stderr.read())
+        time.sleep(0.05)
+    else:
+        helper.terminate();helper.wait(timeout=5)
+        pytest.fail('helper 未进入授权分支')
+    helper.terminate();helper.wait(timeout=5)
+    rows=actions.read_text(encoding='utf-8').splitlines()
+    assert rows[-1]=='root:wheel:600'
 
 
 def test_revoke_reuses_exact_journal_without_suspending_bundle(tmp_path):
@@ -271,9 +841,130 @@ def test_bundle_requires_explicit_versioned_demo_recovery(version):
                        'familyPolicies':[{'family':'dos_flood','autoEligible':False,'modelAutoEligible':False}]}}]
     with patch('scripts.p7.import_bundle.verify_capability'):
         if version.endswith('+demo-budget-20261017'):
-            assert control.bundle()['subject']==subject
+            assert control.bundle('pf')['subject']==subject
         else:
-            with pytest.raises(ValueError,match='DEMO_RECOVERY_POLICY_REQUIRED'):control.bundle()
+            with pytest.raises(ValueError,match='DEMO_RECOVERY_POLICY_REQUIRED'):control.bundle('pf')
+
+
+def _bundle_fixture(policy_definition):
+    from scripts.demo.control import Control
+    from executor.common import digest
+    control=Control.__new__(Control);control.c=config()
+    subject={'policyId':control.c['bundleId'],'capabilityIds':[cap['id'] for cap in control.c['capabilities']]}
+    control.c['subjectSha256']=digest(subject);control.rows=Mock(return_value=[subject])
+    control.applicant=Mock();control.applicant.request.side_effect=[
+        {'subjectSha256':digest(subject),'environment':'lab','status':'approved'},
+        {'definition':policy_definition}]
+    return control,subject
+
+
+def _auto_bundle_policy():
+    return {'policyVersion':'host-guard-decision/2026-10-08.1+demo-budget-20261017','mode':'auto',
+            'maxTtlSeconds':60,'maxContinuousBlockSeconds':120,
+            'familyPolicies':[{'family':'dos_flood','autoEligible':False,'modelAutoEligible':False}]}
+
+
+def test_bundle_rejects_alert_only_combination_for_pf_mode():
+    control,_=_bundle_fixture({'policyVersion':'host-guard-decision/2026-10-08.1+rule-inbound-20261018',
+                               'mode':'alert_only'})
+    with patch('scripts.p7.import_bundle.verify_capability'),pytest.raises(ValueError,match='DEMO_ALERT_ONLY_BUNDLE_PF_FORBIDDEN'):
+        control.bundle('pf')
+
+
+def test_bundle_rejects_alert_only_policy_without_rule_marker():
+    control,_=_bundle_fixture({'policyVersion':'host-guard-decision/2026-10-08.1+demo-budget-20261017',
+                               'mode':'alert_only'})
+    with patch('scripts.p7.import_bundle.verify_capability'),pytest.raises(ValueError,match='DEMO_RULE_POLICY_REQUIRED'):
+        control.bundle('alert-only')
+
+
+def test_bundle_accepts_rule_inbound_alert_only_policy_without_auto_fields():
+    control,subject=_bundle_fixture({'policyVersion':'host-guard-decision/2026-10-08.1+rule-inbound-20261018',
+                                     'mode':'alert_only'})
+    with patch('scripts.p7.import_bundle.verify_capability') as verify:
+        assert control.bundle('alert-only')['subject']==subject
+    assert verify.call_count==len(control.c['capabilities'])
+
+
+def test_bundle_allows_auto_combination_in_alert_only_mode():
+    control,subject=_bundle_fixture(_auto_bundle_policy())
+    with patch('scripts.p7.import_bundle.verify_capability') as verify:
+        assert control.bundle('alert-only')['subject']==subject
+    assert verify.call_count==len(control.c['capabilities'])
+
+
+def test_bundle_allows_auto_combination_in_pf_mode():
+    control,subject=_bundle_fixture(_auto_bundle_policy())
+    with patch('scripts.p7.import_bundle.verify_capability') as verify:
+        assert control.bundle('pf')['subject']==subject
+    assert verify.call_count==len(control.c['capabilities'])
+
+
+def test_bundle_rejects_unknown_policy_mode():
+    control,_=_bundle_fixture({'policyVersion':'host-guard-decision/2026-10-08.1','mode':'observe_only'})
+    with pytest.raises(ValueError,match='DEMO_BUNDLE_MODE_UNSUPPORTED'):
+        control.bundle('alert-only')
+
+
+def test_bundle_rejects_unknown_run_mode():
+    control,_=_bundle_fixture(_auto_bundle_policy())
+    with pytest.raises(ValueError,match='DEMO_MODE_INVALID'):
+        control.bundle('observe-only')
+
+
+def test_reset_state_passes_run_mode_to_bundle():
+    from scripts.demo.control import Control
+    control=Control.__new__(Control);control.c={'bundleId':'bundle'};control.asset='asset'
+    control.aid='asset-id';control.applicant=Mock();control.applicant.request.return_value={'items':[]}
+    control.rows=Mock(side_effect=[[{'count':0}],[{'count':0}]])
+    control.bundle=Mock(return_value={'status':'active'})
+    result=control.reset_state('alert-only')
+    control.bundle.assert_called_once_with('alert-only')
+    assert result['bundleActive'] is True
+
+
+def _preflight_proof_fixture(tmp_path,evidence_names):
+    c=config();ids={'assetId':'asset-id','sensorId':'sensor-id'}
+    evidence={}
+    for name in sorted(evidence_names):
+        proof_path=tmp_path/(name+'.proof')
+        common.write(proof_path,name.encode())
+        evidence[name]=dict(reviewer='independent-reviewer',operator='operator',approvalReference='approval-'+name,
+                            file=str(proof_path),sha256=common.sha(proof_path))
+    proof=dict(subjectSha256=c['subjectSha256'],macAddress=c['macAddress'],peerAddress=c['peerAddress'],
+               ports=c['ports'],assetId=ids['assetId'],sensorId=ids['sensorId'],evidence=evidence)
+    c['proofFile']=str(tmp_path/'proof.json');common.write(c['proofFile'],proof)
+    return c,ids,proof
+
+
+def test_preflight_alert_only_accepts_exact_three_evidence_items(tmp_path):
+    from scripts.demo import preflight
+    names={'networkIsolation','capturePermission','coexistence'}
+    c,ids,proof=_preflight_proof_fixture(tmp_path,names)
+    assert preflight.evidence(c,ids,'alert-only')==common.digest(proof)
+
+
+def test_preflight_alert_only_rejects_four_evidence_items(tmp_path):
+    from scripts.demo import preflight
+    names={'networkIsolation','capturePermission','coexistence','utunDirection'}
+    c,ids,_=_preflight_proof_fixture(tmp_path,names)
+    with pytest.raises(ValueError,match='PREREQUISITES_INCOMPLETE'):
+        preflight.evidence(c,ids,'alert-only')
+
+
+def test_preflight_alert_only_rejects_two_evidence_items(tmp_path):
+    from scripts.demo import preflight
+    names={'networkIsolation','capturePermission'}
+    c,ids,_=_preflight_proof_fixture(tmp_path,names)
+    with pytest.raises(ValueError,match='PREREQUISITES_INCOMPLETE'):
+        preflight.evidence(c,ids,'alert-only')
+
+
+def test_preflight_pf_keeps_exact_five_evidence_items(tmp_path):
+    from scripts.demo import preflight
+    names={'networkIsolation','utunDirection','platformCanary','capturePermission','coexistence'}
+    c,ids,proof=_preflight_proof_fixture(tmp_path,names)
+    assert preflight.evidence(c,ids,'pf')==common.digest(proof)
 
 
 def test_backup_float_uses_exact_wkb_instead_of_rounded_decimal():

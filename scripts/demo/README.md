@@ -2,6 +2,10 @@
 
 实现 [演示方案](../../docs/演示方案.md) 的 DEMO-1—DEMO-7。一次准备后，复用同一 lab 资产、发布组合、执行器与稳定预算密钥；每次运行使用新的短期授权、boot、目录和审计记录。默认命令只输出离线计划。源码交付不代表已经安装、登记、取得平台资格或完成彩排。
 
+RD A 阶段当前仅覆盖 `environment=lab`、`mode=alert_only`：复用 r6′ 策略 `68a57070-df9f-51fe-9837-daa0858f68c1` 和模型 `f7734c7c-1c9a-52dd-8e89-79f36b2f3815`，不新建策略、不改阈值。校验分支按组合策略的 `mode` 选择；alert-only 组合还校验 inbound 规则标记、subject 与能力一致性，既有 `auto` 组合的检查和 PF 路线保持原样，PF 封禁演示另行推进。alert-only 预检精确要求 `networkIsolation`、`capturePermission`、`coexistence` 三项证明，不要求 `utunDirection` 或 `platformCanary`。
+
+控制端状态查询复用一个 SSH ControlMaster。`run.py` 执行顺序为原子写 PID 并等待 `/dev/bpf1` 可读写、建立主连接、执行预检，再进入后续步骤。helper 仅管理 `/dev/bpf1`，其 LaunchDaemon 参数固定在 `ProgramArguments`；安装前按下文方式取得 `__PYTHON_PS_PATH__`。真实运行时 `run.py`、`--config` 与 `--grant` 均须使用 helper 可逐词核对的规范绝对路径。
+
 ## 1. 范围与入口
 
 | 入口 | 功能 |
@@ -14,7 +18,9 @@
 
 `--dry-run` 不创建目录、不读取 Keychain、不登录、不运行子进程、不连接远端。实际运行仅允许一个 Mac Tailscale IPv4、一个 win-dev Tailscale IPv4、登记高位端口和动态解析的 utun。它不是任意攻击工具入口。目录、接口、端口、授权、证据或身份不符均拒绝。
 
-S0 为低速 HTTP 加一次正常 FTP 登录；S1 默认 `nmap -sS`，可显式选择有界 `connect_scan`；S2 为内置 FTP/SSH 测试登录；S3 为内置有界慢 HTTP；S4 为有界 HTTP 请求。后面三类没有直接调用 patator、slowhttptest、Hulk/GoldenEye；这些实现控制相同协议行为，但**不等同其流量分布，不保证当前模型识别**。所有工具/参数变更进入场景 SHA 和基线，不能复用历史成绩；S3 无告警可记为降级，S4 永远不能签发命令。
+S0 的 rate 为每秒 1 次、时长 10 秒、并发 1：先执行一次固定测试账号 FTP 正常登录，再在一条 HTTP/1.1 keep-alive 连接上发送请求；FTP 和 HTTP 合计至多新建 2 条连接，加上单个控制连接最多 3 条，低于 `brute-starts` 的 5 次新连接阈值，避免正常段累积触发规则。HTTP 连接意外中断时记录 `httpReconnectRefused` 并结束该段，不重连。HTTP 靶服务每条连接最多处理 64 个 `GET /`，首个请求头最多等待 40 秒，后续请求间空闲超过 5 秒即关闭。
+
+S1 使用 `nmap -sS` 扫描显式登记的 64 个端口 `55300`—`55363`，rate 为 25 次/秒、并发 4、时长 15 秒；`scan-ports` 要求 5 秒内至少命中 39 个不同服务端口，按该速率覆盖 64 个端口约需 2.6 秒。HTTP、FTP、SSH 三个服务端口加扫描端口共 67 个，低于 128 个端口上限。现场若证明 Tailscale 不支持 SYN 扫描，才改用同一端口范围和速率的有界 `connect_scan`。S2 为内置 FTP/SSH 测试登录；S3 为内置有界慢 HTTP；S4 为有界 HTTP 请求。后面三类没有直接调用 patator、slowhttptest、Hulk/GoldenEye；这些实现控制相同协议行为，但**不等同其流量分布，不保证当前模型识别**。所有工具/参数变更进入场景 SHA 和基线，不能复用历史成绩；S3 无告警可记为降级，S4 永远不能签发命令。
 
 全局上限：50 次/秒、16 并发、单段 45 秒、段间至少 180 秒；授权最多 1800 秒、TTL 60 秒、稳定目标累计预算 120 秒。总控再次检查剩余窗口，不能靠修改时钟无限延长 worker 运行。外部工具先以 suspended 状态创建，加入 Windows Job 后才恢复执行；退出关闭 Job 清理工具子树。
 
@@ -23,7 +29,7 @@ S0 为低速 HTTP 加一次正常 FTP 登录；S1 默认 `nmap -sS`，可显式�
 1. 在仓库外选私有根目录，例如服务目录下的 `demo`。实际配置/证明/密钥/记录目录为 0700、文件为 0600，不含软链接；不得提交。复制 `demo.example.json` 并填写真实路径、地址、资产键、subject、capability payload 与哈希。示例 `100.64.0.10/20` 只是占位，不是授权目标。
 2. 准备固定版本 Python 环境并安装 `requirements.txt`，构建本次提交的 `sensor/cmd/guardlive`、`sensor/cmd/guardtargets`。后端用 JDK 25 构建，部署到含预算恢复修正的 release **另行授权**。配置中的 `python` 必须是能正常导入 ssl、cryptography、rfc8785、pymysql、paramiko 的绝对稳定入口；迁移过的 macOS framework 可能需要启动包装器设置其 `DYLD_LIBRARY_PATH`，不能只检查 `--version`。
 3. Windows 提前安装固定版本 Python（≥3.12）、Paramiko、nmap/Npcap，核实执行账号可使用 SYN 扫描；`install-worker` 不安装系统软件、驱动或修改 PATH。它只新建专用私有目录，ACL 限当前用户、SYSTEM、Administrators；已有目录须已满足条件，已有不同内容文件拒绝覆盖。
-4. 复用 [P7 导入流程](../p7/README.md) 导入新的 lab 组合、审查 final/platform/canary、封存并独立批准。新策略须明确设置 `policyVersion=host-guard-decision/2026-10-08.1+demo-budget-20261017`，选择独立的 `host-guard-budget-recovery/2026-10-17.1` 恢复协议；旧策略保持原行为。新策略/组合摘要变化，必须重新取得对应 subject 的批准和报告，不复用旧成绩。`mode=auto`、60/120 上限和 dos_flood 只告警策略不变；不恢复已 suspended 组合，不改变模型/阈值，不转用真实资产 r6。utun platform/canary 资格由独立审查解决，脚本不自行授予资格。
+4. **PF 封禁路线**才复用 [P7 导入流程](../p7/README.md) 登记 `mode=auto` 的新 lab 组合，并审查 final/platform/canary、预算和恢复协议；这条路线不属于 RD A 阶段。RD A 的只告警组合由 `register_lab_alert_only.py` 登记，复用 r6′ 策略和模型，不新建策略；脚本只登记、不激活，激活由每次 `run.py` 完成。
 5. 用 `prepare.py --operation init --execute` 建立长期 peer/budget 密钥与独立 IPC PKI。按现有后端 mTLS 管理流程信任此 CA、登记人工会话客户端证书；部署/信任变更另行授权。密码仅在 Keychain，配置保留 `keychainService`、可选 `keychainAccount` 与用户名。申请人和审核人必须是不同账户并具备既有 v2 权限，后台再次检查职责分离。
 6. 用 `prepare.py --operation enroll --approval <私有批准文件> --execute` 登记独立 lab 资产、sensor、executor、采集配置并独立批准。整库备份及随机恢复库核验先于资源登记；幂等 Journal 可恢复部分失败，已有材料不覆盖。该步骤不建运行授权、不激活、不采集。生成 `enrollment.json` 和 `root-boundary.json`。
 7. 用 `prepare.py --operation install-worker --approval <私有批准文件> --execute` 安装 worker/common 与固定白名单；文件相同可重试，不同则停止并要求明确升级处理。保留稳定 peer.key、budget.key、registrar 身份与 root 账本，不能删除/重建来获得额度。
@@ -39,12 +45,18 @@ S0 为低速 HTTP 加一次正常 FTP 登录；S1 默认 `nmap -sS`，可显式�
 
 ## 3. 现场前提与 root 冻结
 
-`proofFile` 必须包含以下信息；每条证据都需已有私有文件、准确 SHA-256、操作者、不同审核人和批准引用。空 `passed=true` 不能替代证据。脚本校验绑定与摘要，证据的事实真实性由审核人负责。
+`proofFile` 必须包含以下信息；每条证据都需已有私有文件、准确 SHA-256、操作者、不同审核人和批准引用。空 `passed=true` 不能替代证据。脚本校验绑定与摘要，证据的事实真实性由审核人负责。下方五项示例用于 PF 模式；alert-only 模式精确要求 `networkIsolation`、`capturePermission`、`coexistence`，`utunDirection` 和 `platformCanary` 不作为其预检条件。
 
 ```json
 {
   "subjectSha256":"<组合 subject>","assetId":"<登记结果>","sensorId":"<登记结果>",
-  "macAddress":"<Mac IPv4>","peerAddress":"<win-dev IPv4>","ports":{"http":55280,"ftp":55221,"ssh":55222,"scan":[55300]},
+  "macAddress":"<Mac IPv4>","peerAddress":"<win-dev IPv4>","ports":{
+    "http":55280,"ftp":55221,"ssh":55222,
+    "scan":[55300,55301,55302,55303,55304,55305,55306,55307,55308,55309,55310,55311,55312,55313,55314,55315,
+      55316,55317,55318,55319,55320,55321,55322,55323,55324,55325,55326,55327,55328,55329,55330,55331,
+      55332,55333,55334,55335,55336,55337,55338,55339,55340,55341,55342,55343,55344,55345,55346,55347,
+      55348,55349,55350,55351,55352,55353,55354,55355,55356,55357,55358,55359,55360,55361,55362,55363]
+  },
   "evidence":{
     "networkIsolation":{"file":"/PRIVATE/acl-proof.json","sha256":"<sha>","operator":"<操作者>","reviewer":"<独立审核人>","approvalReference":"<引用>"},
     "utunDirection":{"file":"/PRIVATE/direction-proof.json","sha256":"<sha>","operator":"<操作者>","reviewer":"<独立审核人>","approvalReference":"<引用>"},
@@ -98,10 +110,36 @@ python scripts/demo/prepare.py --config scripts/demo/demo.example.json --operati
 取得上述批准后才执行（本次代码交付**没有执行**）：
 
 ```sh
-python scripts/demo/run.py --config /PRIVATE/demo/config.json --grant /PRIVATE/demo/grant.json --run-id demo-YYYYMMDD-HHMM-01 --pf --scenes S0,S1,S2
+VENV_PYTHON=/ABSOLUTE/PATH/TO/executor/.venv/bin/python
+WORKTREE=/ABSOLUTE/PATH/TO/WORKTREE
+ROOT=/PRIVATE/demo
+
+"$VENV_PYTHON" -B "$WORKTREE/scripts/demo/run.py" --config "$ROOT/config.json" --grant "$ROOT/grants/demo-YYYYMMDD-HHMM-01.json" --run-id demo-YYYYMMDD-HHMM-01 --pf --scenes S0,S1,S2
 ```
 
-只告警将参数换为 `--alert-only`，grant.mode 为 `alert-only`。不传模式默认只告警。S2 选择 SSH 时，在场景文件同时改 tool=`ssh_login`、ports 为登记 SSH 端口，再重新核对 SHA 和批准；不会使用系统 sshd。
+只告警使用相同的绝对路径形式，grant.mode 为 `alert-only`：
+
+```sh
+VENV_PYTHON=/ABSOLUTE/PATH/TO/executor/.venv/bin/python
+WORKTREE=/ABSOLUTE/PATH/TO/WORKTREE
+ROOT=/PRIVATE/demo
+
+"$VENV_PYTHON" -B "$WORKTREE/scripts/demo/run.py" --config "$ROOT/config.json" --grant "$ROOT/grants/demo-YYYYMMDD-HHMM-01.json" --run-id demo-YYYYMMDD-HHMM-01 --alert-only --scenes S0,S1,S2
+```
+
+真实运行要求 `run.py`、`--config` 和 `--grant` 使用 helper 可以逐词核对的绝对路径。B4 安装 LaunchDaemon 前，用演示 venv 的 Python 启动短暂进程并读取 `ps` 中显示的解释器路径；模板的 `__PYTHON_PS_PATH__` 必须填写该输出的第一个绝对路径字段，不要填 `.venv/bin/python` 符号链接：
+
+```sh
+VENV_PYTHON=/ABSOLUTE/PATH/TO/executor/.venv/bin/python
+
+"$VENV_PYTHON" -B -c 'import time; time.sleep(30)' &
+demo_pid=$!
+ps -o command= -p "$demo_pid"
+kill "$demo_pid"
+wait "$demo_pid" 2>/dev/null || true
+```
+
+只告警不传模式默认只告警。S2 选择 SSH 时，在场景文件同时改 tool=`ssh_login`、ports 为登记 SSH 端口，再重新核对 SHA 和批准；不会使用系统 sshd。
 
 预检要求干净的 release checkout、实际后端进程/JAR、Tailscale 对端在线、远端准确工具/worker/common 摘要与无残留进程、空闲测试端口、固定 enrollment、独立审批证据、上次清理完成。utun 编号动态查找，但编号与已批准 sensor 配置不同时拒绝，先重新审查配置。
 
@@ -112,7 +150,7 @@ worker 在 Windows 本地自主执行和冷却；下一段还需准确 GO 标记
 异常先撤销本次授权，然后 STOP、停止准确子进程、等待 root 清理、核对绑定与 en0。**没有组合暂停调用**。可重入收尾：
 
 ```sh
-python scripts/demo/run.py --config /PRIVATE/demo/config.json --teardown-only demo-YYYYMMDD-HHMM-01
+"/ABSOLUTE/PATH/TO/executor/.venv/bin/python" -B "/ABSOLUTE/PATH/TO/WORKTREE/scripts/demo/run.py" --config /PRIVATE/demo/config.json --teardown-only demo-YYYYMMDD-HHMM-01
 ```
 
 收尾读取保存的场景与准确授权/进程身份；失败不会跳过其他清理项。清理不完整阻止下一次发包；只有预算未恢复时允许新授权先采集恢复，期间不发流量。仅预检失败且从未请求 root/子进程/授权的记录不阻塞修复配置后的重试。无法确认 root/PF 或远端进程退出时，保留失败证据，按原运行号继续核对，不能删除状态文件绕过。
@@ -120,6 +158,8 @@ python scripts/demo/run.py --config /PRIVATE/demo/config.json --teardown-only de
 ## 5. 报告与展示
 
 每次记录保存在 `<root>/runs/<runId>/`：state、scenes、api 幂等日志、backup、worker/facts、捕获轨迹、root 证据和 `record.json`/`record.md`。含端点与私有执行材料，均不提交 Git。报告只读采集该资产与本次起止范围内的业务事实，未归属场景的命令也导致失败；只接受 projected applied/expired、TTL≤60、对应目标预算恢复事件。错误类别、规则来源命令、S4 命令、缺失回执/清理项均不能通过。S3 没有告警/命令可以明确降级。
+
+规则事实独立于模型结论：各段 `ruleHits` 项包含 `ruleId`、`family`、`direction`、`count`、`firstAt`、`latencyMs`，并单列 `ruleConclusion`；运行级 `ruleDemo.passed` 要求 S0 无任何来源告警、S1/S2 规则结论符合、非 inbound 命中与规则来源命令均为零，且收尾完成。`controlConnections` 按对端 peerKey 与 `parentConnectionId` 去重，统计 outbound 和 unknown；`newControlConnections` 只统计其中 outbound。两项判定为 `newControlConnections == 0` 且 `controlConnections <= 1`。规则命中只作为演示事实，不是模型成绩或误报率；观察事实失败会令规则演示不通过，但数据库事实仍保留。
 
 ```sh
 python scripts/demo/report.py --root /PRIVATE/demo/runs --run demo-YYYYMMDD-HHMM-01
@@ -135,10 +175,12 @@ python scripts/demo/report.py --root /PRIVATE/demo/runs --compare demo-YYYYMMDD-
 离线测试（不启动演示）覆盖配置/批准拒绝、零副作用 dry-run、协议替身、生命周期顺序、异常继续清理、稳定身份、精确撤销、TTL/回执/预算/跨次报告、备份值编码、PF 无别名会话、Go 双向过滤/读取水位/接口锁和后端新健康链恢复。运行：
 
 ```sh
-python -B -m pytest scripts/demo scripts/p5 scripts/p8/test_observer_lifecycle.py scripts/p8/test_register_alert_only.py
+sh <主 checkout>/executor/python.sh -B -m pytest scripts/demo scripts/p5 scripts/p8/test_observer_lifecycle.py scripts/p8/test_register_alert_only.py
 (cd sensor && go test ./cmd/guardlive ./internal/hostguard ./internal/guardlab)
 # 使用 JDK 25 的 JAVA_HOME
 (cd backend && mvn -Dtest=GuardBudgetRecoveryTest,GuardHealthTest,GuardDomainTest test)
 ```
+
+worktree 内没有 `executor/.venv`，Python 统一回归需调用主 checkout 中的包装器。
 
 本次未启动演示/部署、未安装远端工具、未调整 ACL/BPF、未写业务库、未加载真实 PF。Windows Job/Npcap、真实 MySQL 在线备份恢复、utun 方向/权限/现场特征、en0 共存与完整双次彩排仍需现场授权验证；代码测试不能替代这些证据。

@@ -6,16 +6,21 @@
 """
 import argparse
 from datetime import datetime
+import errno
 import fcntl
 import json
 import os
 from pathlib import Path
 import signal
+import stat
 import subprocess
 import sys
+import tempfile
 import time
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from scripts.demo.common import CLEANUP, ROOT, VERSION, grant, instant, load, path, private, require, safe_main, scenes, sha, stamp, validate, write
+
+BPF1_DEVICE = Path('/dev/bpf1')
 
 
 class Runner:
@@ -24,9 +29,96 @@ class Runner:
         self.c, self.d, self.s, self.control, self.remote, self.processes = c, Path(directory), state, control, remote, processes
         self.clock, self.sleep, self.stopped = clock, sleep, False
         self.root_process = None
+        self.capture_pid_path = None
+        self.capture_pid_identity = None
 
     def save(self):
         write(self.d / 'state.json', self.s, replace=(self.d / 'state.json').exists())
+
+    def begin_capture_permission(self):
+        """用独占硬链接发布完整 PID，再等待 helper 开放第二个 BPF 设备。"""
+        locks = private(path(self.c['root']) / 'locks', directory=True)
+        pid_path = locks / 'demo-run.pid'
+        require(not os.path.lexists(pid_path), 'CAPTURE_PID_FILE_EXISTS')
+        fd, temporary = tempfile.mkstemp(prefix='.demo-run.pid.', dir=locks)
+        try:
+            os.fchmod(fd, 0o600)
+            with os.fdopen(fd, 'wb') as pid_file:
+                pid_file.write(f'{os.getpid()}\n'.encode('ascii'))
+                pid_file.flush()
+                os.fsync(pid_file.fileno())
+                identity = os.fstat(pid_file.fileno())
+            os.link(temporary, pid_path, follow_symlinks=False)
+            self.capture_pid_path = pid_path
+            self.capture_pid_identity = (identity.st_dev, identity.st_ino)
+            self.s['capturePid'] = {'pid': os.getpid(), 'dev': identity.st_dev, 'ino': identity.st_ino}
+            self.save()
+        finally:
+            try:
+                os.unlink(temporary)
+            except FileNotFoundError:
+                pass
+        self.wait(self._bpf1_accessible, 5, 'SECOND_BPF_PERMISSION_REQUIRED')
+
+    @staticmethod
+    def _bpf1_accessible():
+        try:
+            metadata = BPF1_DEVICE.lstat()
+            return stat.S_ISCHR(metadata.st_mode) and os.access(BPF1_DEVICE, os.R_OK | os.W_OK)
+        except OSError:
+            return False
+
+    def remove_capture_pid(self):
+        """只按持久化身份删除已退出进程的 PID 文件；无法核实时保留。"""
+        identity = self.s.get('capturePid')
+        if self.c.get('root'):
+            pid_path = path(self.c['root']) / 'locks' / 'demo-run.pid'
+        else:
+            pid_path = self.capture_pid_path
+        if pid_path is None:
+            return True
+        try:
+            directory_fd = os.open(pid_path.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        except FileNotFoundError:
+            return True
+        file_fd = None
+        try:
+            try:
+                file_fd = os.open(pid_path.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=directory_fd)
+            except FileNotFoundError:
+                return True
+            metadata = os.fstat(file_fd)
+            if (not isinstance(identity, dict) or set(identity) != {'pid', 'dev', 'ino'}
+                    or any(type(identity[key]) is not int for key in ('pid', 'dev', 'ino'))
+                    or identity['pid'] <= 0 or not stat.S_ISREG(metadata.st_mode)
+                    or metadata.st_uid != os.getuid() or stat.S_IMODE(metadata.st_mode) != 0o600
+                    or (metadata.st_dev, metadata.st_ino) != (identity['dev'], identity['ino'])):
+                raise OSError(errno.ESTALE, 'capture PID file identity changed', str(pid_path))
+            raw = os.read(file_fd, 64)
+            if os.read(file_fd, 1) or raw != f"{identity['pid']}\n".encode('ascii'):
+                raise OSError(errno.ESTALE, 'capture PID file content changed', str(pid_path))
+            if identity['pid'] != os.getpid() and self._capture_pid_running(identity['pid']):
+                raise OSError(errno.EBUSY, 'capture process is still running', str(pid_path))
+            current = os.stat(pid_path.name, dir_fd=directory_fd, follow_symlinks=False)
+            if (current.st_dev, current.st_ino) != (identity['dev'], identity['ino']):
+                raise OSError(errno.ESTALE, 'capture PID file changed before unlink', str(pid_path))
+            os.unlink(pid_path.name, dir_fd=directory_fd)
+            self.capture_pid_path = self.capture_pid_identity = None
+            return True
+        finally:
+            if file_fd is not None:
+                os.close(file_fd)
+            os.close(directory_fd)
+
+    @staticmethod
+    def _capture_pid_running(pid):
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+        return True
 
     def wait(self, predicate, seconds, code, *, running=True):
         deadline = self.clock() + seconds
@@ -63,7 +155,7 @@ class Runner:
                 healthy_since = None
             elif healthy_since is None:
                 healthy_since = self.clock()
-            reset = self.control.reset_state()
+            reset = self.control.reset_state(self.s['mode'])
             return healthy_since is not None and self.clock() - healthy_since >= 120 and reset['noActiveActions'] and self.control.recovered()
         self.wait(ready, seconds, 'DEMO_COOLDOWN_NOT_PROVEN')
         self.s['cleanup']['budgetRecovered'] = True
@@ -73,7 +165,12 @@ class Runner:
         from scripts.demo import preflight
         from scripts.demo.runtime import configurations, start_root
         ids, g = self.s['enrollment'], self.s['grant']
-        checks = preflight.inspect(self.c, ids, self.remote, self.control, self.d / 'scenes.json')
+        self.begin_capture_permission()
+        # 先建立并记录唯一远端控制连接，再做预检和后续采集；这样预检及
+        # 场景期间的 state/marker 轮询都复用同一 ControlPath。
+        self.s['controlMaster'] = {'openedAt': self.remote.open()}
+        self.save()
+        checks = preflight.inspect(self.c, ids, self.remote, self.control, self.d / 'scenes.json', self.s['mode'])
         self.s.update(checks)
         self.save()
         # root 第一阶段只有只读核验；备份/业务授权发生在 ready 之后。
@@ -87,7 +184,8 @@ class Runner:
         auth = self.control.authorize(g, checks['interface'], self.s['mode'])
         self.s['authorization'] = auth
         self.save()
-        data, resolver = configurations(self.c, ids, g, auth, checks['interface'], self.d, self.control.bundle(), self.s['scenes'])
+        data, resolver = configurations(self.c, ids, g, auth, checks['interface'], self.d,
+                                        self.control.bundle(self.s['mode']), self.s['scenes'])
         self.processes.start('targets', [self.c['python'], '-B', ROOT / 'scripts/demo/targets.py', '--config', self.d / 'target-service.json'])
         self.wait(lambda: (self.d / 'targets-ready.json').exists(), 20, 'TARGET_SERVICES_NOT_READY')
         if self.s['mode'] == 'pf':
@@ -150,6 +248,9 @@ class Runner:
             return True
         attempt('attackStopped', attack_stop)
         attempt('captureStopped', lambda: self.processes.stop('sensor'))
+        # 控制连接必须在采集停止后关闭；失败只写入 cleanupErrors，继续执行
+        # 靶服务、执行器和观察器的其余精确收尾。
+        attempt('controlMasterClosed', self.remote.close)
         attempt('targetsStopped', lambda: self.processes.stop('targets'))
         if not abnormal:
             attempt('authorizationRevoked', self.control.revoke)
@@ -173,7 +274,7 @@ class Runner:
             except BaseException as e:
                 errors[name] = type(e).__name__
         try:
-            reset = self.control.reset_state()
+            reset = self.control.reset_state(self.s['mode'])
             for k in ('bindingSuspended', 'bundleActive'):
                 self.s['cleanup'][k] = reset[k]
             self.s['cleanup']['authorizationRevoked'] = self.s['cleanup']['authorizationRevoked'] and reset['authorizationRevoked']
@@ -184,6 +285,10 @@ class Runner:
             from scripts.demo.preflight import en0
             return en0(self.c, self.control.applicant) == self.s.get('en0')
         attempt('en0Unchanged', en0_unchanged)
+        try:
+            self.remove_capture_pid()
+        except BaseException as e:
+            errors['capturePidRemoved'] = type(e).__name__
         self.s['cleanupErrors'] = errors
         self.s.setdefault('endedAt', stamp())
         self.save()
@@ -227,6 +332,8 @@ def main():
                           'steps': ['预检与基线比较', 'root只读PF核验', '整库备份恢复校验', '短期授权与独立批准', '靶服务及utun采集',
                                     '远端有界场景', 'TTL与连续健康冷却', '撤销授权与精确清理', '只读汇总报告']}, ensure_ascii=False, indent=2))
         return
+    if not a.teardown_only:
+        require_canonical_invocation(a.config, a.grant, c['root'])
     require(os.geteuid() != 0, 'DEMO_MUST_START_AS_USER')
     root = private(c['root'], True)
     from scripts.demo.remote import Remote
@@ -261,7 +368,7 @@ def main():
         def save():
             write(d / 'state.json', state, replace=True)
         control = Control(c, state['enrollment'], d)
-        runner = Runner(c, d, state, control, Remote(c['remote']), Processes(d, state, save))
+        runner = Runner(c, d, state, control, Remote(c['remote'], root=c['root']), Processes(d, state, save))
         for sig in (signal.SIGTERM, signal.SIGINT):
             signal.signal(sig, lambda *_: setattr(runner, 'stopped', True))
         if a.teardown_only:
@@ -278,6 +385,24 @@ def main():
                 result = runner.teardown(not state.get('completed'))
         print(json.dumps({'runId': chosen, 'passed': result['passed'], 'record': str(d / 'record.md')}, ensure_ascii=False))
         return 0 if result['passed'] else 1
+
+
+def require_canonical_invocation(config_argument, grant_argument, root):
+    """真实运行必须使用 helper 能逐词核验的绝对路径调用形式。"""
+    run_path = Path(__file__).resolve()
+    invoked_path = Path(sys.argv[0])
+    private_root = Path(root)
+    config_path = Path(config_argument)
+    grant_path = Path(grant_argument) if grant_argument else None
+    grants_path = private_root / 'grants'
+    grants_root = grants_path.resolve()
+    require(invoked_path.is_absolute() and invoked_path == run_path, 'DEMO_INVOCATION_NOT_CANONICAL')
+    require(config_path.is_absolute() and config_path == private_root / 'config.json', 'DEMO_INVOCATION_NOT_CANONICAL')
+    resolved_grant = grant_path.resolve() if grant_path is not None else None
+    require(grant_path is not None and grant_path.is_absolute() and '..' not in grant_path.parts
+            and grants_root == grants_path and resolved_grant == grant_path
+            and resolved_grant.is_relative_to(grants_root) and resolved_grant != grants_root,
+            'DEMO_INVOCATION_NOT_CANONICAL')
 
 
 if __name__ == '__main__':

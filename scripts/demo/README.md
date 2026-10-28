@@ -106,10 +106,36 @@ python scripts/demo/prepare.py --config scripts/demo/demo.example.json --operati
 取得上述批准后才执行（本次代码交付**没有执行**）：
 
 ```sh
-python scripts/demo/run.py --config /PRIVATE/demo/config.json --grant /PRIVATE/demo/grant.json --run-id demo-YYYYMMDD-HHMM-01 --pf --scenes S0,S1,S2
+VENV_PYTHON=/ABSOLUTE/PATH/TO/executor/.venv/bin/python
+WORKTREE=/ABSOLUTE/PATH/TO/WORKTREE
+ROOT=/PRIVATE/demo
+
+"$VENV_PYTHON" -B "$WORKTREE/scripts/demo/run.py" --config "$ROOT/config.json" --grant "$ROOT/grants/demo-YYYYMMDD-HHMM-01.json" --run-id demo-YYYYMMDD-HHMM-01 --pf --scenes S0,S1,S2
 ```
 
-只告警将参数换为 `--alert-only`，grant.mode 为 `alert-only`。不传模式默认只告警。S2 选择 SSH 时，在场景文件同时改 tool=`ssh_login`、ports 为登记 SSH 端口，再重新核对 SHA 和批准；不会使用系统 sshd。
+只告警使用相同的绝对路径形式，grant.mode 为 `alert-only`：
+
+```sh
+VENV_PYTHON=/ABSOLUTE/PATH/TO/executor/.venv/bin/python
+WORKTREE=/ABSOLUTE/PATH/TO/WORKTREE
+ROOT=/PRIVATE/demo
+
+"$VENV_PYTHON" -B "$WORKTREE/scripts/demo/run.py" --config "$ROOT/config.json" --grant "$ROOT/grants/demo-YYYYMMDD-HHMM-01.json" --run-id demo-YYYYMMDD-HHMM-01 --alert-only --scenes S0,S1,S2
+```
+
+真实运行要求 `run.py`、`--config` 和 `--grant` 使用 helper 可以逐词核对的绝对路径。B4 安装 LaunchDaemon 前，用演示 venv 的 Python 启动短暂进程并读取 `ps` 中显示的解释器路径；模板的 `__PYTHON_PS_PATH__` 必须填写该输出的第一个绝对路径字段，不要填 `.venv/bin/python` 符号链接：
+
+```sh
+VENV_PYTHON=/ABSOLUTE/PATH/TO/executor/.venv/bin/python
+
+"$VENV_PYTHON" -B -c 'import time; time.sleep(30)' &
+demo_pid=$!
+ps -o command= -p "$demo_pid"
+kill "$demo_pid"
+wait "$demo_pid" 2>/dev/null || true
+```
+
+只告警不传模式默认只告警。S2 选择 SSH 时，在场景文件同时改 tool=`ssh_login`、ports 为登记 SSH 端口，再重新核对 SHA 和批准；不会使用系统 sshd。
 
 预检要求干净的 release checkout、实际后端进程/JAR、Tailscale 对端在线、远端准确工具/worker/common 摘要与无残留进程、空闲测试端口、固定 enrollment、独立审批证据、上次清理完成。utun 编号动态查找，但编号与已批准 sensor 配置不同时拒绝，先重新审查配置。
 
@@ -120,7 +146,7 @@ worker 在 Windows 本地自主执行和冷却；下一段还需准确 GO 标记
 异常先撤销本次授权，然后 STOP、停止准确子进程、等待 root 清理、核对绑定与 en0。**没有组合暂停调用**。可重入收尾：
 
 ```sh
-python scripts/demo/run.py --config /PRIVATE/demo/config.json --teardown-only demo-YYYYMMDD-HHMM-01
+"/ABSOLUTE/PATH/TO/executor/.venv/bin/python" -B "/ABSOLUTE/PATH/TO/WORKTREE/scripts/demo/run.py" --config /PRIVATE/demo/config.json --teardown-only demo-YYYYMMDD-HHMM-01
 ```
 
 收尾读取保存的场景与准确授权/进程身份；失败不会跳过其他清理项。清理不完整阻止下一次发包；只有预算未恢复时允许新授权先采集恢复，期间不发流量。仅预检失败且从未请求 root/子进程/授权的记录不阻塞修复配置后的重试。无法确认 root/PF 或远端进程退出时，保留失败证据，按原运行号继续核对，不能删除状态文件绕过。

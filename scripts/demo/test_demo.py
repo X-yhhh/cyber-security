@@ -4,8 +4,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 import asyncio
+import getpass
 import json
+import os
+import plistlib
+import subprocess
 import sys
+import time
 from unittest.mock import Mock, patch
 import pytest
 from scripts.demo import common, run, report, worker, remote, targets, backup, runtime, root_executor
@@ -37,6 +42,30 @@ def test_dry_run_cannot_touch_network_secrets_or_files(monkeypatch, capsys):
     result=json.loads(capsys.readouterr().out)
     assert result['scenes']==['S0','S1','S2','S3','S4']
     assert result['writes'] is result['network'] is result['rootStarted'] is False
+
+
+def test_canonical_invocation_accepts_absolute_run_config_and_grant_paths(monkeypatch, tmp_path):
+    root=tmp_path/'private-root';(root/'grants').mkdir(parents=True)
+    run_path=(BASE/'run.py').resolve()
+    monkeypatch.setattr(sys,'argv',[str(run_path)])
+    run.require_canonical_invocation(str(root/'config.json'),str(root/'grants'/'demo-run.json'),str(root))
+
+
+@pytest.mark.parametrize('invalid', ['run-path','config-path','grant-path','grant-traversal'])
+def test_canonical_invocation_rejects_paths_helper_cannot_match(monkeypatch, tmp_path, invalid):
+    root=tmp_path/'private-root';(root/'grants').mkdir(parents=True)
+    run_path=(BASE/'run.py').resolve()
+    invoked=str(run_path) if invalid!='run-path' else 'run.py'
+    config_path=str(root/'config.json') if invalid!='config-path' else str(tmp_path/'config.json')
+    if invalid=='grant-path':
+        grant_path=str(tmp_path/'grant.json')
+    elif invalid=='grant-traversal':
+        grant_path=str(root/'grants'/'..'/'grant.json')
+    else:
+        grant_path=str(root/'grants'/'demo-run.json')
+    monkeypatch.setattr(sys,'argv',[invoked])
+    with pytest.raises(ValueError,match='DEMO_INVOCATION_NOT_CANONICAL'):
+        run.require_canonical_invocation(config_path,grant_path,str(root))
 
 
 @pytest.mark.parametrize('mutate', [lambda c: c.update(peerAddress='8.8.8.8'),lambda c: c.update(peerAddress=c['macAddress']),
@@ -373,6 +402,71 @@ def test_abnormal_teardown_revokes_first_and_continues_after_stop_failure(tmp_pa
     assert events.count('revoke')==2
 
 
+@pytest.mark.parametrize('replaced', [False,True], ids=['removed-last','replacement-preserved'])
+def test_teardown_removes_only_its_capture_pid_and_reports_failure(tmp_path,replaced):
+    root=tmp_path/'private-root';locks=root/'locks';locks.mkdir(parents=True,mode=0o700)
+    root.chmod(0o700);locks.chmod(0o700)
+    pid_file=locks/'demo-run.pid';pid_file.write_text(f'{os.getpid()}\n',encoding='ascii');pid_file.chmod(0o600)
+    state=dict(runId='demo-test',startedAt=ts(1000),scenes=[],mode='pf',cleanup={k:False for k in common.CLEANUP},
+               remoteRequested=False,en0={'same':True},capturePid={'pid':os.getpid(),
+               'dev':pid_file.stat().st_dev,'ino':pid_file.stat().st_ino+(1 if replaced else 0)})
+    events=[]
+    control=SimpleNamespace(revoke=lambda:True,
+                            reset_state=lambda *_:dict(bindingSuspended=True,bundleActive=True,authorizationRevoked=True),
+                            recovered=lambda:True,
+                            facts=lambda *a:{k:[] for k in ('decisions','commands','receipts','budgetEvents')},
+                            applicant=None)
+    remote_client=SimpleNamespace(close=lambda:events.append('control-close') or True)
+    processes=SimpleNamespace(stop=lambda name:events.append(name) or True)
+    runner=run.Runner({'root':str(root.resolve())},tmp_path,state,control,remote_client,processes)
+    metadata=pid_file.stat();runner.capture_pid_path=pid_file
+    runner.capture_pid_identity=(metadata.st_dev,metadata.st_ino+(1 if replaced else 0))
+    remove=runner.remove_capture_pid
+    def record_remove():
+        events.append('capture-pid-remove')
+        return remove()
+    runner.remove_capture_pid=record_remove
+    with patch('scripts.demo.preflight.en0',return_value={'same':True}),\
+         patch('scripts.demo.report.generate',return_value={'passed':not replaced}):
+        result=runner.teardown(False)
+    assert events[-1]=='capture-pid-remove'
+    assert ('capturePidRemoved' not in state['cleanup'])
+    if replaced:
+        assert pid_file.exists()
+        assert state['cleanupErrors']['capturePidRemoved']=='OSError'
+        assert not result['passed']
+    else:
+        assert not pid_file.exists()
+        assert 'capturePidRemoved' not in state['cleanupErrors']
+        assert result['passed']
+
+
+def test_teardown_preserves_capture_pid_while_recorded_process_runs(tmp_path):
+    root=tmp_path/'private-root';locks=root/'locks';locks.mkdir(parents=True,mode=0o700)
+    root.chmod(0o700);locks.chmod(0o700)
+    process=subprocess.Popen(['/bin/sleep','30'])
+    try:
+        pid_file=locks/'demo-run.pid';pid_file.write_text(f'{process.pid}\n',encoding='ascii');pid_file.chmod(0o600)
+        state=dict(runId='demo-test',startedAt=ts(1000),scenes=[],mode='pf',cleanup={k:False for k in common.CLEANUP},
+                   remoteRequested=False,en0={'same':True},capturePid={'pid':process.pid,
+                   'dev':pid_file.stat().st_dev,'ino':pid_file.stat().st_ino})
+        control=SimpleNamespace(revoke=lambda:True,
+                                reset_state=lambda *_:dict(bindingSuspended=True,bundleActive=True,authorizationRevoked=True),
+                                recovered=lambda:True,
+                                facts=lambda *a:{k:[] for k in ('decisions','commands','receipts','budgetEvents')},
+                                applicant=None)
+        remote_client=SimpleNamespace(close=lambda:True)
+        processes=SimpleNamespace(stop=lambda _name:True)
+        runner=run.Runner({'root':str(root.resolve())},tmp_path,state,control,remote_client,processes)
+        with patch('scripts.demo.preflight.en0',return_value={'same':True}),\
+             patch('scripts.demo.report.generate',return_value={'passed':False}):
+            runner.teardown(False)
+        assert pid_file.exists()
+        assert state['cleanupErrors']['capturePidRemoved']=='OSError'
+    finally:
+        process.terminate();process.wait(timeout=5)
+
+
 def test_teardown_only_closes_control_master_and_records_cleanup(tmp_path, monkeypatch, capsys):
     c=config();root=tmp_path/'demo-root';root.mkdir(mode=0o700);root.chmod(0o700)
     c['root']=str(root.resolve())
@@ -384,6 +478,10 @@ def test_teardown_only_closes_control_master_and_records_cleanup(tmp_path, monke
     state=dict(runId=run_id,config=c,enrollment={},mode='alert-only',scenes=[rows()[0]],
                cleanup={name:False for name in common.CLEANUP},completed=False,startedAt=ts(1000),en0={'same':True})
     common.write(run_dir/'state.json',state)
+    stale_pid=99999999
+    pid_file=locks/'demo-run.pid';pid_file.write_text(f'{stale_pid}\n',encoding='ascii');pid_file.chmod(0o600)
+    state['capturePid']={'pid':stale_pid,'dev':pid_file.stat().st_dev,'ino':pid_file.stat().st_ino}
+    common.write(run_dir/'state.json',state,replace=True)
     events=[]
 
     class Control:
@@ -411,6 +509,8 @@ def test_teardown_only_closes_control_master_and_records_cleanup(tmp_path, monke
     saved=common.load(run_dir/'state.json')
     assert events.index('sensor') < events.index('close')
     assert events.count('close')==1
+    assert not pid_file.exists()
+    assert 'capturePidRemoved' not in saved['cleanup']
     assert saved['cleanup']['controlMasterClosed'] is True
     assert json.loads(capsys.readouterr().out)['runId']==run_id
 
@@ -571,12 +671,149 @@ def test_execute_orders_preflight_backup_authorization_capture_then_traffic(tmp_
     w=dict(scenes=[dict(id='S0',finished=True,endedAt=ts(1000))],finished=True,stopped=True)
     rem=SimpleNamespace(open=call('open',ts(999)),start=call('traffic',{}),state=lambda _:w)
     runner=run.Runner(c,tmp_path,state,control,rem,Processes());runner.cool=call('cool',True)
+    runner.begin_capture_permission=lambda:events.append('bpf1-ready')
     with patch('scripts.demo.preflight.inspect',side_effect=inspect),patch('scripts.demo.runtime.start_root',side_effect=start_root),patch('scripts.demo.runtime.configurations',return_value=({},{})):
         runner.execute()
-    assert events==['open','preflight','root','backup','authorize','targets','observer-recovery','observer-run','sensor','traffic','cool']
+    assert events==['bpf1-ready','open','preflight','root','backup','authorize','targets','observer-recovery','observer-run','sensor','traffic','cool']
     assert state['controlMaster']['openedAt']==ts(999)
     assert state['completed']
     assert mode_calls=={'inspect':'alert-only','bundle':'alert-only'}
+
+
+def test_begin_capture_permission_publishes_private_pid_and_waits_for_bpf1(tmp_path):
+    c=config();root=tmp_path/'private-root';locks=root/'locks';locks.mkdir(parents=True,mode=0o700)
+    root.chmod(0o700);locks.chmod(0o700);c['root']=str(root.resolve())
+    selected=[rows()[0]];g=approval(c,selected,time.time())
+    state={'grant':g}
+    ready=iter([False,True]);clock=[0]
+    runner=run.Runner(c,tmp_path,state,None,None,SimpleNamespace(alive=lambda:True),
+                      clock=lambda:clock[0],sleep=lambda seconds:clock.__setitem__(0,clock[0]+seconds))
+    runner._bpf1_accessible=lambda:next(ready)
+    runner.begin_capture_permission()
+    pid_file=locks/'demo-run.pid'
+    assert pid_file.read_text(encoding='ascii')==f'{os.getpid()}\n'
+    assert pid_file.stat().st_mode & 0o777==0o600
+    assert runner.capture_pid_identity==(pid_file.stat().st_dev,pid_file.stat().st_ino)
+    assert state['capturePid']=={'pid':os.getpid(),'dev':pid_file.stat().st_dev,'ino':pid_file.stat().st_ino}
+    assert clock[0]==1
+    assert runner.remove_capture_pid() and not pid_file.exists()
+
+
+def test_begin_capture_permission_times_out_with_second_bpf_error(tmp_path):
+    c=config();root=tmp_path/'private-root';locks=root/'locks';locks.mkdir(parents=True,mode=0o700)
+    root.chmod(0o700);locks.chmod(0o700);c['root']=str(root.resolve())
+    g=approval(c,[rows()[0]],time.time());clock=[0]
+    runner=run.Runner(c,tmp_path,{'grant':g},None,None,SimpleNamespace(alive=lambda:True),
+                      clock=lambda:clock[0],sleep=lambda seconds:clock.__setitem__(0,clock[0]+seconds))
+    runner._bpf1_accessible=lambda:False
+    with pytest.raises(ValueError,match='SECOND_BPF_PERMISSION_REQUIRED'):
+        runner.begin_capture_permission()
+    assert clock[0]==5 and (locks/'demo-run.pid').exists()
+    runner.remove_capture_pid()
+
+
+def _capture_permission_test_environment(tmp_path, username, mode='valid', *, once=True):
+    root=tmp_path/'private-root';locks=root/'locks';locks.mkdir(parents=True,mode=0o700)
+    (root/'grants').mkdir(mode=0o700);root.chmod(0o700);locks.chmod(0o700)
+    pid_file=locks/'demo-run.pid'
+    pid_file.write_text('12345\n',encoding='ascii');pid_file.chmod(0o600)
+    framework_python='/Library/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python'
+    if mode=='venv-symlink':
+        venv_python=tmp_path/'demo-venv'/'executor'/'.venv'/'bin'/'python'
+        venv_python.parent.mkdir(parents=True)
+        venv_python.symlink_to(sys.executable)
+        ps_python=str(venv_python)
+    else:
+        ps_python=framework_python
+    fake_ps=tmp_path/'ps';fake_ps.write_text('''#!/bin/sh
+if [ "$DEMO_CAPTURE_FAKE_PS_MODE" = exited ]; then exit 1; fi
+run_path="$DEMO_CAPTURE_RUN_PY"
+config_path="$DEMO_CAPTURE_ROOT/config.json"
+if [ "$DEMO_CAPTURE_FAKE_PS_MODE" = command-mismatch ]; then run_path=/other/run.py; fi
+if [ "$DEMO_CAPTURE_FAKE_PS_MODE" = config-mismatch ]; then config_path=/other/config.json; fi
+grant_path="$DEMO_CAPTURE_ROOT/grants/run.json"
+if [ "$DEMO_CAPTURE_FAKE_PS_MODE" = grant-traversal ]; then grant_path="$DEMO_CAPTURE_ROOT/grants/../outside.json"; fi
+python_flags=''
+if [ "$DEMO_CAPTURE_FAKE_PS_MODE" = framework-path ]; then python_flags=' -B'; fi
+if [ "$DEMO_CAPTURE_FAKE_PS_MODE" = double-B ]; then python_flags=' -B -B'; fi
+printf '%s %s%s %s --config %s --grant %s --alert-only --scenes S0\\n' \\
+  "$DEMO_CAPTURE_USER" "$DEMO_CAPTURE_PS_PYTHON" "$python_flags" "$run_path" "$config_path" "$grant_path"
+''',encoding='utf-8');fake_ps.chmod(0o700)
+    actions=tmp_path/'actions.log'
+    env={**os.environ,'DEMO_CAPTURE_PERMISSION_TEST_MODE':'1','DEMO_CAPTURE_PERMISSION_TEST_PS':str(fake_ps),
+         'DEMO_CAPTURE_PERMISSION_TEST_ACTIONS':str(actions),'DEMO_CAPTURE_FAKE_PS_MODE':mode,
+         'DEMO_CAPTURE_USER':username,'DEMO_CAPTURE_ROOT':str(root.resolve()),
+         'DEMO_CAPTURE_PS_PYTHON':ps_python,'DEMO_CAPTURE_RUN_PY':str((BASE/'run.py').resolve()),
+         'DEMO_CAPTURE_PERMISSION_TEST_INTERPRETER':sys.executable}
+    if once:
+        env['DEMO_CAPTURE_PERMISSION_TEST_ONCE']='1'
+    command=['/bin/sh',str(BASE/'capture_permission_demo.sh'),username,str(root.resolve()),
+             framework_python,str((BASE/'run.py').resolve())]
+    return root,pid_file,actions,env,command
+
+
+def test_capture_permission_launchd_template_fixes_helper_arguments():
+    template=plistlib.loads((BASE/'com.xyh.cyber-security.demo-capture-permission.plist').read_bytes())
+    assert template['ProgramArguments']==[
+        '/Library/PrivilegedHelperTools/com.xyh.cyber-security.demo-capture-permission',
+        '__CAPTURE_USER__','__PRIVATE_ROOT__','__PYTHON_PS_PATH__','__RUN_PY_ABSOLUTE_PATH__']
+    assert template['UserName']=='root'
+    assert template['KeepAlive'] is True
+
+
+@pytest.mark.parametrize('case,mode,username,linked,allowed',[
+    ('valid','valid',None,False,True),
+    ('framework-path','framework-path',None,False,True),
+    ('duplicate-B','double-B',None,False,False),
+    ('grant-traversal','grant-traversal',None,False,False),
+    ('venv-symlink','venv-symlink',None,False,False),
+    ('missing','valid',None,False,False),
+    ('symlink','valid',None,True,False),
+    ('wrong-owner','valid',None,False,False),
+    ('wrong-command','command-mismatch',None,False,False),
+    ('wrong-config','config-mismatch',None,False,False),
+    ('process-exited','exited',None,False,False),
+])
+def test_capture_permission_helper_checks_pid_file_and_exact_run_command(tmp_path,case,mode,username,linked,allowed):
+    if os.geteuid()==0:
+        pytest.skip('测试 helper 的无特权隔离模式需要非 root 用户')
+    capture_user=username or getpass.getuser()
+    root,pid_file,actions,env,command=_capture_permission_test_environment(tmp_path,capture_user,mode)
+    if case=='wrong-owner':
+        env['DEMO_CAPTURE_PERMISSION_TEST_UID']=str(os.getuid()+1)
+    if case=='missing':
+        pid_file.unlink()
+    elif linked:
+        target=tmp_path/'pid-target';target.write_text('12345\n',encoding='ascii');target.chmod(0o600)
+        pid_file.unlink();pid_file.symlink_to(target)
+    result=subprocess.run(command,env=env,capture_output=True,text=True,timeout=10)
+    assert result.returncode==0,result.stderr
+    rows=actions.read_text(encoding='utf-8').splitlines()
+    assert (f'{capture_user}:wheel:600' in rows)==allowed
+    if not allowed:
+        assert rows and all(row=='root:wheel:600' for row in rows)
+    assert str(root/'config.json') not in result.stdout
+
+
+def test_capture_permission_helper_restores_bpf1_on_signal(tmp_path):
+    if os.geteuid()==0:
+        pytest.skip('测试 helper 的无特权隔离模式需要非 root 用户')
+    username=getpass.getuser()
+    _,_,actions,env,command=_capture_permission_test_environment(tmp_path,username,once=False)
+    helper=subprocess.Popen(command,env=env,stdout=subprocess.DEVNULL,stderr=subprocess.PIPE,text=True)
+    deadline=time.monotonic()+5
+    while time.monotonic()<deadline:
+        if actions.exists() and f'{username}:wheel:600' in actions.read_text(encoding='utf-8'):
+            break
+        if helper.poll() is not None:
+            pytest.fail(helper.stderr.read())
+        time.sleep(0.05)
+    else:
+        helper.terminate();helper.wait(timeout=5)
+        pytest.fail('helper 未进入授权分支')
+    helper.terminate();helper.wait(timeout=5)
+    rows=actions.read_text(encoding='utf-8').splitlines()
+    assert rows[-1]=='root:wheel:600'
 
 
 def test_revoke_reuses_exact_journal_without_suspending_bundle(tmp_path):

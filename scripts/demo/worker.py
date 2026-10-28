@@ -104,26 +104,100 @@ def nmap_command(binary, target, row):
             '--host-timeout', str(row['durationSeconds']) + 's', '-p', ','.join(map(str, row['ports'])), target]
 
 
+def _read_http_response(sock):
+    """读取一个固定 HTTP 响应及其 Content-Length 指定的完整正文。"""
+    response = bytearray()
+    while b'\r\n\r\n' not in response:
+        chunk = sock.recv(4096)
+        if not chunk:
+            raise EOFError('HTTP_RESPONSE_CLOSED')
+        response.extend(chunk)
+        require(len(response) <= 8192, 'HTTP_RESPONSE_TOO_LARGE')
+    headers, _, raw_body = bytes(response).partition(b'\r\n\r\n')
+    require(headers.split(b'\r\n', 1)[0] == b'HTTP/1.1 200 OK', 'HTTP_RESPONSE_INVALID')
+    content_length = None
+    for line in headers.split(b'\r\n')[1:]:
+        name, separator, value = line.partition(b':')
+        if separator and name.lower() == b'content-length':
+            try:
+                content_length = int(value.strip())
+            except ValueError as exc:
+                raise ValueError('HTTP_RESPONSE_INVALID') from exc
+    require(content_length is not None and content_length >= 0, 'HTTP_RESPONSE_INVALID')
+    body = bytearray(raw_body)
+    while len(body) < content_length:
+        chunk = sock.recv(4096)
+        if not chunk:
+            raise EOFError('HTTP_RESPONSE_CLOSED')
+        body.extend(chunk)
+    require(len(body) == content_length, 'HTTP_RESPONSE_INVALID')
+
+
 def traffic(target, row, stopped, *, connector=socket.create_connection):
     """内置工具只操作无业务数据的测试协议；不尝试系统凭据、不读取文件、不提供任意请求体。"""
     end = time.monotonic() + row['durationSeconds']
     limiter = Limiter(row['rate'], end, stopped)
     counts = {'attempts': 0, 'completed': 0, 'refusedOrBlocked': 0}
+    if row['tool'] == 'normal':
+        counts['httpReconnectRefused'] = False
     lock = threading.Lock()
+
+    def normal_client():
+        if limiter.acquire():
+            with lock:
+                counts['attempts'] += 1
+            try:
+                with ftplib.FTP() as ftp:
+                    ftp.connect(target, row['ports'][1], timeout=1)
+                    try:
+                        ftp.login('demo', 'demo-test-only')
+                    except ftplib.error_perm:
+                        pass
+                with lock:
+                    counts['completed'] += 1
+            except (OSError, EOFError, ftplib.Error):
+                with lock:
+                    counts['refusedOrBlocked'] += 1
+
+        if not limiter.acquire():
+            return
+        with lock:
+            counts['attempts'] += 1
+        connected = False
+        try:
+            with connector((target, row['ports'][0]), timeout=1) as sock:
+                connected = True
+                while True:
+                    sock.sendall(b'GET / HTTP/1.1\r\nHost: demo.invalid\r\nConnection: keep-alive\r\n\r\n')
+                    _read_http_response(sock)
+                    with lock:
+                        counts['completed'] += 1
+                    if not limiter.acquire():
+                        break
+                    with lock:
+                        counts['attempts'] += 1
+        except (OSError, EOFError, ValueError, ftplib.Error):
+            with lock:
+                counts['refusedOrBlocked'] += 1
+                if connected:
+                    counts['httpReconnectRefused'] = True
+
     def client(index):
+        if row['tool'] == 'normal':
+            normal_client()
+            return
         sequence = index
         while limiter.acquire():
             with lock:
                 counts['attempts'] += 1
-            normal_login = row['tool'] == 'normal' and sequence == 0
-            port = row['ports'][1 if normal_login else 0] if row['tool'] == 'normal' else row['ports'][sequence % len(row['ports'])]
+            port = row['ports'][sequence % len(row['ports'])]
             sequence += row['concurrency']
             try:
-                if row['tool'] == 'ftp_login' or normal_login:
+                if row['tool'] == 'ftp_login':
                     with ftplib.FTP() as ftp:
                         ftp.connect(target, port, timeout=1)
                         try:
-                            ftp.login('demo', 'demo-test-only' if normal_login else 'invalid-demo-attempt')
+                            ftp.login('demo', 'invalid-demo-attempt')
                         except ftplib.error_perm:
                             pass  # 预期测试账号拒绝；不采用现场凭据或外部字典。
                 elif row['tool'] == 'ssh_login':

@@ -14,7 +14,9 @@
 
 `--dry-run` 不创建目录、不读取 Keychain、不登录、不运行子进程、不连接远端。实际运行仅允许一个 Mac Tailscale IPv4、一个 win-dev Tailscale IPv4、登记高位端口和动态解析的 utun。它不是任意攻击工具入口。目录、接口、端口、授权、证据或身份不符均拒绝。
 
-S0 为低速 HTTP 加一次正常 FTP 登录；S1 默认 `nmap -sS`，可显式选择有界 `connect_scan`；S2 为内置 FTP/SSH 测试登录；S3 为内置有界慢 HTTP；S4 为有界 HTTP 请求。后面三类没有直接调用 patator、slowhttptest、Hulk/GoldenEye；这些实现控制相同协议行为，但**不等同其流量分布，不保证当前模型识别**。所有工具/参数变更进入场景 SHA 和基线，不能复用历史成绩；S3 无告警可记为降级，S4 永远不能签发命令。
+S0 的 rate 为每秒 1 次、时长 10 秒、并发 1：先执行一次固定测试账号 FTP 正常登录，再在一条 HTTP/1.1 keep-alive 连接上发送请求；FTP 和 HTTP 合计至多新建 2 条连接。HTTP 连接意外中断时记录 `httpReconnectRefused` 并结束该段，不重连。HTTP 靶服务每条连接最多处理 64 个 `GET /`，首个请求头最多等待 40 秒，后续请求间空闲超过 5 秒即关闭。
+
+S1 使用 `nmap -sS` 扫描显式登记的 64 个端口 `55300`—`55363`，rate 为 25 次/秒、并发 4、时长 15 秒；HTTP、FTP、SSH 三个服务端口加扫描端口共 67 个，低于 128 个端口上限。现场若证明 Tailscale 不支持 SYN 扫描，才改用同一端口范围和速率的有界 `connect_scan`。S2 为内置 FTP/SSH 测试登录；S3 为内置有界慢 HTTP；S4 为有界 HTTP 请求。后面三类没有直接调用 patator、slowhttptest、Hulk/GoldenEye；这些实现控制相同协议行为，但**不等同其流量分布，不保证当前模型识别**。所有工具/参数变更进入场景 SHA 和基线，不能复用历史成绩；S3 无告警可记为降级，S4 永远不能签发命令。
 
 全局上限：50 次/秒、16 并发、单段 45 秒、段间至少 180 秒；授权最多 1800 秒、TTL 60 秒、稳定目标累计预算 120 秒。总控再次检查剩余窗口，不能靠修改时钟无限延长 worker 运行。外部工具先以 suspended 状态创建，加入 Windows Job 后才恢复执行；退出关闭 Job 清理工具子树。
 
@@ -44,7 +46,13 @@ S0 为低速 HTTP 加一次正常 FTP 登录；S1 默认 `nmap -sS`，可显式�
 ```json
 {
   "subjectSha256":"<组合 subject>","assetId":"<登记结果>","sensorId":"<登记结果>",
-  "macAddress":"<Mac IPv4>","peerAddress":"<win-dev IPv4>","ports":{"http":55280,"ftp":55221,"ssh":55222,"scan":[55300]},
+  "macAddress":"<Mac IPv4>","peerAddress":"<win-dev IPv4>","ports":{
+    "http":55280,"ftp":55221,"ssh":55222,
+    "scan":[55300,55301,55302,55303,55304,55305,55306,55307,55308,55309,55310,55311,55312,55313,55314,55315,
+      55316,55317,55318,55319,55320,55321,55322,55323,55324,55325,55326,55327,55328,55329,55330,55331,
+      55332,55333,55334,55335,55336,55337,55338,55339,55340,55341,55342,55343,55344,55345,55346,55347,
+      55348,55349,55350,55351,55352,55353,55354,55355,55356,55357,55358,55359,55360,55361,55362,55363]
+  },
   "evidence":{
     "networkIsolation":{"file":"/PRIVATE/acl-proof.json","sha256":"<sha>","operator":"<操作者>","reviewer":"<独立审核人>","approvalReference":"<引用>"},
     "utunDirection":{"file":"/PRIVATE/direction-proof.json","sha256":"<sha>","operator":"<操作者>","reviewer":"<独立审核人>","approvalReference":"<引用>"},

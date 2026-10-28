@@ -71,19 +71,47 @@ def test_private_json_rejects_duplicates_and_does_not_overwrite(tmp_path):
     with pytest.raises(ValueError,match='PRIVATE_MODE'):common.load(f)
 
 
-def test_s0_has_exactly_one_synthetic_login_then_http():
+def test_s0_reuses_one_http_connection_after_one_ftp_login():
     ftp=Mock();ftp.__enter__=Mock(return_value=ftp);ftp.__exit__=Mock(return_value=False)
     sock=Mock();sock.__enter__=Mock(return_value=sock);sock.__exit__=Mock(return_value=False)
-    with patch.object(worker.Limiter,'acquire',side_effect=[True,True,False]),patch.object(worker.ftplib,'FTP',return_value=ftp):
-        counts=worker.traffic('100.64.0.10',rows()[0],lambda:False,connector=Mock(return_value=sock))
+    response=b'HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nOK'
+    sock.recv.side_effect=[response,response]
+    connector=Mock(return_value=sock)
+    with patch.object(worker.Limiter,'acquire',side_effect=[True,True,True,False]),patch.object(worker.ftplib,'FTP',return_value=ftp):
+        counts=worker.traffic('100.64.0.10',rows()[0],lambda:False,connector=connector)
     ftp.login.assert_called_once_with('demo','demo-test-only');ftp.connect.assert_called_once_with('100.64.0.10',55221,timeout=1)
-    assert counts['completed']==2;sock.sendall.assert_called_once()
+    connector.assert_called_once_with(('100.64.0.10',55280),timeout=1)
+    assert ftp.connect.call_count+connector.call_count==2
+    assert counts['attempts']==3 and counts['completed']==3 and counts['httpReconnectRefused'] is False
+    assert sock.sendall.call_count==2
+    assert all(b'Connection: keep-alive' in call.args[0] for call in sock.sendall.call_args_list)
+
+
+def test_s0_http_disconnect_refuses_reconnect_and_ends_segment():
+    ftp=Mock();ftp.__enter__=Mock(return_value=ftp);ftp.__exit__=Mock(return_value=False)
+    sock=Mock();sock.__enter__=Mock(return_value=sock);sock.__exit__=Mock(return_value=False)
+    sock.recv.return_value=b'HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nOK'
+    sock.sendall.side_effect=[None,BrokenPipeError('synthetic disconnect')]
+    connector=Mock(return_value=sock)
+    with patch.object(worker.Limiter,'acquire',side_effect=[True,True,True]),patch.object(worker.ftplib,'FTP',return_value=ftp):
+        counts=worker.traffic('100.64.0.10',rows()[0],lambda:False,connector=connector)
+    assert ftp.login.call_count==1 and connector.call_count==1
+    assert counts['httpReconnectRefused'] is True
+    assert counts['completed']==2 and counts['refusedOrBlocked']==1
 
 
 def test_nmap_has_fixed_bounded_arguments():
-    command=worker.nmap_command('/approved/nmap','100.64.0.10',rows()[1])
-    assert command[1:4]==['-sS','-n','-Pn'] and command[-1]=='100.64.0.10'
-    assert '--max-rate' in command and '--host-timeout' in command and '--script' not in command
+    c=config();selected=rows();row=selected[1]
+    ports=c['ports']['scan']
+    assert ports==row['ports'] and len(ports)==64 and ports[0]==55300 and ports[-1]==55363
+    assert all(right==left+1 for left,right in zip(ports,ports[1:]))
+    assert row['rate']==25 and row['concurrency']==4 and row['durationSeconds']==15
+    assert common.validate(c,selected)==c
+    command=worker.nmap_command('/approved/nmap','100.64.0.10',row)
+    assert command[1:7]==['-sS','-n','-Pn','--disable-arp-ping','--max-retries','0']
+    assert command[command.index('--max-rate')+1]=='25'
+    assert command[command.index('-p')+1]==','.join(map(str,ports))
+    assert command[-1]=='100.64.0.10' and '--script' not in command
 
 
 class Writer:
@@ -101,6 +129,32 @@ def test_target_ftp_denies_file_access_and_http_bounds():
         assert b'230 ' in w.output and b'502 ' in w.output and w.closed
         r=asyncio.StreamReader();r.feed_data(b'POST / HTTP/1.1\r\n\r\n');r.feed_eof()
         w=Writer();await targets.http(r,w);assert w.output==b'' and w.closed
+    asyncio.run(exercise())
+
+
+def test_target_http_serves_at_most_64_keepalive_requests():
+    async def exercise():
+        request=b'GET / HTTP/1.1\r\nHost: demo.invalid\r\nConnection: keep-alive\r\n\r\n'
+        reader=asyncio.StreamReader();reader.feed_data(request*65);reader.feed_eof()
+        writer=Writer();await targets.http(reader,writer)
+        assert writer.output.count(b'HTTP/1.1 200 OK')==64
+        assert writer.output.count(b'Connection: keep-alive')==63
+        assert writer.output.count(b'Connection: close')==1
+        assert writer.closed
+    asyncio.run(exercise())
+
+
+def test_target_http_closes_idle_keepalive_connection_after_five_seconds():
+    async def exercise():
+        reader=asyncio.StreamReader();reader.feed_data(b'GET / HTTP/1.1\r\nHost: demo.invalid\r\n\r\n')
+        writer=Writer();timeouts=[];real_wait_for=asyncio.wait_for
+        async def short_idle_wait(awaitable,timeout):
+            timeouts.append(timeout)
+            return await real_wait_for(awaitable,0.001 if timeout==5 else timeout)
+        with patch.object(targets.asyncio,'wait_for',new=short_idle_wait):
+            await targets.http(reader,writer)
+        assert timeouts==[40,5]
+        assert writer.output.count(b'HTTP/1.1 200 OK')==1 and writer.closed
     asyncio.run(exercise())
 
 

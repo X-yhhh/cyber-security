@@ -14,12 +14,17 @@ from scripts.demo.common import address, instant, load, require, safe_main, writ
 
 async def http(reader, writer):
     try:
-        # 有界头部与连接时间允许演示慢连接，不能把测试进程变成无界资源消耗服务。
-        data = await asyncio.wait_for(reader.readuntil(b'\r\n\r\n'), 40)
-        require(len(data) <= 8192 and data.startswith(b'GET / HTTP/1.1\r\n'), 'HTTP_REQUEST_REJECTED')
         body = b'hostguard isolated demo\n'
-        writer.write(b'HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Length: ' + str(len(body)).encode() + b'\r\n\r\n' + body)
-        await writer.drain()
+        for request_number in range(64):
+            # 首个头部保留慢连接窗口；keep-alive 后续请求空闲超过 5 秒即关闭。
+            timeout = 40 if request_number == 0 else 5
+            data = await asyncio.wait_for(reader.readuntil(b'\r\n\r\n'), timeout)
+            require(len(data) <= 8192 and data.startswith(b'GET / HTTP/1.1\r\n'), 'HTTP_REQUEST_REJECTED')
+            connection = b'close' if request_number == 63 else b'keep-alive'
+            writer.write(b'HTTP/1.1 200 OK\r\nConnection: ' + connection + b'\r\nContent-Length: ' + str(len(body)).encode() + b'\r\n\r\n' + body)
+            await writer.drain()
+            if connection == b'close':
+                break
     except (Exception, asyncio.CancelledError):
         pass
     finally:

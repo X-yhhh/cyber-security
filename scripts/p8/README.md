@@ -31,7 +31,7 @@ U5 的自动化开关仅作用于本次隔离后端，保留真实授权/资格�
 
 ## R1 业务库克隆集成预演
 
-入口为 `rehearsal.py`，对应[初版任务单 R1](../../docs/任务/初版落地任务单.md#r1-业务库克隆集成预演)。先安装上述 `requirements-e2e.txt`，在干净提交上用 `launchd.py build` 生成不可变发布目录；Maven 使用 `clean package`，避免接口退役后的旧 class 混入。JDK 必须为 25，业务库必须无人连接且保持 V25，上一版 JAR 的最高迁移必须为 V25，新包为 V27。以下变量只保存路径：
+入口为 `rehearsal.py`，对应[初版任务单 R1](https://github.com/X-yhhh/cyber-security/blob/v1.0/docs/任务/初版落地任务单.md#r1-业务库克隆集成预演)。先安装上述 `requirements-e2e.txt`，在干净提交上用 `launchd.py build` 生成不可变发布目录；Maven 使用 `clean package`，避免接口退役后的旧 class 混入。JDK 必须为 25，业务库必须无人连接且保持 V25，上一版 JAR 的最高迁移必须为 V25，新包为 V27。以下变量只保存路径：
 
 ```sh
 sh executor/python.sh -B scripts/p8/rehearsal.py \
@@ -185,4 +185,4 @@ sh executor/python.sh -B scripts/p8/backup_restore.py --schedule
 `backup_restore.py --schedule` 仅显示维护窗口、备份保留和核验建议，不取密、不连库、不安装定时任务。
 ## 本机持续监测补充（2026-10-17）
 
-当前 Mac 已按用户明确要求接入[随本项目后端启停的持续传感器](../../docs/传感器持续监测.md)。此模式由 `ManagedSensorLifecycle` 启动 `sensor_service.py --parent-pid`，旧 sensor LaunchAgent 保持不独立启动；原有短窗口部署和验收流程保留。只读完整巡检计划可指定 `sensorLifecycle: backend`，按真实父子进程检查传感器。权限辅助程序源文件为 `capture_permission.sh`，安装到 root 拥有的位置并通过管理员授权加载；不能直接把可写工作区脚本注册成 root 常驻作业。
+当前 Mac 已按用户明确要求接入[随本项目后端启停的持续传感器](../../docs/部署与回退.md#10-本机-en0-持续监测2026-10-17-起)。此模式由 `ManagedSensorLifecycle` 启动 `sensor_service.py --parent-pid`，旧 sensor LaunchAgent 保持不独立启动；原有短窗口部署和验收流程保留。只读完整巡检计划可指定 `sensorLifecycle: backend`，按真实父子进程检查传感器。权限辅助程序源文件为 `capture_permission.sh`，安装到 root 拥有的位置并通过管理员授权加载；不能直接把可写工作区脚本注册成 root 常驻作业。

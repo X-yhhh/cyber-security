@@ -22,7 +22,7 @@ let wrapper: VueWrapper | null = null
 async function settle() {
   for (let i = 0; i < 10; i++) { await flushPromises(); await new Promise((r) => setTimeout(r, 0)) }
 }
-async function open(user: MeFixture, path = '/console/overview/live'): Promise<{ router: Router; w: VueWrapper }> {
+async function open(user: MeFixture, path = '/console/overview/live', settleOnMount = true): Promise<{ router: Router; w: VueWrapper }> {
   signIn(user)
   session.user = { ...user, permissions: [...user.permissions] } as unknown as typeof session.user
   session.checked = true
@@ -37,7 +37,7 @@ async function open(user: MeFixture, path = '/console/overview/live'): Promise<{
   router.push(path)
   await router.isReady()
   wrapper = mount(Host, { global: { plugins: [router] }, attachTo: document.body })
-  await settle()
+  if (settleOnMount) await settle()
   return { router, w: wrapper }
 }
 const statsCalls = () => requests.filter((r) => r === 'GET /api/v2/stats/live').length
@@ -169,8 +169,10 @@ describe('实时态势：轮询', () => {
     await settle()
     expect(statsCalls()).toBe(before + 1)
     expect(heartbeatCalls()).toBe(devicesBefore)
-    vi.advanceTimersByTime(25000)
-    await settle()
+    for (let i = 0; i < 5; i++) {
+      await vi.advanceTimersByTimeAsync(5000)
+      await settle()
+    }
     expect(statsCalls()).toBe(before + 6)
     expect(heartbeatCalls()).toBe(devicesBefore + 1)
     w.unmount()
@@ -275,6 +277,35 @@ describe('实时态势：轮询', () => {
     document.dispatchEvent(new Event('visibilitychange'))
     await settle()
     expect(statsCalls()).toBe(first + 3)
+  })
+
+  it('慢请求期间跳过重叠轮询，单轮超时后显示错误并恢复轮询', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] })
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    server.use(http.get('/api/v2/stats/live', async () => {
+      await gate
+      return HttpResponse.json({ requestId: 'r', error: null, data: {
+        range: '15m', step: 3, from: '2026-10-17T12:00:00Z', to: '2026-10-17T12:00:03Z', points: 3, asOf: null, inbound: [0, 0, 0],
+      } })
+    }))
+    const { w } = await open(singleRoleUsers.security_analyst, '/console/overview/live', false)
+    vi.advanceTimersByTime(0)
+    await flushPromises()
+    expect(statsCalls()).toBe(1)
+
+    vi.advanceTimersByTime(9000)
+    await flushPromises()
+    expect(statsCalls()).toBe(1)
+
+    vi.advanceTimersByTime(1000)
+    await flushPromises()
+    expect(w.text()).toContain('读取超时，请检查后端或数据库后重试。')
+    release()
+    await flushPromises()
+    vi.advanceTimersByTime(2000)
+    await flushPromises()
+    expect(statsCalls()).toBe(2)
   })
 })
 

@@ -54,7 +54,7 @@ CGO_ENABLED=0 go build -o bin/guardextract ./cmd/guardextract
 
 ## v5 有期限的实时采集
 
-已登记的本机还支持[后端生命周期内持续监测](../docs/传感器持续监测.md)：就绪后自动启动、退出时停止；原短窗口模式保留。持续模式与真实接口授权、机器 mTLS 及已批准构建共同校验，不能单独使用 `-duration 0` 绕过准入。
+已登记的本机还支持[后端生命周期内持续监测](../docs/部署与回退.md#10-本机-en0-持续监测2026-10-17-起)：就绪后自动启动、退出时停止；原短窗口模式保留。持续模式与真实接口授权、机器 mTLS 及已批准构建共同校验，不能单独使用 `-duration 0` 绕过准入。
 
 `cmd/guardlive` 复用同一因果引擎，记录同一捕获句柄的头部、Tick、drop/gap及关闭事件，使用 `-replay` 逐字节复算。macOS依赖cgo/libpcap；Windows的gopacket通过系统调用加载已安装Npcap，**不要求cgo或Npcap SDK**。构建标签为 `cgo || windows`，不是把Windows实时请求静默转为离线处理。
 
@@ -114,7 +114,7 @@ A7 本轮只完成本机配置与恢复检查：`en0` 活跃、TSO4/TSO6 开启�
 
 ## 动态本机地址
 
-后端托管的 `all_inbound_tcp` 可在配置中设置 `localAddressSource: "interface"`：启动入口按采集接口当前地址生成本次配置，`guardlive -parent-pid` 每 5 秒核对，地址变化即收尾并以退出码 3 结束，由托管方用新地址重启。说明见 [传感器持续监测](../docs/传感器持续监测.md)。
+后端托管的 `all_inbound_tcp` 可在配置中设置 `localAddressSource: "interface"`：启动入口按采集接口当前地址生成本次配置，`guardlive -parent-pid` 每 5 秒核对，地址变化即收尾并以退出码 3 结束，由托管方用新地址重启。说明见 [部署与回退第 10 节（本机持续监测）](../docs/部署与回退.md#10-本机-en0-持续监测2026-10-17-起)。
 
 ## Linux 持续采集（RS，BE-23）
 
@@ -126,4 +126,4 @@ Linux 的实时 `guardlive` 必须用 `CGO_ENABLED=1` 构建；实时源的构�
 
 远端由 systemd 拉起 [`scripts/linux/supervisor.py`](../scripts/linux/supervisor.py) 托管，原样调用 `scripts/p8/sensor_service.py --parent-pid <托管进程 PID>`，再 exec 同源 Linux `guardlive`。它负责静态地址自检、单实例、退避、资源保护，以及无采集子进程时的旧 boot 补传；运行中每 5 分钟只清理已确认且过期的旧 boot。采集范围为已授权主机的 `all_inbound_tcp`，仅采集、仅告警，不提供 Linux 防火墙执行能力。
 
-A 阶段代码与模板已完成，待 GA；正式构建、远端安装、真实采集与故障演练仍按[远端传感器任务单](../docs/任务/远端传感器任务单.md)的 B/C 阶段逐项执行与验收，不表示已部署。
+A 阶段代码与模板已完成，GA 已通过（PR #106）；正式构建、远端安装、真实采集与故障演练仍按[部署与回退第 9 节（远端传感器）](../docs/部署与回退.md#9-远端-linux-持续采集的部署与回退rsbe-23)的 B/C 阶段逐项执行与验收，不表示已部署。

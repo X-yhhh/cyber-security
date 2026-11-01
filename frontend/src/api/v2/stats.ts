@@ -46,8 +46,8 @@ export interface LiveStats {
   devices?: { sensorsOnline: number; sensorsTotal: number; executorsOnline: number; executorsTotal: number }
 }
 
-export const fetchLiveStats = (range: LiveRange, step = RANGE_STEP[range]) =>
-  guard.read<LiveStats>('stats/live', { range, step })
+export const fetchLiveStats = (range: LiveRange, step = RANGE_STEP[range], signal?: AbortSignal) =>
+  guard.read<LiveStats>('stats/live', { range, step }, signal)
 
 /** 第 i 个桶的起点时间。 */
 export const bucketStart = (s: Pick<LiveStats, 'from' | 'step'>, i: number) => new Date(Date.parse(s.from) + i * s.step * 1000)

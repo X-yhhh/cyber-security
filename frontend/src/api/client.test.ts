@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { ApiError, api, resetCsrf, setUnauthorizedHandler } from './client'
+import { ApiError, api, guard, resetCsrf, setUnauthorizedHandler } from './client'
 
 function jsonResponse(body: unknown, status = 200) {
   return {
@@ -58,6 +58,16 @@ describe('api client', () => {
       code: 'NETWORK_UNAVAILABLE',
       message: '无法连接后端服务',
     })
+  })
+
+  it('passes an AbortSignal to read requests so callers can bound pending fetches', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ data: [], error: null }))
+    vi.stubGlobal('fetch', fetchMock)
+    const controller = new AbortController()
+
+    await guard.read('stats/live', { range: '15m' }, controller.signal)
+
+    expect(fetchMock.mock.calls[0][1].signal).toBe(controller.signal)
   })
 
   it.each([

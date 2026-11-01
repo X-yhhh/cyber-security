@@ -51,3 +51,6 @@ sensor/bin/
 # Local browser automation logs and ad-hoc exports
 .playwright-mcp/
 /output/
+
+# 答辩与汇报材料（PPT/PDF/Word，可由 .cache 下的构建脚本重新生成）只在本机保存，不进 Git。
+docs/答辩材料/

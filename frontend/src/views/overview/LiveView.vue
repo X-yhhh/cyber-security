@@ -7,7 +7,8 @@
  * - 最新判定：GET /decisions 最近 20 条（detection.read），点击按归并关系进入事件；
  * - 设备在线：GET sensor-heartbeats / executor-heartbeats（ops.read），心跳新鲜（10 秒内）即在线，不代表采集健康。
  *
- * 刷新：默认每 3 秒轮询，可选 1/3/5/10 秒；15 分钟视图按相同间隔出点，历史范围保留聚合并显示实际桶宽。
+ * 刷新：默认每 3 秒轮询，可选 1/3/5/10 秒；上一轮未结束时跳过轮询，单轮最多等待 10 秒。
+ * 15 分钟视图按相同间隔出点，历史范围保留聚合并显示实际桶宽。
  * 页面不可见或手动暂停时停止轮询；切换范围或间隔立即重读一次，保留暂停状态，并用请求序号作废旧响应。
  * 缺口：stats 中 null 表示该时段没有采集覆盖，折线断开、不补 0，并写明“传感器未接入，最后一次数据 <时间>”。
  */
@@ -38,6 +39,7 @@ import { useSummary } from '@/composables/summary'
 import { useQueryState } from '@/composables/query'
 
 const DEVICE_POLL_MS = 30000
+const REFRESH_TIMEOUT_MS = 10_000
 const router = useRouter()
 
 const canDetect = can('detection.read')
@@ -78,17 +80,27 @@ const assetName = (id: string | null | undefined) => (id ? assets.value.find((a)
 let seq = 0
 let devicesSeq = 0
 let lastDevicesAt = 0
+let activeRefreshes = 0
+let refreshController: AbortController | null = null
 /** 读取一轮；设备心跳按经过时间每 30 秒读取，恢复时可强制刷新，不随图表频率变快。各类旧响应按各自序号丢弃。 */
-async function refresh(devices = false) {
+async function refresh(devices = false, supersede = false) {
+  if (activeRefreshes && !supersede) return
+  if (supersede) refreshController?.abort()
+  activeRefreshes++
   const mine = ++seq
+  const controller = new AbortController()
+  refreshController = controller
+  let timedOut = false
+  const timeout = setTimeout(() => { timedOut = true; controller.abort() }, REFRESH_TIMEOUT_MS)
+  const readError = (error: unknown) => timedOut ? '读取超时，请检查后端或数据库后重试。' : errText(error)
   const jobs: Promise<unknown>[] = []
   if (wantsStats) {
-    jobs.push(fetchLiveStats(range.value, liveStep(range.value, interval.value))
+    jobs.push(fetchLiveStats(range.value, liveStep(range.value, interval.value), controller.signal)
       .then((d) => { if (mine === seq) { stats.value = d; statsError.value = '' } })
-      .catch((e) => { if (mine === seq) statsError.value = errText(e) }))
+      .catch((e) => { if (mine === seq) statsError.value = readError(e) }))
   }
   if (canDetect) {
-    jobs.push(guard.list<GuardDecision>('decisions', { limit: 20 })
+    jobs.push(guard.list<GuardDecision>('decisions', { limit: 20 }, controller.signal)
       .then((page) => {
         if (mine !== seq) return
         const before = new Set(decisions.value.map((d) => d.id))
@@ -96,21 +108,27 @@ async function refresh(devices = false) {
         decisions.value = page.items
         decisionsError.value = ''
       })
-      .catch((e) => { if (mine === seq) decisionsError.value = errText(e) }))
+      .catch((e) => { if (mine === seq) decisionsError.value = readError(e) }))
   }
   if (canOps && (devices || Date.now() - lastDevicesAt >= DEVICE_POLL_MS)) {
     lastDevicesAt = Date.now()
     const devicesMine = ++devicesSeq
     jobs.push(Promise.all([
-      guard.read<GuardReadPage<GuardHeartbeat>>('sensor-heartbeats', { limit: 50 }),
-      guard.read<GuardReadPage<GuardHeartbeat>>('executor-heartbeats', { limit: 50 }),
+      guard.read<GuardReadPage<GuardHeartbeat>>('sensor-heartbeats', { limit: 50 }, controller.signal),
+      guard.read<GuardReadPage<GuardHeartbeat>>('executor-heartbeats', { limit: 50 }, controller.signal),
     ]).then(([s, e]) => {
       if (devicesMine !== devicesSeq) return
       sensors.value = s.items; executors.value = e.items; devicesLoaded.value = true; devicesError.value = ''
-    }).catch((e) => { if (devicesMine === devicesSeq) devicesError.value = errText(e) }))
+    }).catch((e) => { if (mine === seq && devicesMine === devicesSeq) devicesError.value = readError(e) }))
   }
-  await Promise.allSettled(jobs)
-  if (mine === seq) updatedAt.value = Date.now()
+  try {
+    await Promise.allSettled(jobs)
+    if (mine === seq) updatedAt.value = Date.now()
+  } finally {
+    clearTimeout(timeout)
+    if (refreshController === controller) refreshController = null
+    activeRefreshes--
+  }
 }
 
 /* ---------- 轮询：页面不可见或手动暂停时停止 ---------- */
@@ -130,11 +148,11 @@ function startPolling() {
 function onVisibility() {
   const was = hidden.value
   hidden.value = document.visibilityState === 'hidden'
-  if (was && !hidden.value && !paused.value) { void refresh(true); startPolling() }
+  if (was && !hidden.value && !paused.value) { void refresh(true, true); startPolling() }
 }
 onMounted(() => {
   mounted = true
-  void refresh(true)
+  void refresh(true, true)
   startPolling()
   document.addEventListener('visibilitychange', onVisibility)
 })
@@ -142,18 +160,19 @@ onBeforeUnmount(() => {
   mounted = false
   seq++
   devicesSeq++
+  refreshController?.abort()
   clearInterval(timer)
   document.removeEventListener('visibilitychange', onVisibility)
 })
 function togglePause() {
   paused.value = !paused.value
-  if (running.value) { void refresh(true); startPolling() }
+  if (running.value) { void refresh(true, true); startPolling() }
 }
 watch([range, interval], () => {
   stats.value = null
   statsError.value = ''
   startPolling()
-  void refresh()
+  void refresh(false, true)
 })
 
 /* ---------- 图表 ---------- */

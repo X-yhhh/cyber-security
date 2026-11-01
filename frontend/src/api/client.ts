@@ -33,7 +33,7 @@ export const resetCsrf = () => { csrf = null }
 /** 业务路径默认 v2；公共探针使用独立的健康路径。 */
 const url = (path: string) => (path.startsWith('/api/') || path.startsWith('/health/') ? path : `/api/v2${path}`)
 
-async function raw(method: string, path: string, body?: unknown, headers: Record<string, string> = {}) {
+async function raw(method: string, path: string, body?: unknown, headers: Record<string, string> = {}, signal?: AbortSignal) {
   const h: Record<string, string> = { Accept: 'application/json', ...headers }
   if (method !== 'GET') {
     const c = await ensureCsrf()
@@ -42,7 +42,7 @@ async function raw(method: string, path: string, body?: unknown, headers: Record
   if (body !== undefined) h['Content-Type'] = 'application/json'
   let res: Response
   try {
-    res = await fetch(url(path), { method, headers: h, credentials: 'same-origin', body: body === undefined ? undefined : JSON.stringify(body) })
+    res = await fetch(url(path), { method, headers: h, credentials: 'same-origin', body: body === undefined ? undefined : JSON.stringify(body), signal })
   } catch {
     throw new ApiError(0, 'NETWORK_UNAVAILABLE', '无法连接后端服务')
   }
@@ -59,8 +59,8 @@ async function raw(method: string, path: string, body?: unknown, headers: Record
   return { data: env.data, requestId: env.requestId }
 }
 
-async function request<T>(method: string, path: string, body?: unknown, headers: Record<string, string> = {}): Promise<T> {
-  return (await raw(method, path, body, headers)).data as T
+async function request<T>(method: string, path: string, body?: unknown, headers: Record<string, string> = {}, signal?: AbortSignal): Promise<T> {
+  return (await raw(method, path, body, headers, signal)).data as T
 }
 
 export const api = {
@@ -97,21 +97,21 @@ function cursorQuery(q: CursorQuery = {}) {
 }
 
 export const guard = {
-  /** 列表（游标分页，limit 1—200，后端默认 50）。 */
-  list: <T>(collection: string, q?: CursorQuery) => request<Cursor<T>>('GET', `/api/v2/${collection}${cursorQuery(q)}`),
+  /** 列表（游标分页，limit 1—200，后端默认 50）；signal 可取消尚未完成的读取。 */
+  list: <T>(collection: string, q?: CursorQuery, signal?: AbortSignal) => request<Cursor<T>>('GET', `/api/v2/${collection}${cursorQuery(q)}`, undefined, {}, signal),
   /** 详情；跨范围对象返回 404，不泄露存在性。 */
   get: <T>(collection: string, id: string) => request<T>('GET', `/api/v2/${collection}/${encodeURIComponent(id)}`),
   /** 子资源；`models/{id}/validations` 返回校验报告本体而不是 `{items}`。 */
   child: <T>(collection: string, id: string, name: string) => request<T>('GET', `/api/v2/${collection}/${encodeURIComponent(id)}/${name}`),
   /**
    * 只读查询的原样路径与参数（lab 会话事件的 `after`、B5 查询的筛选与游标等）。
-   * 空值参数不发送：后端对空白参数返回 INVALID_QUERY，未知参数同样拒绝，前端不做兜底。
+   * 空值参数不发送：后端对空白参数返回 INVALID_QUERY，未知参数同样拒绝，前端不做兜底；signal 可取消在途读取。
    */
-  read: <T>(path: string, params: Record<string, string | number | null | undefined> = {}) => {
+  read: <T>(path: string, params: Record<string, string | number | null | undefined> = {}, signal?: AbortSignal) => {
     const p = new URLSearchParams()
     for (const [k, v] of Object.entries(params)) if (v !== null && v !== undefined && v !== '') p.set(k, String(v))
     const s = p.toString()
-    return request<T>('GET', `/api/v2/${path}${s ? `?${s}` : ''}`)
+    return request<T>('GET', `/api/v2/${path}${s ? `?${s}` : ''}`, undefined, {}, signal)
   },
   /** 创建；自动带幂等键，同一次提交的重试不会重复落库。 */
   create: <T>(collection: string, body: unknown, key = idempotencyKey()) =>

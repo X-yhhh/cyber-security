@@ -18,6 +18,7 @@ class ConsoleMigrationIntegrationTest {
     static final String EMPTY=IsolatedDatabaseSchemas.name(ConsoleMigrationIntegrationTest.class,"console_empty");
     static final String UPGRADE=IsolatedDatabaseSchemas.name(ConsoleMigrationIntegrationTest.class,"console_upgrade");
     static final String V28=IsolatedDatabaseSchemas.name(ConsoleMigrationIntegrationTest.class,"console_v28");
+    static final String V29=IsolatedDatabaseSchemas.name(ConsoleMigrationIntegrationTest.class,"console_v29");
     static final Map<String,Set<String>> ADDED=Map.of(
             "sys_role",Set.of("builtin","revision"),"asset",Set.of("display_name","notes"),
             "sensor_agent",Set.of("display_name","notes"),"guard_executor",Set.of("display_name","notes","updated_at"),
@@ -30,7 +31,7 @@ class ConsoleMigrationIntegrationTest {
 
     @Test void emptyDatabaseMigratesToLatestWithExactlyTheFrozenBuiltinMatrix(){
         var source=source(EMPTY);var migration=Flyway.configure().dataSource(source).load();
-        assertThat(migration.migrate().migrationsExecuted).isEqualTo(28);migration.validate();
+        assertThat(migration.migrate().migrationsExecuted).isEqualTo(29);migration.validate();
         assertBaseline(new JdbcTemplate(source));
     }
 
@@ -63,7 +64,7 @@ class ConsoleMigrationIntegrationTest {
         var jdbc=new JdbcTemplate(source);seed(jdbc);
         var bundles=jdbc.queryForList("SELECT * FROM guard_release_bundle");var policies=jdbc.queryForList("SELECT * FROM guard_decision_policy");
         var history=jdbc.queryForList("SELECT * FROM flyway_schema_history ORDER BY installed_rank");
-        var flyway=Flyway.configure().dataSource(source).load();assertThat(flyway.migrate().migrationsExecuted).isEqualTo(1);flyway.validate();
+        var flyway=Flyway.configure().dataSource(source).target("28").load();assertThat(flyway.migrate().migrationsExecuted).isEqualTo(1);flyway.validate();
         var after=jdbc.queryForList("SELECT * FROM guard_release_bundle");after.forEach(row->{row.remove("display_name");row.remove("notes");});
         assertThat(after).isEqualTo(bundles);
         assertThat(jdbc.queryForList("SELECT * FROM guard_decision_policy")).isEqualTo(policies);
@@ -71,6 +72,25 @@ class ConsoleMigrationIntegrationTest {
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM guard_release_bundle WHERE display_name IS NOT NULL OR notes IS NOT NULL",Long.class)).isZero();
         assertThat(jdbc.queryForList("SELECT * FROM flyway_schema_history WHERE version<>'28' ORDER BY installed_rank")).isEqualTo(history);
         assertBaseline(jdbc);
+    }
+
+    /** V29 只为实时统计的时间范围与首次生效聚合追加覆盖索引，不改表数据或历史迁移。 */
+    @Test void v29SingleStepAddsOnlyLiveStatisticsIndexes(){
+        var source=source(V29);Flyway.configure().dataSource(source).target("28").load().migrate();
+        var jdbc=new JdbcTemplate(source);
+        var history=jdbc.queryForList("SELECT * FROM flyway_schema_history ORDER BY installed_rank");
+        var flyway=Flyway.configure().dataSource(source).load();
+        assertThat(flyway.migrate().migrationsExecuted).isEqualTo(1);flyway.validate();
+        var indexes=jdbc.queryForList("SELECT DISTINCT CONCAT(table_name,':',index_name) FROM information_schema.statistics WHERE table_schema=DATABASE() AND index_name IN ("
+                + "'idx_guard_observation_live_time','idx_guard_decision_live_time','idx_guard_health_live_range',"
+                + "'idx_guard_health_live_received','idx_guard_action_receipt_first_applied')",String.class);
+        assertThat(indexes).containsExactlyInAnyOrder(
+                "guard_observation:idx_guard_observation_live_time",
+                "guard_decision:idx_guard_decision_live_time",
+                "guard_capture_health_window:idx_guard_health_live_range",
+                "guard_capture_health_window:idx_guard_health_live_received",
+                "guard_action_receipt:idx_guard_action_receipt_first_applied");
+        assertThat(jdbc.queryForList("SELECT * FROM flyway_schema_history WHERE version<>'29' ORDER BY installed_rank")).isEqualTo(history);
     }
 
     private static void assertBaseline(JdbcTemplate jdbc){

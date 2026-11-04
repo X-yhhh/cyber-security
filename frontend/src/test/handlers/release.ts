@@ -210,6 +210,9 @@ function register(collection: ReleaseCollection, body: Record<string, unknown>) 
   }
   rows(collection).unshift(row)
   releaseState.owners[row.id] = currentUser()!.id
+  // BE-25：人工登记的策略、组合与 lab 会话返回归属字段（账户数字 ID）
+  if (collection === 'decision-policies') row.createdBy = currentUser()!.id
+  else if (collection === 'release-bundles' || collection === 'lab-validation-runs') row.requestedBy = currentUser()!.id
   if (collection === 'models') return { id: row.id, candidateOnly: true, validationStatus: 'pending', revision: 1 }
   if (collection === 'lab-validation-runs') return row
   return { id: row.id, status: row.status, revision: row.revision, planSha256: row.planSha256, subjectSha256: row.subjectSha256, level: row.level, scope: row.scope, speed: row.speed, bundleId: row.bundleId }

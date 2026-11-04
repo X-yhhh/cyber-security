@@ -16,6 +16,7 @@ export const ACTION_APPLIED = 'a2000000-0000-4000-8000-000000000002'
 export const ACTION_EXPIRED = 'a2000000-0000-4000-8000-000000000003'
 export const BUDGET_2 = '70000000-0000-4000-8000-000000000002'
 
+/** createdBy 是夹具内部的真实发起人（职责分离按它判定）；action.createdBy 是接口放出的字段，可为 null 模拟历史无归属。 */
 export interface ActionFixture { action: GuardAction; createdBy: number; approvedBy: number | null; hasCommand: boolean }
 export interface ResponseWrite { path: string; body: unknown; ifMatch: string | null; idempotencyKey: string }
 interface ResponseFixtureState {
@@ -44,9 +45,9 @@ function initialState(): ResponseFixtureState {
   return {
     now: RESPONSE_NOW,
     actions: [
-      { action: base, createdBy: singleRoleUsers.security_analyst.id, approvedBy: null, hasCommand: false },
-      { action: { ...base, id: ACTION_APPLIED, mode: 'auto', observedState: 'applied', createdAt: '2026-10-15T03:58:00Z' }, createdBy: 1, approvedBy: null, hasCommand: true },
-      { action: { ...base, id: ACTION_EXPIRED, assetId: ASSET_2, budgetTargetId: BUDGET_2, observedState: 'expired', blockUntil: '2026-10-15T03:55:00Z', createdAt: '2026-10-15T03:50:00Z' }, createdBy: 1, approvedBy: null, hasCommand: false },
+      { action: { ...base, createdBy: singleRoleUsers.security_analyst.id }, createdBy: singleRoleUsers.security_analyst.id, approvedBy: null, hasCommand: false },
+      { action: { ...base, id: ACTION_APPLIED, mode: 'auto', observedState: 'applied', createdAt: '2026-10-15T03:58:00Z', createdBy: null }, createdBy: 1, approvedBy: null, hasCommand: true },
+      { action: { ...base, id: ACTION_EXPIRED, createdBy: null, assetId: ASSET_2, budgetTargetId: BUDGET_2, observedState: 'expired', blockUntil: '2026-10-15T03:55:00Z', createdAt: '2026-10-15T03:50:00Z' }, createdBy: 1, approvedBy: null, hasCommand: false },
     ],
     targets: [target(BUDGET_1, ASSET_1), target(BUDGET_2, ASSET_2)],
     ledgers: { [BUDGET_1]: ledger(BUDGET_1), [BUDGET_2]: ledger(BUDGET_2) },

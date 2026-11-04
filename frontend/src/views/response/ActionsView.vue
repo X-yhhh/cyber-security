@@ -7,7 +7,7 @@
  *   待办中心的处置申请跳转 `?id=` 直接打开该动作详情。
  * - 期望状态与观测状态分两列：期望是意图，观测以执行器回执为准；没有回执时写「命令未下发」，不写执行成功。
  * - 详情显示该目标的预算占用、最近清零时刻与恢复条件，全部只读；界面不提供任何预算清零入口。
- * - 写操作：立即解除/撤销（action.revoke）、批准/驳回（authorization.approve，本人申请的不显示）、
+ * - 写操作：立即解除/撤销（action.revoke）、批准/驳回（authorization.approve，按 createdBy 隐藏本人申请，空值照常显示）、
  *   页头停用自动化（automation.stop，202 只表示受理）。均带幂等键，审批与撤销带 If-Match，写后重新读取。
  * 前端只按权限隐藏入口；职责分离、状态迁移与硬约束以后端判定为准。
  */
@@ -27,7 +27,8 @@ import { useCursor } from '@/composables/cursor'
 import { errText } from '@/composables/load'
 import { queryString, useQueryState } from '@/composables/query'
 import { toast } from '@/composables/toast'
-import { can, session } from '@/api/session'
+import { isMine, SELF_APPROVAL_NOTE } from '@/composables/owner'
+import { can } from '@/api/session'
 import { isRange, isUuid, RANGES, rangeFrom, type RangeKey } from '@/api/v2/detect'
 import { responseApi, type ActionState } from '@/api/v2/response'
 import { fmtTime, guardActionModeLabel, guardAssetEnvLabel, guardActionStateLabel, type GuardAction, type GuardActionReceipt, type GuardBudgetLedger } from '@/api/types'
@@ -153,14 +154,12 @@ const open = (a: GuardAction) => { openId.value = a.id }
 const close = () => { openId.value = '' }
 const picked = computed(() => detail.value.action)
 
-/** 后端暂不返回申请人时为 undefined，按钮照常显示，自批由后端 403 拒绝。 */
-const ownRequest = computed(() => {
-  const by = (picked.value as (GuardAction & { createdBy?: number | string | null }) | null)?.createdBy
-  return by !== undefined && by !== null && session.user != null && String(by) === String(session.user.id)
-})
+/** createdBy 为空（自动动作或历史记录）时视为未知，按钮照常显示，自批由后端 403 拒绝。 */
+const ownRequest = computed(() => isMine(picked.value?.createdBy))
 const revocable = (a: GuardAction) => a.desiredState === 'active' && !TERMINAL.includes(a.observedState)
 const canRevoke = computed(() => can('action.revoke') && !!picked.value && revocable(picked.value))
-const canDecide = computed(() => can('authorization.approve') && picked.value?.mode === 'manual' && picked.value.observedState === 'pending' && !ownRequest.value)
+const awaitingDecision = computed(() => can('authorization.approve') && picked.value?.mode === 'manual' && picked.value.observedState === 'pending')
+const canDecide = computed(() => awaitingDecision.value && !ownRequest.value)
 const revokeLabel = (a: GuardAction) => (a.observedState === 'applied' ? '立即解除' : '撤销')
 
 const stateNote = computed(() => {
@@ -444,6 +443,7 @@ const snapshot = computed(() => {
             <textarea v-model="reason" rows="3" maxlength="1000" class="field resize-none" placeholder="写入审计" />
           </label>
           <p v-if="canDecide" class="mt-3 text-[12px] leading-relaxed text-ink-3">人工申请须由申请人之外的审批人决定；批准后仍执行全部硬约束。</p>
+          <p v-else-if="awaitingDecision && ownRequest" class="note mt-7" role="status">{{ SELF_APPROVAL_NOTE }}：这条人工处置由你发起，批准与驳回须由其他审批人完成。</p>
         </template>
       </LoadState>
       <template v-if="picked && (canDecide || canRevoke)" #foot>

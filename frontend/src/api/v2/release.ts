@@ -4,6 +4,7 @@
  * 写操作每次提交生成幂等键，可传 key 重试同一次提交；并发操作必须传当前 revision。
  * 失败原样抛出 ApiError，页面用 errText 显示 request-id，成功后重新读取事实。
  * bindings 是发布组合子资源；evaluations 只读，报告由组合 imports 或 lab reports 登记。
+ * 策略 createdBy、组合及人工 lab 会话 requestedBy 继承通用类型，与 auth/me.id 同口径。
  */
 import { guard, type Cursor } from '@/api/client'
 import type {

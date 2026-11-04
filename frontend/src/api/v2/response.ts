@@ -4,6 +4,7 @@
  * active=true 由后端按期望状态和 blockUntil 筛选，不能据此推断防火墙实态；
  * 撤销和停用的 202 只表示受理，清理结果必须重新读取动作与执行器回执。
  * 写请求默认生成新的幂等键；同一次提交的网络重试可显式传入原键和原修订号。
+ * 列表与详情的 createdBy 继承 GuardAction，空值不推断本人；后端独立校验职责分离。
  */
 import { guard, idempotencyKey, type Cursor } from '@/api/client'
 import type { GuardAction, GuardActionReceipt, GuardBudgetLedger, GuardBudgetTarget } from '@/api/types'

@@ -5,8 +5,8 @@ import { useActionError } from '@/composables/actionError'
  *
  * - 业务字段在前：模式、模型、评价计划、快照类型；四个攻击类别与规则策略逐条列出 autoEligible / modelAutoEligible。
  * - 「策略原文」把定义按 JSON 格式化显示，mode 与各类 autoEligible 所在行标出（允许自动的行着警示色）。
- * - 审核（policy.approve，草稿）：批准记为已审核、驳回记为已退役；起草人本人由后端拒绝（查询不返回起草人，入口照常显示）。
- * - 删除草稿（policy.draft）：只限本人起草、未被引用的草稿，否则 403 / 409 RESOURCE_IN_USE。
+ * - 审核（policy.approve，草稿）：批准记为已审核、驳回记为已退役；createdBy 为本人时隐藏并注明需他人审批，为空时照常显示，由后端拒绝。
+ * - 删除草稿（policy.draft）：只限本人起草、未被引用的草稿（他人起草的不显示入口），否则 403 / 409 RESOURCE_IN_USE。
  * - 改名（policy.draft，任意状态）：只改显示名与备注（命名规范 P 编号），策略正文冻结不变。
  */
 import { computed, reactive, ref, watch } from 'vue'
@@ -17,6 +17,7 @@ import IdText from '@/components/IdText.vue'
 import LoadState from '@/components/LoadState.vue'
 import { errText } from '@/composables/load'
 import { toast } from '@/composables/toast'
+import { isMine, maybeMine, SELF_APPROVAL_NOTE } from '@/composables/owner'
 import { can } from '@/api/session'
 import { fmtTime } from '@/api/types'
 import { releaseApi, type ReleasePolicy } from '@/api/v2/release'
@@ -46,8 +47,10 @@ watch(() => props.id, (id) => { mode.value = 'view'; if (id) void load(); else {
 
 const def = computed(() => policy.value?.definition ?? null)
 const draft = computed(() => policy.value?.status === 'draft')
-const reviewable = computed(() => draft.value && can('policy.approve'))
-const deletable = computed(() => draft.value && can('policy.draft'))
+const ownDraft = computed(() => isMine(policy.value?.createdBy))
+const reviewable = computed(() => draft.value && can('policy.approve') && !ownDraft.value)
+const selfBlocked = computed(() => draft.value && can('policy.approve') && ownDraft.value)
+const deletable = computed(() => draft.value && can('policy.draft') && maybeMine(policy.value?.createdBy))
 const autoFamilies = computed(() => def.value?.familyPolicies?.filter((f) => f.autoEligible).length ?? 0)
 
 /** 原文逐行渲染：mode / autoEligible / modelAutoEligible 行标出，值为 true 或 mode=auto 时着警示色。 */
@@ -121,6 +124,7 @@ function confirm() {
             <template v-if="def.mode === 'auto'">模式为「自动」：{{ autoFamilies }} 个类别允许自动路径，仍受能力等级、授权与预算约束。</template>
             <template v-else>模式为「只告警」：不会下发阻断命令。</template>
           </p>
+          <p v-if="selfBlocked" class="note mb-5" role="status">{{ SELF_APPROVAL_NOTE }}：这份草稿由你起草，审核通过与驳回须由其他审核人完成。</p>
           <dl class="kv">
             <div><dt>名称</dt><dd>
               <span :class="policy.displayName ? 'text-ink' : 'text-ink-4'">{{ policy.displayName || '未命名' }}</span>

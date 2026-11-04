@@ -4,7 +4,7 @@ import { useActionError } from '@/composables/actionError'
  * lab 会话资格抽屉（发布管理 `?tab=validation&record=lab&id=`，待办中心的 lab 资格审批直达这里）。
  *
  * 资格状态与运行状态分开显示；effectiveEligibility 由后端按到期与授权当前状态计算，前端不推断。
- * - 批准 / 驳回资格（authorization.approve，资格待批准）：登记人本人由后端拒绝（查询不返回登记人，入口照常显示）。
+ * - 批准 / 驳回资格（authorization.approve，资格待批准）：requestedBy 为本人时隐藏并注明需他人审批；为空时照常显示，由后端拒绝。
  * - 作废（automation.stop，未作废）：撤销会话资格，不影响已登记的事实与报告。
  * 会话本身不授予执行权限，也不断言规则清理；开始、中断、恢复、完成、事实追加与报告导入由 runner 执行。
  */
@@ -17,6 +17,7 @@ import IdText from '@/components/IdText.vue'
 import LoadState from '@/components/LoadState.vue'
 import { errText } from '@/composables/load'
 import { toast } from '@/composables/toast'
+import { isMine, SELF_APPROVAL_NOTE } from '@/composables/owner'
 import { can } from '@/api/session'
 import { fmtTime, guardLabEligibilityLabel, guardLabRunStatusLabel, type GuardLabRun } from '@/api/types'
 import { releaseApi } from '@/api/v2/release'
@@ -42,7 +43,9 @@ async function load() {
 }
 watch(() => props.id, (id) => { mode.value = 'view'; if (id) void load(); else { seq++; run.value = null } }, { immediate: true })
 
-const decidable = computed(() => run.value?.eligibilityStatus === 'pending' && can('authorization.approve'))
+const pendingDecision = computed(() => run.value?.eligibilityStatus === 'pending' && can('authorization.approve'))
+const ownRequest = computed(() => isMine(run.value?.requestedBy))
+const decidable = computed(() => pendingDecision.value && !ownRequest.value)
 const revocable = computed(() => !!run.value && run.value.eligibilityStatus !== 'revoked' && can('automation.stop'))
 const cleanupLabel: Record<string, string> = { not_asserted: '会话不断言清理', verified: '执行器已核验清理', pending: '待核验' }
 
@@ -75,6 +78,7 @@ function confirm() {
             会话在网络隔离的 lab 资产上以 1 倍速运行，只记录事实，不授予执行权限。
             <template v-if="run.blockedReason">资格受阻：{{ run.blockedReason }}。</template>
           </p>
+          <p v-if="pendingDecision && ownRequest" class="note mb-5" role="status">{{ SELF_APPROVAL_NOTE }}：这个会话由你登记，资格的批准与驳回须由其他审批人完成。</p>
           <dl class="kv">
             <div><dt>资格</dt><dd><Tag :tone="labEligibilityTone[run.effectiveEligibility]" :label="guardLabEligibilityLabel[run.effectiveEligibility] ?? run.effectiveEligibility" />
               <span v-if="run.effectiveEligibility !== run.eligibilityStatus" class="ml-2 text-[12px] text-ink-3">登记状态：{{ guardLabEligibilityLabel[run.eligibilityStatus] ?? run.eligibilityStatus }}</span></dd></div>

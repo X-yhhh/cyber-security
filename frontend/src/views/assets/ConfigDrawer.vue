@@ -16,7 +16,8 @@ import IdText from '@/components/IdText.vue'
 import LoadState from '@/components/LoadState.vue'
 import { errText } from '@/composables/load'
 import { toast } from '@/composables/toast'
-import { can, session } from '@/api/session'
+import { can } from '@/api/session'
+import { isMine, maybeMine } from '@/composables/owner'
 import { fmtTime } from '@/api/types'
 import { assetsApi, configStatusLabel, type SensorConfig } from '@/api/v2/assets'
 import { configTone } from '@/data/tones'
@@ -41,13 +42,8 @@ async function load() {
 }
 watch(() => props.id, (id) => { mode.value = 'view'; if (id) void load(); else { seq++; cfg.value = null } }, { immediate: true })
 
-const mine = computed(() => {
-  const by = cfg.value?.requestedBy
-  return by !== undefined && by !== null && session.user != null && String(by) === String(session.user.id)
-})
-const unknownAuthor = computed(() => cfg.value?.requestedBy === undefined || cfg.value?.requestedBy === null)
-const decidable = computed(() => !!cfg.value && ['draft', 'pending'].includes(cfg.value.status) && can('authorization.approve') && !mine.value)
-const deletable = computed(() => !!cfg.value && cfg.value.status === 'draft' && can('sensor.manage') && (mine.value || unknownAuthor.value))
+const decidable = computed(() => !!cfg.value && ['draft', 'pending'].includes(cfg.value.status) && can('authorization.approve') && !isMine(cfg.value.requestedBy))
+const deletable = computed(() => !!cfg.value && cfg.value.status === 'draft' && can('sensor.manage') && maybeMine(cfg.value.requestedBy))
 
 const reason = ref('')
 const formError = useActionError()

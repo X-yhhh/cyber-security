@@ -22,12 +22,13 @@ import LoadState from '@/components/LoadState.vue'
 import CursorPager from '@/components/CursorPager.vue'
 import { useCrumbLabel } from '@/composables/crumb'
 import { useCursor } from '@/composables/cursor'
+import { isMine, maybeMine } from '@/composables/owner'
 import { errText } from '@/composables/load'
 import { queryString, useQueryState } from '@/composables/query'
 import { toast } from '@/composables/toast'
 import type { TabOption } from '@/composables/tabs'
 import { ApiError } from '@/api/client'
-import { can, session } from '@/api/session'
+import { can } from '@/api/session'
 import { isUuid } from '@/api/v2/detect'
 import {
   fmtTime, guardAssetEnvLabel, guardBundleStatusLabel, guardCapabilityLevelLabel, guardHealthStateLabel, guardMachineStatusLabel,
@@ -251,10 +252,9 @@ const authCopy: Record<AuthOp, { title: string; note: string; confirm: string; d
   revoke: { title: '撤销授权', note: '撤销后授权修订号提高，控制面拒绝该资产依赖此授权的新命令，并排队撤销已有规则。受理不等于规则已清理，清理结果以执行器回执为准。', confirm: '确认撤销', danger: true, tone: 'threat', done: '已受理撤销，规则清理请看处置记录回执。' },
   withdraw: { title: '撤回授权申请', note: '只能撤回你本人提交、仍待批准的申请。撤回后申请结束。', confirm: '撤回申请', danger: true, tone: 'warn', done: '已撤回授权申请。' },
 }
-const mine = (by: number | string | null | undefined) => by !== undefined && by !== null && session.user != null && String(by) === String(session.user.id)
 /** 申请人字段缺失时视为未知：入口照常显示，由后端判定。 */
-const notMine = (a: Authorization) => !mine(a.requestedBy)
-const maybeMine = (a: Authorization) => a.requestedBy === undefined || a.requestedBy === null || mine(a.requestedBy)
+const notMine = (a: Authorization) => !isMine(a.requestedBy)
+const mayWithdraw = (a: Authorization) => maybeMine(a.requestedBy)
 const retired = computed(() => asset.value?.status === 'retired')
 function confirmAuth(reason: string) {
   const cur = authOp.value
@@ -415,7 +415,7 @@ const releaseLink = (bundleId: string) => ({ path: '/console/release/bundles', q
                         <button type="button" class="act-ghost act-sm" @click="authOp = { op: 'reject', auth: a }">驳回</button>
                         <button type="button" class="act-ghost act-sm" @click="authOp = { op: 'approve', auth: a }"><ShieldCheck :size="13" :stroke-width="1.5" />批准授权</button>
                       </template>
-                      <button v-if="can('authorization.request') && maybeMine(a)" type="button" class="link text-[12.5px]" @click="authOp = { op: 'withdraw', auth: a }">撤回申请</button>
+                      <button v-if="can('authorization.request') && mayWithdraw(a)" type="button" class="link text-[12.5px]" @click="authOp = { op: 'withdraw', auth: a }">撤回申请</button>
                     </template>
                     <button v-else-if="a.status === 'active' && can('authorization.approve')" type="button" class="act-danger act-sm" @click="authOp = { op: 'revoke', auth: a }"><Ban :size="13" :stroke-width="1.5" />撤销授权</button>
                   </div>

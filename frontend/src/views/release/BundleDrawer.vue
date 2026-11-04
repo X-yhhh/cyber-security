@@ -9,8 +9,9 @@ import { useActionError } from '@/composables/actionError'
  *
  * 操作（抽屉内切换模式，不叠加抽屉；写后重读并通知父页面）：
  * - 导入报告（evaluation.run，候选）、封存（bundle.request，候选，须含一次 final 通过报告）、撤回候选（bundle.request，候选/已封存）；
- * - 批准 / 驳回（bundle.approve，已封存；申请人本人由后端拒绝，组合查询不返回申请人，入口照常显示）；
- * - 激活（bundle.approve，已批准/已激活，按资产与有效授权一一对应）、退役（bundle.approve，已批准/已暂停）；
+ * - 批准 / 驳回（bundle.approve，已封存）、激活（bundle.approve，已批准/已激活，按资产与有效授权一一对应）：
+ *   requestedBy 为本人时隐藏并注明需他人审批；为空时照常显示，申请人本人的批准由后端拒绝；
+ * - 退役（bundle.approve，已批准/已暂停）；
  * - 暂停（automation.stop，已批准/已激活）：立即停止新命令，现有规则的清理以处置记录为准。
  * - 改名（bundle.request 或 bundle.approve，任意状态）：只改显示名与备注（命名规范 R 编号），不触及 subject、封存或状态。
  */
@@ -23,6 +24,7 @@ import IdText from '@/components/IdText.vue'
 import LoadState from '@/components/LoadState.vue'
 import { errText } from '@/composables/load'
 import { toast } from '@/composables/toast'
+import { isMine, SELF_APPROVAL_NOTE } from '@/composables/owner'
 import { can } from '@/api/session'
 import { fmtTime } from '@/api/types'
 import { assetsApi, assetTitle, bindingStatusLabel, type Asset, type Authorization } from '@/api/v2/assets'
@@ -132,8 +134,13 @@ const stateNote = computed(() => {
 const canImport = computed(() => can('evaluation.run') && status.value === 'candidate')
 const canSeal = computed(() => can('bundle.request') && status.value === 'candidate')
 const canWithdraw = computed(() => can('bundle.request') && ['candidate', 'evaluated'].includes(status.value))
-const canDecide = computed(() => can('bundle.approve') && status.value === 'evaluated' && !!bundle.value?.sealedManifestSha256)
-const canActivate = computed(() => can('bundle.approve') && ['approved', 'active'].includes(status.value))
+const ownRequest = computed(() => isMine(bundle.value?.requestedBy))
+const decisionDue = computed(() => can('bundle.approve') && status.value === 'evaluated' && !!bundle.value?.sealedManifestSha256)
+const activationDue = computed(() => can('bundle.approve') && ['approved', 'active'].includes(status.value))
+const canDecide = computed(() => decisionDue.value && !ownRequest.value)
+const canActivate = computed(() => activationDue.value && !ownRequest.value)
+/** 本人申请的组合：批准、驳回与激活入口隐藏，改为说明。 */
+const selfBlocked = computed(() => ownRequest.value && (decisionDue.value || activationDue.value))
 const canSuspend = computed(() => can('automation.stop') && ['approved', 'active'].includes(status.value))
 const canRetire = computed(() => can('bundle.approve') && ['approved', 'suspended'].includes(status.value))
 const canRename = computed(() => can('bundle.request') || can('bundle.approve'))
@@ -259,6 +266,7 @@ const capabilities = computed(() => capabilityIds.value.map((id) => ({ id, name:
       <template v-if="bundle">
         <template v-if="mode === 'view'">
           <p class="note mb-5" :class="stateNote.tone">{{ stateNote.text }}</p>
+          <p v-if="selfBlocked" class="note mb-5" role="status">{{ SELF_APPROVAL_NOTE }}：这个组合由你申请，批准、驳回与激活须由其他具有批准权限的人完成。</p>
 
           <h3 class="section-title">状态时间线</h3>
           <ol class="relative mb-7 ml-1.5 border-l border-ink-line">

@@ -71,11 +71,15 @@ export interface GuardEvaluation {
 }
 /** 决策策略：draft → reviewed → retired；draft 不能进入活动发布组合。 */
 export interface GuardDecisionPolicy {
+  /** 起草人的账户 ID，与 auth/me.id 比较；历史无归属为 null。 */
+  createdBy?: number | string | null
   id: string; policyKey: string; version: string; modelId: string | null; planId: string | null
   definition: unknown; definitionSha256: string; status: string; revision: number; createdAt: string
 }
 /** 发布组合：candidate → evaluated → approved → active → suspended/retired，审批与激活分开。 */
 export interface GuardReleaseBundle {
+  /** 申请人的账户 ID；仅用于本人识别，不代表审批资格。 */
+  requestedBy?: number | string | null
   id: string; bundleKey: string; version: string; modelId: string; policyId: string; contractId: string | null
   planId: string | null; environment: string; subjectSha256: string; subject: unknown
   sealedManifestSha256: string | null; sealedManifest: unknown; status: string; revision: number; createdAt: string
@@ -129,6 +133,8 @@ export interface GuardDecision {
   budgetRevision: number | null; evidenceSha256: string | null; evidence: unknown; decidedAt: string | null; createdAt: string
 }
 export interface GuardAction {
+  /** 人工创建者的账户 ID；自动动作或历史无归属为 null。 */
+  createdBy?: number | string | null
   id: string; decisionId: string | null; assetId: string; executorId: string | null; budgetTargetId: string | null
   budgetRevision: number | null; bundleId: string | null; authorizationId: string | null; authorizationRevision: number | null
   mode: string; desiredState: string; desiredRevision: number; observedState: string; idempotencyKey: string | null
@@ -263,6 +269,8 @@ export interface GuardDecisionEvidence {
 
 /** lab 验证会话（GET /lab-validation-runs）：资格状态与运行状态分开，effectiveEligibility 已计入到期与授权失效。 */
 export interface GuardLabRun {
+  /** 仅人工列表/详情返回申请人的账户 ID，机器状态响应不含该字段。 */
+  requestedBy?: number | string | null
   id: string; eligibilityStatus: string; effectiveEligibility: string; blockedReason: string | null
   runStatus: string; timedOut: boolean; revision: number; assetId: string | null; bundleId: string | null
   sessionSha256: string; manifestSha256: string; evidenceKind: string; validUntil: string

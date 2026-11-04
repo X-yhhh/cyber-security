@@ -49,7 +49,12 @@ export interface ReleaseFixtureState {
   writes: ReleaseWrite[]
 }
 
+/**
+ * 归属字段（BE-25）：候选行归 model_operator，已审核/已批准/已完成行模拟历史无归属（null）；
+ * `owners` 是夹具内部的真实归属，职责分离按它判定，与字段是否为空无关。“本人/他人”取决于查看账户。
+ */
 export function createReleaseFixture(): ReleaseFixtureState {
+  const owner = singleRoleUsers.model_operator.id
   const model: ReleaseModel = {
     id: RELEASE_IDS.model, modelKey: 'fixture-model', version: 'fixture-v1', manifestRef: 'fixtures/model/manifest.json',
     manifestSha256: RELEASE_SHA, artifactSha256: RELEASE_SHA, contractId: null,
@@ -62,14 +67,14 @@ export function createReleaseFixture(): ReleaseFixtureState {
   }
   const policy: ReleasePolicy = {
     id: RELEASE_IDS.policy, policyKey: 'fixture-policy', version: 'fixture-v1', modelId: RELEASE_IDS.model,
-    planId: RELEASE_IDS.plan, definition: policyFixture(), definitionSha256: RELEASE_SHA, status: 'draft',
+    planId: RELEASE_IDS.plan, definition: policyFixture(), definitionSha256: RELEASE_SHA, status: 'draft', createdBy: owner,
     displayName: '只告警策略', notes: null, revision: 1, updatedAt: null, createdAt: RELEASE_TIME,
   }
   const bundle: ReleaseBundle = {
     id: RELEASE_IDS.bundle, bundleKey: 'fixture-bundle', version: '1', modelId: RELEASE_IDS.model, policyId: RELEASE_IDS.policy,
     contractId: null, planId: RELEASE_IDS.plan, environment: 'lab', subjectSha256: RELEASE_SHA,
     subject: { mode: 'alert_only', capabilityIds: [RELEASE_IDS.capability] }, sealedManifestSha256: null,
-    sealedManifest: null, status: 'candidate', displayName: null, notes: null, revision: 1, updatedAt: null, createdAt: RELEASE_TIME,
+    sealedManifest: null, status: 'candidate', requestedBy: owner, displayName: null, notes: null, revision: 1, updatedAt: null, createdAt: RELEASE_TIME,
   }
   const capability: ReleaseCapability = {
     id: RELEASE_IDS.capability, capabilityKey: 'fixture-alert-only', version: '1', platform: 'macos', level: 'alert_only',
@@ -89,23 +94,23 @@ export function createReleaseFixture(): ReleaseFixtureState {
     id: RELEASE_IDS.lab, eligibilityStatus: 'pending', effectiveEligibility: 'pending', blockedReason: null,
     runStatus: 'registered', timedOut: false, revision: 1, assetId: RELEASE_IDS.asset, bundleId: RELEASE_IDS.approvedBundle,
     sessionSha256: RELEASE_SHA, manifestSha256: RELEASE_SHA, evidenceKind: 'synthetic', validUntil: '2026-10-16T01:00:00Z',
-    startedAt: null, endedAt: null, stopRequestedAt: null, cleanupStatus: 'not_asserted', executionAuthority: false,
+    startedAt: null, endedAt: null, stopRequestedAt: null, cleanupStatus: 'not_asserted', executionAuthority: false, requestedBy: owner,
   }
   return {
     rows: {
       models: [model, { ...structuredClone(model), id: RELEASE_IDS.validatedModel, modelKey: 'validated-model', displayName: '已校验合成模型', validationStatus: 'validated', validation: { status: 'validated' } }],
       datasets: [dataset, { ...dataset, id: RELEASE_IDS.retiredDataset, datasetKey: 'retired-dataset', status: 'retired' }],
-      'decision-policies': [policy, { ...structuredClone(policy), id: RELEASE_IDS.reviewedPolicy, status: 'reviewed' }],
-      'release-bundles': [bundle, { ...structuredClone(bundle), id: RELEASE_IDS.approvedBundle, modelId: RELEASE_IDS.validatedModel, policyId: RELEASE_IDS.reviewedPolicy, bundleKey: 'fixture-approved-bundle', status: 'approved', sealedManifestSha256: RELEASE_SHA, sealedManifest: { reports: [RELEASE_IDS.evaluation] } }],
+      'decision-policies': [policy, { ...structuredClone(policy), id: RELEASE_IDS.reviewedPolicy, status: 'reviewed', createdBy: null }],
+      'release-bundles': [bundle, { ...structuredClone(bundle), id: RELEASE_IDS.approvedBundle, modelId: RELEASE_IDS.validatedModel, policyId: RELEASE_IDS.reviewedPolicy, bundleKey: 'fixture-approved-bundle', status: 'approved', requestedBy: null, sealedManifestSha256: RELEASE_SHA, sealedManifest: { reports: [RELEASE_IDS.evaluation] } }],
       capabilities: [capability, { ...capability, id: RELEASE_IDS.labCapability, capabilityKey: 'fixture-lab-only', level: 'lab_auto' }],
       'evaluation-plans': [plan], evaluations: [evaluation], 'replay-runs': [replay],
-      'lab-validation-runs': [lab, { ...lab, id: RELEASE_IDS.completedLab, eligibilityStatus: 'active', effectiveEligibility: 'active', runStatus: 'completed', startedAt: RELEASE_TIME, endedAt: '2026-10-15T01:01:00Z' }],
+      'lab-validation-runs': [lab, { ...lab, id: RELEASE_IDS.completedLab, requestedBy: null, eligibilityStatus: 'active', effectiveEligibility: 'active', runStatus: 'completed', startedAt: RELEASE_TIME, endedAt: '2026-10-15T01:01:00Z' }],
     },
     bindings: { [RELEASE_IDS.approvedBundle]: [{ id: RELEASE_IDS.binding, assetId: RELEASE_IDS.asset, bundleId: RELEASE_IDS.approvedBundle, authorizationId: RELEASE_IDS.authorization, authorizationRevision: 1, status: 'suspended', revision: 1, createdAt: RELEASE_TIME }] },
     events: { [RELEASE_IDS.lab]: [{ eventId: fixtureId(40), sequence: 1, sha256: RELEASE_SHA, fact: { kind: 'lifecycle', operation: 'registered' } }] },
     qualifications: { [RELEASE_IDS.completedLab]: { sessionId: RELEASE_IDS.completedLab, bundleId: RELEASE_IDS.approvedBundle, bundleUsable: true, sources: [] } },
     validations: { [RELEASE_IDS.model]: null, [RELEASE_IDS.validatedModel]: { status: 'validated' } },
-    owners: Object.fromEntries([policy.id, RELEASE_IDS.reviewedPolicy, bundle.id, RELEASE_IDS.approvedBundle, lab.id, RELEASE_IDS.completedLab].map((id) => [id, singleRoleUsers.model_operator.id])),
+    owners: Object.fromEntries([policy.id, RELEASE_IDS.reviewedPolicy, bundle.id, RELEASE_IDS.approvedBundle, lab.id, RELEASE_IDS.completedLab].map((id) => [id, owner])),
     referenced: new Set([RELEASE_IDS.validatedModel, RELEASE_IDS.reviewedPolicy]), writes: [],
   }
 }

@@ -153,8 +153,11 @@ class GuardLabIntegrationTest {
     JsonNode machineState() throws Exception {
         var client=store.one("api_client",map("sensor_id",sensor.get("id")),false);String machineKey="x".repeat(43);
         jdbc.update("UPDATE api_client SET credential_sha256=? WHERE id=?",sha(machineKey.getBytes(java.nio.charset.StandardCharsets.UTF_8)),client.get("id"));
-        return ok(mvc.perform(get("/api/v2/machine/sensors/"+str(sensor,"public_id")+"/lab-validation-runs/"+manifest.path("sessionId").asText())
-                .header("Authorization","Bearer mch_"+client.get("id")+"."+machineKey)).andReturn()).get("state");
+        var response=ok(mvc.perform(get("/api/v2/machine/sensors/"+str(sensor,"public_id")+"/lab-validation-runs/"+manifest.path("sessionId").asText())
+                .header("Authorization","Bearer mch_"+client.get("id")+"."+machineKey)).andReturn());
+        // 人工本人识别字段不能渗入机器响应；使用真实机器鉴权链验证整个返回对象。
+        assertThat(response.toString()).doesNotContain("requestedBy", "createdBy");
+        return response.get("state");
     }
     JsonNode executionObservation() {
         var o=(ObjectNode)json(target,"payload_json");o.put("bootId",str(sensor,"guard_boot_id")).put("environment","lab");return o;

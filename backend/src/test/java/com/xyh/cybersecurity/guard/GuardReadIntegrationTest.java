@@ -56,6 +56,80 @@ class GuardReadIntegrationTest {
     @Autowired MockMvc mvc;
     @Autowired JdbcTemplate jdbc;
 
+    /** 两位真实登录主体交叉读取四类资源；本人识别不改变目录全局权限与资产隔离。 */
+    @Test
+    void ownersSurviveListsDetailsAndCrossAccountReadsWithoutExpandingScope() throws Exception {
+        var first = identity(List.of("resource.read", "action.read", "evaluation.read"), "global", "*");
+        var second = identity(List.of("resource.read", "action.read", "evaluation.read"), "global", "*");
+        var scoped = identity(List.of("action.read", "evaluation.read"), "asset", Long.toString(a.pk));
+        var ownerFields = Map.of("actions", "createdBy", "decision-policies", "createdBy",
+                "release-bundles", "requestedBy", "lab-validation-runs", "requestedBy");
+        for (var creator : List.of(first, second)) {
+            Resource asset = creator == first ? a : b, sensor = creator == first ? sa : sb;
+            Resource auth = creator == first ? aa : ab, executor = creator == first ? ea : eb;
+            var resources = ownedResources(creator.id(), asset, sensor, auth, executor);
+            for (var route : resources.entrySet()) {
+                String field = ownerFields.get(route.getKey());
+                for (var viewer : List.of(first, second)) {
+                    var detail = data(viewer, route.getKey() + "/" + route.getValue().id);
+                    assertThat(detail.path(field).asLong()).isEqualTo(creator.id());
+                    var items = data(viewer, route.getKey(), "limit", "200").path("items");
+                    var item = java.util.stream.StreamSupport.stream(items.spliterator(), false)
+                            .filter(n -> n.path("id").asText().equals(route.getValue().id)).findFirst().orElseThrow();
+                    assertThat(item.path(field)).isEqualTo(detail.path(field));
+                    assertThat(detail.has("approvedBy") || detail.has("reviewedBy") || detail.has("activatedBy")).isFalse();
+                }
+                if (List.of("actions", "lab-validation-runs").contains(route.getKey())) {
+                    if (creator == first) assertThat(data(scoped, route.getKey() + "/" + route.getValue().id).path(field).asLong()).isEqualTo(first.id());
+                    else error(scoped, route.getKey() + "/" + route.getValue().id, 404, "RESOURCE_NOT_FOUND");
+                    assertThat(data(scoped, route.getKey(), "limit", "200").path("items").toString()).doesNotContain(b.id);
+                }
+            }
+            var action = resources.get("actions");
+            jdbc.update("UPDATE guard_action SET created_by=NULL WHERE id=?", action.pk);
+            assertThat(data(first, "actions/" + action.id).path("createdBy").isNull()).isTrue();
+        }
+    }
+
+    /** 在隔离测试库创建完整外键链，不借用业务数据或关闭约束。 */
+    private Map<String, Resource> ownedResources(long creator, Resource asset, Resource sensor, Resource auth, Resource executor) {
+        String hash = id().replace("-", "").repeat(2);
+        var contract = ownedInsert("guard_contract", "contract_version", CONTRACT, "profile_sha256", hash,
+                "schema_set_sha256", hash, "extractor_sha256", hash, "status", "active");
+        var model = ownedInsert("guard_model", "model_key", id(), "version", "1", "manifest_ref", "fixture/model.json",
+                "manifest_sha256", hash, "artifact_sha256", hash, "contract_id", contract.pk,
+                "manifest_json", "{\"candidateOnly\":true}", "created_by", creator);
+        var plan = ownedInsert("guard_evaluation_plan", "plan_key", id(), "version", "1", "plan_sha256", hash, "payload_json", "{}", "created_by", creator);
+        var policy = ownedInsert("guard_decision_policy", "policy_key", id(), "version", "1", "model_id", model.pk, "plan_id", plan.pk,
+                "decision_contract_version", DECISION, "definition_json", "{}", "definition_sha256", hash, "created_by", creator);
+        var bundle = ownedInsert("guard_release_bundle", "bundle_key", id(), "version", "1", "model_id", model.pk, "policy_id", policy.pk,
+                "contract_id", contract.pk, "plan_id", plan.pk, "environment", "lab", "subject_sha256", hash, "subject_json", "{}", "requested_by", creator);
+        var episode = ownedInsert("guard_episode", "asset_id", asset.pk, "sensor_id", sensor.pk, "boot_id", id(), "peer_key", hash,
+                "key_epoch", 1, "direction", "inbound", "transport", "tcp", "service_port", 443, "family", "port_scan", "bundle_id", bundle.pk, "bucket_start", TIME);
+        var decision = ownedInsert("guard_decision", "episode_id", episode.pk, "asset_id", asset.pk, "bundle_id", bundle.pk,
+                "decision_revision", 1, "decision_contract_version", DECISION, "decision", "block_candidate", "evidence_sha256", hash, "evidence_json", "{}", "decided_at", TIME);
+        var target = ownedInsert("guard_budget_target", "asset_id", asset.pk, "environment", "lab", "stable_target_token", hash,
+                "resolver_executor_id", executor.pk, "scope_digest", hash);
+        var action = ownedInsert("guard_action", "decision_id", decision.pk, "asset_id", asset.pk, "executor_id", executor.pk,
+                "budget_target_id", target.pk, "budget_revision", 1, "bundle_id", bundle.pk, "authorization_id", auth.pk, "authorization_revision", 1,
+                "mode", "manual", "idempotency_key", id(), "target_snapshot", "{}", "block_until", TIME.plusDays(1), "created_by", creator);
+        var lab = ownedInsert("guard_validation_session", "asset_id", asset.pk, "bundle_id", bundle.pk, "authorization_id", auth.pk,
+                "requested_by", creator, "payload_json", "{}", "content_sha256", hash, "valid_until", TIME.plusDays(1));
+        var manifest = object("validUntil", TIME.plusDays(1).toInstant(ZoneOffset.UTC).toString(), "assetId", asset.id, "bundleId", bundle.id);
+        jdbc.update("INSERT INTO guard_lab_run(session_id,sensor_id,boot_id,manifest_ref,manifest_sha256,manifest_jcs,scenarios_jcs,mapping_jcs) VALUES (?,?,?,'fixture',?,?,'[]','{}')",
+                lab.pk, sensor.pk, id(), hash, canonical(manifest));
+        return Map.of("actions", action, "decision-policies", policy, "release-bundles", bundle, "lab-validation-runs", lab);
+    }
+
+    private Resource ownedInsert(String table, Object... fields) {
+        var values = new LinkedHashMap<String, Object>();
+        String external = id(); values.put("public_id", external);
+        for (int i = 0; i < fields.length; i += 2) values.put((String) fields[i], fields[i + 1]);
+        jdbc.update("INSERT INTO " + table + "(" + String.join(",", values.keySet()) + ") VALUES ("
+                + String.join(",", java.util.Collections.nCopies(values.size(), "?")) + ")", values.values().toArray());
+        return new Resource(pk(table, external), external);
+    }
+
     @DynamicPropertySource
     static void database(DynamicPropertyRegistry registry) {
         registry.add("spring.datasource.url", () -> System.getenv("DB_TEST_BASE_URL").replaceFirst("/+$", "")

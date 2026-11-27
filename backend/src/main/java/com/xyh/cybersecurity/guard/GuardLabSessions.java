@@ -164,7 +164,7 @@ public class GuardLabSessions {
 
     @Transactional(readOnly=true)
     public JsonNode get(String id) {
-        var row=readable(id);return view(row,mapper.run(number(row,"id")));
+        var row=readable(id);return humanView(row,mapper.run(number(row,"id")));
     }
 
     /** 运行状态的合法取值，与 V25 guard_lab_run 的 CHECK 一致。 */
@@ -182,12 +182,18 @@ public class GuardLabSessions {
         if(cursor!=null)before=number(readable(cursor),"id");
         var rows=mapper.visibleSessions(actor,before,status==null?"":status,limit+1);
         var items=new ArrayList<JsonNode>();
-        for(int i=0;i<Math.min(limit,rows.size());i++){var row=rows.get(i);items.add(view(row,mapper.run(number(row,"id"))));}
+        for(int i=0;i<Math.min(limit,rows.size());i++){var row=rows.get(i);items.add(humanView(row,mapper.run(number(row,"id"))));}
         return object("items",items,"nextCursor",rows.size()>limit?str(rows.get(limit-1),"public_id"):null);
     }
     private Map<String,Object> readable(String id) {
         var row=store.external("guard_validation_session",uuid(id),false);access.visible("evaluation.read",number(row,"asset_id"));
         require(mapper.run(number(row,"id"))!=null,"LAB_SESSION_UNAVAILABLE");return row;
+    }
+    /** 人工列表/详情的本人识别字段；不放入机器端点复用的 view，也不扩大资产可见范围。 */
+    private JsonNode humanView(Map<String,Object> row,Map<String,Object> run) {
+        var result=(ObjectNode)view(row,run);
+        result.set("requestedBy",node(row.get("requested_by")));
+        return result;
     }
     private JsonNode view(Map<String,Object> row,Map<String,Object> run) {
         var p=json(run,"manifest_jcs");Instant now=store.now();String eligibility=str(row,"status");

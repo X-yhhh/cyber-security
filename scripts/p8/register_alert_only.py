@@ -197,17 +197,17 @@ class Database(j1_run.Database):
                    '--user=root', '--single-transaction', '--routines', '--triggers', '--events', '--hex-blob',
                    '--set-gtid-purged=OFF', '--no-tablespaces', source]
         with os.fdopen(os.open(backup, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'wb') as stream:
-            result = subprocess.run(command, env=self.env, stdout=stream, stderr=subprocess.PIPE, timeout=300)
+            result = subprocess.run(command, env=self.env, stdout=stream, stderr=subprocess.PIPE, timeout=self.timeout_seconds)
         require(result.returncode == 0, 'BACKUP_FAILED')
         fidelity = folder / 'json-double-fidelity.sql'
         fidelity_rows = self.json_fidelity(source, fidelity)
         self.query(f'CREATE DATABASE {ident(target)} CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin')
         self.owned_schema = target
         with backup.open('rb') as stream:
-            result = subprocess.run(self.client + [target], env=self.env, stdin=stream, capture_output=True, timeout=300)
+            result = subprocess.run(self.client + [target], env=self.env, stdin=stream, capture_output=True, timeout=self.timeout_seconds)
         require(result.returncode == 0, 'RESTORE_FAILED')
         with fidelity.open('rb') as stream:
-            result = subprocess.run(self.client + [target], env=self.env, stdin=stream, capture_output=True, timeout=300)
+            result = subprocess.run(self.client + [target], env=self.env, stdin=stream, capture_output=True, timeout=self.timeout_seconds)
         require(result.returncode == 0, 'JSON_FIDELITY_RESTORE_FAILED')
         restored, current = self.snapshot(target), self.snapshot(source)
         write(folder / 'restored.json', restored)

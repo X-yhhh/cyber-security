@@ -8,7 +8,7 @@ import java.time.*;
 import java.util.*;
 import static com.xyh.cybersecurity.guard.GuardJson.*;
 
-/** 资源范围谓词在 SQL LIMIT 之前执行；API 只暴露外部 UUID，不返回目标 token 或机器凭据。 */
+/** 资源范围谓词在 SQL LIMIT 之前执行；资源引用使用外部 UUID，指定归属字段使用账户 ID，不返回目标 token 或机器凭据。 */
 @Service
 public class GuardQueries {
     private final GuardStore store;private final GuardAccess access;private final GuardMapper mapper;private final GuardReadCursor cursors;
@@ -158,8 +158,9 @@ public class GuardQueries {
         else if(k.equals("assignee_id"))n.putNull("assigneeId");
         else if(v instanceof LocalDateTime t)n.put(name,t.toInstant(ZoneOffset.UTC).toString());else if(v instanceof java.util.Date t)n.put(name,t.toInstant().toString());
         else if(k.endsWith("_json")||k.equals("target_snapshot"))n.set(name,v==null?node(null):redact(parse(v.toString())));else n.set(name,node(v));});
-        // F1R：仅反馈公开标注人的账户 ID，与 auth/me.id 比对，支持刷新后的本人识别；S6 仍由写服务独立校验。
-        if(table.equals("guard_feedback"))n.set("createdBy",node(row.get("created_by")));
+        // 只为指定人工资源公开账户 ID，与 auth/me.id 比对；历史空值不推断，职责分离仍由写服务强制。
+        if(Set.of("guard_feedback","guard_action","guard_decision_policy").contains(table))n.set("createdBy",node(row.get("created_by")));
+        if(table.equals("guard_release_bundle"))n.set("requestedBy",node(row.get("requested_by")));
         return n;}
     private static String camel(String s){StringBuilder out=new StringBuilder();boolean upper=false;for(char c:s.toCharArray()){if(c=='_')upper=true;else{out.append(upper?Character.toUpperCase(c):c);upper=false;}}return out.toString();}
     private static JsonNode redact(JsonNode n){if(n.isObject()){var copy=(com.fasterxml.jackson.databind.node.ObjectNode)n.deepCopy();copy.remove(List.of("stableTargetToken","scopeDigest","credential","privateKey"));copy.fields().forEachRemaining(e->copy.set(e.getKey(),redact(e.getValue())));return copy;}if(n.isArray()){var a=JSON.createArrayNode();n.forEach(v->a.add(redact(v)));return a;}return n;}

@@ -7,6 +7,11 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.util.LinkedMultiValueMap;
 
 import java.time.LocalDateTime;
+import java.time.Instant;
+import java.util.List;
+import java.util.Map;
+import static org.mockito.Mockito.*;
+import static org.mockito.ArgumentMatchers.*;
 import static com.xyh.cybersecurity.guard.GuardJson.canonical;
 import static com.xyh.cybersecurity.guard.GuardJson.id;
 import static com.xyh.cybersecurity.guard.GuardJson.map;
@@ -17,6 +22,51 @@ import static org.assertj.core.api.Assertions.*;
 
 /** 游标绑定、严格参数和嵌套类型白名单，不依赖数据库或运行服务。 */
 class GuardReadContractTest {
+    @Test
+    void onlySpecifiedGenericResourcesExposeTheirOwnerIncludingNull() {
+        var queries = new GuardQueries(null, null, null, null);
+        var allowed = Map.of("guard_action", "createdBy", "guard_decision_policy", "createdBy",
+                "guard_release_bundle", "requestedBy", "guard_feedback", "createdBy");
+        for (var entry : allowed.entrySet()) {
+            var row = map("created_by", 123L, "requested_by", 123L, "approved_by", 456L,
+                    "reviewed_by", 456L, "activated_by", 456L);
+            var result = queries.view(entry.getKey(), row);
+            assertThat(result.size()).isEqualTo(1);
+            assertThat(result.path(entry.getValue()).asLong()).isEqualTo(123L);
+            row.put("created_by", null); row.put("requested_by", null);
+            assertThat(queries.view(entry.getKey(), row).path(entry.getValue()).isNull()).isTrue();
+            row.remove("created_by"); row.remove("requested_by");
+            assertThat(queries.view(entry.getKey(), row).path(entry.getValue()).isNull()).isTrue();
+        }
+        assertThat(queries.view("guard_model", map("created_by", 123L, "requested_by", 123L)).isEmpty()).isTrue();
+    }
+
+    @Test
+    void labOwnerIsPresentInHumanListAndDetailButAbsentFromMachineState() {
+        var store = mock(GuardStore.class); var access = mock(GuardAccess.class);
+        var mapper = mock(GuardLabMapper.class); var admission = mock(GuardLabAdmission.class);
+        var service = new GuardLabSessions(store, access, mapper, admission, null, null, null);
+        String session = id(), sensor = id(), boot = id();
+        Instant now = Instant.parse("2026-11-04T00:00:00Z");
+        var row = map("id", 1L, "public_id", session, "asset_id", 2L, "requested_by", 123L,
+                "status", "revoked", "valid_until", now.plusSeconds(60), "revision", 1L);
+        var manifest = object("bootId", boot, "assetId", id(), "bundleId", id(),
+                "validUntil", now.plusSeconds(60).toString(), "evidenceKind", "lab", "timeoutSeconds", 30);
+        var run = map("sensor_id", 3L, "status", "registered", "manifest_jcs", canonical(manifest),
+                "mapping_jcs", "{}", "scenarios_jcs", "[]");
+        when(store.now()).thenReturn(now);
+        when(store.external("guard_validation_session", session, false)).thenReturn(row);
+        when(mapper.run(1L)).thenReturn(run);
+        when(mapper.visibleSessions(anyLong(), anyLong(), anyString(), anyInt())).thenReturn(List.of(row));
+        when(access.sensor(sensor, "machine.sensor.read")).thenReturn(map("id", 3L, "asset_id", 2L, "guard_boot_id", boot));
+        assertThat(service.get(session).path("requestedBy").asLong()).isEqualTo(123L);
+        assertThat(service.list(null, null, 10).at("/items/0/requestedBy").asLong()).isEqualTo(123L);
+        assertThat(service.machine(sensor, session).toString()).doesNotContain("requestedBy", "createdBy");
+        row.put("requested_by", null);
+        assertThat(service.get(session).path("requestedBy").isNull()).isTrue();
+        assertThat(service.list(null, null, 10).at("/items/0/requestedBy").isNull()).isTrue();
+        verify(access, times(2)).visible("evaluation.read", 2L);
+    }
     @Test
     void requesterMatchesSessionIdWithoutExposingReviewersOrInventingLegacyOwners() {
         var time = LocalDateTime.parse("2026-10-15T00:00:00");

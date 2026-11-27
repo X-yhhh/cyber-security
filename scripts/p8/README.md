@@ -183,6 +183,10 @@ sh executor/python.sh -B scripts/p8/backup_restore.py --schedule
 - 五服务运行、采集心跳及最新现场健康的门槛不变。传感器按授权结束后停止时，完整巡检仍会报告未运行/陈旧并非零退出；此结果不能靠 observer 存活消除，也不授权再次采集或代替 P1R-5 重启验收。
 
 `backup_restore.py --schedule` 仅显示维护窗口、备份保留和核验建议，不取密、不连库、不安装定时任务。
+
+**DB-12a 大库超时与保留克隆**：`CYBER_DB_TIMEOUT_SECONDS` 统一控制 `scripts/p7/j1_run.py` 的数据库查询、`scripts/p8/register_alert_only.py` 的转储/恢复以及 `scripts/demo/backup.py` 的在线读取/恢复；默认 300 秒，只接受正整数。它是每次查询/子进程的上限，在线读取为 socket 读取上限，并非整次备份的总时限。`backup_restore.py --timeout-seconds 1800` 可覆盖环境变量；其它调用入口可通过环境变量继承，无需修改已签名的演示配置。
+
+停写窗口内运行 `backup_restore.py --timeout-seconds 1800 --keep-restored`，只有逐表摘要核验成功才保留随机库。`result.json` 记录 `restoredSchema`、`temporarySchemaDeleted`、`keepRestored`、`timeoutSeconds`、`elapsedSeconds` 与通过状态；失败仍清理本次创建的库、保留备份。调用方只按记录的准确库名清理，不按前缀批量删除。该参数不改变停写前提，也不允许恢复到业务库。在线备份耗时超过 10 分钟或单索引超过 5 分钟时，遵守[DB-12a 停止条件](../../docs/任务/数据库.md)并报告。
 ## 本机持续监测补充（2026-10-17）
 
 当前 Mac 已按用户明确要求接入[随本项目后端启停的持续传感器](../../docs/部署与回退.md#10-本机-en0-持续监测2026-10-17-起)。此模式由 `ManagedSensorLifecycle` 启动 `sensor_service.py --parent-pid`，旧 sensor LaunchAgent 保持不独立启动；原有短窗口部署和验收流程保留。只读完整巡检计划可指定 `sensorLifecycle: backend`，按真实父子进程检查传感器。权限辅助程序源文件为 `capture_permission.sh`，安装到 root 拥有的位置并通过管理员授权加载；不能直接把可写工作区脚本注册成 root 常驻作业。

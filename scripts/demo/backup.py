@@ -56,7 +56,7 @@ def capture(db, source, folder):
     ident(source)
     connection = pymysql.connect(host='127.0.0.1', port=3306, user='root', password=db.env['MYSQL_PWD'],
                                  database=source, charset='utf8mb4', autocommit=False, connect_timeout=5,
-                                 read_timeout=300, write_timeout=30, client_flag=CLIENT.MULTI_STATEMENTS)
+                                 read_timeout=db.timeout_seconds, write_timeout=30, client_flag=CLIENT.MULTI_STATEMENTS)
     backup, fidelity = folder / 'database.sql', folder / 'json-double-fidelity.sql'
     try:
         with connection.cursor() as cursor:
@@ -105,7 +105,7 @@ def backup_restore(db, source, target, folder):
     db.owned_schema = target
     for file in (backup, fidelity):
         with file.open('rb') as stream:
-            result = subprocess.run(db.client + [target], env=db.env, stdin=stream, capture_output=True, timeout=300)
+            result = subprocess.run(db.client + [target], env=db.env, stdin=stream, capture_output=True, timeout=db.timeout_seconds)
         require(result.returncode == 0, 'DEMO_BACKUP_RESTORE_FAILED')
     restored = db.snapshot(target)
     write(folder / 'restored.json', restored)

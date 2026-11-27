@@ -70,8 +70,17 @@ def secret(service):
                            "-s", service, "-w"], check=True, capture_output=True, text=True).stdout.strip()
 
 
+def database_timeout(value=None):
+    """整库操作超时秒数；显式参数优先于环境变量，非法值在取密/连接前拒绝。"""
+    value = os.environ.get('CYBER_DB_TIMEOUT_SECONDS', '300') if value is None else value
+    if isinstance(value, bool) or not str(value).isascii() or not str(value).isdecimal() or int(value) <= 0:
+        raise ValueError('INVALID_DATABASE_TIMEOUT')
+    return int(value)
+
+
 class Database:
-    def __init__(self, service):
+    def __init__(self, service, timeout_seconds=None):
+        self.timeout_seconds = database_timeout(timeout_seconds)
         self.service = service
         self.env = dict(os.environ, MYSQL_PWD=secret("com.xyh.cyber-security.db-test"))
         self.client = [str(service / "bin/mysql"), "--protocol=TCP", "--host=127.0.0.1", "--port=3306",
@@ -79,7 +88,7 @@ class Database:
 
     def query(self, sql, schema=None):
         p = subprocess.run(self.client + ([schema] if schema else []), input=sql.encode(),
-                           env=self.env, capture_output=True, timeout=300)
+                           env=self.env, capture_output=True, timeout=self.timeout_seconds)
         if p.returncode:
             raise RuntimeError("SQL operation failed; secret-bearing stderr suppressed")
         return p.stdout
@@ -100,13 +109,13 @@ class Database:
                 "--single-transaction", "--routines", "--triggers", "--events", "--hex-blob",
                 "--set-gtid-purged=OFF", "--no-tablespaces", source]
         with backup.open("xb") as stream:
-            p = subprocess.run(dump, env=self.env, stdout=stream, stderr=subprocess.PIPE, timeout=300)
+            p = subprocess.run(dump, env=self.env, stdout=stream, stderr=subprocess.PIPE, timeout=self.timeout_seconds)
         backup.chmod(0o600)
         if p.returncode:
             raise RuntimeError("database snapshot failed")
         self.query(f"CREATE DATABASE `{target}` CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin")
         with backup.open("rb") as stream:
-            p = subprocess.run(self.client + [target], env=self.env, stdin=stream, capture_output=True, timeout=300)
+            p = subprocess.run(self.client + [target], env=self.env, stdin=stream, capture_output=True, timeout=self.timeout_seconds)
         if p.returncode:
             raise RuntimeError("isolated database restore failed")
         restored = self.snapshot(target)

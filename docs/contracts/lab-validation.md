@@ -89,6 +89,8 @@ time 包含 sourceStart、labStart、offsetMicros、warmupStart、scoringStart�
 | POST /lab-validation-runs/{id}/reports | evaluation.run；`{reportRef,sha256,runnerIdentity}`，验签且逐字段对比服务端重算结果 |
 | GET /machine/sensors/{sensorId}/lab-validation-runs/{id} | machine.sensor.read；仅本会话 sensor/asset/boot，可读交接契约 |
 
+人工列表与详情另返回 `requestedBy`（账户数字 ID，与 `/auth/me.id` 同口径，历史空值返回 null）；仅用于本人识别，不扩大可见范围或审批资格。机器读取接口及其共享状态视图不返回 `requestedBy`，也不返回审批人信息。
+
 机器查询的 `state` 增加 `runnable` 和 `reasonCodes`。消费端必须检查 `runnable === true`，不能只看 active/running。当前授权、修订、资产环境、执行身份、发布组合或冻结元数据/签名失效时，仍返回该结构但 runnable=false，reasonCodes 包含原稳定码；归属或 boot 不符仍顶层拒绝。非活动资格为 LAB_ELIGIBILITY_INACTIVE，运行非 running 为 LAB_RUN_NOT_RUNNING，超时为 LAB_RUN_TIMED_OUT，合成模式为 LAB_SYNTHETIC_ONLY。此轮询不检查短租约，也不重复读取整个 PCAP；租约由独立链路逐包核验，PCAP 在首次登记及开始/恢复时校验原件。
 
 V20 `status` 仍仅 pending/active/revoked；过期返回独立 effectiveEligibility=expired，底层授权被撤销或版本变化返回 blocked/blockedReason，不把 completed 塞入资格列。运行状态 registered/running/interrupted/completed/failed/cancelled/expired。终态不倒退，允许迟到的清理证据追加。GET 不写库；有效期和超时即时影响可运行性，显式 reconciliation 追加状态事实。停止请求、规则清理和报告导入彼此独立。非法迁移（未开始就完成、完成后再开始/恢复、终态后再中断）统一 422 `STATE_CONFLICT`。

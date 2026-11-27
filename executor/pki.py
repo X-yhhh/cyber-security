@@ -12,7 +12,16 @@ from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 from .common import canonical, require, write_new
 
 
-def create(directory):
+def validity(leaf_days=30, ca_days=365):
+    """叶子与 CA 有效期（天）；叶子必须早于 CA 到期，避免轮换窗口内信任链先失效。"""
+    for value in (leaf_days, ca_days):
+        require(type(value) is int and 1 <= value <= 3650, "INVALID_VALIDITY_DAYS")
+    require(leaf_days < ca_days, "LEAF_MUST_EXPIRE_BEFORE_CA")
+    return leaf_days, ca_days
+
+
+def create(directory, *, leaf_days=30, ca_days=365):
+    leaf_days, ca_days = validity(leaf_days, ca_days)
     directory = Path(directory)
     require(directory.is_absolute(), "ABSOLUTE_DIRECTORY_REQUIRED")
     directory.mkdir(parents=True, mode=0o700, exist_ok=False)
@@ -21,7 +30,7 @@ def create(directory):
     name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "HostGuard Local IPC")])
     ca = (x509.CertificateBuilder().subject_name(name).issuer_name(name).public_key(ca_key.public_key())
           .serial_number(x509.random_serial_number()).not_valid_before(now - timedelta(minutes=1))
-          .not_valid_after(now + timedelta(days=365)).add_extension(x509.BasicConstraints(ca=True, path_length=0), True)
+          .not_valid_after(now + timedelta(days=ca_days)).add_extension(x509.BasicConstraints(ca=True, path_length=0), True)
           .add_extension(x509.SubjectKeyIdentifier.from_public_key(ca_key.public_key()), False)
           .add_extension(x509.AuthorityKeyIdentifier.from_issuer_public_key(ca_key.public_key()), False)
           .add_extension(x509.KeyUsage(False, False, False, False, False, True, True, None, None), True)
@@ -32,7 +41,7 @@ def create(directory):
         key = ec.generate_private_key(ec.SECP256R1())
         builder = (x509.CertificateBuilder().subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, role)]))
                    .issuer_name(name).public_key(key.public_key()).serial_number(x509.random_serial_number())
-                   .not_valid_before(now - timedelta(minutes=1)).not_valid_after(now + timedelta(days=30))
+                   .not_valid_before(now - timedelta(minutes=1)).not_valid_after(now + timedelta(days=leaf_days))
                    .add_extension(x509.BasicConstraints(ca=False, path_length=None), True)
                    .add_extension(x509.KeyUsage(True, False, False, False, False, False, False, None, None), True)
                    .add_extension(x509.SubjectKeyIdentifier.from_public_key(key.public_key()), False)

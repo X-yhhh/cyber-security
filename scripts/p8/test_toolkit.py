@@ -296,6 +296,9 @@ def test_status_checks_every_sensor_latest_window_without_loading_history(tmp_pa
     """机器跨页且每个传感器有超过一页的历史时，仍逐个核对最新窗口。"""
     from urllib.parse import parse_qs, urlsplit
     (tmp_path/'logs').mkdir()
+    from executor import pki
+    for name in ('tls', 'ipc'):
+        pki.create(tmp_path / 'config' / name)
     sensor_ids = [str(uuid.uuid4()), str(uuid.uuid4())]
     p = {'root': str(tmp_path), 'assetId': str(uuid.uuid4()), 'executorId': str(uuid.uuid4()),
          'mode': 'pf', 'minFreeBytes': 0}

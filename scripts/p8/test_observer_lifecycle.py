@@ -165,6 +165,9 @@ def test_install_waits_after_recovery_and_stops_before_executor_on_failure(tmp_p
 @pytest.fixture
 def inspection(observer):
     root, path, config = observer
+    from executor import pki
+    for name in ('tls', 'ipc'):
+        pki.create(root / 'config' / name)
     pulse(config, 'recovery')
     current = pulse(config, 'run')
     plan = dict(root=str(root), assetId=config['assetId'], executorId=config['executorId'], mode='alert-only', minFreeBytes=0)

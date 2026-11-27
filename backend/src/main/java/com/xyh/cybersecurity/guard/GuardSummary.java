@@ -20,10 +20,12 @@ import static com.xyh.cybersecurity.guard.GuardJson.object;
 public class GuardSummary {
     private final GuardReadMapper mapper;
     private final GuardAccess access;
+    private final MachineCertificateExpiry certificate;
 
-    public GuardSummary(GuardReadMapper mapper, GuardAccess access) {
+    public GuardSummary(GuardReadMapper mapper, GuardAccess access, MachineCertificateExpiry certificate) {
         this.mapper = mapper;
         this.access = access;
+        this.certificate = certificate;
     }
 
     public JsonNode summary(MultiValueMap<String, String> parameters) {
@@ -85,6 +87,16 @@ public class GuardSummary {
             Object lastHealth = mapper.summaryLastHealthAt(actor);
             if (lastHealth == null) ops.putNull("lastHealthAt");
             else ops.put("lastHealthAt", instant(lastHealth).toString());
+            MachineCertificateExpiry.Status cert = certificate.status(instant(now));
+            if (cert == null) {
+                ops.putNull("certificateNotAfter");
+                ops.putNull("certificateDaysRemaining");
+                ops.putNull("certificateExpiring");
+            } else {
+                ops.put("certificateNotAfter", cert.notAfter().toString());
+                ops.put("certificateDaysRemaining", cert.daysRemaining());
+                ops.put("certificateExpiring", cert.expiring());
+            }
             out.set("ops", ops);
         }
 

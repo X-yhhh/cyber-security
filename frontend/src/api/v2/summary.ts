@@ -28,7 +28,15 @@ export interface WorkbenchSummary {
   /** model.manage 或 model.validate */
   modelsPendingValidation?: number
   /** ops.read */
-  ops?: { sensorsUnhealthy: number; executorsUnhealthy: number; lastHealthAt: string | null }
+  ops?: {
+    sensorsUnhealthy: number
+    executorsUnhealthy: number
+    lastHealthAt: string | null
+    /** BE-30：后端服务端证书到期；未启用 TLS 或无法读取时为 null（旧后端不返回该字段）。 */
+    certificateNotAfter?: string | null
+    certificateDaysRemaining?: number | null
+    certificateExpiring?: boolean | null
+  }
   /** audit.read */
   recentAuditCount24h?: number
 }

@@ -190,3 +190,22 @@ sh executor/python.sh -B scripts/p8/backup_restore.py --schedule
 ## 本机持续监测补充（2026-10-17）
 
 当前 Mac 已按用户明确要求接入[随本项目后端启停的持续传感器](../../docs/部署与回退.md#10-本机-en0-持续监测2026-10-17-起)。此模式由 `ManagedSensorLifecycle` 启动 `sensor_service.py --parent-pid`，旧 sensor LaunchAgent 保持不独立启动；原有短窗口部署和验收流程保留。只读完整巡检计划可指定 `sensorLifecycle: backend`，按真实父子进程检查传感器。权限辅助程序源文件为 `capture_permission.sh`，安装到 root 拥有的位置并通过管理员授权加载；不能直接把可写工作区脚本注册成 root 常驻作业。
+
+## 机器证书到期检查与轮换（BE-30，2026-11-27）
+
+本机 mTLS 证书由 `executor.pki.create` 生成，CA 私钥不落盘，只能整套重新生成。2026-11-15 叶子证书（30 天）过期曾使 en0 采集静默中断 12 天，见[实施记录 6.70](../../docs/系统实施记录.md#670-v2-04-en0-长期基线与机器证书过期停采2026-11-27)。
+
+```bash
+# 只读：逐个证书报告剩余天数，最早到期 ≤ 7 天（--warn-days）时退出码 1
+python scripts/p8/machine_tls.py check --config <root>/config
+# 预演：在 config/.rotate-<stamp>/ 生成并核验，不改任何部署文件
+python scripts/p8/machine_tls.py rotate --config <root>/config --dry-run
+# 轮换（需授权）：备份为 tls.bak-<stamp>、ipc.bak-<stamp>、targets.json.bak-<stamp>，逐个原子替换后核验；
+# --restart 仅在只告警模式下按 targets、backend、recovery、executor 顺序 kickstart（PF 模式只打印需 root 的命令）
+python scripts/p8/machine_tls.py rotate --config <root>/config --leaf-days 180 --ca-days 730 --restart
+```
+
+轮换同步三处使用方：两套证书目录的全部文件与 `fingerprints.json`；`ipc/client-trust-with-demo.pem` 首张换成新 ipc CA，其后的演示 CA 原样保留；`targets.json` 只替换 `scope.CollectorCertSHA256`、`ExecutorCertSHA256` 两个指纹。指纹登记、信任包布局、文件权限或备份名与预期不符时拒绝且不写文件；替换中途失败用备份恢复。轮换后跑完整巡检确认 `ok=true`。
+
+完整巡检 `status.py --plan` 新增 `certificates` 一项，最早到期 ≤ `certWarnDays`（默认 7）即判异常；`GET /api/v2/summary` 的 `ops` 也返回服务端证书到期信息，供工作台提示（FE-19）。
+

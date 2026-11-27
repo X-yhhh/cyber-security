@@ -18,6 +18,7 @@ from scripts.p8.launchd import ORDER, PREFIX, DAEMONS, readiness_settings
 from scripts.p8.observer_executor import configuration, observer_state, read_pulse
 from executor.contract import capability_set_sha256
 from executor.platform import PF
+from scripts.p8 import machine_tls
 
 
 def command(argv):
@@ -188,6 +189,10 @@ def inspect(plan, client, *, execute=command):
         size = sum(p.stat().st_size for p in (root / 'logs').glob('*') if p.is_file() and not p.is_symlink())
         return {'freeBytes': usage.free, 'logBytes': size}, usage.free >= plan.get('minFreeBytes', 1024**3) and size <= plan.get('maxLogBytes', 1024**3)
     check('disk', disk)
+    def certificates():
+        # 机器 mTLS 证书 30 天静默过期曾导致采集中断 12 天（实施记录 6.70）；到期前 certWarnDays 天即判异常。
+        return machine_tls.assess(root / 'config', warn_days=plan.get('certWarnDays', 7))
+    check('certificates', certificates)
     return result
 
 
@@ -195,6 +200,11 @@ def check_summary(name, value):
     """文本巡检也区分存活与 PF 健康，避免把成功的零能力核验显示为防火墙正常。"""
     if name == 'executor-heartbeats' and 'observerLiveness' in value:
         return ('observer 存活' if value['ok'] else 'observer 存活未确认') + '（不代表 PF 健康）'
+    if name == 'certificates' and value.get('minDaysRemaining') is not None:
+        days = value['minDaysRemaining']
+        if value['ok']:
+            return '正常（最早剩余 %.1f 天）' % days
+        return '即将到期或已过期（最早剩余 %.1f 天，用 scripts/p8/machine_tls.py rotate 轮换）' % days
     if name == 'pf' and value.get('pfInspected') is False:
         return ('不适用' if value.get('state') == 'not_applicable' else '未知') + '（未检查 PF）'
     return '正常' if value['ok'] else '异常/未知'
